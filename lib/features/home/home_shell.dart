@@ -60,7 +60,6 @@ class _ForumHomePageState extends State<ForumHomePage> {
                 padding: const EdgeInsets.only(bottom: 20),
                 children: [
                   _TopBar(repository: widget.repository),
-                  const _HeroPanel(),
                   if (snapshot.hasError)
                     _LoadError(
                       title: '主页加载失败',
@@ -73,6 +72,15 @@ class _ForumHomePageState extends State<ForumHomePage> {
                       child: Center(child: CircularProgressIndicator()),
                     )
                   else ...[
+                    _ForumCrumbs(
+                      items: const ['南+', 'South Plus', '茶馆'],
+                      current: '移动端首页',
+                    ),
+                    _BoardOverview(
+                      sections: data.sections.length,
+                      hot: data.hot.length,
+                      latest: data.latest.length,
+                    ),
                     _LatestThreads(
                       threads: data.latest,
                       repository: widget.repository,
@@ -131,38 +139,75 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
+      decoration: const BoxDecoration(
+        color: AppColors.header,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppColors.brand,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.forum_outlined, color: Colors.white),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'South Plus',
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
+          IconButton(
+            tooltip: '菜单',
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              showDragHandle: true,
+              builder: (context) => SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.search),
+                        title: const Text('搜索'),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  SearchScreen(repository: repository),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.person_outline),
+                        title: Text(repository.isLoggedIn ? '个人中心' : '登录'),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => repository.isLoggedIn
+                                  ? UserProfileScreen(
+                                      userUrl: 'u.php',
+                                      repository: repository,
+                                    )
+                                  : LoginScreen(repository: repository),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
-                SizedBox(height: 2),
-                Text(
-                  '论坛 · 讨论 · 分享',
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+              ),
+            ),
+            icon: const Icon(Icons.menu, color: AppColors.text, size: 30),
+          ),
+          const Expanded(
+            child: Center(
+              child: Text(
+                'southplus',
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800,
+                  fontStyle: FontStyle.italic,
+                  letterSpacing: 0,
                 ),
-              ],
+              ),
             ),
           ),
           IconButton(
@@ -225,7 +270,10 @@ class _TopBar extends StatelessWidget {
                 foregroundColor: AppColors.brand,
                 minimumSize: const Size(56, 44),
               ),
-              child: const Text('登录'),
+              child: const Text(
+                'dlkd',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
             ),
         ],
       ),
@@ -233,89 +281,102 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _HeroPanel extends StatelessWidget {
-  const _HeroPanel();
+class _ForumCrumbs extends StatelessWidget {
+  const _ForumCrumbs({required this.items, required this.current});
+
+  final List<String> items;
+  final String current;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 18),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.brand,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.brand.withValues(alpha: 0.18),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        runSpacing: 4,
         children: [
+          for (final item in items) ...[
+            Text(
+              item,
+              style: const TextStyle(
+                color: AppColors.brand,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const Icon(Icons.chevron_right,
+                size: 18, color: AppColors.textFaint),
+          ],
           Text(
-            '今日热议',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 22,
+            current,
+            style: const TextStyle(
+              color: AppColors.link,
+              fontSize: 16,
               fontWeight: FontWeight.w800,
             ),
           ),
-          SizedBox(height: 6),
-          Text(
-            '快速浏览新帖、热门版块和用户动态，移动端阅读优先。',
-            style: TextStyle(
-              color: Color(0xFFFFECEF),
-              fontSize: 14,
-              height: 1.45,
-            ),
-          ),
-          SizedBox(height: 14),
-          Row(
-            children: [
-              _HeroStat(icon: Icons.auto_awesome_outlined, text: '新帖'),
-              SizedBox(width: 10),
-              _HeroStat(icon: Icons.local_fire_department_outlined, text: '热门'),
-              SizedBox(width: 10),
-              _HeroStat(icon: Icons.groups_2_outlined, text: '社区'),
-            ],
-          ),
         ],
       ),
     );
   }
 }
 
-class _HeroStat extends StatelessWidget {
-  const _HeroStat({required this.icon, required this.text});
+class _BoardOverview extends StatelessWidget {
+  const _BoardOverview({
+    required this.sections,
+    required this.hot,
+    required this.latest,
+  });
 
-  final IconData icon;
-  final String text;
+  final int sections;
+  final int hot;
+  final int latest;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
+      child: Row(
+        children: [
+          Expanded(child: _OverviewStat(label: '新帖', value: '$latest')),
+          const SizedBox(width: 8),
+          Expanded(child: _OverviewStat(label: '热门', value: '$hot')),
+          const SizedBox(width: 8),
+          Expanded(child: _OverviewStat(label: '分区', value: '$sections')),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewStat extends StatelessWidget {
+  const _OverviewStat({required this.label, required this.value});
+
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 36),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: Colors.white),
-          const SizedBox(width: 5),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          Text(value, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 2),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
     );
@@ -335,7 +396,7 @@ class _LatestThreads extends StatelessWidget {
   Widget build(BuildContext context) {
     return _SimpleSection(
       title: '最新讨论',
-      icon: Icons.bolt_outlined,
+      icon: Icons.subject_outlined,
       child: Column(
         children: threads.take(8).map((thread) {
           return Padding(
@@ -352,8 +413,8 @@ class _LatestThreads extends StatelessWidget {
               ),
               child: Container(
                 width: double.infinity,
-                constraints: const BoxConstraints(minHeight: 72),
-                padding: const EdgeInsets.all(14),
+                constraints: const BoxConstraints(minHeight: 92),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                 decoration: BoxDecoration(
                   color: AppColors.surface,
                   borderRadius: BorderRadius.circular(8),
@@ -373,6 +434,15 @@ class _LatestThreads extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                    if (thread.bodyPreview != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        thread.bodyPreview!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -394,9 +464,9 @@ class _LatestThreads extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '${thread.replies} 回复',
+                          '[${thread.replies}]',
                           style: const TextStyle(
-                            color: AppColors.brand,
+                            color: AppColors.link,
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
                           ),
@@ -488,6 +558,8 @@ class _ForumLink extends StatelessWidget {
       ),
       title: Text(
         title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: const TextStyle(
           color: AppColors.text,
           fontSize: 15,
@@ -516,7 +588,7 @@ class _SimpleSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

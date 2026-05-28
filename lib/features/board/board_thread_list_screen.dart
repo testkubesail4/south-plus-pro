@@ -59,6 +59,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
           children: [
             _BoardHeader(
               title: widget.category.name,
+              slug: widget.category.slug,
               onCompose: _openComposer,
             ),
             Expanded(
@@ -108,42 +109,94 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 }
 
 class _BoardHeader extends StatelessWidget {
-  const _BoardHeader({required this.title, required this.onCompose});
+  const _BoardHeader({
+    required this.title,
+    required this.slug,
+    required this.onCompose,
+  });
 
   final String title;
+  final String slug;
   final VoidCallback onCompose;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(4, 6, 12, 6),
-      decoration: const BoxDecoration(color: AppColors.background),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: '返回',
-            onPressed: () => Navigator.of(context).pop(),
-            icon: const Icon(Icons.chevron_left, size: 30),
+    return Column(
+      children: [
+        Container(
+          height: 58,
+          padding: const EdgeInsets.fromLTRB(4, 6, 12, 6),
+          decoration: const BoxDecoration(
+            color: AppColors.header,
+            border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
-          Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.text,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: '返回',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.chevron_left, size: 30),
               ),
-            ),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              IconButton.filled(
+                tooltip: '发帖',
+                onPressed: onCompose,
+                icon: const Icon(Icons.edit_outlined, size: 20),
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.brand,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
           ),
-          FilledButton.icon(
-            onPressed: onCompose,
-            icon: const Icon(Icons.edit_outlined, size: 18),
-            label: const Text('发帖'),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
-        ],
-      ),
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 4,
+            children: [
+              const Text(
+                '南+ South Plus',
+                style: TextStyle(
+                  color: AppColors.brand,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Icon(Icons.chevron_right,
+                  size: 18, color: AppColors.textFaint),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: AppColors.link,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Text(
+                ' / $slug',
+                style: const TextStyle(color: AppColors.textMuted),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -176,6 +229,42 @@ class _ThreadRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Row(
+                children: [
+                  if (thread.author != null)
+                    Expanded(
+                      child: Text(
+                        thread.author!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.brand,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    )
+                  else
+                    const Expanded(
+                      child: Text(
+                        '匿名',
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  Text(
+                    '[${thread.replies}]',
+                    style: const TextStyle(
+                      color: AppColors.link,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
               Text(
                 thread.title,
                 maxLines: 3,
@@ -187,29 +276,37 @@ class _ThreadRow extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              if (thread.bodyPreview != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  thread.bodyPreview!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
               const SizedBox(height: 10),
               Row(
                 children: [
-                  if (thread.author != null)
+                  if (thread.author != null && thread.authorUrl != null)
                     InkWell(
                       borderRadius: BorderRadius.circular(999),
-                      onTap: thread.authorUrl == null
-                          ? null
-                          : () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => UserProfileScreen(
-                                    userUrl: thread.authorUrl!,
-                                    repository: repository,
-                                  ),
-                                ),
-                              ),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => UserProfileScreen(
+                            userUrl: thread.authorUrl!,
+                            repository: repository,
+                          ),
+                        ),
+                      ),
                       child: _MetaChip(
                         icon: Icons.person_outline,
-                        text: thread.author!,
+                        text: '资料',
                         emphasized: true,
                       ),
                     ),
-                  if (thread.author != null) const SizedBox(width: 8),
+                  if (thread.author != null && thread.authorUrl != null)
+                    const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       thread.lastPost == null

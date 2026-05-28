@@ -10,7 +10,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('South Plus'), findsOneWidget);
-    expect(find.text('登录'), findsOneWidget);
+    expect(find.text('southplus'), findsOneWidget);
+    expect(find.text('dlkd'), findsOneWidget);
   });
 }

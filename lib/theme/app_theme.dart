@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const brand = Color(0xFFC7354A);
-  static const brandDark = Color(0xFF9F2435);
-  static const brandSoft = Color(0xFFFFEAEE);
-  static const background = Color(0xFFFFF8F6);
+  static const brand = Color(0xFFFF5F6D);
+  static const brandDark = Color(0xFFB93445);
+  static const brandSoft = Color(0xFFFFEEF0);
+  static const background = Color(0xFFF6F6F7);
   static const surface = Color(0xFFFFFFFF);
-  static const surfaceTint = Color(0xFFFFF1F3);
-  static const border = Color(0xFFF0D8DC);
-  static const text = Color(0xFF241316);
-  static const textMuted = Color(0xFF7A6267);
+  static const surfaceTint = Color(0xFFFFF7F8);
+  static const header = Color(0xFFFAFAFA);
+  static const border = Color(0xFFE2E2E4);
+  static const borderStrong = Color(0xFFD2D2D5);
+  static const text = Color(0xFF171717);
+  static const textMuted = Color(0xFF6B6F76);
+  static const textFaint = Color(0xFF9A9CA3);
+  static const link = Color(0xFF4D6078);
+  static const inkSoft = Color(0xFFF0F1F3);
 }
 
 class AppTheme {
@@ -37,7 +42,7 @@ class AppTheme {
         centerTitle: false,
         elevation: 0,
         scrolledUnderElevation: 0,
-        backgroundColor: AppColors.background,
+        backgroundColor: AppColors.header,
         foregroundColor: AppColors.text,
         titleTextStyle: TextStyle(
           color: AppColors.text,
@@ -67,7 +72,7 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(48, 48),
-          foregroundColor: AppColors.brand,
+          foregroundColor: AppColors.link,
           side: const BorderSide(color: AppColors.border),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           textStyle: const TextStyle(fontWeight: FontWeight.w700),
@@ -96,11 +101,16 @@ class AppTheme {
         backgroundColor: AppColors.text,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
+      dividerTheme: const DividerThemeData(
+        color: AppColors.border,
+        thickness: 1,
+        space: 1,
+      ),
       textTheme: const TextTheme(
         headlineSmall: TextStyle(
           color: AppColors.text,
-          fontSize: 22,
-          height: 1.25,
+          fontSize: 21,
+          height: 1.32,
           fontWeight: FontWeight.w800,
         ),
         titleLarge: TextStyle(
@@ -123,8 +133,8 @@ class AppTheme {
         ),
         bodyMedium: TextStyle(
           color: AppColors.text,
-          fontSize: 15,
-          height: 1.55,
+          fontSize: 16,
+          height: 1.62,
         ),
         bodySmall: TextStyle(
           color: AppColors.textMuted,
