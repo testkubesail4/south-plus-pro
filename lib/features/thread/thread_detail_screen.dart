@@ -158,7 +158,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('帖子详情'),
+        title: const Text('southplus'),
+        centerTitle: true,
         actions: [
           IconButton(
             tooltip: '回复',
@@ -216,10 +217,12 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
             onRefresh: _refresh,
             child: ListView(
               controller: _scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
               children: [
+                _ThreadCrumbs(section: detail.thread.section),
+                const SizedBox(height: 14),
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: AppColors.surface,
                     borderRadius: BorderRadius.circular(8),
@@ -279,86 +282,40 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: _ThreadPostBody(
-                      content: detail.body,
-                      quote: null,
-                      images: detail.bodyImages,
-                      links: detail.bodyLinks,
-                      saleBoxes: detail.bodySaleBoxes,
-                      saleBoxesFirst: detail.bodySaleBoxesFirst,
-                      buyingSaleBoxes: _buyingSaleBoxes,
-                      onBuySaleBox: _handleBuySaleBox,
-                    ),
+                _FloorCard(
+                  author: detail.thread.author ?? '楼主',
+                  postedAt: detail.thread.lastPost,
+                  floor: '楼主',
+                  onQuote: null,
+                  child: _ThreadPostBody(
+                    content: detail.body,
+                    quote: null,
+                    images: detail.bodyImages,
+                    links: detail.bodyLinks,
+                    saleBoxes: detail.bodySaleBoxes,
+                    saleBoxesFirst: detail.bodySaleBoxesFirst,
+                    buyingSaleBoxes: _buyingSaleBoxes,
+                    onBuySaleBox: _handleBuySaleBox,
                   ),
                 ),
                 const SizedBox(height: 16),
                 ...detail.replies.map(
                   (reply) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 16,
-                                  backgroundColor: AppColors.brandSoft,
-                                  child: Text(
-                                    reply.author.characters.firstOrNull ?? '?',
-                                    style: const TextStyle(
-                                      color: AppColors.brand,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        reply.author,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleSmall,
-                                      ),
-                                      if (reply.postedAt != null)
-                                        Text(
-                                          reply.postedAt!,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall,
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: '引用',
-                                  onPressed: () => _quoteReply(reply),
-                                  icon: const Icon(Icons.format_quote),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            _ThreadPostBody(
-                              content: reply.content,
-                              quote: reply.quote,
-                              images: reply.images,
-                              links: reply.links,
-                              saleBoxes: reply.saleBoxes,
-                              saleBoxesFirst: reply.saleBoxesFirst,
-                              buyingSaleBoxes: _buyingSaleBoxes,
-                              onBuySaleBox: _handleBuySaleBox,
-                            ),
-                          ],
-                        ),
+                    child: _FloorCard(
+                      author: reply.author,
+                      postedAt: reply.postedAt,
+                      floor: reply.floor,
+                      onQuote: () => _quoteReply(reply),
+                      child: _ThreadPostBody(
+                        content: reply.content,
+                        quote: reply.quote,
+                        images: reply.images,
+                        links: reply.links,
+                        saleBoxes: reply.saleBoxes,
+                        saleBoxesFirst: reply.saleBoxesFirst,
+                        buyingSaleBoxes: _buyingSaleBoxes,
+                        onBuySaleBox: _handleBuySaleBox,
                       ),
                     ),
                   ),
@@ -373,6 +330,141 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _ThreadCrumbs extends StatelessWidget {
+  const _ThreadCrumbs({required this.section});
+
+  final String section;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(-20, 0, -20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 13, 20, 12),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        runSpacing: 4,
+        children: [
+          const Text(
+            '南+ South Plus',
+            style: TextStyle(
+              color: AppColors.brand,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const Icon(Icons.chevron_right, size: 18, color: AppColors.textFaint),
+          Text(
+            section,
+            style: const TextStyle(
+              color: AppColors.brand,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const Icon(Icons.chevron_right, size: 18, color: AppColors.textFaint),
+          const Text(
+            '帖子详情',
+            style: TextStyle(
+              color: AppColors.link,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FloorCard extends StatelessWidget {
+  const _FloorCard({
+    required this.author,
+    required this.child,
+    this.postedAt,
+    this.floor,
+    this.onQuote,
+  });
+
+  final String author;
+  final String? postedAt;
+  final String? floor;
+  final VoidCallback? onQuote;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final floorText = floor == null || floor!.isEmpty ? null : '[$floor]';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 6,
+                    runSpacing: 2,
+                    children: [
+                      Text(
+                        author,
+                        style: const TextStyle(
+                          color: AppColors.brand,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (postedAt != null)
+                        Text(
+                          '- $postedAt',
+                          style: const TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 13,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (floorText != null)
+                  Text(
+                    floorText,
+                    style: const TextStyle(
+                      color: AppColors.link,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            child,
+            if (onQuote != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: onQuote,
+                icon: const Icon(Icons.reply, size: 16),
+                label: const Text('回复'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(64, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

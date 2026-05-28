@@ -124,13 +124,34 @@ class ReplyComposerState extends State<ReplyComposer> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            '回复',
-            style: TextStyle(
-              color: AppColors.text,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '快速回复',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.brandSoft,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'WindCode',
+                  style: TextStyle(
+                    color: AppColors.brandDark,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           TextField(
@@ -161,14 +182,26 @@ class ReplyComposerState extends State<ReplyComposer> {
           const SizedBox(height: 12),
           Row(
             children: [
-              FilledButton(
-                onPressed: _submitting ? null : _submit,
-                child: Text(_submitting ? '提交中...' : '提交'),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _submitting ? null : _submit,
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_outlined, size: 18),
+                  label: Text(_submitting ? '提交中...' : '提交回复'),
+                ),
               ),
               const SizedBox(width: 10),
               OutlinedButton(
                 onPressed: _submitting ? null : _showQuickInsert,
-                child: const Text('表 情'),
+                child: const Text('表情'),
               ),
             ],
           ),
