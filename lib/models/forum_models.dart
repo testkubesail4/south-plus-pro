@@ -22,6 +22,21 @@ class ForumThread {
   final String? authorUrl;
 }
 
+class ForumThreadPage {
+  const ForumThreadPage({
+    required this.threads,
+    required this.currentPage,
+    required this.totalPages,
+  });
+
+  final List<ForumThread> threads;
+  final int currentPage;
+  final int totalPages;
+
+  bool get hasPrevious => currentPage > 1;
+  bool get hasNext => currentPage < totalPages;
+}
+
 class ThreadDetail {
   const ThreadDetail({
     required this.thread,

@@ -22,17 +22,34 @@ class BoardThreadListScreen extends StatefulWidget {
 }
 
 class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
-  late Future<List<ForumThread>> _future;
+  late Future<ForumThreadPage> _future;
+  int _page = 1;
 
   @override
   void initState() {
     super.initState();
-    _future = widget.repository.fetchBoardThreads(widget.category);
+    _future = _fetchPage(_page);
+  }
+
+  Future<ForumThreadPage> _fetchPage(int page) {
+    return widget.repository.fetchBoardThreadPage(
+      widget.category,
+      page: page,
+    );
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = widget.repository.fetchBoardThreads(widget.category);
+      _future = _fetchPage(_page);
+    });
+    await _future;
+  }
+
+  Future<void> _goToPage(int page) async {
+    if (page == _page || page < 1) return;
+    setState(() {
+      _page = page;
+      _future = _fetchPage(page);
     });
     await _future;
   }
@@ -63,7 +80,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
               onCompose: _openComposer,
             ),
             Expanded(
-              child: FutureBuilder<List<ForumThread>>(
+              child: FutureBuilder<ForumThreadPage>(
                 future: _future,
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
@@ -73,15 +90,25 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                   if (!snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  final threads = snapshot.data!;
+                  final page = snapshot.data!;
+                  final threads = page.threads;
+                  if (_page != page.currentPage) {
+                    _page = page.currentPage;
+                  }
                   return RefreshIndicator(
                     color: AppColors.brand,
                     onRefresh: _refresh,
                     child: ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                      itemCount: threads.length,
+                      itemCount: threads.length + 1,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
+                        if (index == threads.length) {
+                          return _PaginationBar(
+                            page: page,
+                            onPageSelected: _goToPage,
+                          );
+                        }
                         final thread = threads[index];
                         return _ThreadRow(
                           thread: thread,
@@ -103,6 +130,168 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PaginationBar extends StatelessWidget {
+  const _PaginationBar({
+    required this.page,
+    required this.onPageSelected,
+  });
+
+  final ForumThreadPage page;
+  final ValueChanged<int> onPageSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (page.totalPages <= 1) {
+      return const SizedBox(height: 2);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _PageIconButton(
+                tooltip: '第一页',
+                icon: Icons.first_page,
+                enabled: page.hasPrevious,
+                onPressed: () => onPageSelected(1),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: page.hasPrevious
+                      ? () => onPageSelected(page.currentPage - 1)
+                      : null,
+                  icon: const Icon(Icons.chevron_left, size: 18),
+                  label: const Text('上一页'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: page.hasNext
+                      ? () => onPageSelected(page.currentPage + 1)
+                      : null,
+                  icon: const Icon(Icons.chevron_right, size: 18),
+                  label: const Text('下一页'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _PageIconButton(
+                tooltip: '最后一页',
+                icon: Icons.last_page,
+                enabled: page.hasNext,
+                onPressed: () => onPageSelected(page.totalPages),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _showJumpDialog(context),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 42),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: AppColors.inkSoft,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                'Pages: ${page.currentPage}/${page.totalPages} · 点按跳页',
+                style: const TextStyle(
+                  color: AppColors.link,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showJumpDialog(BuildContext context) async {
+    final controller = TextEditingController(text: '${page.currentPage}');
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('跳转页码'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: '页码',
+              helperText: '1 - ${page.totalPages}',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final input = int.tryParse(controller.text.trim());
+                if (input == null) return;
+                Navigator.of(context).pop(input.clamp(1, page.totalPages));
+              },
+              child: const Text('跳转'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (selected != null) onPageSelected(selected);
+  }
+}
+
+class _PageIconButton extends StatelessWidget {
+  const _PageIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.outlined(
+      tooltip: tooltip,
+      onPressed: enabled ? onPressed : null,
+      icon: Icon(icon, size: 20),
+      style: IconButton.styleFrom(
+        minimumSize: const Size(44, 44),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
