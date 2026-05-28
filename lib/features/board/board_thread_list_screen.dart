@@ -5,6 +5,7 @@ import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../profile/user_profile_screen.dart';
 import '../thread/thread_detail_screen.dart';
+import '../thread/thread_compose_screen.dart';
 
 class BoardThreadListScreen extends StatefulWidget {
   const BoardThreadListScreen({
@@ -36,13 +37,30 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     await _future;
   }
 
+  Future<void> _openComposer() async {
+    final posted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ThreadComposeScreen(
+          category: widget.category,
+          repository: widget.repository,
+        ),
+      ),
+    );
+    if (posted == true) {
+      await _refresh();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            _BoardHeader(title: widget.category.name),
+            _BoardHeader(
+              title: widget.category.name,
+              onCompose: _openComposer,
+            ),
             Expanded(
               child: FutureBuilder<List<ForumThread>>(
                 future: _future,
@@ -90,9 +108,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 }
 
 class _BoardHeader extends StatelessWidget {
-  const _BoardHeader({required this.title});
+  const _BoardHeader({required this.title, required this.onCompose});
 
   final String title;
+  final VoidCallback onCompose;
 
   @override
   Widget build(BuildContext context) {
@@ -119,7 +138,7 @@ class _BoardHeader extends StatelessWidget {
             ),
           ),
           FilledButton.icon(
-            onPressed: () {},
+            onPressed: onCompose,
             icon: const Icon(Icons.edit_outlined, size: 18),
             label: const Text('发帖'),
           ),

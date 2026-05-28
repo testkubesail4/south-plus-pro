@@ -14,6 +14,23 @@ class ForumRepository {
 
   String? get currentUsername => _currentUsername;
 
+  Future<bool> restoreSession() async {
+    await _client.restoreCookies();
+    if (!_client.isLoggedIn) return false;
+
+    _currentUsername = await _fetchLoggedInUsername();
+    if (_currentUsername == null) {
+      await clearSession();
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> clearSession() async {
+    _currentUsername = null;
+    await _client.clearSession();
+  }
+
   Future<bool> login({
     required String username,
     required String password,
@@ -132,6 +149,34 @@ class ForumRepository {
     return home.sections;
   }
 
+  Future<List<ForumThread>> searchThreads(String keyword) async {
+    final query = keyword.trim();
+    if (query.isEmpty) return const [];
+
+    final searchPage = html_parser.parse(await _client.get('search.php'));
+    final form = searchPage.querySelector('form[action*="search.php"]') ??
+        searchPage.querySelector('form');
+    if (form == null) {
+      throw const ForumRepositoryException('没有找到搜索表单');
+    }
+
+    final fields = _formDefaults(form)
+      ..['step'] = '2'
+      ..['keyword'] = query
+      ..putIfAbsent('method', () => 'OR')
+      ..putIfAbsent('sch_area', () => '0')
+      ..putIfAbsent('f_fid', () => 'all')
+      ..putIfAbsent('sch_time', () => '31536000')
+      ..putIfAbsent('orderway', () => 'postdate')
+      ..putIfAbsent('asc', () => 'DESC')
+      ..['submit'] = '提 交';
+
+    final action = form.attributes['action'] ?? 'search.php?';
+    final response =
+        await _client.post(_relativePath(_absoluteUrl(action)), fields);
+    return _parseSearchResults(html_parser.parse(response));
+  }
+
   Future<List<ForumThread>> fetchBoardThreads(ForumCategory category) async {
     final desktopPath = _boardDesktopPath(category);
     if (desktopPath != null) {
@@ -175,6 +220,123 @@ class ForumRepository {
 
     if (threads.isEmpty) {
       throw ForumRepositoryException('没有解析到${category.name}帖子列表');
+    }
+    return threads;
+  }
+
+  Future<ReplyResult> submitThread({
+    required ForumCategory category,
+    required String title,
+    required String content,
+  }) async {
+    final trimmedTitle = title.trim();
+    final trimmedContent = content.trim();
+    if (trimmedTitle.isEmpty) {
+      return const ReplyResult(success: false, message: '标题不能为空');
+    }
+    if (trimmedContent.isEmpty) {
+      return const ReplyResult(success: false, message: '正文不能为空');
+    }
+
+    final fid = _fidFromCategory(category);
+    if (fid == null) {
+      return const ReplyResult(success: false, message: '没有找到版块 ID');
+    }
+
+    final html = await _client.get('post.php?fid=$fid');
+    final document = html_parser.parse(html);
+    final form = document.querySelector('form[name="FORM"]');
+    if (form == null) {
+      return ReplyResult(success: false, message: _extractPageMessage(html));
+    }
+
+    final fields = _formDefaults(form)
+      ..['atc_title'] = trimmedTitle
+      ..['atc_content'] = trimmedContent
+      ..['Submit'] = '提 交';
+
+    final action = form.attributes['action'] ?? 'post.php?';
+    final response =
+        await _client.post(_relativePath(_absoluteUrl(action)), fields);
+    final message = _extractPageMessage(response);
+    final success = _isReplySuccess(response, message);
+    return ReplyResult(
+      success: success,
+      message: success ? '主题已发布' : message,
+    );
+  }
+
+  Map<String, String> _formDefaults(dom.Element form) {
+    final fields = <String, String>{};
+    for (final input in form.querySelectorAll('input[name]')) {
+      final name = input.attributes['name'];
+      if (name == null || name.isEmpty) continue;
+      final type = (input.attributes['type'] ?? '').toLowerCase();
+      if (type == 'submit' || type == 'reset' || type == 'button') continue;
+      if ((type == 'radio' || type == 'checkbox') &&
+          !input.attributes.containsKey('checked')) {
+        continue;
+      }
+      fields[name] = input.attributes['value'] ?? '';
+    }
+
+    for (final select in form.querySelectorAll('select[name]')) {
+      final name = select.attributes['name'];
+      if (name == null || name.isEmpty) continue;
+      final option = select.querySelector('option[selected]') ??
+          select.querySelector('option');
+      if (option == null) continue;
+      fields[name] = option.attributes['value'] ?? _cleanText(option.text);
+    }
+
+    for (final textarea in form.querySelectorAll('textarea[name]')) {
+      final name = textarea.attributes['name'];
+      if (name == null || name.isEmpty) continue;
+      fields[name] = textarea.text;
+    }
+    return fields;
+  }
+
+  List<ForumThread> _parseSearchResults(dom.Document document) {
+    final threads = <ForumThread>[];
+    final seen = <String>{};
+    for (final row in document.querySelectorAll('tr')) {
+      final threadLink = row.querySelector('a[href*="read.php?tid-"]');
+      if (threadLink == null) continue;
+
+      final href = threadLink.attributes['href'] ?? '';
+      final title = _cleanText(threadLink.text);
+      if (href.isEmpty || title.isEmpty || !seen.add(href)) continue;
+
+      final cells = row.children
+          .where((child) => child.localName == 'td' || child.localName == 'th')
+          .toList();
+      final sectionCell = cells.length > 2 ? cells[2] : row;
+      final authorCell = cells.length > 3 ? cells[3] : row;
+      final repliesCell = cells.length > 4 ? cells[4] : null;
+
+      final section = _cleanText(
+        sectionCell.querySelector('a[href*="thread.php"]')?.text ?? '',
+      );
+      final authorLink = authorCell.querySelector('a[href*="uid"]');
+      final author = _cleanText(authorLink?.text ?? '');
+      final authorHref = authorLink?.attributes['href'] ?? '';
+      final date = RegExp(r'\d{4}-\d{2}-\d{2}')
+          .firstMatch(_cleanText(authorCell.text))
+          ?.group(0);
+
+      threads.add(
+        ForumThread(
+          title: title,
+          url: _absoluteUrl(href),
+          replies: _firstInt(_cleanText(repliesCell?.text ?? '')) ?? 0,
+          section: section.isEmpty ? '搜索结果' : section,
+          author: author.isEmpty ? null : author,
+          authorUrl: authorHref.isEmpty ? null : _absoluteUrl(authorHref),
+          lastPost: date,
+        ),
+      );
+      if (threads.length >= 60) break;
     }
     return threads;
   }
@@ -224,6 +386,14 @@ class ForumRepository {
     if (href == null) return null;
     final fid = RegExp(r'fid-\d+').firstMatch(href)?.group(0);
     return fid == null ? null : 'thread.php?$fid.html';
+  }
+
+  String? _fidFromCategory(ForumCategory category) {
+    for (final value in [category.slug, category.url ?? '']) {
+      final match = RegExp(r'(?:^f|fid-|[?&]f)(\d+)').firstMatch(value);
+      if (match != null) return match.group(1);
+    }
+    return null;
   }
 
   Future<UserProfile> fetchUserProfile(String url) async {
@@ -285,6 +455,8 @@ class ForumRepository {
       return ThreadDetail(
         thread: thread,
         body: cards.first.content,
+        bodyImages: cards.first.images,
+        bodyLinks: cards.first.links,
         bodySaleBoxes: cards.first.saleBoxes,
         bodySaleBoxesFirst: cards.first.saleBoxesFirst,
         replies: cards.skip(1).toList(),
@@ -1019,8 +1191,19 @@ class ForumRepository {
       final saleBoxes = cardText == null
           ? const <ThreadSaleBox>[]
           : _extractSaleBoxes(cardText);
+      final quote = cardText == null ? null : _extractQuote(cardText);
+      final images =
+          cardText == null ? const <ThreadImage>[] : _extractImages(cardText);
+      final links =
+          cardText == null ? const <ThreadLink>[] : _extractLinks(cardText);
       final content = _cleanText(cardText?.text ?? '');
-      if (header == null || (content.isEmpty && saleBoxes.isEmpty)) continue;
+      if (header == null ||
+          (content.isEmpty &&
+              saleBoxes.isEmpty &&
+              images.isEmpty &&
+              links.isEmpty)) {
+        continue;
+      }
 
       final author = _cleanText(header.querySelector('strong')?.text ?? '匿名');
       final headerText = _cleanText(header.text);
@@ -1037,12 +1220,60 @@ class ForumRepository {
           author: author,
           content: content,
           postedAt: postedAt.isEmpty ? null : postedAt,
+          floor: floor.isEmpty ? null : floor,
+          quote: quote,
+          images: images,
+          links: links,
           saleBoxes: saleBoxes,
           saleBoxesFirst: saleBoxesFirst,
         ),
       );
     }
     return replies;
+  }
+
+  String? _extractQuote(dom.Element content) {
+    final quoteElement = content.querySelector('blockquote') ??
+        content.querySelector('.blockquote');
+    if (quoteElement == null) return null;
+    final quote = _cleanText(quoteElement.text);
+    quoteElement.remove();
+    return quote.isEmpty ? null : quote;
+  }
+
+  List<ThreadImage> _extractImages(dom.Element content) {
+    final images = <ThreadImage>[];
+    final seen = <String>{};
+    for (final image in content.querySelectorAll('img[src]')) {
+      final src = image.attributes['src'] ?? '';
+      if (src.isEmpty) continue;
+      final url = _absoluteUrl(src);
+      if (!seen.add(url)) continue;
+      final alt = _cleanText(image.attributes['alt'] ?? '');
+      images.add(ThreadImage(url: url, alt: alt.isEmpty ? null : alt));
+      if (images.length >= 12) break;
+    }
+    return images;
+  }
+
+  List<ThreadLink> _extractLinks(dom.Element content) {
+    final links = <ThreadLink>[];
+    final seen = <String>{};
+    for (final link in content.querySelectorAll('a[href]')) {
+      final href = link.attributes['href'] ?? '';
+      if (href.isEmpty ||
+          href == '#' ||
+          href.startsWith('javascript:') ||
+          href.startsWith('mailto:')) {
+        continue;
+      }
+      final url = _absoluteUrl(href);
+      if (!seen.add(url)) continue;
+      final label = _cleanText(link.text);
+      links.add(ThreadLink(label: label.isEmpty ? url : label, url: url));
+      if (links.length >= 20) break;
+    }
+    return links;
   }
 
   bool _startsWithSaleBox(dom.Element content) {
@@ -1130,7 +1361,8 @@ class ForumRepository {
   }
 
   String _absoluteUrl(String href) {
-    if (href.startsWith('http')) return href;
+    final uri = Uri.tryParse(href);
+    if (uri != null && uri.hasScheme) return href;
     if (href.startsWith('//')) return 'https:$href';
     if (href.startsWith('/')) return 'https://south-plus.net$href';
     return 'https://south-plus.net/$href';

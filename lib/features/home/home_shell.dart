@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
 import '../profile/user_profile_screen.dart';
+import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 
 class HomeShell extends StatelessWidget {
@@ -76,7 +77,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
                       threads: data.latest,
                       repository: widget.repository,
                     ),
-                    const _PagerDots(),
+                    const SizedBox(height: 14),
                     _ForumGroup(
                       title: '热门版块',
                       icon: Icons.local_fire_department_outlined,
@@ -166,7 +167,11 @@ class _TopBar extends StatelessWidget {
           ),
           IconButton(
             tooltip: '搜索',
-            onPressed: () {},
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SearchScreen(repository: repository),
+              ),
+            ),
             icon: const Icon(Icons.search, color: AppColors.text),
           ),
           if (repository.isLoggedIn)
@@ -332,7 +337,7 @@ class _LatestThreads extends StatelessWidget {
       title: '最新讨论',
       icon: Icons.bolt_outlined,
       child: Column(
-        children: threads.take(3).map((thread) {
+        children: threads.take(8).map((thread) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: InkWell(
@@ -536,44 +541,6 @@ class _SimpleSection extends StatelessWidget {
           ),
           child,
         ],
-      ),
-    );
-  }
-}
-
-class _PagerDots extends StatelessWidget {
-  const _PagerDots();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 18),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _Dot(active: true),
-          _Dot(active: false),
-          _Dot(active: false),
-        ],
-      ),
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot({required this.active});
-
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: active ? 24 : 7,
-      height: 7,
-      margin: const EdgeInsets.symmetric(horizontal: 3),
-      decoration: BoxDecoration(
-        color: active ? AppColors.brand : AppColors.border,
-        borderRadius: BorderRadius.circular(999),
       ),
     );
   }

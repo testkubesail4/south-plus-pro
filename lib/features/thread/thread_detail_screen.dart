@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
@@ -21,7 +22,7 @@ class ThreadDetailScreen extends StatefulWidget {
 
 class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final _scrollController = ScrollController();
-  final _replyKey = GlobalKey();
+  final _replyKey = GlobalKey<ReplyComposerState>();
   final Set<String> _buyingSaleBoxes = <String>{};
   final Map<String, ThreadFavoriteState> _favoriteOverrides =
       <String, ThreadFavoriteState>{};
@@ -62,6 +63,17 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOut,
     );
+  }
+
+  void _quoteReply(ThreadReply reply) {
+    final content = reply.content.length > 300
+        ? '${reply.content.substring(0, 300)}...'
+        : reply.content;
+    final floor = reply.floor == null ? '' : ' ${reply.floor}';
+    _replyKey.currentState?.insertContent(
+      '[quote]引用 ${reply.author}$floor：$content[/quote]\n',
+    );
+    _scrollToReply();
   }
 
   Future<void> _handleReplySubmitted(String result) async {
@@ -272,6 +284,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                     padding: const EdgeInsets.all(16),
                     child: _ThreadPostBody(
                       content: detail.body,
+                      quote: null,
+                      images: detail.bodyImages,
+                      links: detail.bodyLinks,
                       saleBoxes: detail.bodySaleBoxes,
                       saleBoxesFirst: detail.bodySaleBoxesFirst,
                       buyingSaleBoxes: _buyingSaleBoxes,
@@ -324,11 +339,19 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                                     ],
                                   ),
                                 ),
+                                IconButton(
+                                  tooltip: '引用',
+                                  onPressed: () => _quoteReply(reply),
+                                  icon: const Icon(Icons.format_quote),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 12),
                             _ThreadPostBody(
                               content: reply.content,
+                              quote: reply.quote,
+                              images: reply.images,
+                              links: reply.links,
                               saleBoxes: reply.saleBoxes,
                               saleBoxesFirst: reply.saleBoxesFirst,
                               buyingSaleBoxes: _buyingSaleBoxes,
@@ -401,6 +424,9 @@ class _ThreadMetaChip extends StatelessWidget {
 class _ThreadPostBody extends StatelessWidget {
   const _ThreadPostBody({
     required this.content,
+    required this.quote,
+    required this.images,
+    required this.links,
     required this.saleBoxes,
     required this.saleBoxesFirst,
     required this.buyingSaleBoxes,
@@ -408,6 +434,9 @@ class _ThreadPostBody extends StatelessWidget {
   });
 
   final String content;
+  final String? quote;
+  final List<ThreadImage> images;
+  final List<ThreadLink> links;
   final List<ThreadSaleBox> saleBoxes;
   final bool saleBoxesFirst;
   final Set<String> buyingSaleBoxes;
@@ -432,13 +461,146 @@ class _ThreadPostBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (saleBoxesFirst) ...saleBoxWidgets,
+        if (quote != null) ...[
+          _QuoteView(text: quote!),
+          if (content.isNotEmpty) const SizedBox(height: 12),
+        ],
         if (content.isNotEmpty)
           Text(content, style: Theme.of(context).textTheme.bodyMedium),
+        if (images.isNotEmpty) ...[
+          if (content.isNotEmpty || quote != null) const SizedBox(height: 12),
+          ...images.map(
+            (image) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _ThreadImageView(image: image),
+            ),
+          ),
+        ],
+        if (links.isNotEmpty) ...[
+          if (content.isNotEmpty || quote != null || images.isNotEmpty)
+            const SizedBox(height: 8),
+          _ThreadLinkList(links: links),
+        ],
         if (!saleBoxesFirst && saleBoxes.isNotEmpty) ...[
-          if (content.isNotEmpty) const SizedBox(height: 12),
+          if (content.isNotEmpty || images.isNotEmpty || links.isNotEmpty)
+            const SizedBox(height: 12),
           ...saleBoxWidgets,
         ],
       ],
+    );
+  }
+}
+
+class _ThreadImageView extends StatelessWidget {
+  const _ThreadImageView({required this.image});
+
+  final ThreadImage image;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          child: InteractiveViewer(
+            child: Image.network(image.url, fit: BoxFit.contain),
+          ),
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(maxHeight: 360),
+          color: AppColors.surfaceTint,
+          child: Image.network(
+            image.url,
+            fit: BoxFit.contain,
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return const SizedBox(
+                height: 160,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) {
+              return const SizedBox(
+                height: 96,
+                child: Center(child: Text('图片加载失败')),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ThreadLinkList extends StatelessWidget {
+  const _ThreadLinkList({required this.links});
+
+  final List<ThreadLink> links;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxChipWidth =
+            constraints.maxWidth < 280 ? constraints.maxWidth : 280.0;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: links
+              .map(
+                (link) => ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxChipWidth),
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: link.url));
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('链接已复制')),
+                      );
+                    },
+                    icon: const Icon(Icons.link, size: 16),
+                    label: Text(
+                      link.label,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+  }
+}
+
+class _QuoteView extends StatelessWidget {
+  const _QuoteView({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: const BoxDecoration(
+        border: Border(
+          left: BorderSide(color: AppColors.brand, width: 4),
+        ),
+        color: AppColors.surfaceTint,
+      ),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppColors.textMuted,
+              fontWeight: FontWeight.w600,
+            ),
+      ),
     );
   }
 }

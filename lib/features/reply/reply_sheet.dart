@@ -17,10 +17,10 @@ class ReplyComposer extends StatefulWidget {
   final ValueChanged<String> onSubmitted;
 
   @override
-  State<ReplyComposer> createState() => _ReplyComposerState();
+  State<ReplyComposer> createState() => ReplyComposerState();
 }
 
-class _ReplyComposerState extends State<ReplyComposer> {
+class ReplyComposerState extends State<ReplyComposer> {
   final _title = TextEditingController();
   final _content = TextEditingController();
   bool _submitting = false;
@@ -68,6 +68,47 @@ class _ReplyComposerState extends State<ReplyComposer> {
 
     _content.clear();
     widget.onSubmitted(result.message);
+  }
+
+  void insertContent(String value) {
+    final selection = _content.selection;
+    final text = _content.text;
+    final start = selection.start < 0 ? text.length : selection.start;
+    final end = selection.end < 0 ? text.length : selection.end;
+    _content.value = TextEditingValue(
+      text: text.replaceRange(start, end, value),
+      selection: TextSelection.collapsed(offset: start + value.length),
+    );
+  }
+
+  void _showQuickInsert() {
+    const items = [':)', ':D', 'T_T', 'orz', '支持一下'];
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: items
+                  .map(
+                    (item) => ActionChip(
+                      label: Text(item),
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        insertContent(item);
+                      },
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -126,7 +167,7 @@ class _ReplyComposerState extends State<ReplyComposer> {
               ),
               const SizedBox(width: 10),
               OutlinedButton(
-                onPressed: _submitting ? null : () {},
+                onPressed: _submitting ? null : _showQuickInsert,
                 child: const Text('表 情'),
               ),
             ],
