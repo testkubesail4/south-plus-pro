@@ -1,0 +1,7 @@
+analyzer:
+  exclude:
+    - build/**
+
+linter:
+  rules:
+    avoid_print: false
