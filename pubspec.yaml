@@ -11,6 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   html: ^0.15.6
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

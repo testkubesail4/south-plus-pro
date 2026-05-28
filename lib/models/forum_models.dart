@@ -27,6 +27,8 @@ class ThreadDetail {
     required this.thread,
     required this.body,
     required this.replies,
+    this.bodyImages = const [],
+    this.bodyLinks = const [],
     this.bodySaleBoxes = const [],
     this.bodySaleBoxesFirst = false,
     this.favorite,
@@ -35,6 +37,8 @@ class ThreadDetail {
   final ForumThread thread;
   final String body;
   final List<ThreadReply> replies;
+  final List<ThreadImage> bodyImages;
+  final List<ThreadLink> bodyLinks;
   final List<ThreadSaleBox> bodySaleBoxes;
   final bool bodySaleBoxesFirst;
   final ThreadFavorite? favorite;
@@ -45,6 +49,10 @@ class ThreadReply {
     required this.author,
     required this.content,
     this.postedAt,
+    this.floor,
+    this.quote,
+    this.images = const [],
+    this.links = const [],
     this.saleBoxes = const [],
     this.saleBoxesFirst = false,
   });
@@ -52,8 +60,32 @@ class ThreadReply {
   final String author;
   final String content;
   final String? postedAt;
+  final String? floor;
+  final String? quote;
+  final List<ThreadImage> images;
+  final List<ThreadLink> links;
   final List<ThreadSaleBox> saleBoxes;
   final bool saleBoxesFirst;
+}
+
+class ThreadImage {
+  const ThreadImage({
+    required this.url,
+    this.alt,
+  });
+
+  final String url;
+  final String? alt;
+}
+
+class ThreadLink {
+  const ThreadLink({
+    required this.url,
+    required this.label,
+  });
+
+  final String url;
+  final String label;
 }
 
 class ThreadSaleBox {

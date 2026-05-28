@@ -2,38 +2,54 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'forum_session_store.dart';
+
 class ForumClient {
   ForumClient({
     HttpClient? httpClient,
     Uri? baseUri,
+    ForumSessionStore? sessionStore,
   })  : baseUri = baseUri ?? Uri.parse('https://south-plus.net/'),
+        _sessionStore = sessionStore ?? ForumSessionStore(),
         _httpClient = httpClient ?? HttpClient();
 
   final HttpClient _httpClient;
+  final ForumSessionStore? _sessionStore;
   final Uri baseUri;
-  final Map<String, String> _cookies = <String, String>{};
+  final Map<String, ForumStoredCookie> _cookies = <String, ForumStoredCookie>{};
+  Future<void>? _restoreFuture;
+
+  Future<void> restoreCookies() {
+    return _restoreFuture ??= _restoreCookies();
+  }
 
   Future<String> get(String path) async {
-    final request = await _httpClient.getUrl(baseUri.resolve(path));
+    await restoreCookies();
+    final uri = baseUri.resolve(path);
+    final request = await _httpClient.getUrl(uri);
     _applyCookies(request);
     final response = await request.close();
-    _storeCookies(response);
+    await _storeCookies(response, uri);
     return utf8.decode(
         await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d)));
   }
 
   Future<Uint8List> getBytes(String path) async {
-    final request = await _httpClient.getUrl(baseUri.resolve(path));
+    await restoreCookies();
+    final uri = baseUri.resolve(path);
+    final request = await _httpClient.getUrl(uri);
     _applyCookies(request);
     final response = await request.close();
-    _storeCookies(response);
+    await _storeCookies(response, uri);
     final bytes =
         await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d));
     return Uint8List.fromList(bytes);
   }
 
   Future<String> post(String path, Map<String, String> form) async {
-    final request = await _httpClient.postUrl(baseUri.resolve(path));
+    await restoreCookies();
+    final uri = baseUri.resolve(path);
+    final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType(
       'application',
       'x-www-form-urlencoded',
@@ -42,30 +58,88 @@ class ForumClient {
     _applyCookies(request);
     request.write(Uri(queryParameters: form).query);
     final response = await request.close();
-    _storeCookies(response);
+    await _storeCookies(response, uri);
     return utf8.decode(
         await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d)));
   }
 
+  Future<void> clearSession() async {
+    _cookies.clear();
+    await _sessionStore?.clear();
+  }
+
+  Future<void> _restoreCookies() async {
+    final restored = await _sessionStore?.loadCookies();
+    if (restored == null || restored.isEmpty) return;
+    _cookies
+      ..clear()
+      ..addAll(restored);
+    await _persistCookies();
+  }
+
   void _applyCookies(HttpClientRequest request) {
-    if (_cookies.isEmpty) return;
+    _cookies.removeWhere((_, cookie) => cookie.isExpired);
+    final cookies = _cookies.values
+        .where((cookie) => cookie.matches(request.uri))
+        .map((cookie) => '${cookie.name}=${cookie.value}')
+        .toList();
+    if (cookies.isEmpty) return;
     request.headers.set(
       HttpHeaders.cookieHeader,
-      _cookies.entries.map((e) => '${e.key}=${e.value}').join('; '),
+      cookies.join('; '),
     );
   }
 
-  void _storeCookies(HttpClientResponse response) {
+  Future<void> _storeCookies(HttpClientResponse response, Uri origin) async {
+    var changed = false;
     for (final header
         in response.headers[HttpHeaders.setCookieHeader] ?? const <String>[]) {
-      final parts = header.split(';').first.split('=');
-      if (parts.length == 2) {
-        _cookies[parts[0]] = parts[1];
+      final cookie = _parseCookie(header, origin);
+      if (cookie == null) continue;
+      final key = _cookieKey(cookie);
+      if (cookie.isExpired || cookie.value.isEmpty) {
+        changed = _cookies.remove(key) != null || changed;
+      } else {
+        _cookies[key] = cookie;
+        changed = true;
       }
+    }
+    if (changed) await _persistCookies();
+  }
+
+  ForumStoredCookie? _parseCookie(String header, Uri origin) {
+    try {
+      return ForumStoredCookie.fromCookie(
+        Cookie.fromSetCookieValue(header),
+        origin,
+      );
+    } on FormatException {
+      final separator = header.indexOf(';');
+      final firstPart =
+          separator == -1 ? header : header.substring(0, separator);
+      final equals = firstPart.indexOf('=');
+      if (equals <= 0) return null;
+      return ForumStoredCookie.session(
+        name: firstPart.substring(0, equals).trim(),
+        value: firstPart.substring(equals + 1).trim(),
+        origin: origin,
+      );
     }
   }
 
+  String _cookieKey(ForumStoredCookie cookie) {
+    return '${cookie.name};${cookie.domain ?? baseUri.host};${cookie.path ?? '/'}';
+  }
+
+  Future<void> _persistCookies() async {
+    _cookies.removeWhere((_, cookie) => cookie.isExpired);
+    await _sessionStore?.saveCookies(_cookies);
+  }
+
   bool get isLoggedIn {
-    return _cookies.keys.any((key) => key.toLowerCase().contains('winduser'));
+    return _cookies.values.any(
+      (cookie) =>
+          !cookie.isExpired && cookie.name.toLowerCase().contains('winduser'),
+    );
   }
 }
