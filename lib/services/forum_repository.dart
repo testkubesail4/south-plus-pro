@@ -178,12 +178,27 @@ class ForumRepository {
   }
 
   Future<List<ForumThread>> fetchBoardThreads(ForumCategory category) async {
-    final desktopPath = _boardDesktopPath(category);
+    return (await fetchBoardThreadPage(category)).threads;
+  }
+
+  Future<ForumThreadPage> fetchBoardThreadPage(
+    ForumCategory category, {
+    int page = 1,
+  }) async {
+    final normalizedPage = page < 1 ? 1 : page;
+    final desktopPath = _boardDesktopPath(category, page: normalizedPage);
     if (desktopPath != null) {
       final desktopHtml = await _client.get(desktopPath);
+      final desktopDocument = html_parser.parse(desktopHtml);
       final desktopThreads =
-          _parseDesktopBoardThreads(html_parser.parse(desktopHtml), category);
-      if (desktopThreads.isNotEmpty) return desktopThreads;
+          _parseDesktopBoardThreads(desktopDocument, category);
+      if (desktopThreads.isNotEmpty) {
+        return ForumThreadPage(
+          threads: desktopThreads,
+          currentPage: _boardCurrentPage(desktopDocument) ?? normalizedPage,
+          totalPages: _boardTotalPages(desktopDocument) ?? normalizedPage,
+        );
+      }
     }
 
     final url = category.url ??
@@ -221,7 +236,11 @@ class ForumRepository {
     if (threads.isEmpty) {
       throw ForumRepositoryException('没有解析到${category.name}帖子列表');
     }
-    return threads;
+    return ForumThreadPage(
+      threads: threads,
+      currentPage: 1,
+      totalPages: 1,
+    );
   }
 
   Future<ReplyResult> submitThread({
@@ -379,13 +398,18 @@ class ForumRepository {
     return threads;
   }
 
-  String? _boardDesktopPath(ForumCategory category) {
+  String? _boardDesktopPath(ForumCategory category, {int page = 1}) {
+    final fid = _fidFromCategory(category);
+    if (fid != null) {
+      final pagePart = page <= 1 ? '' : '-page-$page';
+      return 'thread.php?fid-$fid$pagePart.html';
+    }
     final slug = category.slug;
     if (slug.startsWith('fid-')) return 'thread.php?$slug.html';
     final href = category.url;
     if (href == null) return null;
-    final fid = RegExp(r'fid-\d+').firstMatch(href)?.group(0);
-    return fid == null ? null : 'thread.php?$fid.html';
+    final hrefFid = RegExp(r'fid-\d+').firstMatch(href)?.group(0);
+    return hrefFid == null ? null : 'thread.php?$hrefFid.html';
   }
 
   String? _fidFromCategory(ForumCategory category) {
@@ -394,6 +418,26 @@ class ForumRepository {
       if (match != null) return match.group(1);
     }
     return null;
+  }
+
+  int? _boardCurrentPage(dom.Document document) {
+    final pages = _boardPages(document);
+    return pages?.$1;
+  }
+
+  int? _boardTotalPages(dom.Document document) {
+    final pages = _boardPages(document);
+    return pages?.$2;
+  }
+
+  (int, int)? _boardPages(dom.Document document) {
+    final text = _cleanText(document.body?.text ?? '');
+    final match = RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)').firstMatch(text);
+    if (match == null) return null;
+    final current = int.tryParse(match.group(1)!);
+    final total = int.tryParse(match.group(2)!);
+    if (current == null || total == null || total < 1) return null;
+    return (current, total);
   }
 
   Future<UserProfile> fetchUserProfile(String url) async {
