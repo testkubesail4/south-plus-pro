@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
 import 'thread_post_body.dart';
 
@@ -42,6 +43,17 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _future = widget.repository.fetchThreadDetail(widget.thread);
     });
     await _future;
+  }
+
+  void _openUserProfile(String userUrl) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => UserProfileScreen(
+          userUrl: userUrl,
+          repository: widget.repository,
+        ),
+      ),
+    );
   }
 
   @override
@@ -236,6 +248,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                               icon: Icons.person_outline,
                               text: detail.thread.author!,
                               highlighted: true,
+                              onTap: detail.thread.authorUrl == null
+                                  ? null
+                                  : () => _openUserProfile(
+                                        detail.thread.authorUrl!,
+                                      ),
                             ),
                           if (detail.thread.lastPost != null)
                             _ThreadMetaChip(
@@ -294,6 +311,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                 const SizedBox(height: 12),
                 _FloorCard(
                   author: detail.thread.author ?? '楼主',
+                  onAuthorTap: detail.thread.authorUrl == null
+                      ? null
+                      : () => _openUserProfile(detail.thread.authorUrl!),
                   postedAt: detail.thread.lastPost,
                   floor: '楼主',
                   onQuote: null,
@@ -323,6 +343,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _FloorCard(
                       author: reply.author,
+                      onAuthorTap: reply.authorUrl == null
+                          ? null
+                          : () => _openUserProfile(reply.authorUrl!),
                       postedAt: reply.postedAt,
                       floor: reply.floor,
                       onQuote: () => _quoteReply(reply),
@@ -409,12 +432,14 @@ class _FloorCard extends StatelessWidget {
   const _FloorCard({
     required this.author,
     required this.child,
+    this.onAuthorTap,
     this.postedAt,
     this.floor,
     this.onQuote,
   });
 
   final String author;
+  final VoidCallback? onAuthorTap;
   final String? postedAt;
   final String? floor;
   final VoidCallback? onQuote;
@@ -438,13 +463,9 @@ class _FloorCard extends StatelessWidget {
                     spacing: 6,
                     runSpacing: 2,
                     children: [
-                      Text(
-                        author,
-                        style: const TextStyle(
-                          color: AppColors.brand,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
+                      _FloorAuthorName(
+                        author: author,
+                        onTap: onAuthorTap,
                       ),
                       if (postedAt != null)
                         Text(
@@ -489,20 +510,51 @@ class _FloorCard extends StatelessWidget {
   }
 }
 
+class _FloorAuthorName extends StatelessWidget {
+  const _FloorAuthorName({
+    required this.author,
+    this.onTap,
+  });
+
+  final String author;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(
+      color: AppColors.brand,
+      fontSize: 15,
+      fontWeight: FontWeight.w800,
+    );
+
+    if (onTap == null) {
+      return Text(author, style: style);
+    }
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Text(author, style: style),
+    );
+  }
+}
+
 class _ThreadMetaChip extends StatelessWidget {
   const _ThreadMetaChip({
     required this.icon,
     required this.text,
     this.highlighted = false,
+    this.onTap,
   });
 
   final IconData icon;
   final String text;
   final bool highlighted;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final chip = Container(
       constraints: const BoxConstraints(minHeight: 32),
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
@@ -527,6 +579,17 @@ class _ThreadMetaChip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+
+    if (onTap == null) return chip;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: chip,
       ),
     );
   }

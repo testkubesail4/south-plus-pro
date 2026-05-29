@@ -83,6 +83,7 @@ class ThreadReply {
   const ThreadReply({
     required this.author,
     required this.content,
+    this.authorUrl,
     this.postedAt,
     this.floor,
     this.quote,
@@ -95,6 +96,7 @@ class ThreadReply {
 
   final String author;
   final String content;
+  final String? authorUrl;
   final String? postedAt;
   final String? floor;
   final String? quote;
