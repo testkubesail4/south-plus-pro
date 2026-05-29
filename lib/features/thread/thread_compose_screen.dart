@@ -147,7 +147,11 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  WindCodeToolbar(controller: _content, enabled: !_submitting),
+                  WindCodeToolbar(
+                    controller: _content,
+                    enabled: !_submitting,
+                    baseUri: widget.repository.networkConfig.baseUri,
+                  ),
                   if (_error != null) ...[
                     const SizedBox(height: 10),
                     Text(

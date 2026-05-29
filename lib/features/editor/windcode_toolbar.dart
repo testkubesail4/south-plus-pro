@@ -8,10 +8,12 @@ class WindCodeToolbar extends StatelessWidget {
     super.key,
     required this.controller,
     this.enabled = true,
+    this.baseUri,
   });
 
   final TextEditingController controller;
   final bool enabled;
+  final Uri? baseUri;
 
   @override
   Widget build(BuildContext context) {
@@ -91,6 +93,7 @@ class WindCodeToolbar extends StatelessWidget {
       isScrollControlled: true,
       builder: (context) {
         return SouthPlusEmojiPicker(
+          baseUri: baseUri,
           onSelected: (emoji) {
             Navigator.of(context).pop();
             _insertText(emoji.code);
