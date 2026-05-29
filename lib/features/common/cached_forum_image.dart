@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -215,8 +217,8 @@ class _ImageActionPlaceholder extends StatelessWidget {
         final hasBoundedHeight = constraints.maxHeight.isFinite;
         final resolvedWidth =
             width ?? (hasBoundedWidth ? constraints.maxWidth : double.infinity);
-        final resolvedHeight =
-            height ?? (hasBoundedHeight ? constraints.maxHeight : 120.0);
+        final resolvedHeight = height ??
+            (hasBoundedHeight ? math.min(constraints.maxHeight, 160.0) : 120.0);
         final compact = (hasBoundedWidth && constraints.maxWidth < 64) ||
             (hasBoundedHeight && constraints.maxHeight < 64) ||
             (width != null && width! < 64) ||

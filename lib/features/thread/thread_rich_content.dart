@@ -38,9 +38,10 @@ class ThreadRichContent extends StatelessWidget {
             inlineSpans.add(_emojiSpan(segment));
           } else {
             flushInline();
+            final topPadding = children.isEmpty ? 0.0 : 10.0;
             children.add(
               Padding(
-                padding: const EdgeInsets.only(top: 10),
+                padding: EdgeInsets.only(top: topPadding),
                 child: ThreadInlineImage(
                   image: ThreadImage(url: segment.url!, alt: segment.alt),
                 ),
