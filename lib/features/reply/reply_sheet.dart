@@ -82,36 +82,6 @@ class ReplyComposerState extends State<ReplyComposer> {
     );
   }
 
-  void _showQuickInsert() {
-    const items = [':)', ':D', 'T_T', 'orz', '支持一下'];
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: items
-                  .map(
-                    (item) => ActionChip(
-                      label: Text(item),
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        insertContent(item);
-                      },
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -200,11 +170,6 @@ class ReplyComposerState extends State<ReplyComposer> {
                       : const Icon(Icons.send_outlined, size: 18),
                   label: Text(_submitting ? '提交中...' : '提交回复'),
                 ),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton(
-                onPressed: _submitting ? null : _showQuickInsert,
-                child: const Text('表情'),
               ),
             ],
           ),

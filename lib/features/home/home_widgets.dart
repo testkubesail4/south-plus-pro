@@ -517,36 +517,3 @@ class _DesktopLink extends StatelessWidget {
     );
   }
 }
-
-class _LoadError extends StatelessWidget {
-  const _LoadError({
-    required this.title,
-    required this.message,
-    required this.onRetry,
-  });
-
-  final String title;
-  final String message;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          Text(message, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(Icons.refresh),
-            label: const Text('重试'),
-          ),
-        ],
-      ),
-    );
-  }
-}

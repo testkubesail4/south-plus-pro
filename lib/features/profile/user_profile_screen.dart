@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../common/async_state_view.dart';
 import '../thread/thread_detail_screen.dart';
 
 part 'user_profile_widgets.dart';
@@ -48,13 +49,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             future: _future,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return _ProfileError(
+                return AsyncErrorView(
+                  title: '用户中心加载失败',
                   message: '${snapshot.error}',
                   onRetry: _refresh,
                 );
               }
               if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
+                return const ThreadListSkeleton(itemCount: 5);
               }
               final profile = snapshot.data!;
               return NestedScrollView(

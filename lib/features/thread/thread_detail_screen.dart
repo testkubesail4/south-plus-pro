@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/async_state_view.dart';
 import '../reply/reply_sheet.dart';
 import 'thread_post_body.dart';
 
@@ -27,6 +28,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final Map<String, ThreadFavoriteState> _favoriteOverrides =
       <String, ThreadFavoriteState>{};
   bool _favoriteBusy = false;
+  bool _onlyOriginalPoster = false;
   late Future<ThreadDetail> _future;
 
   @override
@@ -178,40 +180,25 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '帖子加载失败',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${snapshot.error}',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 16),
-                    OutlinedButton.icon(
-                      onPressed: _refresh,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('重试'),
-                    ),
-                  ],
-                ),
-              ),
+            return AsyncErrorView(
+              title: '帖子加载失败',
+              message: '${snapshot.error}',
+              onRetry: _refresh,
             );
           }
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const ThreadDetailSkeleton();
           }
           final detail = snapshot.data!;
           final favorite = detail.favorite == null
               ? null
               : _effectiveFavorite(detail.favorite!);
+          final originalAuthor = detail.thread.author;
+          final replies = _onlyOriginalPoster && originalAuthor != null
+              ? detail.replies
+                  .where((reply) => reply.author == originalAuthor)
+                  .toList()
+              : detail.replies;
           return RefreshIndicator(
             color: AppColors.brand,
             onRefresh: _refresh,
@@ -257,27 +244,50 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                             ),
                         ],
                       ),
-                      if (favorite != null) ...[
-                        const SizedBox(height: 14),
-                        OutlinedButton.icon(
-                          onPressed: _favoriteBusy
-                              ? null
-                              : () => _handleFavorite(favorite),
-                          icon: _favoriteBusy
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : Icon(
-                                  favorite.canRemove
-                                      ? Icons.star
-                                      : Icons.star_border,
-                                ),
-                          label: Text(favorite.canRemove ? '取消收藏' : '收藏'),
-                        ),
-                      ],
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          if (favorite != null)
+                            OutlinedButton.icon(
+                              onPressed: _favoriteBusy
+                                  ? null
+                                  : () => _handleFavorite(favorite),
+                              icon: _favoriteBusy
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    )
+                                  : Icon(
+                                      favorite.canRemove
+                                          ? Icons.star
+                                          : Icons.star_border,
+                                    ),
+                              label: Text(favorite.canRemove ? '取消收藏' : '收藏'),
+                            ),
+                          FilterChip(
+                            selected: _onlyOriginalPoster,
+                            showCheckmark: false,
+                            avatar: Icon(
+                              _onlyOriginalPoster
+                                  ? Icons.person
+                                  : Icons.person_outline,
+                              size: 18,
+                            ),
+                            label: const Text('只看楼主'),
+                            onSelected: originalAuthor == null
+                                ? null
+                                : (selected) {
+                                    setState(() {
+                                      _onlyOriginalPoster = selected;
+                                    });
+                                  },
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -300,7 +310,15 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                ...detail.replies.map(
+                if (_onlyOriginalPoster && replies.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: EmptyStateView(
+                      title: '没有楼主回复',
+                      message: '当前页只包含其他用户回复。',
+                    ),
+                  ),
+                ...replies.map(
                   (reply) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _FloorCard(
