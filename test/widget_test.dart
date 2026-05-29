@@ -63,6 +63,17 @@ void main() {
 
     expect(inlineImageContainer.color, isNull);
     expect(tester.getSize(find.byType(ThreadInlineImage)).height, 160);
+    expect(find.byIcon(Icons.download_outlined), findsNothing);
+
+    final inlineImageTapTarget = tester.widget<InkWell>(
+      find.byWidgetPredicate(
+        (widget) => widget is InkWell && widget.onLongPress != null,
+      ),
+    );
+    inlineImageTapTarget.onTap!();
+    await tester.pumpAndSettle();
+
+    expect(find.text('保存图片'), findsOneWidget);
     expect(find.byIcon(Icons.download_outlined), findsOneWidget);
   });
 

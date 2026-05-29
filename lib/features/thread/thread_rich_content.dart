@@ -224,67 +224,65 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
   void _openImageViewer() {
     showDialog<void>(
       context: context,
-      builder: (context) => Dialog(
-        child: InteractiveViewer(
-          child: CachedForumImage(url: widget.image.url, fit: BoxFit.contain),
-        ),
-      ),
+      builder: (dialogContext) {
+        final size = MediaQuery.sizeOf(dialogContext);
+        return Dialog(
+          child: SizedBox(
+            width: size.width * 0.92,
+            height: size.height * 0.82,
+            child: Column(
+              children: [
+                Expanded(
+                  child: InteractiveViewer(
+                    child: CachedForumImage(
+                      url: widget.image.url,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+                    child: TextButton.icon(
+                      onPressed: _saveImage,
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('保存图片'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
+    return InkWell(
       borderRadius: BorderRadius.circular(8),
-      child: Stack(
-        children: [
-          InkWell(
-            onTap: _openImageViewer,
-            child: Container(
-              key: const ValueKey('thread-inline-image-container'),
-              width: double.infinity,
-              constraints: const BoxConstraints(maxHeight: 360),
-              child: CachedForumImage(
-                url: widget.image.url,
-                fit: BoxFit.contain,
-                placeholder: (context) {
-                  return const SizedBox(
-                    height: 160,
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                },
-              ),
-            ),
+      onTap: _openImageViewer,
+      onLongPress: _saveImage,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          key: const ValueKey('thread-inline-image-container'),
+          width: double.infinity,
+          constraints: const BoxConstraints(maxHeight: 360),
+          child: CachedForumImage(
+            url: widget.image.url,
+            fit: BoxFit.contain,
+            placeholder: (context) {
+              return const SizedBox(
+                height: 160,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            },
           ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Material(
-              type: MaterialType.circle,
-              color: Colors.black54,
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: IconButton(
-                  tooltip: '保存图片',
-                  onPressed: _saving ? null : _saveImage,
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.download_outlined),
-                  color: Colors.white,
-                  disabledColor: Colors.white70,
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
