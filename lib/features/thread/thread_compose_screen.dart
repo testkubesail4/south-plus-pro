@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../editor/windcode_toolbar.dart';
 
 class ThreadComposeScreen extends StatefulWidget {
   const ThreadComposeScreen({
@@ -145,6 +146,8 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                       alignLabelWithHint: true,
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  WindCodeToolbar(controller: _content, enabled: !_submitting),
                   if (_error != null) ...[
                     const SizedBox(height: 10),
                     Text(
@@ -211,7 +214,7 @@ class _ComposeNote extends StatelessWidget {
         border: Border.all(color: AppColors.border),
       ),
       child: const Text(
-        '当前支持基础标题与正文发布。高级 WindCode、出售帖、隐藏帖和附件后续单独补。',
+        '出售内容请使用 WindCode：[sell=0]出售内容[/sell]。整帖出售、隐藏帖和附件后续单独补。',
         style: TextStyle(color: AppColors.textMuted, height: 1.45),
       ),
     );
