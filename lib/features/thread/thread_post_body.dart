@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../theme/app_theme.dart';
@@ -65,58 +64,12 @@ class ThreadPostBody extends StatelessWidget {
             ),
           ),
         ],
-        if (links.isNotEmpty) ...[
-          if (content.isNotEmpty || quote != null || images.isNotEmpty)
-            const SizedBox(height: 8),
-          _ThreadLinkList(links: links),
-        ],
         if (!saleBoxesFirst && saleBoxes.isNotEmpty) ...[
-          if (content.isNotEmpty || images.isNotEmpty || links.isNotEmpty)
+          if (content.isNotEmpty || images.isNotEmpty)
             const SizedBox(height: 12),
           ...saleBoxWidgets,
         ],
       ],
-    );
-  }
-}
-
-class _ThreadLinkList extends StatelessWidget {
-  const _ThreadLinkList({required this.links});
-
-  final List<ThreadLink> links;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final maxChipWidth =
-            constraints.maxWidth < 280 ? constraints.maxWidth : 280.0;
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: links
-              .map(
-                (link) => ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: maxChipWidth),
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: link.url));
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('链接已复制')),
-                      );
-                    },
-                    icon: const Icon(Icons.link, size: 16),
-                    label: Text(
-                      link.label,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-        );
-      },
     );
   }
 }
