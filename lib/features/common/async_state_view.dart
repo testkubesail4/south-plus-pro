@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -214,24 +215,46 @@ class SkeletonCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: height,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          for (final widthFactor in lines) ...[
-            FractionallySizedBox(
-              widthFactor: widthFactor,
-              child: const SkeletonBlock(height: 13, borderRadius: 999),
-            ),
-            if (widthFactor != lines.last) const SizedBox(height: 10),
-          ],
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (lines.isEmpty) return const SizedBox.shrink();
+
+          final lineCount = lines.length;
+          final maxHeight =
+              constraints.maxHeight.isFinite ? constraints.maxHeight : height;
+          final desiredGap = lineCount > 1 ? 8.0 : 0.0;
+          final desiredLineHeight = 13.0;
+          final desiredContentHeight =
+              desiredLineHeight * lineCount + desiredGap * (lineCount - 1);
+          final scale = desiredContentHeight > 0
+              ? math.min(1.0, maxHeight / desiredContentHeight)
+              : 1.0;
+          final lineHeight = desiredLineHeight * scale;
+          final gap = lineCount > 1 ? desiredGap * scale : 0.0;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var index = 0; index < lines.length; index++) ...[
+                FractionallySizedBox(
+                  widthFactor: lines[index],
+                  child: SkeletonBlock(
+                    height: lineHeight,
+                    borderRadius: 999,
+                  ),
+                ),
+                if (index != lines.length - 1) SizedBox(height: gap),
+              ],
+            ],
+          );
+        },
       ),
     );
   }

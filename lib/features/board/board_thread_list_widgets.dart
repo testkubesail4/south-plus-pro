@@ -24,6 +24,64 @@ class _BoardAdItem extends _BoardListItem {
   final ForumBoardAd ad;
 }
 
+class _BoardThreadListSkeleton extends StatelessWidget {
+  const _BoardThreadListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    const itemCount = 9;
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
+      itemCount: itemCount,
+      itemBuilder: (context, index) {
+        final hasPreview = index % 3 != 1;
+
+        return _ListLine(
+          minHeight: hasPreview ? 86 : 72,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FractionallySizedBox(
+                      widthFactor: index.isEven ? 0.86 : 0.72,
+                      child: const SkeletonBlock(
+                        height: 15,
+                        borderRadius: 999,
+                      ),
+                    ),
+                    if (hasPreview) ...[
+                      const SizedBox(height: 7),
+                      const FractionallySizedBox(
+                        widthFactor: 0.62,
+                        child: SkeletonBlock(height: 12, borderRadius: 999),
+                      ),
+                    ],
+                    const SizedBox(height: 7),
+                    FractionallySizedBox(
+                      widthFactor: index % 4 == 0 ? 0.5 : 0.42,
+                      child: const SkeletonBlock(
+                        height: 12,
+                        borderRadius: 999,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              const SkeletonBlock(width: 50, height: 24, borderRadius: 999),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _BoardAdBanner extends StatelessWidget {
   const _BoardAdBanner({required this.ad});
 

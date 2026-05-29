@@ -111,7 +111,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                       );
                     }
                     if (!snapshot.hasData) {
-                      return const ThreadListSkeleton();
+                      return const _BoardThreadListSkeleton();
                     }
                     final page = snapshot.data!;
                     final items = _BoardListItem.fromPage(page);
