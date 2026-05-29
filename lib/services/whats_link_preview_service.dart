@@ -27,8 +27,9 @@ class WhatsLinkPreviewService {
       if (decoded is! Map<String, dynamic>) {
         throw const WhatsLinkPreviewException('预览数据格式不正确');
       }
-      if (decoded['error'] != null) {
-        throw WhatsLinkPreviewException('${decoded['error']}');
+      final error = apiErrorMessage(decoded);
+      if (error != null) {
+        throw WhatsLinkPreviewException(error);
       }
       return WhatsLinkPreview.fromJson(decoded, sourceUrl: link);
     } on WhatsLinkPreviewException {
@@ -42,6 +43,11 @@ class WhatsLinkPreviewService {
     } finally {
       if (_client == null) client.close(force: true);
     }
+  }
+
+  static String? apiErrorMessage(Map<String, dynamic> json) {
+    final error = json['error']?.toString().trim();
+    return error == null || error.isEmpty ? null : error;
   }
 }
 
