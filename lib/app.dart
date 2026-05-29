@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'features/home/home_shell.dart';
+import 'services/forum_network_config.dart';
 import 'services/forum_repository.dart';
 import 'theme/app_theme.dart';
 
@@ -29,13 +30,18 @@ class SessionGate extends StatefulWidget {
 }
 
 class _SessionGateState extends State<SessionGate> {
-  late final ForumRepository _repository =
-      widget.repository ?? ForumRepository();
-  late Future<bool> _restoreFuture = _repository.restoreSession();
+  ForumRepository? _repository;
+  late Future<bool> _restoreFuture = _restoreSession();
+
+  Future<bool> _restoreSession() async {
+    _repository ??= widget.repository ??
+        ForumRepository(config: await ForumNetworkSettings.load());
+    return _repository!.restoreSession();
+  }
 
   void _retry() {
     setState(() {
-      _restoreFuture = _repository.restoreSession();
+      _restoreFuture = _restoreSession();
     });
   }
 
@@ -50,6 +56,14 @@ class _SessionGateState extends State<SessionGate> {
             onRetry: _retry,
             onContinue: () {
               setState(() {
+                _repository ??= widget.repository ??
+                    ForumRepository(
+                      config: const ForumNetworkConfig(
+                        site: ForumNetworkConfig.defaultSite,
+                        dohEnabled: true,
+                        dohProvider: ForumNetworkConfig.defaultProvider,
+                      ),
+                    );
                 _restoreFuture = Future<bool>.value(false);
               });
             },
@@ -60,7 +74,7 @@ class _SessionGateState extends State<SessionGate> {
           return const _SessionSplash();
         }
 
-        return HomeShell(repository: _repository);
+        return HomeShell(repository: _repository!);
       },
     );
   }

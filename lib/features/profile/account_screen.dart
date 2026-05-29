@@ -5,6 +5,7 @@ import '../../services/image_loading_settings.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/cached_forum_image.dart';
+import 'network_settings_screen.dart';
 import 'user_profile_screen.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -96,6 +97,29 @@ class _AccountScreenState extends State<AccountScreen> {
                   subtitle: '清除本地登录状态',
                   onTap: _logout,
                 ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _AccountSection(
+            title: '网络',
+            children: [
+              _AccountTile(
+                icon: Icons.public_outlined,
+                title: '连接设置',
+                subtitle:
+                    '${widget.repository.networkConfig.site.host} · ${widget.repository.networkConfig.dohEnabled ? 'DoH 已启用' : '系统 DNS'}',
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => NetworkSettingsScreen(
+                        repository: widget.repository,
+                      ),
+                    ),
+                  );
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              ),
             ],
           ),
           const SizedBox(height: 14),

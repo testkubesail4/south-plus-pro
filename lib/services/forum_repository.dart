@@ -2,33 +2,81 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../models/forum_models.dart';
 import 'forum_client.dart';
+import 'forum_network_config.dart';
 import 'forum_url_resolver.dart';
 import 'parsers/board_thread_page_parser.dart';
 import 'parsers/forum_form_parser.dart';
 import 'parsers/forum_response_parser.dart';
 import 'parsers/home_page_parser.dart';
 import 'parsers/search_result_parser.dart';
+import 'parsers/thread_content_parser.dart';
 import 'parsers/thread_detail_parser.dart';
 import 'parsers/user_profile_parser.dart';
 
 class ForumRepository {
-  ForumRepository({ForumClient? client}) : _client = client ?? ForumClient();
+  ForumRepository({
+    ForumClient? client,
+    ForumNetworkConfig? config,
+  })  : _client = client ??
+            ForumClient(
+              config: config ??
+                  const ForumNetworkConfig(
+                    site: ForumNetworkConfig.defaultSite,
+                    dohEnabled: true,
+                    dohProvider: ForumNetworkConfig.defaultProvider,
+                  ),
+            ),
+        _config = config ??
+            client?.config ??
+            const ForumNetworkConfig(
+              site: ForumNetworkConfig.defaultSite,
+              dohEnabled: true,
+              dohProvider: ForumNetworkConfig.defaultProvider,
+            ),
+        _urls = ForumUrlResolver(
+          baseUri: (config ?? client?.config)?.baseUri ??
+              ForumNetworkConfig.defaultSite.baseUri,
+        );
 
-  final ForumClient _client;
-  final ForumUrlResolver _urls = const ForumUrlResolver();
-  final BoardThreadPageParser _boardThreadPageParser =
-      const BoardThreadPageParser();
+  ForumClient _client;
+  ForumNetworkConfig _config;
+  ForumUrlResolver _urls;
+  late BoardThreadPageParser _boardThreadPageParser =
+      BoardThreadPageParser(urls: _urls);
   final ForumFormParser _formParser = const ForumFormParser();
   final ForumResponseParser _responseParser = const ForumResponseParser();
-  final HomePageParser _homePageParser = const HomePageParser();
-  final SearchResultParser _searchResultParser = const SearchResultParser();
-  final ThreadDetailParser _threadDetailParser = const ThreadDetailParser();
-  final UserProfileParser _userProfileParser = const UserProfileParser();
+  late HomePageParser _homePageParser = HomePageParser(urls: _urls);
+  late SearchResultParser _searchResultParser = SearchResultParser(urls: _urls);
+  late ThreadDetailParser _threadDetailParser = ThreadDetailParser(
+    urls: _urls,
+    contentParser: ThreadContentParser(urls: _urls),
+  );
+  late UserProfileParser _userProfileParser = UserProfileParser(urls: _urls);
   String? _currentUsername;
 
   bool get isLoggedIn => _client.isLoggedIn;
 
   String? get currentUsername => _currentUsername;
+
+  ForumNetworkConfig get networkConfig => _config;
+
+  Future<void> updateNetworkConfig(ForumNetworkConfig config) async {
+    if (config == _config) return;
+    _client.close(force: true);
+    _config = config;
+    _urls = ForumUrlResolver(baseUri: config.baseUri);
+    _boardThreadPageParser = BoardThreadPageParser(urls: _urls);
+    _homePageParser = HomePageParser(urls: _urls);
+    _searchResultParser = SearchResultParser(urls: _urls);
+    _threadDetailParser = ThreadDetailParser(
+      urls: _urls,
+      contentParser: ThreadContentParser(urls: _urls),
+    );
+    _userProfileParser = UserProfileParser(urls: _urls);
+    _client = ForumClient(config: config);
+    _currentUsername = null;
+    await ForumNetworkSettings.save(config);
+  }
 
   Future<bool> restoreSession() async {
     await _client.restoreCookies();

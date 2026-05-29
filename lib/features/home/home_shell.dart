@@ -92,8 +92,15 @@ class _ForumHomePageState extends State<ForumHomePage> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = widget.repository.fetchHome());
-    await _future;
+    final next = widget.repository.fetchHome();
+    setState(() {
+      _future = next;
+    });
+    try {
+      await next;
+    } catch (_) {
+      // FutureBuilder renders the error state.
+    }
   }
 
   @override
@@ -206,8 +213,15 @@ class _BoardDirectoryPageState extends State<BoardDirectoryPage> {
   late Future<ForumHomeSnapshot> _future = widget.repository.fetchHome();
 
   Future<void> _refresh() async {
-    setState(() => _future = widget.repository.fetchHome());
-    await _future;
+    final next = widget.repository.fetchHome();
+    setState(() {
+      _future = next;
+    });
+    try {
+      await next;
+    } catch (_) {
+      // FutureBuilder renders the error state.
+    }
   }
 
   @override
