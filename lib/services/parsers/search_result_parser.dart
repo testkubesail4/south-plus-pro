@@ -4,7 +4,8 @@ import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
 
 class SearchResultParser {
-  const SearchResultParser({this.urls = const ForumUrlResolver()});
+  SearchResultParser({ForumUrlResolver? urls})
+      : urls = urls ?? ForumUrlResolver();
 
   final ForumUrlResolver urls;
 

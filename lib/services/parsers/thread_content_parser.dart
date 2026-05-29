@@ -4,7 +4,8 @@ import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
 
 class ThreadContentParser {
-  const ThreadContentParser({this.urls = const ForumUrlResolver()});
+  ThreadContentParser({ForumUrlResolver? urls})
+      : urls = urls ?? ForumUrlResolver();
 
   final ForumUrlResolver urls;
 

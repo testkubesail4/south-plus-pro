@@ -5,10 +5,11 @@ import '../forum_url_resolver.dart';
 import 'thread_content_parser.dart';
 
 class ThreadDetailParser {
-  const ThreadDetailParser({
-    this.urls = const ForumUrlResolver(),
-    this.contentParser = const ThreadContentParser(),
-  });
+  ThreadDetailParser({
+    ForumUrlResolver? urls,
+    ThreadContentParser? contentParser,
+  })  : urls = urls ?? ForumUrlResolver(),
+        contentParser = contentParser ?? ThreadContentParser(urls: urls);
 
   final ForumUrlResolver urls;
   final ThreadContentParser contentParser;

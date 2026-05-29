@@ -2,20 +2,37 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'forum_network_config.dart';
 import 'forum_session_store.dart';
 
 class ForumClient {
   ForumClient({
     HttpClient? httpClient,
-    Uri? baseUri,
+    ForumNetworkConfig? config,
     ForumSessionStore? sessionStore,
-  })  : baseUri = baseUri ?? Uri.parse('https://south-plus.net/'),
+  })  : config = config ??
+            const ForumNetworkConfig(
+              site: ForumNetworkConfig.defaultSite,
+              dohEnabled: true,
+              dohProvider: ForumNetworkConfig.defaultProvider,
+            ),
         _sessionStore = sessionStore ?? ForumSessionStore(),
-        _httpClient = httpClient ?? HttpClient();
+        _ownsHttpClient = httpClient == null,
+        _httpClient = httpClient ??
+            createForumHttpClient(
+              config ??
+                  const ForumNetworkConfig(
+                    site: ForumNetworkConfig.defaultSite,
+                    dohEnabled: true,
+                    dohProvider: ForumNetworkConfig.defaultProvider,
+                  ),
+            );
 
   final HttpClient _httpClient;
+  final bool _ownsHttpClient;
   final ForumSessionStore? _sessionStore;
-  final Uri baseUri;
+  final ForumNetworkConfig config;
+  Uri get baseUri => config.baseUri;
   final Map<String, ForumStoredCookie> _cookies = <String, ForumStoredCookie>{};
   Future<void>? _restoreFuture;
 
@@ -141,5 +158,9 @@ class ForumClient {
       (cookie) =>
           !cookie.isExpired && cookie.name.toLowerCase().contains('winduser'),
     );
+  }
+
+  void close({bool force = false}) {
+    if (_ownsHttpClient) _httpClient.close(force: force);
   }
 }

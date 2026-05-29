@@ -1,19 +1,38 @@
 import '../models/forum_models.dart';
+import 'forum_network_config.dart';
 
 class ForumUrlResolver {
-  const ForumUrlResolver();
+  ForumUrlResolver({
+    Uri? baseUri,
+  }) : baseUri = baseUri ?? ForumNetworkConfig.defaultSite.baseUri;
+
+  final Uri baseUri;
+
+  String get _origin => '${baseUri.scheme}://${baseUri.host}';
 
   String absoluteUrl(String href) {
     final uri = Uri.tryParse(href);
-    if (uri != null && uri.hasScheme) return href;
-    if (href.startsWith('//')) return 'https:$href';
-    if (href.startsWith('/')) return 'https://south-plus.net$href';
-    return 'https://south-plus.net/$href';
+    if (uri != null && uri.hasScheme) {
+      if (_isForumHost(uri.host)) {
+        return uri
+            .replace(scheme: baseUri.scheme, host: baseUri.host)
+            .toString();
+      }
+      return href;
+    }
+    if (href.startsWith('//')) return absoluteUrl('https:$href');
+    if (href.startsWith('/')) return '$_origin$href';
+    return '$_origin/$href';
   }
 
   String relativePath(String url) {
-    if (!url.startsWith('https://south-plus.net/')) return url;
-    return url.substring('https://south-plus.net/'.length);
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) return url;
+    if (!_isForumHost(uri.host)) return url;
+    final path = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
+    final query = uri.hasQuery ? '?${uri.query}' : '';
+    final fragment = uri.hasFragment ? '#${uri.fragment}' : '';
+    return '$path$query$fragment';
   }
 
   String captchaPath(String src) {
@@ -77,23 +96,23 @@ class ForumUrlResolver {
       if (page <= 1) return href;
       final fidMatch = RegExp(r'\?f(\d+)(?:_\d+)?\.html').firstMatch(href);
       if (fidMatch != null) {
-        return 'https://south-plus.net/simple/index.php?f${fidMatch.group(1)}_$page.html';
+        return '$_origin/simple/index.php?f${fidMatch.group(1)}_$page.html';
       }
     }
     final fid = fidFromCategory(category);
     if (fid != null) {
       final pagePart = page <= 1 ? '' : '_$page';
-      return 'https://south-plus.net/simple/index.php?f$fid$pagePart.html';
+      return '$_origin/simple/index.php?f$fid$pagePart.html';
     }
-    return 'https://south-plus.net/simple/index.php?${category.slug}.html';
+    return '$_origin/simple/index.php?${category.slug}.html';
   }
 
   String threadDetailPath(String url) {
     final uri = Uri.tryParse(url);
-    final isSouthPlus =
-        uri == null || uri.host.isEmpty || uri.host.endsWith('south-plus.net');
+    final isForum =
+        uri == null || uri.host.isEmpty || _isForumHost(uri.host);
     final tid = tidFromUrl(url);
-    if (isSouthPlus &&
+    if (isForum &&
         tid != null &&
         !url.contains('/simple/') &&
         (url.contains('read.php') || url.contains('job.php?action-topost'))) {
@@ -104,15 +123,15 @@ class ForumUrlResolver {
 
   String userTabUrl(String uid, UserProfileTab tab) {
     return switch (tab) {
-      UserProfileTab.home => 'https://south-plus.net/u.php?uid-$uid.html',
+      UserProfileTab.home => '$_origin/u.php?uid-$uid.html',
       UserProfileTab.profile =>
-        'https://south-plus.net/u.php?action-show-uid-$uid.html',
+        '$_origin/u.php?action-show-uid-$uid.html',
       UserProfileTab.topics =>
-        'https://south-plus.net/u.php?action-topic-uid-$uid.html',
+        '$_origin/u.php?action-topic-uid-$uid.html',
       UserProfileTab.posts =>
-        'https://south-plus.net/u.php?action-post-uid-$uid.html',
+        '$_origin/u.php?action-post-uid-$uid.html',
       UserProfileTab.favorites =>
-        'https://south-plus.net/u.php?action-favor-uid-$uid.html',
+        '$_origin/u.php?action-favor-uid-$uid.html',
     };
   }
 
@@ -126,5 +145,13 @@ class ForumUrlResolver {
     return query.endsWith('.html')
         ? query.substring(0, query.length - '.html'.length)
         : query;
+  }
+
+  bool _isForumHost(String host) {
+    final normalized = host.toLowerCase();
+    return ForumNetworkConfig.sites.any(
+      (site) =>
+          normalized == site.host || normalized.endsWith('.${site.host}'),
+    );
   }
 }

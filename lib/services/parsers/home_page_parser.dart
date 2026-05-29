@@ -5,7 +5,7 @@ import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
 
 class HomePageParser {
-  const HomePageParser({this.urls = const ForumUrlResolver()});
+  HomePageParser({ForumUrlResolver? urls}) : urls = urls ?? ForumUrlResolver();
 
   final ForumUrlResolver urls;
 
@@ -22,7 +22,7 @@ class HomePageParser {
     final scriptSrc =
         container?.querySelector('script[src]')?.attributes['src'];
     if (scriptSrc == null || scriptSrc.isEmpty) return null;
-    return Uri.parse('https://south-plus.net/').resolve(scriptSrc).toString();
+    return urls.absoluteUrl(scriptSrc);
   }
 
   List<ForumThread> parseLatestThreadsFromScript(String script) {
