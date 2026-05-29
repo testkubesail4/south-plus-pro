@@ -56,7 +56,14 @@ void main() {
     );
     await tester.pump();
 
+    final inlineImageContainerFinder =
+        find.byKey(const ValueKey('thread-inline-image-container'));
+    final inlineImageContainer =
+        tester.widget<Container>(inlineImageContainerFinder);
+
+    expect(inlineImageContainer.color, isNull);
     expect(tester.getSize(find.byType(ThreadInlineImage)).height, 160);
+    expect(find.byIcon(Icons.download_outlined), findsOneWidget);
   });
 
   testWidgets('post body does not duplicate inline links as buttons',

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
+import '../../services/image_saver.dart';
 import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
 
@@ -178,40 +179,112 @@ class _RichQuoteBlock extends StatelessWidget {
   }
 }
 
-class ThreadInlineImage extends StatelessWidget {
+class ThreadInlineImage extends StatefulWidget {
   const ThreadInlineImage({super.key, required this.image});
 
   final ThreadImage image;
 
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: () => showDialog<void>(
-        context: context,
-        builder: (context) => Dialog(
-          child: InteractiveViewer(
-            child: CachedForumImage(url: image.url, fit: BoxFit.contain),
-          ),
+  State<ThreadInlineImage> createState() => _ThreadInlineImageState();
+}
+
+class _ThreadInlineImageState extends State<ThreadInlineImage> {
+  bool _saving = false;
+
+  Future<void> _saveImage() async {
+    if (_saving) return;
+
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      final file = await ForumImageCache.manager.getSingleFile(
+        widget.image.url,
+      );
+      final bytes = await file.readAsBytes();
+      await ImageSaver.saveImage(bytes, sourceUrl: widget.image.url);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('图片已保存到相册')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存图片失败：$error')),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+      });
+    }
+  }
+
+  void _openImageViewer() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        child: InteractiveViewer(
+          child: CachedForumImage(url: widget.image.url, fit: BoxFit.contain),
         ),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: double.infinity,
-          constraints: const BoxConstraints(maxHeight: 360),
-          color: AppColors.surfaceTint,
-          child: CachedForumImage(
-            url: image.url,
-            fit: BoxFit.contain,
-            placeholder: (context) {
-              return const SizedBox(
-                height: 160,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Stack(
+        children: [
+          InkWell(
+            onTap: _openImageViewer,
+            child: Container(
+              key: const ValueKey('thread-inline-image-container'),
+              width: double.infinity,
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: CachedForumImage(
+                url: widget.image.url,
+                fit: BoxFit.contain,
+                placeholder: (context) {
+                  return const SizedBox(
+                    height: 160,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                },
+              ),
+            ),
           ),
-        ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Material(
+              type: MaterialType.circle,
+              color: Colors.black54,
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: IconButton(
+                  tooltip: '保存图片',
+                  onPressed: _saving ? null : _saveImage,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.download_outlined),
+                  color: Colors.white,
+                  disabledColor: Colors.white70,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
