@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
+import 'south_plus_emoji_picker.dart';
 
 class WindCodeToolbar extends StatelessWidget {
   const WindCodeToolbar({
@@ -15,6 +16,11 @@ class WindCodeToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final actions = [
+      _WindCodeAction(
+        label: '表情',
+        icon: Icons.mood_outlined,
+        onTap: () => _showEmojiSheet(context),
+      ),
       _WindCodeAction(
         label: '出售',
         icon: Icons.sell_outlined,
@@ -75,6 +81,35 @@ class WindCodeToolbar extends StatelessWidget {
       suffix: suffix,
       placeholder: placeholder,
       selection: controller.value.selection,
+    );
+  }
+
+  Future<void> _showEmojiSheet(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return SouthPlusEmojiPicker(
+          onSelected: (emoji) {
+            Navigator.of(context).pop();
+            _insertText(emoji.code);
+          },
+        );
+      },
+    );
+  }
+
+  void _insertText(String value) {
+    final text = controller.text;
+    final selection = controller.selection;
+    final rawStart = selection.start < 0 ? text.length : selection.start;
+    final rawEnd = selection.end < 0 ? text.length : selection.end;
+    final start = rawStart < rawEnd ? rawStart : rawEnd;
+    final end = rawStart < rawEnd ? rawEnd : rawStart;
+    controller.value = TextEditingValue(
+      text: text.replaceRange(start, end, value),
+      selection: TextSelection.collapsed(offset: start + value.length),
     );
   }
 

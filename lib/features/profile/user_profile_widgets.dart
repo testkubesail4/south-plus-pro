@@ -630,36 +630,6 @@ class _EmptyList extends StatelessWidget {
   }
 }
 
-class _ProfileError extends StatelessWidget {
-  const _ProfileError({required this.message, required this.onRetry});
-
-  final String message;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('用户中心加载失败', style: TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _ProfileTheme {
   static const accent = Color(0xFFD97786);
 }

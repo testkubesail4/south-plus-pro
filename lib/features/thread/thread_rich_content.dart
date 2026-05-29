@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../theme/app_theme.dart';
+import '../common/cached_forum_image.dart';
 
 class ThreadRichContent extends StatelessWidget {
   const ThreadRichContent({
@@ -124,14 +125,12 @@ class ThreadRichContent extends StatelessWidget {
       alignment: PlaceholderAlignment.middle,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 1),
-        child: Image.network(
-          segment.url!,
+        child: CachedForumImage(
+          url: segment.url!,
           width: 26,
           height: 26,
           fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) {
-            return const SizedBox(width: 0, height: 0);
-          },
+          errorWidget: (context) => const SizedBox(width: 0, height: 0),
         ),
       ),
     );
@@ -191,7 +190,7 @@ class ThreadInlineImage extends StatelessWidget {
         context: context,
         builder: (context) => Dialog(
           child: InteractiveViewer(
-            child: Image.network(image.url, fit: BoxFit.contain),
+            child: CachedForumImage(url: image.url, fit: BoxFit.contain),
           ),
         ),
       ),
@@ -201,20 +200,13 @@ class ThreadInlineImage extends StatelessWidget {
           width: double.infinity,
           constraints: const BoxConstraints(maxHeight: 360),
           color: AppColors.surfaceTint,
-          child: Image.network(
-            image.url,
+          child: CachedForumImage(
+            url: image.url,
             fit: BoxFit.contain,
-            loadingBuilder: (context, child, progress) {
-              if (progress == null) return child;
+            placeholder: (context) {
               return const SizedBox(
                 height: 160,
                 child: Center(child: CircularProgressIndicator()),
-              );
-            },
-            errorBuilder: (context, error, stackTrace) {
-              return const SizedBox(
-                height: 96,
-                child: Center(child: Text('图片加载失败')),
               );
             },
           ),

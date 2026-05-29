@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/async_state_view.dart';
+import '../common/cached_forum_image.dart';
 import '../profile/user_profile_screen.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_compose_screen.dart';
@@ -100,11 +102,14 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                   future: _future,
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
-                      return _ErrorState(
-                          message: '${snapshot.error}', onRetry: _refresh);
+                      return AsyncErrorView(
+                        title: '板块加载失败',
+                        message: '${snapshot.error}',
+                        onRetry: _refresh,
+                      );
                     }
                     if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
+                      return const ThreadListSkeleton();
                     }
                     final page = snapshot.data!;
                     final items = _BoardListItem.fromPage(page);

@@ -8,8 +8,10 @@ environment:
   sdk: ">=3.4.0 <4.0.0"
 
 dependencies:
+  cached_network_image: ^3.4.1
   flutter:
     sdk: flutter
+  flutter_cache_manager: ^3.4.1
   html: ^0.15.6
   shared_preferences: ^2.5.5
 

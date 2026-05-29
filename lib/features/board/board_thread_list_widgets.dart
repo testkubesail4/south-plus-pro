@@ -41,10 +41,10 @@ class _BoardAdBanner extends StatelessWidget {
             decoration: const BoxDecoration(color: AppColors.surface),
             child: AspectRatio(
               aspectRatio: 4.65,
-              child: Image.network(
-                imageUrl,
+              child: CachedForumImage(
+                url: imageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
+                errorWidget: (context) {
                   return Container(
                     alignment: Alignment.center,
                     color: AppColors.surfaceTint,
@@ -595,36 +595,6 @@ class _ThreadRow extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
-
-  final String message;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('板块加载失败', style: TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('重试'),
-            ),
-          ],
         ),
       ),
     );

@@ -5,21 +5,71 @@ import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
+import '../common/async_state_view.dart';
+import '../profile/account_screen.dart';
 import '../profile/user_profile_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 
 part 'home_widgets.dart';
 
-class HomeShell extends StatelessWidget {
+class HomeShell extends StatefulWidget {
   const HomeShell({super.key, ForumRepository? repository})
       : repository = repository;
 
   final ForumRepository? repository;
 
   @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  late final ForumRepository _repository =
+      widget.repository ?? ForumRepository();
+  int _index = 0;
+
+  void _showHome() {
+    setState(() => _index = 0);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ForumHomePage(repository: repository ?? ForumRepository());
+    return Scaffold(
+      body: IndexedStack(
+        index: _index,
+        children: [
+          ForumHomePage(repository: _repository),
+          BoardDirectoryPage(repository: _repository),
+          SearchScreen(repository: _repository),
+          AccountScreen(repository: _repository, onLoggedOut: _showHome),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (value) => setState(() => _index = value),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: '首页',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.view_list_outlined),
+            selectedIcon: Icon(Icons.view_list),
+            label: '版块',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.search),
+            label: '搜索',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: '我的',
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -63,16 +113,13 @@ class _ForumHomePageState extends State<ForumHomePage> {
                 children: [
                   _TopBar(repository: widget.repository),
                   if (snapshot.hasError)
-                    _LoadError(
+                    AsyncErrorView(
                       title: '主页加载失败',
                       message: '${snapshot.error}',
                       onRetry: _refresh,
                     )
                   else if (data == null)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 96),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
+                    const HomeSkeleton()
                   else ...[
                     _ForumCrumbs(
                       items: const ['南+', 'South Plus', '茶馆'],
@@ -117,6 +164,18 @@ class _ForumHomePageState extends State<ForumHomePage> {
                               (item) => _ForumLink(
                                 title: item.title,
                                 subtitle: item.section,
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => BoardThreadListScreen(
+                                      category: ForumCategory(
+                                        name: item.title,
+                                        slug: item.section,
+                                        url: item.url,
+                                      ),
+                                      repository: widget.repository,
+                                    ),
+                                  ),
+                                ),
                               ),
                             )
                             .toList(),
@@ -129,6 +188,108 @@ class _ForumHomePageState extends State<ForumHomePage> {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class BoardDirectoryPage extends StatefulWidget {
+  const BoardDirectoryPage({super.key, required this.repository});
+
+  final ForumRepository repository;
+
+  @override
+  State<BoardDirectoryPage> createState() => _BoardDirectoryPageState();
+}
+
+class _BoardDirectoryPageState extends State<BoardDirectoryPage> {
+  late Future<ForumHomeSnapshot> _future = widget.repository.fetchHome();
+
+  Future<void> _refresh() async {
+    setState(() => _future = widget.repository.fetchHome());
+    await _future;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: FutureBuilder<ForumHomeSnapshot>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return AsyncErrorView(
+              title: '版块加载失败',
+              message: '${snapshot.error}',
+              onRetry: _refresh,
+            );
+          }
+          final data = snapshot.data;
+          if (data == null) return const HomeSkeleton();
+
+          return RefreshIndicator(
+            color: AppColors.brand,
+            onRefresh: _refresh,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+              children: [
+                Text('版块', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  '按源站分区组织，常用版块放在顶部。',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 16),
+                _ForumGroup(
+                  title: '热门版块',
+                  icon: Icons.local_fire_department_outlined,
+                  children: data.hot
+                      .map(
+                        (category) => _ForumLink(
+                          title: category.name,
+                          subtitle: category.slug,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => BoardThreadListScreen(
+                                category: category,
+                                repository: widget.repository,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+                ...data.sections.map(
+                  (section) => _ForumGroup(
+                    title: section.title,
+                    initiallyExpanded: false,
+                    children: section.items
+                        .map(
+                          (item) => _ForumLink(
+                            title: item.title,
+                            subtitle: item.section,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => BoardThreadListScreen(
+                                  category: ForumCategory(
+                                    name: item.title,
+                                    slug: item.section,
+                                    url: item.url,
+                                  ),
+                                  repository: widget.repository,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

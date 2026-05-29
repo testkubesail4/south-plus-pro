@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/async_state_view.dart';
 import '../thread/thread_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -105,15 +106,14 @@ class _SearchScreenState extends State<SearchScreen> {
                       future: future,
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
-                          return _SearchError(
+                          return AsyncErrorView(
+                            title: '搜索失败',
                             message: '${snapshot.error}',
                             onRetry: _search,
                           );
                         }
                         if (!snapshot.hasData) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
+                          return const ThreadListSkeleton(itemCount: 5);
                         }
                         final results = snapshot.data!;
                         if (results.isEmpty) {
@@ -255,15 +255,10 @@ class _SearchIntro extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(28),
-        child: Text(
-          '输入关键词后搜索主题标题。',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: AppColors.textMuted),
-        ),
-      ),
+    return const EmptyStateView(
+      icon: Icons.search,
+      title: '搜索主题',
+      message: '输入关键词后搜索主题标题。',
     );
   }
 }
@@ -275,49 +270,10 @@ class _EmptySearchResult extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Text(
-          '没有找到“$query”相关主题',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.textMuted),
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchError extends StatelessWidget {
-  const _SearchError({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('搜索失败', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
-      ),
+    return EmptyStateView(
+      icon: Icons.manage_search_outlined,
+      title: '没有找到相关主题',
+      message: '关键词：“$query”',
     );
   }
 }
