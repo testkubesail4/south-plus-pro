@@ -107,4 +107,25 @@ void main() {
     expect(find.text('Example'), findsOneWidget);
     expect(find.byType(OutlinedButton), findsNothing);
   });
+
+  testWidgets('download links render preview and download actions',
+      (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ThreadRichContent(
+            segments: [
+              ThreadContentSegment.text(
+                'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Magnet 链接'), findsOneWidget);
+    expect(find.text('预览'), findsOneWidget);
+    expect(find.text('下载'), findsOneWidget);
+  });
 }

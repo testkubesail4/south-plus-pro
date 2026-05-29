@@ -1,12 +1,15 @@
 package com.example.south_plus_rewrite
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaScannerConnection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -38,6 +41,15 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "saveImage" -> handleSaveImage(call, result)
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "south_plus_rewrite/link_opener"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "open" -> handleOpenLink(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -75,6 +87,24 @@ class MainActivity : FlutterActivity() {
         }
 
         saveImageAsync(bytes, fileName, result)
+    }
+
+    private fun handleOpenLink(call: MethodCall, result: MethodChannel.Result) {
+        val url = call.argument<String>("url")?.trim()
+        if (url.isNullOrEmpty()) {
+            result.error("empty_url", "链接为空", null)
+            return
+        }
+
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+            result.success(true)
+        } catch (error: ActivityNotFoundException) {
+            result.error("no_activity", "没有找到可打开该链接的应用", null)
+        } catch (error: Exception) {
+            result.error("open_failed", error.localizedMessage ?: "打开链接失败", null)
+        }
     }
 
     private fun saveImageAsync(
