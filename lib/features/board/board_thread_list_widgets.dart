@@ -35,33 +35,42 @@ class _BoardAdBanner extends StatelessWidget {
     if (imageUrl != null) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(28, 6, 28, 14),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: DecoratedBox(
-            decoration: const BoxDecoration(color: AppColors.surface),
-            child: AspectRatio(
-              aspectRatio: 4.65,
-              child: CachedForumImage(
-                url: imageUrl,
-                fit: BoxFit.cover,
-                errorWidget: (context) {
-                  return Container(
-                    alignment: Alignment.center,
-                    color: AppColors.surfaceTint,
-                    child: Text(
-                      ad.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textMuted,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  );
-                },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width =
+                constraints.maxWidth.isFinite ? constraints.maxWidth : 0.0;
+            final height = math.max(width / 4.65, 56.0);
+
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: DecoratedBox(
+                decoration: const BoxDecoration(color: AppColors.surface),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: height,
+                  child: CachedForumImage(
+                    url: imageUrl,
+                    fit: BoxFit.cover,
+                    errorWidget: (context) {
+                      return Container(
+                        alignment: Alignment.center,
+                        color: AppColors.surfaceTint,
+                        child: Text(
+                          ad.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textMuted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       );
     }
