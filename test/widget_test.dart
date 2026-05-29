@@ -110,21 +110,22 @@ void main() {
 
   testWidgets('download links render preview and download actions',
       (tester) async {
+    const magnetUrl =
+        'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12';
+
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
           body: ThreadRichContent(
             segments: [
-              ThreadContentSegment.text(
-                'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12',
-              ),
+              ThreadContentSegment.text(magnetUrl),
             ],
           ),
         ),
       ),
     );
 
-    expect(find.text('Magnet 链接'), findsOneWidget);
+    expect(find.text(magnetUrl), findsOneWidget);
     expect(find.text('预览'), findsOneWidget);
     expect(find.text('下载'), findsOneWidget);
   });

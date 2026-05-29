@@ -252,11 +252,18 @@ class _DownloadLinkPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compactButtonStyle = OutlinedButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      minimumSize: const Size(0, 40),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
       decoration: BoxDecoration(
-        color: AppColors.surfaceTint,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
@@ -265,26 +272,32 @@ class _DownloadLinkPanel extends StatelessWidget {
         children: [
           Text(
             label,
-            maxLines: 2,
+            maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              color: AppColors.link,
-              fontSize: 13,
+              color: AppColors.textMuted,
+              fontSize: 12,
               height: 1.35,
-              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               OutlinedButton.icon(
+                style: compactButtonStyle,
                 onPressed: () => _showWhatsLinkPreview(context, url),
                 icon: const Icon(Icons.visibility_outlined, size: 18),
                 label: const Text('预览'),
               ),
               FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  minimumSize: const Size(0, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
                 onPressed: () => _openDownloadLink(context, url),
                 icon: const Icon(Icons.download_outlined, size: 18),
                 label: const Text('下载'),
@@ -527,7 +540,7 @@ Future<void> _openDownloadLink(BuildContext context, String url) async {
 String _downloadLinkLabel(String? label, String url) {
   final text = label?.trim();
   if (text != null && text.isNotEmpty && text != url) return text;
-  if (url.startsWith('magnet:?')) return 'Magnet 链接';
+  if (url.startsWith('magnet:?')) return url;
   if (url.startsWith('ed2k://')) return 'Ed2k 链接';
   return url;
 }
