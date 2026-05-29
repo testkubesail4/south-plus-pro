@@ -505,29 +505,40 @@ class _PreviewScreenshotStrip extends StatelessWidget {
         itemCount: urls.length,
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: CachedNetworkImage(
-                imageUrl: urls[index],
-                cacheManager: ForumImageCache.manager,
-                fit: BoxFit.cover,
-                placeholder: (context, url) => const ColoredBox(
-                  color: AppColors.surfaceTint,
-                  child: Center(
-                    child: SizedBox.square(
-                      dimension: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _showPreviewScreenshotViewer(
+                context,
+                urls,
+                initialIndex: index,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: CachedNetworkImage(
+                    imageUrl: urls[index],
+                    cacheManager: ForumImageCache.manager,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => const ColoredBox(
+                      color: AppColors.surfaceTint,
+                      child: Center(
+                        child: SizedBox.square(
+                          dimension: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                errorWidget: (context, url, error) => const ColoredBox(
-                  color: AppColors.surfaceTint,
-                  child: Center(
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      color: AppColors.textMuted,
+                    errorWidget: (context, url, error) => const ColoredBox(
+                      color: AppColors.surfaceTint,
+                      child: Center(
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -538,6 +549,128 @@ class _PreviewScreenshotStrip extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PreviewScreenshotViewer extends StatefulWidget {
+  const _PreviewScreenshotViewer({
+    required this.urls,
+    required this.initialIndex,
+  });
+
+  final List<String> urls;
+  final int initialIndex;
+
+  @override
+  State<_PreviewScreenshotViewer> createState() =>
+      _PreviewScreenshotViewerState();
+}
+
+class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
+  late final PageController _controller;
+  late int _index;
+
+  @override
+  void initState() {
+    super.initState();
+    _index = widget.initialIndex;
+    _controller = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return Dialog(
+      insetPadding: const EdgeInsets.all(12),
+      backgroundColor: Colors.black,
+      child: SizedBox(
+        width: size.width * 0.96,
+        height: size.height * 0.84,
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _controller,
+              itemCount: widget.urls.length,
+              onPageChanged: (index) {
+                setState(() {
+                  _index = index;
+                });
+              },
+              itemBuilder: (context, index) {
+                return InteractiveViewer(
+                  minScale: 0.8,
+                  maxScale: 4,
+                  child: Center(
+                    child: CachedNetworkImage(
+                      imageUrl: widget.urls[index],
+                      cacheManager: ForumImageCache.manager,
+                      fit: BoxFit.contain,
+                      placeholder: (context, url) => const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      errorWidget: (context, url, error) => const Center(
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: Colors.white70,
+                          size: 36,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              left: 12,
+              top: 8,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Text(
+                    '${_index + 1} / ${widget.urls.length}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 6,
+              top: 4,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close, color: Colors.white),
+                tooltip: '关闭',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _showPreviewScreenshotViewer(
+  BuildContext context,
+  List<String> urls, {
+  required int initialIndex,
+}) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => _PreviewScreenshotViewer(
+      urls: urls,
+      initialIndex: initialIndex,
+    ),
+  );
 }
 
 class _PreviewInfoRow extends StatelessWidget {
