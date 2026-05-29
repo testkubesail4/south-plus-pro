@@ -219,97 +219,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
               children: [
                 _ThreadCrumbs(section: detail.thread.section),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        detail.thread.title,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _ThreadMetaChip(
-                            icon: Icons.tag_outlined,
-                            text: detail.thread.section,
-                          ),
-                          if (detail.thread.author != null)
-                            _ThreadMetaChip(
-                              icon: Icons.person_outline,
-                              text: detail.thread.author!,
-                              highlighted: true,
-                              onTap: detail.thread.authorUrl == null
-                                  ? null
-                                  : () => _openUserProfile(
-                                        detail.thread.authorUrl!,
-                                      ),
-                            ),
-                          if (detail.thread.lastPost != null)
-                            _ThreadMetaChip(
-                              icon: Icons.schedule_outlined,
-                              text: detail.thread.lastPost!,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          if (favorite != null)
-                            OutlinedButton.icon(
-                              onPressed: _favoriteBusy
-                                  ? null
-                                  : () => _handleFavorite(favorite),
-                              icon: _favoriteBusy
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2),
-                                    )
-                                  : Icon(
-                                      favorite.canRemove
-                                          ? Icons.star
-                                          : Icons.star_border,
-                                    ),
-                              label: Text(favorite.canRemove ? '取消收藏' : '收藏'),
-                            ),
-                          FilterChip(
-                            selected: _onlyOriginalPoster,
-                            showCheckmark: false,
-                            avatar: Icon(
-                              _onlyOriginalPoster
-                                  ? Icons.person
-                                  : Icons.person_outline,
-                              size: 18,
-                            ),
-                            label: const Text('只看楼主'),
-                            onSelected: originalAuthor == null
-                                ? null
-                                : (selected) {
-                                    setState(() {
-                                      _onlyOriginalPoster = selected;
-                                    });
-                                  },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
                 const SizedBox(height: 12),
                 _FloorCard(
+                  title: detail.thread.title,
                   author: detail.thread.author ?? '楼主',
                   onAuthorTap: detail.thread.authorUrl == null
                       ? null
@@ -317,6 +229,22 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                   postedAt: detail.thread.lastPost,
                   floor: '楼主',
                   onQuote: null,
+                  headerActions: _ThreadHeaderActions(
+                    favorite: favorite,
+                    favoriteBusy: _favoriteBusy,
+                    onFavorite: favorite == null
+                        ? null
+                        : () => _handleFavorite(favorite),
+                    onlyOriginalPoster: _onlyOriginalPoster,
+                    originalAuthor: originalAuthor,
+                    onOnlyOriginalPosterChanged: originalAuthor == null
+                        ? null
+                        : (selected) {
+                            setState(() {
+                              _onlyOriginalPoster = selected;
+                            });
+                          },
+                  ),
                   child: ThreadPostBody(
                     content: detail.body,
                     segments: detail.bodySegments,
@@ -413,15 +341,6 @@ class _ThreadCrumbs extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const Icon(Icons.chevron_right, size: 18, color: AppColors.textFaint),
-          const Text(
-            '帖子详情',
-            style: TextStyle(
-              color: AppColors.link,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
         ],
       ),
     );
@@ -432,17 +351,21 @@ class _FloorCard extends StatelessWidget {
   const _FloorCard({
     required this.author,
     required this.child,
+    this.title,
     this.onAuthorTap,
     this.postedAt,
     this.floor,
     this.onQuote,
+    this.headerActions,
   });
 
   final String author;
+  final String? title;
   final VoidCallback? onAuthorTap;
   final String? postedAt;
   final String? floor;
   final VoidCallback? onQuote;
+  final Widget? headerActions;
   final Widget child;
 
   @override
@@ -454,6 +377,16 @@ class _FloorCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (title != null) ...[
+              Text(
+                title!,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1.25,
+                    ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -489,6 +422,10 @@ class _FloorCard extends StatelessWidget {
                   ),
               ],
             ),
+            if (headerActions != null) ...[
+              const SizedBox(height: 12),
+              headerActions!,
+            ],
             const SizedBox(height: 12),
             child,
             if (onQuote != null) ...[
@@ -539,58 +476,73 @@ class _FloorAuthorName extends StatelessWidget {
   }
 }
 
-class _ThreadMetaChip extends StatelessWidget {
-  const _ThreadMetaChip({
-    required this.icon,
-    required this.text,
-    this.highlighted = false,
-    this.onTap,
+class _ThreadHeaderActions extends StatelessWidget {
+  const _ThreadHeaderActions({
+    required this.favorite,
+    required this.favoriteBusy,
+    required this.onFavorite,
+    required this.onlyOriginalPoster,
+    required this.originalAuthor,
+    required this.onOnlyOriginalPosterChanged,
   });
 
-  final IconData icon;
-  final String text;
-  final bool highlighted;
-  final VoidCallback? onTap;
+  final ThreadFavorite? favorite;
+  final bool favoriteBusy;
+  final VoidCallback? onFavorite;
+  final bool onlyOriginalPoster;
+  final String? originalAuthor;
+  final ValueChanged<bool>? onOnlyOriginalPosterChanged;
 
   @override
   Widget build(BuildContext context) {
-    final chip = Container(
-      constraints: const BoxConstraints(minHeight: 32),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: highlighted ? AppColors.brandSoft : AppColors.surfaceTint,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 15,
-            color: highlighted ? AppColors.brand : AppColors.textMuted,
-          ),
-          const SizedBox(width: 5),
-          Text(
-            text,
-            style: TextStyle(
-              color: highlighted ? AppColors.brand : AppColors.textMuted,
-              fontSize: 12,
-              fontWeight: highlighted ? FontWeight.w700 : FontWeight.w500,
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (favorite != null)
+          OutlinedButton.icon(
+            onPressed: favoriteBusy ? null : onFavorite,
+            icon: favoriteBusy
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    favorite!.canRemove ? Icons.star : Icons.star_border,
+                    size: 17,
+                  ),
+            label: Text(favorite!.canRemove ? '取消收藏' : '收藏'),
+            style: OutlinedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(0, 36),
+              padding: const EdgeInsets.symmetric(horizontal: 11),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-        ],
-      ),
-    );
-
-    if (onTap == null) return chip;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: chip,
-      ),
+        FilterChip(
+          selected: onlyOriginalPoster,
+          showCheckmark: false,
+          avatar: Icon(
+            onlyOriginalPoster ? Icons.person : Icons.person_outline,
+            size: 17,
+          ),
+          label: const Text('只看楼主'),
+          onSelected:
+              originalAuthor == null ? null : onOnlyOriginalPosterChanged,
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          labelStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+        ),
+      ],
     );
   }
 }

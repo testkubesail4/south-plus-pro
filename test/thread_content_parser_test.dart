@@ -11,7 +11,7 @@ void main() {
     );
     final content = fragment.querySelector('.card-text')!;
 
-    final segments = const ThreadContentParser().extractInlineSegments(content);
+    final segments = ThreadContentParser().extractInlineSegments(content);
 
     expect(segments, hasLength(1));
     expect(segments.single.text, '正文第一行\n正文第二行');
@@ -67,7 +67,7 @@ void main() {
       </div>
     ''');
 
-    final replies = const ThreadDetailParser().simpleThreadCards(document);
+    final replies = ThreadDetailParser().simpleThreadCards(document);
 
     expect(replies, hasLength(1));
     expect(replies.single.author, 'Alice');

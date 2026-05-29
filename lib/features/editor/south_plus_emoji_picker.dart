@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import '../common/cached_forum_image.dart';
 import '../../theme/app_theme.dart';
 
-const _emojiBaseUrl = 'https://south-plus.net/';
-
 class SouthPlusEmojiPicker extends StatelessWidget {
   const SouthPlusEmojiPicker({
     super.key,
     required this.onSelected,
+    this.baseUri,
   });
 
   final ValueChanged<SouthPlusEmoji> onSelected;
+  final Uri? baseUri;
+
+  String get _emojiBaseUrl =>
+      (baseUri ?? Uri.https('south-plus.net', '/')).toString();
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +74,7 @@ class SouthPlusEmojiPicker extends StatelessWidget {
                                   child: Padding(
                                     padding: const EdgeInsets.all(5),
                                     child: CachedForumImage(
-                                      url: emoji.url,
+                                      url: emoji.urlFromBase(_emojiBaseUrl),
                                       fit: BoxFit.contain,
                                       errorWidget: (context) {
                                         return Center(
@@ -110,7 +113,7 @@ class SouthPlusEmoji {
   final String path;
 
   String get code => ' [s:$id] ';
-  String get url => '$_emojiBaseUrl$path';
+  String urlFromBase(String baseUrl) => '$baseUrl$path';
 }
 
 class _EmojiCategory {
