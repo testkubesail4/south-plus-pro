@@ -252,13 +252,6 @@ class _DownloadLinkPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compactButtonStyle = OutlinedButton.styleFrom(
-      visualDensity: VisualDensity.compact,
-      minimumSize: const Size(0, 40),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    );
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
@@ -285,26 +278,81 @@ class _DownloadLinkPanel extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              OutlinedButton.icon(
-                style: compactButtonStyle,
+              _DownloadActionButton(
                 onPressed: () => _showWhatsLinkPreview(context, url),
-                icon: const Icon(Icons.visibility_outlined, size: 18),
-                label: const Text('预览'),
+                icon: const Icon(Icons.visibility_outlined),
+                label: '预览',
               ),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  minimumSize: const Size(0, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+              _DownloadActionButton(
+                filled: true,
                 onPressed: () => _openDownloadLink(context, url),
-                icon: const Icon(Icons.download_outlined, size: 18),
-                label: const Text('下载'),
+                icon: const Icon(Icons.download_outlined),
+                label: '下载',
               ),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DownloadActionButton extends StatelessWidget {
+  const _DownloadActionButton({
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+    this.filled = false,
+  });
+
+  final VoidCallback onPressed;
+  final Widget icon;
+  final String label;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = filled ? Colors.white : AppColors.link;
+    final background = filled ? AppColors.brand : Colors.transparent;
+    final borderColor = filled ? AppColors.brand : AppColors.border;
+
+    return Semantics(
+      button: true,
+      label: label,
+      child: Material(
+        color: background,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: borderColor),
+            ),
+            child: IconTheme.merge(
+              data: IconThemeData(color: foreground, size: 16),
+              child: DefaultTextStyle.merge(
+                style: TextStyle(
+                  color: foreground,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    icon,
+                    const SizedBox(width: 5),
+                    Text(label),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
