@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:south_plus_rewrite/services/parsers/thread_detail_parser.dart';
 import 'package:south_plus_rewrite/services/parsers/thread_content_parser.dart';
 import 'package:south_plus_rewrite/services/whats_link_preview_service.dart';
 
@@ -48,5 +49,31 @@ void main() {
     expect(preview.sizeBytes, 281692258);
     expect(preview.fileCount, 5);
     expect(preview.screenshotUrls, ['https://whatslink.info/image/example']);
+  });
+
+  test('ThreadDetailParser keeps reply author profile url', () {
+    final document = html_parser.parse('''
+      <div class="card">
+        <div class="card-body">
+          <h6>
+            <a href="u.php?action-show-uid-123.html">
+              <strong>Alice</strong>
+            </a>
+            <span class="float-right">#2</span>
+            2026-05-29 12:30
+          </h6>
+          <div class="card-text">正文</div>
+        </div>
+      </div>
+    ''');
+
+    final replies = const ThreadDetailParser().simpleThreadCards(document);
+
+    expect(replies, hasLength(1));
+    expect(replies.single.author, 'Alice');
+    expect(
+      replies.single.authorUrl,
+      'https://south-plus.net/u.php?action-show-uid-123.html',
+    );
   });
 }

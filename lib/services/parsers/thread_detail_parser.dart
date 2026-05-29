@@ -40,7 +40,12 @@ class ThreadDetailParser {
         continue;
       }
 
-      final author = _cleanText(header.querySelector('strong')?.text ?? '匿名');
+      final authorLink = header.querySelector('a[href*="uid"]') ??
+          header.querySelector('a[href*="action-show-uid"]');
+      final authorHref = authorLink?.attributes['href'] ?? '';
+      final author = _cleanText(
+        header.querySelector('strong')?.text ?? authorLink?.text ?? '匿名',
+      );
       final headerText = _cleanText(header.text);
       final floor =
           _cleanText(header.querySelector('.float-right')?.text ?? '');
@@ -53,6 +58,7 @@ class ThreadDetailParser {
       replies.add(
         ThreadReply(
           author: author,
+          authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
           content: content,
           postedAt: postedAt.isEmpty ? null : postedAt,
           floor: floor.isEmpty ? null : floor,
@@ -72,10 +78,18 @@ class ThreadDetailParser {
     return document
         .querySelectorAll('.reply')
         .map((reply) {
-          final author = _cleanText(reply.querySelector('b')?.text ?? '匿名');
+          final authorLink = reply.querySelector('a[href*="uid"]') ??
+              reply.querySelector('a[href*="action-show-uid"]');
+          final authorHref = authorLink?.attributes['href'] ?? '';
+          final author = _cleanText(
+              reply.querySelector('b')?.text ?? authorLink?.text ?? '匿名');
           final content =
               _cleanText(reply.querySelector('.content')?.text ?? reply.text);
-          return ThreadReply(author: author, content: content);
+          return ThreadReply(
+            author: author,
+            authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
+            content: content,
+          );
         })
         .where((reply) => reply.content.isNotEmpty)
         .toList();
