@@ -102,6 +102,7 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   @override
   Widget build(BuildContext context) {
     if (_forcedLoad) return _image();
+    if (_isTinyInlineImage) return _image();
 
     return FutureBuilder<bool>(
       future: _canLoad,
@@ -114,6 +115,12 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
         );
       },
     );
+  }
+
+  bool get _isTinyInlineImage {
+    final width = widget.width;
+    final height = widget.height;
+    return width != null && height != null && width <= 32 && height <= 32;
   }
 
   Widget _image() {
@@ -202,28 +209,45 @@ class _ImageActionPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surfaceTint,
-      child: InkWell(
-        onTap: onPressed,
-        child: SizedBox(
-          width: width ?? double.infinity,
-          height: height ?? 120,
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: AppColors.textMuted),
-                const SizedBox(height: 6),
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final hasBoundedWidth = constraints.maxWidth.isFinite;
+        final hasBoundedHeight = constraints.maxHeight.isFinite;
+        final resolvedWidth =
+            width ?? (hasBoundedWidth ? constraints.maxWidth : double.infinity);
+        final resolvedHeight =
+            height ?? (hasBoundedHeight ? constraints.maxHeight : 120.0);
+        final compact = (hasBoundedWidth && constraints.maxWidth < 64) ||
+            (hasBoundedHeight && constraints.maxHeight < 64) ||
+            (width != null && width! < 64) ||
+            (height != null && height! < 64);
+
+        return Material(
+          color: AppColors.surfaceTint,
+          child: InkWell(
+            onTap: onPressed,
+            child: SizedBox(
+              width: resolvedWidth,
+              height: resolvedHeight,
+              child: Center(
+                child: compact
+                    ? Icon(icon, color: AppColors.textMuted, size: 18)
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(icon, color: AppColors.textMuted),
+                          const SizedBox(height: 6),
+                          Text(
+                            label,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
