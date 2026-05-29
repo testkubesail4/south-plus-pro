@@ -86,12 +86,13 @@ class ThreadContentParser {
     }
     flushText();
 
-    return segments
+    final normalizedSegments = segments
         .where((segment) =>
             segment.type == ThreadContentSegmentType.image ||
             segment.type == ThreadContentSegmentType.quote ||
             (segment.text?.trim().isNotEmpty ?? false))
         .toList();
+    return _trimBoundaryWhitespace(normalizedSegments);
   }
 
   String? extractQuote(dom.Element content) {
@@ -100,6 +101,61 @@ class ThreadContentParser {
     if (quoteElement == null) return null;
     final quote = _cleanText(quoteElement.text);
     return quote.isEmpty ? null : quote;
+  }
+
+  List<ThreadContentSegment> _trimBoundaryWhitespace(
+    List<ThreadContentSegment> segments,
+  ) {
+    if (segments.isEmpty) return segments;
+
+    final normalized = List<ThreadContentSegment>.of(segments);
+    for (var index = 0; index < normalized.length; index++) {
+      final segment = normalized[index];
+      if (segment.type != ThreadContentSegmentType.text) break;
+
+      final text = segment.text ?? '';
+      final trimmed = text.replaceFirst(RegExp('^[\\s\\u00a0]+'), '');
+      if (trimmed.trim().isEmpty) {
+        normalized.removeAt(index);
+        index--;
+        continue;
+      }
+      normalized[index] = _textSegmentWithText(segment, trimmed);
+      break;
+    }
+
+    for (var index = normalized.length - 1; index >= 0; index--) {
+      final segment = normalized[index];
+      if (segment.type != ThreadContentSegmentType.text) break;
+
+      final text = segment.text ?? '';
+      final trimmed = text.replaceFirst(RegExp('[\\s\\u00a0]+\$'), '');
+      if (trimmed.trim().isEmpty) {
+        normalized.removeAt(index);
+        continue;
+      }
+      normalized[index] = _textSegmentWithText(segment, trimmed);
+      break;
+    }
+
+    return normalized;
+  }
+
+  ThreadContentSegment _textSegmentWithText(
+    ThreadContentSegment segment,
+    String text,
+  ) {
+    return ThreadContentSegment.text(
+      text,
+      colorValue: segment.colorValue,
+      backgroundColorValue: segment.backgroundColorValue,
+      isBold: segment.isBold,
+      isItalic: segment.isItalic,
+      isUnderline: segment.isUnderline,
+      isStrike: segment.isStrike,
+      fontScale: segment.fontScale,
+      href: segment.href,
+    );
   }
 
   dom.Element _quoteContentElement(dom.Element quote) {

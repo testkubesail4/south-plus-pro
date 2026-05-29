@@ -3,6 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
+import 'package:south_plus_rewrite/features/thread/thread_rich_content.dart';
+import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/image_loading_settings.dart';
 
 void main() {
   testWidgets('app boots to simple home screen', (tester) async {
@@ -31,5 +34,27 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('deferred inline image placeholder stays compact',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await ImageLoadingSettings.saveMode(ImageLoadMode.manual);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            child: ThreadInlineImage(
+              image: ThreadImage(url: 'https://example.com/image.jpg'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.getSize(find.byType(ThreadInlineImage)).height, 160);
   });
 }
