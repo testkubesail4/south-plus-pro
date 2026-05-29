@@ -10,6 +10,7 @@ class ForumThread {
     this.lastPost,
     this.author,
     this.authorUrl,
+    this.isSticky = false,
   });
 
   final String title;
@@ -20,6 +21,7 @@ class ForumThread {
   final String? lastPost;
   final String? author;
   final String? authorUrl;
+  final bool isSticky;
 }
 
 class ForumThreadPage {
@@ -27,14 +29,30 @@ class ForumThreadPage {
     required this.threads,
     required this.currentPage,
     required this.totalPages,
+    this.ads = const [],
   });
 
   final List<ForumThread> threads;
   final int currentPage;
   final int totalPages;
+  final List<ForumBoardAd> ads;
 
   bool get hasPrevious => currentPage > 1;
   bool get hasNext => currentPage < totalPages;
+}
+
+class ForumBoardAd {
+  const ForumBoardAd({
+    required this.title,
+    required this.url,
+    this.imageUrl,
+    this.subtitle,
+  });
+
+  final String title;
+  final String url;
+  final String? imageUrl;
+  final String? subtitle;
 }
 
 class ThreadDetail {
@@ -44,6 +62,7 @@ class ThreadDetail {
     required this.replies,
     this.bodyImages = const [],
     this.bodyLinks = const [],
+    this.bodySegments = const [],
     this.bodySaleBoxes = const [],
     this.bodySaleBoxesFirst = false,
     this.favorite,
@@ -54,6 +73,7 @@ class ThreadDetail {
   final List<ThreadReply> replies;
   final List<ThreadImage> bodyImages;
   final List<ThreadLink> bodyLinks;
+  final List<ThreadContentSegment> bodySegments;
   final List<ThreadSaleBox> bodySaleBoxes;
   final bool bodySaleBoxesFirst;
   final ThreadFavorite? favorite;
@@ -66,6 +86,7 @@ class ThreadReply {
     this.postedAt,
     this.floor,
     this.quote,
+    this.segments = const [],
     this.images = const [],
     this.links = const [],
     this.saleBoxes = const [],
@@ -77,10 +98,81 @@ class ThreadReply {
   final String? postedAt;
   final String? floor;
   final String? quote;
+  final List<ThreadContentSegment> segments;
   final List<ThreadImage> images;
   final List<ThreadLink> links;
   final List<ThreadSaleBox> saleBoxes;
   final bool saleBoxesFirst;
+}
+
+enum ThreadContentSegmentType {
+  text,
+  image,
+  quote,
+}
+
+class ThreadContentSegment {
+  const ThreadContentSegment.text(
+    this.text, {
+    this.colorValue,
+    this.isBold = false,
+    this.isItalic = false,
+    this.isUnderline = false,
+    this.isStrike = false,
+    this.fontScale = 1,
+    this.href,
+    this.backgroundColorValue,
+  })  : type = ThreadContentSegmentType.text,
+        url = null,
+        alt = null,
+        children = const [],
+        isEmoji = false;
+
+  const ThreadContentSegment.image({
+    required this.url,
+    this.alt,
+    this.isEmoji = false,
+  })  : type = ThreadContentSegmentType.image,
+        text = null,
+        colorValue = null,
+        isBold = false,
+        isItalic = false,
+        isUnderline = false,
+        isStrike = false,
+        fontScale = 1,
+        href = null,
+        backgroundColorValue = null,
+        children = const [];
+
+  const ThreadContentSegment.quote(this.children)
+      : type = ThreadContentSegmentType.quote,
+        text = null,
+        url = null,
+        alt = null,
+        isEmoji = false,
+        colorValue = null,
+        isBold = false,
+        isItalic = false,
+        isUnderline = false,
+        isStrike = false,
+        fontScale = 1,
+        href = null,
+        backgroundColorValue = null;
+
+  final ThreadContentSegmentType type;
+  final String? text;
+  final String? url;
+  final String? alt;
+  final bool isEmoji;
+  final List<ThreadContentSegment> children;
+  final int? colorValue;
+  final int? backgroundColorValue;
+  final bool isBold;
+  final bool isItalic;
+  final bool isUnderline;
+  final bool isStrike;
+  final double fontScale;
+  final String? href;
 }
 
 class ThreadImage {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../editor/windcode_toolbar.dart';
 
 class ReplyComposer extends StatefulWidget {
   const ReplyComposer({
@@ -172,6 +173,8 @@ class ReplyComposerState extends State<ReplyComposer> {
               hintText: '输入回复内容',
             ),
           ),
+          const SizedBox(height: 10),
+          WindCodeToolbar(controller: _content, enabled: !_submitting),
           if (_error != null) ...[
             const SizedBox(height: 10),
             Text(
