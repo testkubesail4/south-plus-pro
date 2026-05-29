@@ -59,6 +59,7 @@ class WhatsLinkPreview {
     this.fileType,
     this.sizeBytes,
     this.fileCount,
+    this.screenshotUrls = const [],
   });
 
   final String sourceUrl;
@@ -67,6 +68,7 @@ class WhatsLinkPreview {
   final String? fileType;
   final int? sizeBytes;
   final int? fileCount;
+  final List<String> screenshotUrls;
 
   factory WhatsLinkPreview.fromJson(
     Map<String, dynamic> json, {
@@ -79,6 +81,7 @@ class WhatsLinkPreview {
       fileType: _stringValue(json['file_type'] ?? json['fileType']),
       sizeBytes: _intValue(json['size'] ?? json['length']),
       fileCount: _intValue(json['count'] ?? json['file_count']),
+      screenshotUrls: _screenshotUrls(json),
     );
   }
 
@@ -87,7 +90,8 @@ class WhatsLinkPreview {
         type != null ||
         fileType != null ||
         sizeBytes != null ||
-        fileCount != null;
+        fileCount != null ||
+        screenshotUrls.isNotEmpty;
   }
 
   static String? _stringValue(Object? value) {
@@ -101,6 +105,29 @@ class WhatsLinkPreview {
     final text = value?.toString().trim();
     if (text == null || text.isEmpty) return null;
     return int.tryParse(text);
+  }
+
+  static List<String> _screenshotUrls(Map<String, dynamic> json) {
+    final screenshots = json['screenshots'];
+    if (screenshots is! Iterable) {
+      final single = _stringValue(
+        json['screenshot'] ?? json['thumbnail'] ?? json['image'],
+      );
+      return single == null ? const [] : [single];
+    }
+
+    final urls = <String>[];
+    for (final item in screenshots) {
+      final url = switch (item) {
+        final String text => _stringValue(text),
+        final Map map => _stringValue(
+            map['screenshot'] ?? map['thumbnail'] ?? map['image'] ?? map['url'],
+          ),
+        _ => null,
+      };
+      if (url != null) urls.add(url);
+    }
+    return List.unmodifiable(urls);
   }
 }
 

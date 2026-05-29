@@ -33,6 +33,12 @@ void main() {
         'name': 'sample',
         'size': 281692258,
         'count': 5,
+        'screenshots': [
+          {
+            'time': 0,
+            'screenshot': 'https://whatslink.info/image/example',
+          },
+        ],
       },
       sourceUrl: 'magnet:?xt=urn:btih:test',
     );
@@ -41,5 +47,6 @@ void main() {
     expect(preview.name, 'sample');
     expect(preview.sizeBytes, 281692258);
     expect(preview.fileCount, 5);
+    expect(preview.screenshotUrls, ['https://whatslink.info/image/example']);
   });
 }

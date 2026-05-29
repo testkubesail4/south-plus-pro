@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -359,7 +360,9 @@ class _WhatsLinkPreviewDialogState extends State<_WhatsLinkPreviewDialog> {
                 ],
               );
             }
-            return _WhatsLinkPreviewView(preview: snapshot.data!);
+            return SingleChildScrollView(
+              child: _WhatsLinkPreviewView(preview: snapshot.data!),
+            );
           },
         ),
       ),
@@ -393,6 +396,10 @@ class _WhatsLinkPreviewView extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (preview.screenshotUrls.isNotEmpty) ...[
+          _PreviewScreenshotStrip(urls: preview.screenshotUrls),
+          const SizedBox(height: 12),
+        ],
         if (preview.name != null)
           Text(
             preview.name!,
@@ -420,6 +427,55 @@ class _WhatsLinkPreviewView extends StatelessWidget {
       if (preview.fileType != null) preview.fileType,
     ];
     return values.isEmpty ? null : values.join(' / ');
+  }
+}
+
+class _PreviewScreenshotStrip extends StatelessWidget {
+  const _PreviewScreenshotStrip({required this.urls});
+
+  final List<String> urls;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 132,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: urls.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: CachedNetworkImage(
+                imageUrl: urls[index],
+                cacheManager: ForumImageCache.manager,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => const ColoredBox(
+                  color: AppColors.surfaceTint,
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ),
+                errorWidget: (context, url, error) => const ColoredBox(
+                  color: AppColors.surfaceTint,
+                  child: Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
