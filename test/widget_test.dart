@@ -6,11 +6,14 @@ import 'package:south_plus_rewrite/features/common/async_state_view.dart';
 import 'package:south_plus_rewrite/features/thread/thread_post_body.dart';
 import 'package:south_plus_rewrite/features/thread/thread_rich_content.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
 import 'package:south_plus_rewrite/services/image_loading_settings.dart';
 
 void main() {
   testWidgets('app boots to simple home screen', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      ForumNetworkSetupStore.completedKey: true,
+    });
 
     await tester.pumpWidget(const SouthPlusApp());
     await tester.pump();

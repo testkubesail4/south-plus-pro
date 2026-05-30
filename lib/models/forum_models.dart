@@ -22,6 +22,30 @@ class ForumThread {
   final String? author;
   final String? authorUrl;
   final bool isSticky;
+
+  ForumThread copyWith({
+    String? title,
+    String? url,
+    int? replies,
+    String? section,
+    String? bodyPreview,
+    String? lastPost,
+    String? author,
+    String? authorUrl,
+    bool? isSticky,
+  }) {
+    return ForumThread(
+      title: title ?? this.title,
+      url: url ?? this.url,
+      replies: replies ?? this.replies,
+      section: section ?? this.section,
+      bodyPreview: bodyPreview ?? this.bodyPreview,
+      lastPost: lastPost ?? this.lastPost,
+      author: author ?? this.author,
+      authorUrl: authorUrl ?? this.authorUrl,
+      isSticky: isSticky ?? this.isSticky,
+    );
+  }
 }
 
 class ForumThreadPage {

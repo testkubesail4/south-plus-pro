@@ -96,6 +96,28 @@ class ThreadDetailParser {
         .toList();
   }
 
+  String? sectionTitle(dom.Document document) {
+    final breadcrumbLinks = [
+      ...document.querySelectorAll('.breadcrumb a[href]'),
+      ...document.querySelectorAll('#breadCrumb a[href]'),
+      ...document.querySelectorAll('.guide a[href]'),
+      ...document.querySelectorAll('.crumb a[href]'),
+      ...document.querySelectorAll('a[href*="thread.php?fid-"]'),
+      ...document.querySelectorAll('a[href*="thread.php?fid="]'),
+      ...document.querySelectorAll('a[href*="simple/index.php?f"]'),
+      ...document.querySelectorAll('a[href*="?f"]'),
+    ];
+
+    for (final link in breadcrumbLinks.reversed) {
+      final href = link.attributes['href'] ?? '';
+      if (!_isBoardHref(href)) continue;
+      final title = _cleanText(link.text);
+      if (title.isEmpty || _isGenericCrumbTitle(title)) continue;
+      return title;
+    }
+    return null;
+  }
+
   String bodyText(dom.Document document) {
     final candidates = [
       document.querySelector('.body'),
@@ -107,6 +129,24 @@ class ThreadDetailParser {
       if (text.isNotEmpty) return text;
     }
     return '';
+  }
+
+  bool _isBoardHref(String href) {
+    return href.contains('thread.php?fid-') ||
+        href.contains('thread.php?fid=') ||
+        RegExp(r'(?:^|[?&])f\d+(?:[_\-.]|$)').hasMatch(href);
+  }
+
+  bool _isGenericCrumbTitle(String title) {
+    const genericTitles = {
+      '南+ South Plus',
+      'South Plus',
+      '首页',
+      '論壇',
+      '论坛',
+      '返回',
+    };
+    return genericTitles.contains(title);
   }
 
   List<ThreadLink> _extractLinks(dom.Element content) {

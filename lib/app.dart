@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'features/home/home_shell.dart';
+import 'features/profile/network_setup_flow_screen.dart';
 import 'services/forum_network_config.dart';
+import 'services/forum_network_setup_store.dart';
 import 'services/forum_repository.dart';
 import 'theme/app_theme.dart';
 
@@ -31,12 +33,23 @@ class SessionGate extends StatefulWidget {
 
 class _SessionGateState extends State<SessionGate> {
   ForumRepository? _repository;
-  late Future<bool> _restoreFuture = _restoreSession();
+  late Future<_SessionGateResult> _restoreFuture = _restoreSession();
 
-  Future<bool> _restoreSession() async {
+  Future<_SessionGateResult> _restoreSession() async {
     _repository ??= widget.repository ??
         ForumRepository(config: await ForumNetworkSettings.load());
-    return _repository!.restoreSession();
+    if (!await ForumNetworkSetupStore.isCompleted()) {
+      return _SessionGateResult(
+        repository: _repository!,
+        needsNetworkSetup: true,
+        restored: false,
+      );
+    }
+    return _SessionGateResult(
+      repository: _repository!,
+      needsNetworkSetup: false,
+      restored: await _repository!.restoreSession(),
+    );
   }
 
   void _retry() {
@@ -47,7 +60,7 @@ class _SessionGateState extends State<SessionGate> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<bool>(
+    return FutureBuilder<_SessionGateResult>(
       future: _restoreFuture,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -64,7 +77,13 @@ class _SessionGateState extends State<SessionGate> {
                         dohProvider: ForumNetworkConfig.defaultProvider,
                       ),
                     );
-                _restoreFuture = Future<bool>.value(false);
+                _restoreFuture = Future<_SessionGateResult>.value(
+                  _SessionGateResult(
+                    repository: _repository!,
+                    needsNetworkSetup: false,
+                    restored: false,
+                  ),
+                );
               });
             },
           );
@@ -74,10 +93,36 @@ class _SessionGateState extends State<SessionGate> {
           return const _SessionSplash();
         }
 
-        return HomeShell(repository: _repository!);
+        final result = snapshot.requireData;
+        if (result.needsNetworkSetup) {
+          return NetworkSetupFlowScreen(
+            repository: result.repository,
+            allowSkip: true,
+            onFinished: () async {
+              if (!mounted) return;
+              setState(() {
+                _restoreFuture = _restoreSession();
+              });
+            },
+          );
+        }
+
+        return HomeShell(repository: result.repository);
       },
     );
   }
+}
+
+class _SessionGateResult {
+  const _SessionGateResult({
+    required this.repository,
+    required this.needsNetworkSetup,
+    required this.restored,
+  });
+
+  final ForumRepository repository;
+  final bool needsNetworkSetup;
+  final bool restored;
 }
 
 class _SessionSplash extends StatelessWidget {

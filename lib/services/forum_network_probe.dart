@@ -14,12 +14,14 @@ class ForumNetworkProbe {
     ForumSite site, {
     required bool dohEnabled,
     required DohProvider dohProvider,
+    String? customDohUri,
     String? fixedAddress,
   }) async {
     final config = ForumNetworkConfig(
       site: site,
       dohEnabled: dohEnabled,
       dohProvider: dohProvider,
+      customDohUri: customDohUri,
       fixedAddress: fixedAddress,
     );
     final client = createForumHttpClient(config);
@@ -70,6 +72,26 @@ class ForumNetworkProbe {
 
   Future<DohProbeResult> testDoh(DohProvider provider) async {
     final resolver = DohResolver(provider: provider, timeout: timeout);
+    return _testDohResolver(resolver);
+  }
+
+  Future<DohProbeResult> testCustomDoh(String uri) async {
+    final endpoint = Uri.tryParse(uri);
+    if (endpoint == null ||
+        endpoint.scheme != 'https' ||
+        endpoint.host.isEmpty) {
+      return const DohProbeResult(
+        elapsed: Duration.zero,
+        success: false,
+        message: '地址格式不正确',
+        addresses: [],
+      );
+    }
+    final resolver = DohResolver.custom(endpoint: endpoint, timeout: timeout);
+    return _testDohResolver(resolver);
+  }
+
+  Future<DohProbeResult> _testDohResolver(DohResolver resolver) async {
     final watch = Stopwatch()..start();
     try {
       final addresses = await resolver
@@ -77,7 +99,6 @@ class ForumNetworkProbe {
           .timeout(timeout);
       watch.stop();
       return DohProbeResult(
-        provider: provider,
         elapsed: watch.elapsed,
         success: addresses.isNotEmpty,
         message: addresses.isEmpty ? '无记录' : '可用',
@@ -86,7 +107,6 @@ class ForumNetworkProbe {
     } on TimeoutException {
       watch.stop();
       return DohProbeResult(
-        provider: provider,
         elapsed: watch.elapsed,
         success: false,
         message: '超时',
@@ -95,7 +115,6 @@ class ForumNetworkProbe {
     } on SocketException catch (error) {
       watch.stop();
       return DohProbeResult(
-        provider: provider,
         elapsed: watch.elapsed,
         success: false,
         message: error.message,
@@ -104,7 +123,6 @@ class ForumNetworkProbe {
     } on FormatException {
       watch.stop();
       return DohProbeResult(
-        provider: provider,
         elapsed: watch.elapsed,
         success: false,
         message: '响应解析失败',
@@ -113,7 +131,6 @@ class ForumNetworkProbe {
     } on Object catch (error) {
       watch.stop();
       return DohProbeResult(
-        provider: provider,
         elapsed: watch.elapsed,
         success: false,
         message: '$error',
@@ -162,14 +179,12 @@ class ForumSiteProbeResult {
 
 class DohProbeResult {
   const DohProbeResult({
-    required this.provider,
     required this.elapsed,
     required this.success,
     required this.message,
     required this.addresses,
   });
 
-  final DohProvider provider;
   final Duration elapsed;
   final bool success;
   final String message;

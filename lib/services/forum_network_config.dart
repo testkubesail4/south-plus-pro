@@ -30,6 +30,7 @@ class ForumNetworkConfig {
     required this.dohEnabled,
     required this.dohProvider,
     this.fixedAddress,
+    this.customDohUri,
   });
 
   static const defaultSite = ForumSite('south-plus.net');
@@ -54,8 +55,25 @@ class ForumNetworkConfig {
   final bool dohEnabled;
   final DohProvider dohProvider;
   final String? fixedAddress;
+  final String? customDohUri;
 
   Uri get baseUri => site.baseUri;
+
+  Uri get dohEndpoint {
+    final custom = customDohUri?.trim();
+    if (custom != null && custom.isNotEmpty) {
+      return Uri.parse(custom);
+    }
+    return dohProvider.endpoint;
+  }
+
+  String get dohLabel {
+    final custom = customDohUri?.trim();
+    if (custom != null && custom.isNotEmpty) return '自定义加密 DNS';
+    return dohProvider.label;
+  }
+
+  String? get normalizedCustomDohUri => _normalizeDohUri(customDohUri);
 
   InternetAddress? get fixedInternetAddress {
     final value = fixedAddress?.trim();
@@ -78,17 +96,21 @@ class ForumNetworkConfig {
           site == other.site &&
           dohEnabled == other.dohEnabled &&
           dohProvider == other.dohProvider &&
-          fixedAddress == other.fixedAddress;
+          fixedAddress == other.fixedAddress &&
+          customDohUri == other.customDohUri;
 
   @override
-  int get hashCode => Object.hash(site, dohEnabled, dohProvider, fixedAddress);
+  int get hashCode =>
+      Object.hash(site, dohEnabled, dohProvider, fixedAddress, customDohUri);
 
   ForumNetworkConfig copyWith({
     ForumSite? site,
     bool? dohEnabled,
     DohProvider? dohProvider,
     String? fixedAddress,
+    String? customDohUri,
     bool clearFixedAddress = false,
+    bool clearCustomDohUri = false,
   }) {
     return ForumNetworkConfig(
       site: site ?? this.site,
@@ -99,15 +121,43 @@ class ForumNetworkConfig {
           : fixedAddress?.trim().isEmpty == true
               ? null
               : fixedAddress ?? this.fixedAddress,
+      customDohUri: clearCustomDohUri
+          ? null
+          : _normalizeDohUri(customDohUri) ?? this.customDohUri,
     );
   }
 
   static ForumSite siteForHost(String? host) {
-    final normalized = host?.toLowerCase();
+    final normalized = _normalizeHost(host);
+    if (normalized != null && !sites.any((site) => site.host == normalized)) {
+      return ForumSite(normalized);
+    }
     return sites.firstWhere(
       (site) => site.host == normalized,
       orElse: () => defaultSite,
     );
+  }
+
+  static String? _normalizeHost(String? host) {
+    final value = host?.trim().toLowerCase();
+    if (value == null || value.isEmpty) return null;
+    final withoutScheme = value
+        .replaceFirst(RegExp(r'^https?://'), '')
+        .split('/')
+        .first
+        .split(':')
+        .first;
+    if (withoutScheme.isEmpty || withoutScheme.contains(' ')) return null;
+    return withoutScheme;
+  }
+
+  static String? _normalizeDohUri(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
+    if (uri.scheme != 'https') return null;
+    return uri.toString();
   }
 }
 
@@ -152,6 +202,9 @@ class ForumNetworkSettings {
   static const _dohEnabledKey = 'forum_network_doh_enabled_v1';
   static const _dohProviderKey = 'forum_network_doh_provider_v1';
   static const _fixedAddressKey = 'forum_network_fixed_address_v1';
+  static const _customDohUriKey = 'forum_network_custom_doh_uri_v1';
+  static const _customSiteHostsKey = 'forum_network_custom_site_hosts_v1';
+  static const _customDohUrisKey = 'forum_network_custom_doh_uris_v1';
 
   static Future<ForumNetworkConfig> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -160,6 +213,8 @@ class ForumNetworkSettings {
       dohEnabled: prefs.getBool(_dohEnabledKey) ?? true,
       dohProvider: DohProvider.fromName(prefs.getString(_dohProviderKey)),
       fixedAddress: _normalizeAddress(prefs.getString(_fixedAddressKey)),
+      customDohUri: ForumNetworkConfig._normalizeDohUri(
+          prefs.getString(_customDohUriKey)),
     );
   }
 
@@ -168,12 +223,77 @@ class ForumNetworkSettings {
     await prefs.setString(_siteHostKey, config.site.host);
     await prefs.setBool(_dohEnabledKey, config.dohEnabled);
     await prefs.setString(_dohProviderKey, config.dohProvider.name);
+    final customDohUri = config.normalizedCustomDohUri;
+    if (customDohUri == null) {
+      await prefs.remove(_customDohUriKey);
+    } else {
+      await prefs.setString(_customDohUriKey, customDohUri);
+    }
     final fixedAddress = _normalizeAddress(config.fixedAddress);
     if (fixedAddress == null) {
       await prefs.remove(_fixedAddressKey);
     } else {
       await prefs.setString(_fixedAddressKey, fixedAddress);
     }
+  }
+
+  static Future<List<ForumSite>> loadCustomSites() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hosts = prefs
+            .getStringList(_customSiteHostsKey)
+            ?.map(ForumNetworkConfig._normalizeHost)
+            .nonNulls
+            .where((host) =>
+                !ForumNetworkConfig.sites.any((site) => site.host == host))
+            .toList() ??
+        const <String>[];
+    return _unique(hosts).map(ForumSite.new).toList(growable: false);
+  }
+
+  static Future<List<ForumSite>> addCustomSite(ForumSite site) async {
+    final normalized = ForumNetworkConfig._normalizeHost(site.host);
+    if (normalized == null ||
+        ForumNetworkConfig.sites.any((item) => item.host == normalized)) {
+      return loadCustomSites();
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final hosts = _unique([
+      normalized,
+      ...(prefs.getStringList(_customSiteHostsKey) ?? const <String>[]),
+    ]);
+    await prefs.setStringList(_customSiteHostsKey, hosts);
+    return hosts.map(ForumSite.new).toList(growable: false);
+  }
+
+  static Future<List<String>> loadCustomDohUris() async {
+    final prefs = await SharedPreferences.getInstance();
+    final values = prefs
+            .getStringList(_customDohUrisKey)
+            ?.map(ForumNetworkConfig._normalizeDohUri)
+            .nonNulls
+            .toList() ??
+        const <String>[];
+    return _unique(values);
+  }
+
+  static Future<List<String>> addCustomDohUri(String uri) async {
+    final normalized = ForumNetworkConfig._normalizeDohUri(uri);
+    if (normalized == null) return loadCustomDohUris();
+    final prefs = await SharedPreferences.getInstance();
+    final values = _unique([
+      normalized,
+      ...(prefs.getStringList(_customDohUrisKey) ?? const <String>[]),
+    ]);
+    await prefs.setStringList(_customDohUrisKey, values);
+    return values;
+  }
+
+  static List<String> _unique(Iterable<String> values) {
+    final seen = <String>{};
+    return [
+      for (final value in values)
+        if (seen.add(value)) value,
+    ];
   }
 
   static String? _normalizeAddress(String? value) {
@@ -283,12 +403,19 @@ class ForumResolvedAddressStore {
 
 class DohResolver {
   DohResolver({
-    required this.provider,
+    required DohProvider provider,
+    HttpClient? client,
+    this.timeout = const Duration(seconds: 5),
+  })  : endpoint = provider.endpoint,
+        _client = client;
+
+  DohResolver.custom({
+    required this.endpoint,
     HttpClient? client,
     this.timeout = const Duration(seconds: 5),
   }) : _client = client;
 
-  final DohProvider provider;
+  final Uri endpoint;
   final HttpClient? _client;
   final Duration timeout;
 
@@ -315,7 +442,7 @@ class DohResolver {
   Future<List<InternetAddress>> _queryJson(String host, int type) async {
     final client = _client ?? HttpClient();
     try {
-      final uri = provider.endpoint.replace(
+      final uri = endpoint.replace(
         queryParameters: {
           'name': host,
           'type': '$type',
@@ -359,7 +486,7 @@ class DohResolver {
   Future<List<InternetAddress>> _queryDnsMessage(String host, int type) async {
     final client = _client ?? HttpClient();
     try {
-      final uri = provider.endpoint.replace(
+      final uri = endpoint.replace(
         queryParameters: {
           'dns': base64UrlEncode(_dnsQuery(host, type)).replaceAll('=', ''),
         },
@@ -467,6 +594,10 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
     for (final provider in DohProvider.values)
       provider: DohResolver(provider: provider),
   };
+  final customDohUri = config.normalizedCustomDohUri;
+  final customResolver = customDohUri == null
+      ? null
+      : DohResolver.custom(endpoint: Uri.parse(customDohUri));
   var cachedAddressesFuture = ForumResolvedAddressStore.load();
 
   Future<void> rememberAddresses(List<InternetAddress> addresses) async {
@@ -489,6 +620,21 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
     }
 
     if (config.dohEnabled) {
+      if (customResolver != null) {
+        try {
+          final addresses = await customResolver.lookup(uri.host);
+          await rememberAddresses(addresses);
+          for (final address in addresses) {
+            try {
+              return await _resolvedAddressConnectionTask(uri, address);
+            } catch (_) {
+              // Try the next custom DoH address before falling back.
+            }
+          }
+        } catch (_) {
+          // Try built-in DoH providers before falling back to system DNS.
+        }
+      }
       for (final provider in _orderedDohProviders(config.dohProvider)) {
         try {
           final addresses = await resolvers[provider]!.lookup(uri.host);

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../services/forum_repository.dart';
+import '../../services/forum_network_setup_store.dart';
 import '../../services/image_loading_settings.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/cached_forum_image.dart';
+import 'network_setup_flow_screen.dart';
 import 'network_settings_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -51,6 +54,24 @@ class _AccountScreenState extends State<AccountScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已退出登录')),
     );
+  }
+
+  Future<void> _openNetworkSetup() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NetworkSetupFlowScreen(
+          repository: widget.repository,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _resetNetworkSetupAndOpen() async {
+    await ForumNetworkSetupStore.reset();
+    if (!mounted) return;
+    await _openNetworkSetup();
   }
 
   @override
@@ -107,7 +128,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 icon: Icons.public_outlined,
                 title: '连接设置',
                 subtitle:
-                    '${widget.repository.networkConfig.site.host} · ${widget.repository.networkConfig.dohEnabled ? 'DoH 已启用' : '系统 DNS'}',
+                    '${widget.repository.networkConfig.site.host} · ${widget.repository.networkConfig.dohEnabled ? '加密解析' : '系统默认解析'}',
                 onTap: () async {
                   await Navigator.of(context).push(
                     MaterialPageRoute(
@@ -119,6 +140,12 @@ class _AccountScreenState extends State<AccountScreen> {
                   if (!mounted) return;
                   setState(() {});
                 },
+              ),
+              _AccountTile(
+                icon: Icons.auto_fix_high_outlined,
+                title: '连接引导',
+                subtitle: '重新探测解析线路、访问入口和直连线路',
+                onTap: _openNetworkSetup,
               ),
             ],
           ),
@@ -159,14 +186,21 @@ class _AccountScreenState extends State<AccountScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          const _AccountSection(
+          _AccountSection(
             title: '应用',
             children: [
-              _StaticInfoTile(
+              const _StaticInfoTile(
                 icon: Icons.info_outline,
                 title: 'South Plus Rewrite',
                 subtitle: 'v0.1.0',
               ),
+              if (kDebugMode)
+                _AccountTile(
+                  icon: Icons.bug_report_outlined,
+                  title: '重置网络引导',
+                  subtitle: '调试首次启动引导流程',
+                  onTap: _resetNetworkSetupAndOpen,
+                ),
             ],
           ),
         ],

@@ -76,4 +76,18 @@ void main() {
       'https://south-plus.net/u.php?action-show-uid-123.html',
     );
   });
+
+  test('ThreadDetailParser extracts section title from thread breadcrumbs', () {
+    final document = html_parser.parse('''
+      <nav class="breadcrumb">
+        <a href="index.php">南+ South Plus</a>
+        <a href="simple/index.php?f16.html">技术交流</a>
+        <span>帖子标题</span>
+      </nav>
+    ''');
+
+    final section = ThreadDetailParser().sectionTitle(document);
+
+    expect(section, '技术交流');
+  });
 }

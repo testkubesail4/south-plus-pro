@@ -45,6 +45,45 @@ void main() {
     expect(loaded.fixedAddress, '203.0.113.7');
   });
 
+  test('ForumNetworkSettings persists custom site and custom encrypted DNS',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+
+    const config = ForumNetworkConfig(
+      site: ForumSite('example.com'),
+      dohEnabled: true,
+      dohProvider: DohProvider.cloudflareGateway,
+      customDohUri: 'https://dns.example.com/dns-query',
+    );
+
+    await ForumNetworkSettings.save(config);
+    final loaded = await ForumNetworkSettings.load();
+
+    expect(loaded.site.host, 'example.com');
+    expect(loaded.customDohUri, 'https://dns.example.com/dns-query');
+    expect(loaded.normalizedCustomDohUri, 'https://dns.example.com/dns-query');
+    expect(loaded.dohLabel, '自定义加密 DNS');
+  });
+
+  test('ForumNetworkSettings keeps multiple custom connection options',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+
+    await ForumNetworkSettings.addCustomSite(const ForumSite('one.example'));
+    await ForumNetworkSettings.addCustomSite(const ForumSite('two.example'));
+    await ForumNetworkSettings.addCustomDohUri('https://dns.one/dns-query');
+    await ForumNetworkSettings.addCustomDohUri('https://dns.two/dns-query');
+
+    final sites = await ForumNetworkSettings.loadCustomSites();
+    final dohUris = await ForumNetworkSettings.loadCustomDohUris();
+
+    expect(sites.map((site) => site.host), ['two.example', 'one.example']);
+    expect(dohUris, [
+      'https://dns.two/dns-query',
+      'https://dns.one/dns-query',
+    ]);
+  });
+
   test('ForumResolvedAddressStore persists unique fallback addresses',
       () async {
     SharedPreferences.setMockInitialValues({});

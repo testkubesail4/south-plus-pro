@@ -387,10 +387,12 @@ class ForumRepository {
     final html = await _client.get(_urls.threadDetailPath(thread.url));
     final document = html_parser.parse(html);
     final favorite = await _extractThreadFavorite(thread, html);
+    final section = _threadDetailParser.sectionTitle(document);
+    final detailThread = section == null ? thread : thread.copyWith(section: section);
     final cards = _threadDetailParser.simpleThreadCards(document);
     if (cards.isNotEmpty) {
       return ThreadDetail(
-        thread: thread,
+        thread: detailThread,
         body: cards.first.content,
         bodyImages: cards.first.images,
         bodyLinks: cards.first.links,
@@ -410,7 +412,7 @@ class ForumRepository {
     }
 
     return ThreadDetail(
-      thread: thread,
+      thread: detailThread,
       body: body,
       replies: replies,
       favorite: favorite,

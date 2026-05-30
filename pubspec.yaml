@@ -8,9 +8,11 @@ environment:
   sdk: ">=3.4.0 <4.0.0"
 
 dependencies:
+  animations: ^2.2.0
   cached_network_image: ^3.4.1
   flutter:
     sdk: flutter
+  flutter_animate: ^4.5.2
   flutter_cache_manager: ^3.4.1
   html: ^0.15.6
   shared_preferences: ^2.5.5
