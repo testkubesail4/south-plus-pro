@@ -20,7 +20,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('southplus'), findsOneWidget);
-    expect(find.text('dlkd'), findsOneWidget);
+    expect(find.text('登录'), findsOneWidget);
   });
 
   testWidgets('skeleton card fits compact three-line layouts', (tester) async {

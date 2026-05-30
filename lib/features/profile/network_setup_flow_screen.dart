@@ -68,29 +68,13 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
   }
 
   List<_SetupStep> get _steps {
-    if (!widget.allowSkip) {
-      return const [
-        _SetupStep.encrypted,
-        _SetupStep.entrance,
-        _SetupStep.route,
-        _SetupStep.summary,
-      ];
-    }
-    if (!_optimizeEnabled) {
-      return const [
-        _SetupStep.mode,
-        _SetupStep.entrance,
-        _SetupStep.summary,
-      ];
-    }
-    return const [
-      _SetupStep.mode,
-      _SetupStep.encrypted,
-      _SetupStep.entrance,
-      _SetupStep.route,
-      _SetupStep.summary,
-    ];
+    return _SetupFlowPlan.steps(
+      allowSkip: widget.allowSkip,
+      optimizeEnabled: _optimizeEnabled,
+    );
   }
+
+  int get _stepIndex => _steps.indexOf(_step);
 
   @override
   void dispose() {
@@ -270,7 +254,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
 
   @override
   Widget build(BuildContext context) {
-    final stepMeta = _StepMeta.forStep(_step);
+    final stepMeta = _step.meta;
     return Scaffold(
       body: Stack(
         children: [
@@ -360,7 +344,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
                   ),
                 ),
                 _BottomBar(
-                  backLabel: _step.index == 0 ? '关闭' : '上一步',
+                  backLabel: _stepIndex <= 0 ? '关闭' : '上一步',
                   nextLabel: _step == _SetupStep.summary ? '开始使用' : '下一步',
                   saving: _saving,
                   onBack: _saving ? null : _goBack,
@@ -390,8 +374,12 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
   }
 
   Widget _buildEncryptedStep() {
-    final providers = [...DohProvider.values]
-      ..sort((a, b) => _compareDoh(_dohResults[a], _dohResults[b]));
+    final providers = [...DohProvider.values]..sort(
+        (a, b) => _ProbeReading.compare(
+          _ProbeReading.fromDoh(_dohResults[a]),
+          _ProbeReading.fromDoh(_dohResults[b]),
+        ),
+      );
     final fastest =
         providers.where((item) => _dohResults[item]?.success == true);
     final fastestProvider = fastest.isEmpty ? null : fastest.first;
@@ -402,6 +390,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
           final index = entry.$1;
           final provider = entry.$2;
           final result = _dohResults[provider];
+          final status = _ProbeStatus.fromDoh(result, probing: _probing);
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: _SetupOptionCard(
@@ -410,8 +399,8 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
               subtitle: '自动探测可用性与响应速度。',
               selected: _draft.dohProvider == provider,
               fastest: provider == fastestProvider,
-              statusLabel: _resultLabel(result),
-              success: result?.success,
+              statusLabel: status.label,
+              success: status.success,
               onTap: () => _selectEncrypted(true, provider),
             ),
           );
@@ -445,9 +434,12 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
   }
 
   Widget _buildEntranceStep() {
-    final sites = [
-      ...ForumNetworkConfig.sites
-    ]..sort((a, b) => _compareSite(_siteResults[a.host], _siteResults[b.host]));
+    final sites = [...ForumNetworkConfig.sites]..sort(
+        (a, b) => _ProbeReading.compare(
+          _ProbeReading.fromSite(_siteResults[a.host]),
+          _ProbeReading.fromSite(_siteResults[b.host]),
+        ),
+      );
     final fastest =
         sites.where((item) => _siteResults[item.host]?.success == true);
     final fastestSite = fastest.isEmpty ? null : fastest.first;
@@ -455,6 +447,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
     return Column(
       children: sites.map((site) {
         final result = _siteResults[site.host];
+        final status = _ProbeStatus.fromSite(result, probing: _probing);
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: _SetupOptionCard(
@@ -463,8 +456,8 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
             subtitle: '当前访问域名',
             selected: _draft.site == site,
             fastest: site == fastestSite,
-            statusLabel: _resultLabel(result),
-            success: result?.success,
+            statusLabel: status.label,
+            success: status.success,
             onTap: () => _selectSite(site),
           ),
         );
@@ -474,6 +467,8 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
 
   Widget _buildRouteStep() {
     final dynamicResult = _dynamicRouteResult;
+    final dynamicStatus =
+        _ProbeStatus.fromSite(dynamicResult, probing: _probing);
     final addresses = [..._cachedAddresses]..sort(
         (a, b) => _compareAddress(
           _addressResults[a.address],
@@ -495,8 +490,8 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
           recommended: true,
           fastest: dynamicResult?.success == true &&
               _isDynamicFastest(dynamicResult, fastestAddress),
-          statusLabel: _resultLabel(dynamicResult),
-          success: dynamicResult?.success,
+          statusLabel: dynamicStatus.label,
+          success: dynamicStatus.success,
           onTap: () => _selectRoute(null),
         ),
         const SizedBox(height: 12),
@@ -507,6 +502,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
             final index = entry.$1;
             final address = entry.$2;
             final result = _addressResults[address.address];
+            final status = _ProbeStatus.fromAddress(result, probing: _probing);
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: _SetupOptionCard(
@@ -516,8 +512,8 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
                 selected: _draft.fixedAddress == address.address,
                 fastest: address == fastestAddress &&
                     !_isDynamicFastest(dynamicResult, fastestAddress),
-                statusLabel: _resultLabel(result),
-                success: result?.success,
+                statusLabel: status.label,
+                success: status.success,
                 onTap: () => _selectRoute(address.address),
               ),
             );
@@ -567,45 +563,48 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
     return dynamicResult!.elapsed <= addressResult!.elapsed;
   }
 
-  int _compareDoh(DohProbeResult? a, DohProbeResult? b) =>
-      _compareProbe(a?.success, a?.elapsed, b?.success, b?.elapsed);
-
-  int _compareSite(ForumSiteProbeResult? a, ForumSiteProbeResult? b) =>
-      _compareProbe(a?.success, a?.elapsed, b?.success, b?.elapsed);
-
   int _compareAddress(ForumAddressProbeResult? a, ForumAddressProbeResult? b) =>
-      _compareProbe(a?.success, a?.elapsed, b?.success, b?.elapsed);
+      _ProbeReading.compare(
+        _ProbeReading.fromAddress(a),
+        _ProbeReading.fromAddress(b),
+      );
+}
 
-  int _compareProbe(
-    bool? aSuccess,
-    Duration? aElapsed,
-    bool? bSuccess,
-    Duration? bElapsed,
-  ) {
-    if (aSuccess == true && bSuccess != true) return -1;
-    if (aSuccess != true && bSuccess == true) return 1;
-    if (aSuccess == true && bSuccess == true) {
-      return aElapsed!.compareTo(bElapsed!);
+class _SetupFlowPlan {
+  const _SetupFlowPlan._();
+
+  static List<_SetupStep> steps({
+    required bool allowSkip,
+    required bool optimizeEnabled,
+  }) {
+    if (!allowSkip) {
+      return const [
+        _SetupStep.encrypted,
+        _SetupStep.entrance,
+        _SetupStep.route,
+        _SetupStep.summary,
+      ];
     }
-    return 0;
-  }
-
-  String? _resultLabel(dynamic result) {
-    if (result == null) return _probing ? '测速中' : null;
-    final success = result.success as bool;
-    if (success) return result.latencyLabel as String;
-    return result.message as String;
+    if (!optimizeEnabled) {
+      return const [
+        _SetupStep.mode,
+        _SetupStep.entrance,
+        _SetupStep.summary,
+      ];
+    }
+    return const [
+      _SetupStep.mode,
+      _SetupStep.encrypted,
+      _SetupStep.entrance,
+      _SetupStep.route,
+      _SetupStep.summary,
+    ];
   }
 }
 
-class _StepMeta {
-  const _StepMeta(this.title, this.subtitle);
-
-  final String title;
-  final String subtitle;
-
-  static _StepMeta forStep(_SetupStep step) {
-    switch (step) {
+extension _SetupStepMeta on _SetupStep {
+  _StepMeta get meta {
+    switch (this) {
       case _SetupStep.mode:
         return const _StepMeta(
           '网络优化',
@@ -633,6 +632,99 @@ class _StepMeta {
         );
     }
   }
+}
+
+class _StepMeta {
+  const _StepMeta(this.title, this.subtitle);
+
+  final String title;
+  final String subtitle;
+}
+
+class _ProbeReading {
+  const _ProbeReading({required this.success, this.elapsed});
+
+  factory _ProbeReading.fromDoh(DohProbeResult? result) {
+    return _ProbeReading(success: result?.success, elapsed: result?.elapsed);
+  }
+
+  factory _ProbeReading.fromSite(ForumSiteProbeResult? result) {
+    return _ProbeReading(success: result?.success, elapsed: result?.elapsed);
+  }
+
+  factory _ProbeReading.fromAddress(ForumAddressProbeResult? result) {
+    return _ProbeReading(success: result?.success, elapsed: result?.elapsed);
+  }
+
+  final bool? success;
+  final Duration? elapsed;
+
+  static int compare(_ProbeReading a, _ProbeReading b) {
+    if (a.success == true && b.success != true) return -1;
+    if (a.success != true && b.success == true) return 1;
+    if (a.success == true && b.success == true) {
+      return a.elapsed!.compareTo(b.elapsed!);
+    }
+    return 0;
+  }
+}
+
+class _ProbeStatus {
+  const _ProbeStatus({this.label, this.success});
+
+  factory _ProbeStatus.fromDoh(
+    DohProbeResult? result, {
+    required bool probing,
+  }) {
+    return _ProbeStatus.fromValues(
+      success: result?.success,
+      latencyLabel: result?.latencyLabel,
+      message: result?.message,
+      probing: probing,
+    );
+  }
+
+  factory _ProbeStatus.fromSite(
+    ForumSiteProbeResult? result, {
+    required bool probing,
+  }) {
+    return _ProbeStatus.fromValues(
+      success: result?.success,
+      latencyLabel: result?.latencyLabel,
+      message: result?.message,
+      probing: probing,
+    );
+  }
+
+  factory _ProbeStatus.fromAddress(
+    ForumAddressProbeResult? result, {
+    required bool probing,
+  }) {
+    return _ProbeStatus.fromValues(
+      success: result?.success,
+      latencyLabel: result?.latencyLabel,
+      message: result?.message,
+      probing: probing,
+    );
+  }
+
+  factory _ProbeStatus.fromValues({
+    required bool? success,
+    required String? latencyLabel,
+    required String? message,
+    required bool probing,
+  }) {
+    if (success == null) {
+      return _ProbeStatus(label: probing ? '测速中' : null);
+    }
+    return _ProbeStatus(
+      label: success ? latencyLabel : message,
+      success: success,
+    );
+  }
+
+  final String? label;
+  final bool? success;
 }
 
 class _SignalHeroVisual extends StatelessWidget {

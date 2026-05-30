@@ -139,7 +139,7 @@ class _TopBar extends StatelessWidget {
                 minimumSize: const Size(56, 44),
               ),
               child: const Text(
-                'dlkd',
+                '登录',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
             ),
