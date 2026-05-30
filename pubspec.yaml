@@ -2,7 +2,7 @@ name: south_plus_rewrite
 description: South Plus mobile-first forum client rewrite.
 publish_to: "none"
 
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -15,7 +15,11 @@ dependencies:
   flutter_animate: ^4.5.2
   flutter_cache_manager: ^3.4.1
   html: ^0.15.6
+  path: ^1.9.0
+  path_provider: ^2.1.5
   shared_preferences: ^2.5.5
+  sqlite3: ^3.3.2
+  sqlite3_flutter_libs: ^0.5.26
 
 dev_dependencies:
   flutter_test:

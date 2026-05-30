@@ -26,11 +26,50 @@ class UserProfileParser {
       tagline: shell.tagline,
       avatarUrl: shell.avatarUrl,
       level: shell.level,
+      isOnline: shell.isOnline,
+      statusText: shell.statusText,
+      messageUrl: shell.messageUrl,
       info: _parseFields(profileDocument.querySelector('#u-profile')),
       stats: _parseFields(profileDocument.querySelector('#u-profile-s')),
-      signature: _cleanText(
-        profileDocument.querySelector('.u-profile .u-table')?.text ?? '',
-      ),
+      signature: _profileSignature(profileDocument),
+      homeActivities: _parseHomeActivities(homeDocument),
+      homeReplies: _parseHomeReplies(homeDocument),
+      topics: _parseThreadRows(topicsDocument, includeMetrics: true),
+      posts: _parseThreadRows(postsDocument, includeAuthor: true),
+      favorites: _parseFavorites(favoritesDocument),
+    );
+  }
+
+  UserProfile parseOverview({
+    required String uid,
+    required String profileUrl,
+    required dom.Document profileDocument,
+  }) {
+    final shell = _parseShell(uid, profileDocument);
+    return UserProfile(
+      uid: uid,
+      name: shell.name,
+      url: profileUrl,
+      tagline: shell.tagline,
+      avatarUrl: shell.avatarUrl,
+      level: shell.level,
+      isOnline: shell.isOnline,
+      statusText: shell.statusText,
+      messageUrl: shell.messageUrl,
+      info: _parseFields(profileDocument.querySelector('#u-profile')),
+      stats: _parseFields(profileDocument.querySelector('#u-profile-s')),
+      signature: _profileSignature(profileDocument),
+    );
+  }
+
+  UserProfile appendDetails({
+    required UserProfile overview,
+    required dom.Document homeDocument,
+    required dom.Document topicsDocument,
+    required dom.Document postsDocument,
+    required dom.Document favoritesDocument,
+  }) {
+    return overview.copyWith(
       homeActivities: _parseHomeActivities(homeDocument),
       homeReplies: _parseHomeReplies(homeDocument),
       topics: _parseThreadRows(topicsDocument, includeMetrics: true),
@@ -58,21 +97,50 @@ class UserProfileParser {
         .where((row) => _cleanText(row.text).contains('等级'))
         .firstOrNull;
     final tagline = _userTagline(top);
+    final messageHref = document
+            .querySelector('#u-sidebar a[href*="message.php?action-write"]')
+            ?.attributes['href'] ??
+        '';
+    final statusText = _onlineStatusText(document);
     return _UserProfileShell(
       name: name.isEmpty ? '用户 $uid' : name,
       tagline: tagline,
       avatarUrl:
           avatar == null || avatar.isEmpty ? null : urls.absoluteUrl(avatar),
       level: _cleanText(levelRow?.children.lastOrNull?.text ?? ''),
+      isOnline: statusText == null ? null : statusText == '在线',
+      statusText: statusText,
+      messageUrl: messageHref.isEmpty ? null : urls.absoluteUrl(messageHref),
     );
   }
 
   String? _userTagline(dom.Element? top) {
     if (top == null) return null;
-    final row = top.querySelector('table tr');
-    if (row == null || row.children.length < 2) return null;
-    final tagline = _cleanText(row.children[1].text);
+    final tagline = _cleanText(top.querySelector('#honor')?.text ?? '');
     return tagline.isEmpty ? null : tagline;
+  }
+
+  String? _profileSignature(dom.Document document) {
+    final signaturePanel = document
+        .querySelectorAll('.u-h5, h5')
+        .where((heading) => _cleanText(heading.text).contains('帖间签名'))
+        .firstOrNull
+        ?.nextElementSibling;
+    final signature = _cleanText(signaturePanel?.text ?? '');
+    return signature.isEmpty ? null : signature;
+  }
+
+  String? _onlineStatusText(dom.Document document) {
+    final statusImage = document.querySelector(
+      '#u-sidebar img[title="在线"], #u-sidebar img[title="离线"]',
+    );
+    final imageStatus = _cleanText(statusImage?.attributes['title'] ?? '');
+    if (imageStatus == '在线' || imageStatus == '离线') return imageStatus;
+
+    final friendAction = document.querySelector('#u-sidebar a[title]');
+    final actionStatus = _cleanText(friendAction?.attributes['title'] ?? '');
+    if (actionStatus == '在线' || actionStatus == '离线') return actionStatus;
+    return null;
   }
 
   List<UserProfileField> _parseFields(dom.Element? section) {
@@ -222,10 +290,16 @@ class _UserProfileShell {
     this.tagline,
     this.avatarUrl,
     this.level,
+    this.isOnline,
+    this.statusText,
+    this.messageUrl,
   });
 
   final String name;
   final String? tagline;
   final String? avatarUrl;
   final String? level;
+  final bool? isOnline;
+  final String? statusText;
+  final String? messageUrl;
 }

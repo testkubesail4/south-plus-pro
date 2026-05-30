@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:south_plus_rewrite/services/parsers/thread_detail_parser.dart';
 import 'package:south_plus_rewrite/services/parsers/thread_content_parser.dart';
+import 'package:south_plus_rewrite/services/parsers/user_profile_parser.dart';
 import 'package:south_plus_rewrite/services/whats_link_preview_service.dart';
 
 void main() {
@@ -89,5 +90,52 @@ void main() {
     final section = ThreadDetailParser().sectionTitle(document);
 
     expect(section, '技术交流');
+  });
+
+  test('UserProfileParser strips honor scripts and extracts online status', () {
+    final profileDocument = html_parser.parse('''
+      <div id="u-sidebar">
+        <div id="u-portrait"><img class="pic" src="images/face/none.gif"></div>
+        <table><tr><td>等级</td><td>Lv.0</td></tr></table>
+        <a href="message.php?action-write-touid-2536715.html">发短消息</a>
+        <img title="在线" src="images/colorImagination/u-adf.gif">
+        <a title="在线">加为好友</a>
+      </div>
+      <div id="u-top">
+        <h1 class="u-h1">Alice</h1>
+        <span id="honor">您还没有设置个性签名</span>
+        <script>function honor(){ getObj('honor').innerHTML = 'x'; }</script>
+      </div>
+      <div id="u-profile">
+        <table>
+          <tr><td>UID</td><th>2536715</th></tr>
+          <tr><td>自我简介</td><th><div><br></div></th></tr>
+        </table>
+      </div>
+      <div id="u-profile-s">
+        <table><tr><td>在线时间</td><th>9 小时</th></tr></table>
+      </div>
+    ''');
+    final parser = UserProfileParser();
+
+    final profile = parser.parse(
+      uid: '2536715',
+      profileUrl: 'https://south-plus.net/u.php?action-show-uid-2536715.html',
+      profileDocument: profileDocument,
+      homeDocument: html_parser.parse(''),
+      topicsDocument: html_parser.parse(''),
+      postsDocument: html_parser.parse(''),
+      favoritesDocument: html_parser.parse(''),
+    );
+
+    expect(profile.tagline, '您还没有设置个性签名');
+    expect(profile.tagline, isNot(contains('function honor')));
+    expect(profile.isOnline, isTrue);
+    expect(profile.statusText, '在线');
+    expect(
+      profile.messageUrl,
+      'https://south-plus.net/message.php?action-write-touid-2536715.html',
+    );
+    expect(profile.info.map((field) => field.label), isNot(contains('自我简介')));
   });
 }

@@ -4,6 +4,7 @@ import '../models/forum_models.dart';
 import 'forum_client.dart';
 import 'forum_network_config.dart';
 import 'forum_url_resolver.dart';
+import 'user_profile_cache.dart';
 import 'parsers/board_thread_page_parser.dart';
 import 'parsers/forum_form_parser.dart';
 import 'parsers/forum_response_parser.dart';
@@ -17,6 +18,7 @@ class ForumRepository {
   ForumRepository({
     ForumClient? client,
     ForumNetworkConfig? config,
+    UserProfileCache? profileCache,
   })  : _client = client ??
             ForumClient(
               config: config ??
@@ -36,7 +38,14 @@ class ForumRepository {
         _urls = ForumUrlResolver(
           baseUri: (config ?? client?.config)?.baseUri ??
               ForumNetworkConfig.defaultSite.baseUri,
-        );
+        ),
+        _profileCache = profileCache ??
+            UserProfileCache(
+              urls: ForumUrlResolver(
+                baseUri: (config ?? client?.config)?.baseUri ??
+                    ForumNetworkConfig.defaultSite.baseUri,
+              ),
+            );
 
   ForumClient _client;
   ForumNetworkConfig _config;
@@ -52,6 +61,7 @@ class ForumRepository {
     contentParser: ThreadContentParser(urls: _urls),
   );
   late UserProfileParser _userProfileParser = UserProfileParser(urls: _urls);
+  UserProfileCache _profileCache;
   String? _currentUsername;
 
   bool get isLoggedIn => _client.isLoggedIn;
@@ -73,6 +83,7 @@ class ForumRepository {
       contentParser: ThreadContentParser(urls: _urls),
     );
     _userProfileParser = UserProfileParser(urls: _urls);
+    _profileCache = UserProfileCache(urls: _urls);
     _client = ForumClient(config: config);
     _currentUsername = null;
     await ForumNetworkSettings.save(config);
@@ -341,7 +352,53 @@ class ForumRepository {
   }
 
   Future<UserProfile> fetchUserProfile(String url) async {
+    final overview = await fetchUserProfileOverview(url);
+    return fetchUserProfileDetails(overview);
+  }
+
+  Future<UserProfile> fetchUserProfileOverview(String url) async {
     final profileUrl = _urls.absoluteUrl(url);
+    final uid = await _uidFromProfileUrl(profileUrl);
+    final profileDocument = html_parser.parse(
+      await _client.get(
+        _urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.profile)),
+      ),
+    );
+    final profile = _userProfileParser.parseOverview(
+      uid: uid,
+      profileUrl: profileUrl,
+      profileDocument: profileDocument,
+    );
+    await _profileCache.saveOverview(url, profile);
+    return profile;
+  }
+
+  Future<UserProfile?> cachedUserProfileOverview(String url) async {
+    return _profileCache.loadOverview(url);
+  }
+
+  Future<UserProfile> fetchUserProfileDetails(UserProfile overview) async {
+    final uid = overview.uid;
+    final documents = await Future.wait([
+      _client
+          .get(_urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.home))),
+      _client.get(
+          _urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.topics))),
+      _client
+          .get(_urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.posts))),
+      _client.get(
+          _urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.favorites))),
+    ]);
+    return _userProfileParser.appendDetails(
+      overview: overview,
+      homeDocument: html_parser.parse(documents[0]),
+      topicsDocument: html_parser.parse(documents[1]),
+      postsDocument: html_parser.parse(documents[2]),
+      favoritesDocument: html_parser.parse(documents[3]),
+    );
+  }
+
+  Future<String> _uidFromProfileUrl(String profileUrl) async {
     var uid = _urls.uidFromUrl(profileUrl);
     if (uid == null) {
       final html = await _client.get(_urls.relativePath(profileUrl));
@@ -350,37 +407,7 @@ class ForumRepository {
     if (uid == null) {
       throw const ForumRepositoryException('没有找到用户 UID');
     }
-
-    final profileHtml = await _client
-        .get(_urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.profile)));
-    final profileDocument = html_parser.parse(profileHtml);
-
-    final homeDocument = html_parser.parse(
-      await _client
-          .get(_urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.home))),
-    );
-    final topicsDocument = html_parser.parse(
-      await _client.get(
-          _urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.topics))),
-    );
-    final postsDocument = html_parser.parse(
-      await _client
-          .get(_urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.posts))),
-    );
-    final favoritesDocument = html_parser.parse(
-      await _client.get(
-          _urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.favorites))),
-    );
-
-    return _userProfileParser.parse(
-      uid: uid,
-      profileUrl: profileUrl,
-      profileDocument: profileDocument,
-      homeDocument: homeDocument,
-      topicsDocument: topicsDocument,
-      postsDocument: postsDocument,
-      favoritesDocument: favoritesDocument,
-    );
+    return uid;
   }
 
   Future<ThreadDetail> fetchThreadDetail(ForumThread thread) async {
@@ -388,7 +415,8 @@ class ForumRepository {
     final document = html_parser.parse(html);
     final favorite = await _extractThreadFavorite(thread, html);
     final section = _threadDetailParser.sectionTitle(document);
-    final detailThread = section == null ? thread : thread.copyWith(section: section);
+    final detailThread =
+        section == null ? thread : thread.copyWith(section: section);
     final cards = _threadDetailParser.simpleThreadCards(document);
     if (cards.isNotEmpty) {
       return ThreadDetail(

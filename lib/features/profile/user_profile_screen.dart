@@ -22,19 +22,53 @@ class UserProfileScreen extends StatefulWidget {
 }
 
 class _UserProfileScreenState extends State<UserProfileScreen> {
-  late Future<UserProfile> _future;
+  late Future<UserProfile> _overviewFuture;
+  Future<UserProfile>? _detailsFuture;
 
   @override
   void initState() {
     super.initState();
-    _future = widget.repository.fetchUserProfile(widget.userUrl);
+    _loadProfile();
+  }
+
+  void _loadProfile() {
+    _detailsFuture = null;
+    _overviewFuture = _fetchOverviewWithCache();
+  }
+
+  Future<UserProfile> _fetchOverviewWithCache() async {
+    final cached = await widget.repository.cachedUserProfileOverview(
+      widget.userUrl,
+    );
+    if (cached != null) {
+      _detailsFuture = widget.repository.fetchUserProfileDetails(cached);
+      _refreshOverviewAfterCache();
+      return cached;
+    }
+
+    final overview = await widget.repository.fetchUserProfileOverview(
+      widget.userUrl,
+    );
+    _detailsFuture = widget.repository.fetchUserProfileDetails(overview);
+    return overview;
+  }
+
+  void _refreshOverviewAfterCache() {
+    widget.repository.fetchUserProfileOverview(widget.userUrl).then((overview) {
+      if (!mounted) return;
+      setState(() {
+        _overviewFuture = Future.value(overview);
+        _detailsFuture = widget.repository.fetchUserProfileDetails(overview);
+      });
+    }).catchError((_) {});
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = widget.repository.fetchUserProfile(widget.userUrl);
+      _loadProfile();
     });
-    await _future;
+    final overview = await _overviewFuture;
+    await _detailsFuture ?? Future.value(overview);
   }
 
   @override
@@ -46,7 +80,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         body: SafeArea(
           bottom: false,
           child: FutureBuilder<UserProfile>(
-            future: _future,
+            future: _overviewFuture,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return AsyncErrorView(
@@ -56,52 +90,79 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 );
               }
               if (!snapshot.hasData) {
-                return const ThreadListSkeleton(itemCount: 5);
+                return _LoadingProfileFrame(onRefresh: _refresh);
               }
               final profile = snapshot.data!;
-              return NestedScrollView(
-                headerSliverBuilder: (context, _) => [
-                  SliverToBoxAdapter(child: _ProfileHeader(profile: profile)),
-                  const SliverToBoxAdapter(child: _ProfileTabs()),
-                ],
-                body: TabBarView(
-                  children: [
-                    _RefreshTab(
-                      onRefresh: _refresh,
-                      child: _HomeTab(
-                        profile: profile,
-                        repository: widget.repository,
-                      ),
+              final detailsFuture = _detailsFuture;
+              return TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: value,
+                    child: Transform.translate(
+                      offset: Offset(0, 10 * (1 - value)),
+                      child: child,
                     ),
-                    _RefreshTab(
-                      onRefresh: _refresh,
-                      child: _ProfileInfoTab(profile: profile),
-                    ),
-                    _RefreshTab(
-                      onRefresh: _refresh,
-                      child: _ItemList(
-                        items: profile.topics,
-                        emptyText: '没有主题',
-                        repository: widget.repository,
-                      ),
-                    ),
-                    _RefreshTab(
-                      onRefresh: _refresh,
-                      child: _ItemList(
-                        items: profile.posts,
-                        emptyText: '没有回复',
-                        repository: widget.repository,
-                      ),
-                    ),
-                    _RefreshTab(
-                      onRefresh: _refresh,
-                      child: _ItemList(
-                        items: profile.favorites,
-                        emptyText: '没有公开收藏',
-                        repository: widget.repository,
-                      ),
-                    ),
+                  );
+                },
+                child: NestedScrollView(
+                  headerSliverBuilder: (context, _) => [
+                    SliverToBoxAdapter(child: _ProfileHeader(profile: profile)),
+                    const SliverToBoxAdapter(child: _ProfileTabs()),
                   ],
+                  body: TabBarView(
+                    children: [
+                      _RefreshTab(
+                        onRefresh: _refresh,
+                        child: _DetailsTab(
+                          future: detailsFuture,
+                          builder: (context, details) => _HomeTab(
+                            profile: details,
+                            repository: widget.repository,
+                          ),
+                        ),
+                      ),
+                      _RefreshTab(
+                        onRefresh: _refresh,
+                        child: _ProfileInfoTab(profile: profile),
+                      ),
+                      _RefreshTab(
+                        onRefresh: _refresh,
+                        child: _DetailsTab(
+                          future: detailsFuture,
+                          builder: (context, details) => _ItemList(
+                            items: details.topics,
+                            emptyText: '没有主题',
+                            repository: widget.repository,
+                          ),
+                        ),
+                      ),
+                      _RefreshTab(
+                        onRefresh: _refresh,
+                        child: _DetailsTab(
+                          future: detailsFuture,
+                          builder: (context, details) => _ItemList(
+                            items: details.posts,
+                            emptyText: '没有回复',
+                            repository: widget.repository,
+                          ),
+                        ),
+                      ),
+                      _RefreshTab(
+                        onRefresh: _refresh,
+                        child: _DetailsTab(
+                          future: detailsFuture,
+                          builder: (context, details) => _ItemList(
+                            items: details.favorites,
+                            emptyText: '没有公开收藏',
+                            repository: widget.repository,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },

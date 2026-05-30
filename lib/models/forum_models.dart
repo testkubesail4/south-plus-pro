@@ -327,6 +327,9 @@ class UserProfile {
     this.tagline,
     this.avatarUrl,
     this.level,
+    this.isOnline,
+    this.statusText,
+    this.messageUrl,
     this.info = const [],
     this.stats = const [],
     this.signature,
@@ -343,6 +346,9 @@ class UserProfile {
   final String? tagline;
   final String? avatarUrl;
   final String? level;
+  final bool? isOnline;
+  final String? statusText;
+  final String? messageUrl;
   final List<UserProfileField> info;
   final List<UserProfileField> stats;
   final String? signature;
@@ -351,6 +357,46 @@ class UserProfile {
   final List<UserListItem> topics;
   final List<UserListItem> posts;
   final List<UserListItem> favorites;
+
+  UserProfile copyWith({
+    String? uid,
+    String? name,
+    String? url,
+    String? tagline,
+    String? avatarUrl,
+    String? level,
+    bool? isOnline,
+    String? statusText,
+    String? messageUrl,
+    List<UserProfileField>? info,
+    List<UserProfileField>? stats,
+    String? signature,
+    List<UserActivityItem>? homeActivities,
+    List<UserActivityItem>? homeReplies,
+    List<UserListItem>? topics,
+    List<UserListItem>? posts,
+    List<UserListItem>? favorites,
+  }) {
+    return UserProfile(
+      uid: uid ?? this.uid,
+      name: name ?? this.name,
+      url: url ?? this.url,
+      tagline: tagline ?? this.tagline,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      level: level ?? this.level,
+      isOnline: isOnline ?? this.isOnline,
+      statusText: statusText ?? this.statusText,
+      messageUrl: messageUrl ?? this.messageUrl,
+      info: info ?? this.info,
+      stats: stats ?? this.stats,
+      signature: signature ?? this.signature,
+      homeActivities: homeActivities ?? this.homeActivities,
+      homeReplies: homeReplies ?? this.homeReplies,
+      topics: topics ?? this.topics,
+      posts: posts ?? this.posts,
+      favorites: favorites ?? this.favorites,
+    );
+  }
 }
 
 class UserProfileField {

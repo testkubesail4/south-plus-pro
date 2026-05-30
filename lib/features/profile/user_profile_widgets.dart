@@ -8,8 +8,11 @@ class _ProfileHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xffeeeeef))),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -27,64 +30,101 @@ class _ProfileHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              CircleAvatar(
-                radius: 34,
-                backgroundColor: const Color(0xfff2d8dd),
-                backgroundImage: profile.avatarUrl == null
-                    ? null
-                    : NetworkImage(profile.avatarUrl!),
-                child: profile.avatarUrl == null
-                    ? Text(
-                        profile.name.characters.firstOrNull ?? '?',
-                        style: const TextStyle(
-                          color: _ProfileTheme.accent,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xfffffbfb),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xffffe3e8)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    Text(
-                      profile.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundColor: const Color(0xfff2d8dd),
+                      backgroundImage: profile.avatarUrl == null
+                          ? null
+                          : NetworkImage(profile.avatarUrl!),
+                      child: profile.avatarUrl == null
+                          ? Text(
+                              profile.name.characters.firstOrNull ?? '?',
+                              style: const TextStyle(
+                                color: _ProfileTheme.accent,
+                                fontSize: 26,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            )
+                          : null,
                     ),
-                    if (profile.tagline != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        profile.tagline!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xff777777),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
+                    Positioned(
+                      right: -1,
+                      bottom: 2,
+                      child: _OnlineDot(isOnline: profile.isOnline),
+                    ),
                   ],
                 ),
-              ),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              profile.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                height: 1.15,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _OnlinePill(
+                            isOnline: profile.isOnline,
+                            text: profile.statusText,
+                          ),
+                        ],
+                      ),
+                      if (profile.tagline != null) ...[
+                        const SizedBox(height: 7),
+                        Text(
+                          profile.tagline!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xff666666),
+                            fontSize: 13,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (profile.messageUrl != null)
+                const _ActionChip(
+                  icon: Icons.mail_outline,
+                  label: '可发短消息',
+                ),
               _MetricChip(label: 'UID', value: profile.uid),
-              if (profile.level != null)
+              if (profile.level != null && profile.level!.isNotEmpty)
                 _MetricChip(label: '等级', value: profile.level!),
               ...profile.stats.take(3).map(
                     (field) => _MetricChip(
@@ -93,6 +133,116 @@ class _ProfileHeader extends StatelessWidget {
                     ),
                   ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OnlineDot extends StatelessWidget {
+  const _OnlineDot({required this.isOnline});
+
+  final bool? isOnline;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isOnline == null
+        ? const Color(0xffb9b9b9)
+        : isOnline!
+            ? const Color(0xff24b26b)
+            : const Color(0xff9b9b9b);
+    return Container(
+      width: 15,
+      height: 15,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 3),
+      ),
+    );
+  }
+}
+
+class _OnlinePill extends StatelessWidget {
+  const _OnlinePill({required this.isOnline, required this.text});
+
+  final bool? isOnline;
+  final String? text;
+
+  @override
+  Widget build(BuildContext context) {
+    final online = isOnline == true;
+    final color = isOnline == null
+        ? const Color(0xff777777)
+        : online
+            ? const Color(0xff167a49)
+            : const Color(0xff666666);
+    final background = isOnline == null
+        ? const Color(0xfff1f1f2)
+        : online
+            ? const Color(0xffe8f8ef)
+            : const Color(0xfff1f1f2);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            online ? Icons.circle : Icons.circle_outlined,
+            size: 10,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            text ?? '未知',
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionChip extends StatelessWidget {
+  const _ActionChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _ProfileTheme.accent,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: Colors.white),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -119,6 +269,127 @@ class _ProfileTabs extends StatelessWidget {
           Tab(text: '主题'),
           Tab(text: '回复'),
           Tab(text: '收藏'),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingProfileFrame extends StatelessWidget {
+  const _LoadingProfileFrame({required this.onRefresh});
+
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return NestedScrollView(
+      headerSliverBuilder: (context, _) => const [
+        SliverToBoxAdapter(child: _ProfileLoadingHeader()),
+        SliverToBoxAdapter(child: _ProfileTabs()),
+      ],
+      body: TabBarView(
+        children: [
+          _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
+          _RefreshTab(
+              onRefresh: onRefresh, child: const _ProfileInfoLoadingTab()),
+          _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
+          _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
+          _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileLoadingHeader extends StatelessWidget {
+  const _ProfileLoadingHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xffeeeeef))),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                tooltip: '返回',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.chevron_left, size: 30),
+              ),
+              const Text(
+                '用户中心',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xfffffbfb),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xffffe3e8)),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundColor: Color(0xfff2d8dd),
+                      child: _SkeletonBox(width: 32, height: 32, radius: 16),
+                    ),
+                    Positioned(
+                      right: -1,
+                      bottom: 2,
+                      child: _OnlineDot(isOnline: null),
+                    ),
+                  ],
+                ),
+                SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SkeletonBox(
+                              width: 132,
+                              height: 26,
+                              radius: 7,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          _SkeletonBox(width: 58, height: 28, radius: 14),
+                        ],
+                      ),
+                      SizedBox(height: 9),
+                      _SkeletonBox(width: 180, height: 14, radius: 5),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _SkeletonBox(width: 92, height: 32, radius: 16),
+              _SkeletonBox(width: 88, height: 32, radius: 16),
+              _SkeletonBox(width: 118, height: 32, radius: 16),
+            ],
+          ),
         ],
       ),
     );
@@ -152,6 +423,52 @@ class _HomeTab extends StatelessWidget {
   }
 }
 
+class _DetailsTab extends StatelessWidget {
+  const _DetailsTab({
+    required this.future,
+    required this.builder,
+  });
+
+  final Future<UserProfile>? future;
+  final Widget Function(BuildContext context, UserProfile profile) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final detailsFuture = future;
+    if (detailsFuture == null) {
+      return const _TabLoadingSkeleton();
+    }
+    return FutureBuilder<UserProfile>(
+      future: detailsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              _TextPanel(
+                title: '内容加载失败',
+                text: '${snapshot.error}',
+              ),
+            ],
+          );
+        }
+        if (!snapshot.hasData) {
+          return const _TabLoadingSkeleton();
+        }
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: KeyedSubtree(
+            key: ValueKey(snapshot.data!.uid),
+            child: builder(context, snapshot.data!),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _ProfileInfoTab extends StatelessWidget {
   const _ProfileInfoTab({required this.profile});
 
@@ -169,6 +486,22 @@ class _ProfileInfoTab extends StatelessWidget {
           const SizedBox(height: 14),
           _TextPanel(title: '帖间签名', text: profile.signature!),
         ],
+      ],
+    );
+  }
+}
+
+class _ProfileInfoLoadingTab extends StatelessWidget {
+  const _ProfileInfoLoadingTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      children: const [
+        _SkeletonPanel(),
+        SizedBox(height: 14),
+        _SkeletonPanel(),
       ],
     );
   }
@@ -626,6 +959,86 @@ class _EmptyList extends StatelessWidget {
           child: Text(text, style: const TextStyle(color: Color(0xff777777))),
         ),
       ],
+    );
+  }
+}
+
+class _SkeletonPanel extends StatelessWidget {
+  const _SkeletonPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SkeletonBox(width: 90, height: 18, radius: 6),
+          SizedBox(height: 14),
+          _SkeletonBox(width: double.infinity, height: 14, radius: 5),
+          SizedBox(height: 10),
+          _SkeletonBox(width: double.infinity, height: 14, radius: 5),
+          SizedBox(height: 10),
+          _SkeletonBox(width: 210, height: 14, radius: 5),
+        ],
+      ),
+    );
+  }
+}
+
+class _TabLoadingSkeleton extends StatelessWidget {
+  const _TabLoadingSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      children: const [
+        _SkeletonPanel(),
+        SizedBox(height: 12),
+        _SkeletonPanel(),
+        SizedBox(height: 12),
+        _SkeletonPanel(),
+      ],
+    );
+  }
+}
+
+class _SkeletonBox extends StatelessWidget {
+  const _SkeletonBox({
+    required this.width,
+    required this.height,
+    required this.radius,
+  });
+
+  final double width;
+  final double height;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: .45, end: .9),
+      duration: const Duration(milliseconds: 850),
+      curve: Curves.easeInOut,
+      builder: (context, value, _) {
+        return Opacity(
+          opacity: value,
+          child: Container(
+            width: width,
+            height: height,
+            decoration: BoxDecoration(
+              color: const Color(0xffe7e7ea),
+              borderRadius: BorderRadius.circular(radius),
+            ),
+          ),
+        );
+      },
+      onEnd: () {},
     );
   }
 }
