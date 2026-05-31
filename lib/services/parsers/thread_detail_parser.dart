@@ -14,56 +14,63 @@ class ThreadDetailParser {
   final ForumUrlResolver urls;
   final ThreadContentParser contentParser;
 
-  List<ThreadReply> simpleThreadCards(dom.Document document) {
+  List<ThreadReply> desktopThreadCards(dom.Document document) {
     final replies = <ThreadReply>[];
-    for (final card in document.querySelectorAll('.card .card-body')) {
-      final header = card.querySelector('h6');
-      final cardText = card.querySelector('.card-text');
-      final saleBoxesFirst = cardText != null && _startsWithSaleBox(cardText);
-      final saleBoxes = cardText == null
-          ? const <ThreadSaleBox>[]
-          : _extractSaleBoxes(cardText);
-      final quote =
-          cardText == null ? null : contentParser.extractQuote(cardText);
-      final images = const <ThreadImage>[];
-      final links =
-          cardText == null ? const <ThreadLink>[] : _extractLinks(cardText);
-      final segments = cardText == null
-          ? const <ThreadContentSegment>[]
-          : contentParser.extractInlineSegments(cardText);
-      final content = _cleanText(cardText?.text ?? '');
-      if (header == null ||
-          (content.isEmpty &&
-              segments.isEmpty &&
-              saleBoxes.isEmpty &&
-              images.isEmpty &&
-              links.isEmpty)) {
+    for (final post in document.querySelectorAll('table.js-post')) {
+      final authorCell = post.querySelector('th.r_two');
+      final contentCell = post.querySelector('th.r_one');
+      final content = _desktopContentElement(contentCell);
+      if (authorCell == null || contentCell == null || content == null) {
         continue;
       }
 
-      final authorLink = header.querySelector('a[href*="uid"]') ??
-          header.querySelector('a[href*="action-show-uid"]');
+      final contentClone = content.clone(true);
+      _removeIgnoredContent(contentClone);
+      final saleBoxesFirst = _startsWithSaleBox(contentClone);
+      final saleBoxes = _extractSaleBoxes(contentClone);
+      final quote = contentParser.extractQuote(contentClone);
+      final links = _extractLinks(contentClone);
+      final segments = contentParser.extractInlineSegments(contentClone);
+      final images = const <ThreadImage>[];
+      final text = _cleanText(contentClone.text);
+      if (text.isEmpty &&
+          segments.isEmpty &&
+          saleBoxes.isEmpty &&
+          images.isEmpty &&
+          links.isEmpty) {
+        continue;
+      }
+
+      final strong = authorCell.querySelector('a[href*="uid"] strong');
+      final authorLink = strong?.parent ??
+          authorCell.querySelector('a[href*="action-show-uid"]') ??
+          authorCell.querySelector('a[href*="uid"]');
       final authorHref = authorLink?.attributes['href'] ?? '';
       final author = _cleanText(
-        header.querySelector('strong')?.text ?? authorLink?.text ?? '匿名',
+        strong?.text ?? authorLink?.text ?? '匿名',
       );
-      final headerText = _cleanText(header.text);
-      final floor =
-          _cleanText(header.querySelector('.float-right')?.text ?? '');
-      final dateMatch =
-          RegExp(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}').firstMatch(headerText);
-      final postedAt = [
-        if (dateMatch != null) dateMatch.group(0)!,
-        if (floor.isNotEmpty) floor,
-      ].join(' ');
+      final avatarSrc =
+          authorCell.querySelector('.user-pic img')?.attributes['src'] ??
+              authorCell.querySelector('a[href*="uid"] img')?.attributes['src'];
+      final authorPostsHref = _authorPostsHref(contentCell);
+      final quoteHref = _quoteHref(contentCell);
+      final floor = _floor(contentCell);
+      final postedAt = _postedAt(contentCell);
       replies.add(
         ThreadReply(
           author: author,
           authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
-          content: content,
+          authorAvatarUrl: avatarSrc == null || avatarSrc.isEmpty
+              ? null
+              : urls.absoluteUrl(avatarSrc),
+          authorPostsUrl: authorPostsHref == null
+              ? null
+              : urls.absoluteUrl(authorPostsHref),
+          content: text,
           postedAt: postedAt.isEmpty ? null : postedAt,
           floor: floor.isEmpty ? null : floor,
           quote: quote,
+          quoteUrl: quoteHref == null ? null : urls.absoluteUrl(quoteHref),
           segments: segments,
           images: images,
           links: links,
@@ -75,28 +82,86 @@ class ThreadDetailParser {
     return replies;
   }
 
-  List<ThreadReply> legacyReplies(dom.Document document) {
-    return document
-        .querySelectorAll('.reply')
-        .map((reply) {
-          final authorLink = reply.querySelector('a[href*="uid"]') ??
-              reply.querySelector('a[href*="action-show-uid"]');
-          final authorHref = authorLink?.attributes['href'] ?? '';
-          final author = _cleanText(
-              reply.querySelector('b')?.text ?? authorLink?.text ?? '匿名');
-          final content =
-              _cleanText(reply.querySelector('.content')?.text ?? reply.text);
-          return ThreadReply(
-            author: author,
-            authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
-            content: content,
-          );
-        })
-        .where((reply) => reply.content.isNotEmpty)
-        .toList();
+  ThreadPagination desktopPagination(
+    dom.Document document, {
+    int requestedPage = 1,
+  }) {
+    final text = _cleanText(document.body?.text ?? '');
+    final pagesMatch = RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)').firstMatch(text);
+    final currentFromText =
+        pagesMatch == null ? null : int.tryParse(pagesMatch.group(1)!);
+    final totalFromText =
+        pagesMatch == null ? null : int.tryParse(pagesMatch.group(2)!);
+
+    var totalFromLinks = 1;
+    for (final link in document.querySelectorAll('a[href*="read.php?tid-"]')) {
+      final page = _pageFromHref(link.attributes['href'] ?? '');
+      if (page != null && page > totalFromLinks) totalFromLinks = page;
+    }
+
+    final total = totalFromText ?? totalFromLinks;
+    final current = (currentFromText ?? requestedPage).clamp(1, total).toInt();
+    return ThreadPagination(currentPage: current, totalPages: total);
+  }
+
+  String? threadTitle(dom.Document document) {
+    final candidates = [
+      document.querySelector('#subject_tpc'),
+      document.querySelector('strong a[href*="read.php?tid"]'),
+    ];
+    for (final candidate in candidates) {
+      final title = _cleanText(candidate?.text ?? '');
+      if (title.isNotEmpty) return title;
+    }
+    return null;
+  }
+
+  String? threadUrl(dom.Document document) {
+    for (final link in document.querySelectorAll('a[href*="read.php?tid-"]')) {
+      final href = link.attributes['href'] ?? '';
+      final title = _cleanText(link.text);
+      if (title.isEmpty ||
+          href.contains('page-') ||
+          href.contains('-uid-') ||
+          href.contains('skinco-') ||
+          !_isThreadReadHref(href)) {
+        continue;
+      }
+      return urls.absoluteUrl(href);
+    }
+    return null;
+  }
+
+  ThreadActionLink? previousThread(dom.Document document) {
+    return _actionLink(
+      document,
+      'a[href*="action-previous"][href*="goto-previous"]',
+      fallbackLabel: '上一主题',
+    );
+  }
+
+  ThreadActionLink? nextThread(dom.Document document) {
+    return _actionLink(
+      document,
+      'a[href*="action-previous"][href*="goto-next"]',
+      fallbackLabel: '下一主题',
+    );
+  }
+
+  ThreadActionLink? rssFeed(dom.Document document) {
+    return _actionLink(
+      document,
+      'a[href^="rss.php?tid="], a[href*="/rss.php?tid="]',
+      fallbackLabel: 'RSS',
+    );
   }
 
   String? sectionTitle(dom.Document document) {
+    final sectionFromTitle = _sectionTitleFromDocumentTitle(
+      document.querySelector('title')?.text ?? '',
+    );
+    if (sectionFromTitle != null) return sectionFromTitle;
+
     final breadcrumbLinks = [
       ...document.querySelectorAll('.breadcrumb a[href]'),
       ...document.querySelectorAll('#breadCrumb a[href]'),
@@ -118,17 +183,30 @@ class ThreadDetailParser {
     return null;
   }
 
-  String bodyText(dom.Document document) {
-    final candidates = [
-      document.querySelector('.body'),
-      document.querySelector('.content'),
-      document.querySelector('main'),
-    ];
-    for (final candidate in candidates) {
-      final text = _cleanText(candidate?.text ?? '');
-      if (text.isNotEmpty) return text;
-    }
-    return '';
+  String? _sectionTitleFromDocumentTitle(String title) {
+    final match = RegExp(r'\|\s*([^-|]+?)\s*-\s*南\+').firstMatch(title);
+    final section = _cleanText(match?.group(1) ?? '');
+    return section.isEmpty || _isGenericCrumbTitle(section) ? null : section;
+  }
+
+  bool _isThreadReadHref(String href) {
+    return RegExp(r'read\.php\?tid-\d+\.html$').hasMatch(href) ||
+        RegExp(r'read\.php\?tid-\d+(?:-|&)').hasMatch(href);
+  }
+
+  ThreadActionLink? _actionLink(
+    dom.Document document,
+    String selector, {
+    required String fallbackLabel,
+  }) {
+    final link = document.querySelector(selector);
+    final href = link?.attributes['href'] ?? '';
+    if (href.isEmpty || href.startsWith('javascript:')) return null;
+    final label = _cleanText(link?.text ?? '');
+    return ThreadActionLink(
+      label: label.isEmpty ? fallbackLabel : label,
+      url: urls.absoluteUrl(href),
+    );
   }
 
   bool _isBoardHref(String href) {
@@ -167,6 +245,74 @@ class ThreadDetailParser {
       if (links.length >= 20) break;
     }
     return links;
+  }
+
+  dom.Element? _desktopContentElement(dom.Element? contentCell) {
+    if (contentCell == null) return null;
+    return contentCell.querySelector('[id^="read_"]') ??
+        contentCell.querySelector('.tpc_content .f14') ??
+        contentCell.querySelector('.tpc_content');
+  }
+
+  void _removeIgnoredContent(dom.Element content) {
+    for (final element in content.querySelectorAll(
+      'script, style, noscript, div[id^="alert_"], div[id^="p_"], div[id^="w_"]',
+    )) {
+      element.remove();
+    }
+  }
+
+  String _floor(dom.Element contentCell) {
+    final floor = _cleanText(
+      contentCell.querySelector('.tiptop .fl .s3')?.text ??
+          contentCell.querySelector('.tiptop .fl')?.text ??
+          '',
+    );
+    return floor;
+  }
+
+  String _postedAt(dom.Element contentCell) {
+    final time = contentCell.querySelector('.tiptop .gray');
+    final title = _cleanText(time?.attributes['title'] ?? '');
+    final text = _cleanText(time?.text ?? '');
+    final source = title.isNotEmpty ? title : text;
+    return RegExp(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}')
+            .firstMatch(source)
+            ?.group(0) ??
+        '';
+  }
+
+  String? _authorPostsHref(dom.Element contentCell) {
+    for (final link in contentCell.querySelectorAll(
+      'a[href*="read.php?tid-"][href*="-uid-"]',
+    )) {
+      final href = link.attributes['href'] ?? '';
+      if (href.isEmpty ||
+          href.contains('skinco-') ||
+          href.contains('page-') ||
+          !RegExp(r'read\.php\?tid-\d+-uid-\d+\.html').hasMatch(href)) {
+        continue;
+      }
+      final label = _cleanText(link.text);
+      if (label.isEmpty || label.contains('只看')) return href;
+    }
+    return null;
+  }
+
+  String? _quoteHref(dom.Element contentCell) {
+    for (final link
+        in contentCell.querySelectorAll('a[href*="post.php?action-quote"]')) {
+      final href = link.attributes['href'] ?? '';
+      if (href.isEmpty || href.startsWith('javascript:')) continue;
+      return href;
+    }
+    return null;
+  }
+
+  int? _pageFromHref(String href) {
+    final match = RegExp(r'page-(\d+)').firstMatch(href);
+    if (match == null) return null;
+    return int.tryParse(match.group(1)!);
   }
 
   bool _startsWithSaleBox(dom.Element content) {

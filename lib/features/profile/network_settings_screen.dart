@@ -215,7 +215,7 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
         ? '线路选择'
         : (_config.dohEnabled ? '加密 DNS' : '解析方式');
     final primaryValue = fixedAddress != null
-        ? '专属线路'
+        ? ForumNetworkConfig.routeLabelForAddress(fixedAddress, 1)
         : (_config.dohEnabled ? _config.dohLabel : '系统默认解析');
 
     return Scaffold(
@@ -266,7 +266,9 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
           _ConnectionEntryTile(
             icon: Icons.route_outlined,
             title: '线路选择',
-            subtitle: fixedAddress == null ? '智能优选（推荐）' : '专属线路',
+            subtitle: fixedAddress == null
+                ? '智能优选（推荐）'
+                : ForumNetworkConfig.routeLabelForAddress(fixedAddress, 1),
             status: _fixedAddressStatus,
             active: true,
             badgeLabel: fixedAddress == null ? '智能' : '专属',
@@ -417,7 +419,8 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
             final index = _addressOptions.indexOf(address) + 1;
             return _NetworkOptionTile(
               icon: Icons.dns_outlined,
-              title: '专属线路 $index',
+              title: ForumNetworkConfig.routeLabelForAddress(
+                  address.address, index),
               subtitle: '用于 ${_config.site.host}',
               selected: selectedFixedAddress == address.address,
               status: _probeStatus(result),

@@ -107,16 +107,15 @@ class ForumUrlResolver {
     return '$_origin/simple/index.php?${category.slug}.html';
   }
 
-  String threadDetailPath(String url) {
+  String threadDetailPath(String url, {int page = 1}) {
     final uri = Uri.tryParse(url);
-    final isForum =
-        uri == null || uri.host.isEmpty || _isForumHost(uri.host);
+    final isForum = uri == null || uri.host.isEmpty || _isForumHost(uri.host);
     final tid = tidFromUrl(url);
-    if (isForum &&
-        tid != null &&
-        !url.contains('/simple/') &&
-        (url.contains('read.php') || url.contains('job.php?action-topost'))) {
-      return 'simple/index.php?t$tid.html';
+    if (isForum && tid != null) {
+      final uid = uidFromUrl(url);
+      final uidPart = uid == null ? '' : '-uid-$uid';
+      if (page <= 1) return 'read.php?tid-$tid$uidPart.html';
+      return 'read.php?tid-$tid$uidPart-fpage-0-toread--page-$page.html';
     }
     return relativePath(url);
   }
@@ -124,14 +123,10 @@ class ForumUrlResolver {
   String userTabUrl(String uid, UserProfileTab tab) {
     return switch (tab) {
       UserProfileTab.home => '$_origin/u.php?uid-$uid.html',
-      UserProfileTab.profile =>
-        '$_origin/u.php?action-show-uid-$uid.html',
-      UserProfileTab.topics =>
-        '$_origin/u.php?action-topic-uid-$uid.html',
-      UserProfileTab.posts =>
-        '$_origin/u.php?action-post-uid-$uid.html',
-      UserProfileTab.favorites =>
-        '$_origin/u.php?action-favor-uid-$uid.html',
+      UserProfileTab.profile => '$_origin/u.php?action-show-uid-$uid.html',
+      UserProfileTab.topics => '$_origin/u.php?action-topic-uid-$uid.html',
+      UserProfileTab.posts => '$_origin/u.php?action-post-uid-$uid.html',
+      UserProfileTab.favorites => '$_origin/u.php?action-favor-uid-$uid.html',
     };
   }
 
@@ -150,8 +145,7 @@ class ForumUrlResolver {
   bool _isForumHost(String host) {
     final normalized = host.toLowerCase();
     return ForumNetworkConfig.sites.any(
-      (site) =>
-          normalized == site.host || normalized.endsWith('.${site.host}'),
+      (site) => normalized == site.host || normalized.endsWith('.${site.host}'),
     );
   }
 }

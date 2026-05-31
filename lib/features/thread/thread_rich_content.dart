@@ -137,13 +137,8 @@ class ThreadRichContent extends StatelessWidget {
       alignment: PlaceholderAlignment.baseline,
       baseline: TextBaseline.alphabetic,
       child: GestureDetector(
-        onTap: () async {
-          await Clipboard.setData(ClipboardData(text: href));
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('链接已复制')),
-          );
-        },
+        onTap: () => _openInlineLink(context, href),
+        onLongPress: () => _copyInlineLink(context, href),
         child: Text(segment.text ?? href, style: style),
       ),
     );
@@ -239,6 +234,25 @@ class ThreadRichContent extends StatelessWidget {
     if (decorations.length == 1) return decorations.first;
     return TextDecoration.combine(decorations);
   }
+}
+
+Future<void> _openInlineLink(BuildContext context, String url) async {
+  try {
+    await ExternalLinkLauncher.open(url);
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$error')),
+    );
+  }
+}
+
+Future<void> _copyInlineLink(BuildContext context, String url) async {
+  await Clipboard.setData(ClipboardData(text: url));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('链接已复制')),
+  );
 }
 
 class _DownloadLinkPanel extends StatelessWidget {

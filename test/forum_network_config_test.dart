@@ -25,6 +25,37 @@ void main() {
     );
   });
 
+  test('ForumUrlResolver builds desktop thread detail page paths', () {
+    final resolver = ForumUrlResolver(
+      baseUri: Uri.https('east-plus.net', '/'),
+    );
+
+    expect(
+      resolver.threadDetailPath('https://south-plus.net/read.php?tid-123.html'),
+      'read.php?tid-123.html',
+    );
+    expect(
+      resolver.threadDetailPath(
+        'https://south-plus.net/simple/index.php?t123.html',
+        page: 9,
+      ),
+      'read.php?tid-123-fpage-0-toread--page-9.html',
+    );
+    expect(
+      resolver.threadDetailPath(
+        'https://south-plus.net/read.php?tid-123-uid-456.html',
+      ),
+      'read.php?tid-123-uid-456.html',
+    );
+    expect(
+      resolver.threadDetailPath(
+        'https://south-plus.net/read.php?tid-123-uid-456.html',
+        page: 3,
+      ),
+      'read.php?tid-123-uid-456-fpage-0-toread--page-3.html',
+    );
+  });
+
   test('ForumNetworkSettings persists selected site and DoH provider',
       () async {
     SharedPreferences.setMockInitialValues({});
@@ -84,6 +115,27 @@ void main() {
     ]);
   });
 
+  test('ForumResolvedAddressStore includes built-in route addresses', () async {
+    SharedPreferences.setMockInitialValues({});
+
+    final loaded = await ForumResolvedAddressStore.load();
+
+    expect(
+      loaded.map((address) => address.address),
+      [
+        '104.18.26.110',
+        '172.67.74.152',
+        '141.101.115.10',
+        '104.17.147.40',
+        '198.41.219.125',
+      ],
+    );
+    expect(
+      ForumNetworkConfig.routeLabelForAddress('104.18.26.110', 1),
+      '低丢包通道',
+    );
+  });
+
   test('ForumResolvedAddressStore persists unique fallback addresses',
       () async {
     SharedPreferences.setMockInitialValues({});
@@ -102,7 +154,16 @@ void main() {
 
     expect(
       loaded.map((address) => address.address),
-      ['203.0.113.7', '198.51.100.23', '192.0.2.14'],
+      [
+        '104.18.26.110',
+        '172.67.74.152',
+        '141.101.115.10',
+        '104.17.147.40',
+        '198.41.219.125',
+        '203.0.113.7',
+        '198.51.100.23',
+        '192.0.2.14',
+      ],
     );
   });
 

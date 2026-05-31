@@ -24,6 +24,7 @@ class ReplyComposer extends StatefulWidget {
 class ReplyComposerState extends State<ReplyComposer> {
   final _title = TextEditingController();
   final _content = TextEditingController();
+  final _contentFocus = FocusNode();
   bool _submitting = false;
   String? _error;
 
@@ -31,6 +32,7 @@ class ReplyComposerState extends State<ReplyComposer> {
   void initState() {
     super.initState();
     _title.text = 'Re:${widget.thread.title}';
+    _content.addListener(_handleContentChanged);
   }
 
   @override
@@ -43,12 +45,25 @@ class ReplyComposerState extends State<ReplyComposer> {
 
   @override
   void dispose() {
+    _content.removeListener(_handleContentChanged);
     _title.dispose();
     _content.dispose();
+    _contentFocus.dispose();
     super.dispose();
   }
 
+  bool get _canSubmit => !_submitting && _content.text.trim().isNotEmpty;
+
+  void _handleContentChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _submit() async {
+    if (_content.text.trim().isEmpty) {
+      setState(() => _error = '回复内容不能为空');
+      focusContent();
+      return;
+    }
     setState(() {
       _submitting = true;
       _error = null;
@@ -80,6 +95,11 @@ class ReplyComposerState extends State<ReplyComposer> {
       text: text.replaceRange(start, end, value),
       selection: TextSelection.collapsed(offset: start + value.length),
     );
+    focusContent();
+  }
+
+  void focusContent() {
+    _contentFocus.requestFocus();
   }
 
   @override
@@ -135,6 +155,7 @@ class ReplyComposerState extends State<ReplyComposer> {
           const SizedBox(height: 10),
           TextField(
             controller: _content,
+            focusNode: _contentFocus,
             minLines: 5,
             maxLines: 8,
             enabled: !_submitting,
@@ -161,7 +182,8 @@ class ReplyComposerState extends State<ReplyComposer> {
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _submitting ? null : _submit,
+                  key: const ValueKey('reply-submit-button'),
+                  onPressed: _canSubmit ? _submit : null,
                   icon: _submitting
                       ? const SizedBox(
                           width: 18,

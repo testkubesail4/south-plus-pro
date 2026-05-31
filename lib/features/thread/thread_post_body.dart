@@ -115,11 +115,12 @@ class _SaleBoxView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasMeta = saleBox.price != null || saleBox.buyers != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
           decoration: BoxDecoration(
             color: AppColors.brandSoft,
             borderRadius: BorderRadius.circular(8),
@@ -128,13 +129,67 @@ class _SaleBoxView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                saleBox.summary,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: AppColors.brandDark,
-                  fontWeight: FontWeight.w600,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: const Icon(
+                      Icons.lock_outline,
+                      size: 18,
+                      color: AppColors.brandDark,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '付费内容',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: AppColors.brandDark,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          saleBox.summary,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.textMuted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+              if (hasMeta) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (saleBox.price != null)
+                      _SaleMetaPill(
+                        icon: Icons.paid_outlined,
+                        label: '${saleBox.price} SP币',
+                      ),
+                    if (saleBox.buyers != null)
+                      _SaleMetaPill(
+                        icon: Icons.group_outlined,
+                        label: '${saleBox.buyers} 人购买',
+                      ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
@@ -157,7 +212,7 @@ class _SaleBoxView extends StatelessWidget {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('愿意购买,我买,我付钱'),
+                      : const Text('购买查看'),
                 ),
               ),
             ],
@@ -183,6 +238,44 @@ class _SaleBoxView extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _SaleMetaPill extends StatelessWidget {
+  const _SaleMetaPill({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: AppColors.link),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

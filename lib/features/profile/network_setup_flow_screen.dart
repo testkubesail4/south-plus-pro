@@ -424,7 +424,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
         _SetupOptionCard(
           icon: Icons.router_outlined,
           title: '系统默认解析',
-          subtitle: '我够直接访问，无需网络优化。',
+          subtitle: '能够直接访问，无需网络优化。',
           selected: !_optimizeEnabled,
           statusLabel: !_optimizeEnabled ? '已选择' : null,
           onTap: () => _selectMode(optimize: false),
@@ -507,7 +507,10 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
               padding: const EdgeInsets.only(bottom: 10),
               child: _SetupOptionCard(
                 icon: Icons.cable_outlined,
-                title: '专属线路 ${index + 1}',
+                title: ForumNetworkConfig.routeLabelForAddress(
+                  address.address,
+                  index + 1,
+                ),
                 subtitle: '已完成线路探测。',
                 selected: _draft.fixedAddress == address.address,
                 fastest: address == fastestAddress &&
@@ -538,7 +541,9 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
             ),
             _SummaryRow(
               label: '线路策略',
-              value: fixedAddress == null ? '智能优选（推荐）' : '专属线路',
+              value: fixedAddress == null
+                  ? '智能优选（推荐）'
+                  : ForumNetworkConfig.routeLabelForAddress(fixedAddress, 1),
             ),
           ],
         ),

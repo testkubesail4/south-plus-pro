@@ -410,41 +410,76 @@ class ForumRepository {
     return uid;
   }
 
-  Future<ThreadDetail> fetchThreadDetail(ForumThread thread) async {
-    final html = await _client.get(_urls.threadDetailPath(thread.url));
+  Future<ThreadDetail> fetchThreadDetail(
+    ForumThread thread, {
+    int page = 1,
+  }) async {
+    final normalizedPage = page < 1 ? 1 : page;
+    final detailPath = _urls.threadDetailPath(thread.url, page: normalizedPage);
+    final html = await _client.get(detailPath);
     final document = html_parser.parse(html);
     final favorite = await _extractThreadFavorite(thread, html);
+    final posts = _threadDetailParser.desktopThreadCards(document);
+    final pagination = _threadDetailParser.desktopPagination(
+      document,
+      requestedPage: normalizedPage,
+    );
     final section = _threadDetailParser.sectionTitle(document);
-    final detailThread =
-        section == null ? thread : thread.copyWith(section: section);
-    final cards = _threadDetailParser.simpleThreadCards(document);
-    if (cards.isNotEmpty) {
-      return ThreadDetail(
-        thread: detailThread,
-        body: cards.first.content,
-        bodyImages: cards.first.images,
-        bodyLinks: cards.first.links,
-        bodySegments: cards.first.segments,
-        bodySaleBoxes: cards.first.saleBoxes,
-        bodySaleBoxesFirst: cards.first.saleBoxesFirst,
-        replies: cards.skip(1).toList(),
-        favorite: favorite,
-      );
-    }
 
-    final body = _threadDetailParser.bodyText(document);
-    final replies = _threadDetailParser.legacyReplies(document);
-
-    if (body.isEmpty && replies.isEmpty) {
+    if (posts.isEmpty) {
       throw ForumRepositoryException(_responseParser.pageMessage(html));
     }
 
+    final isOpeningPage = pagination.currentPage == 1;
+    final first = isOpeningPage ? posts.first : null;
+    final detailThread = thread.copyWith(
+      title: _threadDetailParser.threadTitle(document) ?? thread.title,
+      url: _threadDetailParser.threadUrl(document) ??
+          _urls.absoluteUrl(detailPath),
+      section: section ?? thread.section,
+      author: first?.author,
+      authorUrl: first?.authorUrl,
+      authorAvatarUrl: first?.authorAvatarUrl,
+      authorPostsUrl: first?.authorPostsUrl,
+      lastPost: first?.postedAt ?? thread.lastPost,
+    );
+
     return ThreadDetail(
       thread: detailThread,
-      body: body,
-      replies: replies,
+      body: first?.content ?? '',
+      bodyImages: first?.images ?? const [],
+      bodyLinks: first?.links ?? const [],
+      bodySegments: first?.segments ?? const [],
+      bodySaleBoxes: first?.saleBoxes ?? const [],
+      bodySaleBoxesFirst: first?.saleBoxesFirst ?? false,
+      replies: isOpeningPage ? posts.skip(1).toList() : posts,
+      pagination: pagination,
       favorite: favorite,
+      previousThread: _threadDetailParser.previousThread(document),
+      nextThread: _threadDetailParser.nextThread(document),
+      rssFeed: _threadDetailParser.rssFeed(document),
     );
+  }
+
+  Future<String?> fetchQuoteDraft(ThreadReply reply) async {
+    final quoteUrl = reply.quoteUrl;
+    if (quoteUrl == null || quoteUrl.isEmpty) return null;
+
+    final html = await _client.get(
+      _urls.relativePath(_urls.absoluteUrl(quoteUrl)),
+    );
+    final document = html_parser.parse(html);
+    final form = document.querySelector('form[name="FORM"]') ??
+        document.querySelector('form[action*="post.php"]');
+    final textarea = form?.querySelector('textarea[name="atc_content"]') ??
+        document.querySelector('textarea[name="atc_content"]');
+    final content = textarea?.text.trim();
+    if (content != null && content.isNotEmpty) return content;
+
+    final input = form?.querySelector('input[name="atc_content"]') ??
+        document.querySelector('input[name="atc_content"]');
+    final value = input?.attributes['value']?.trim();
+    return value == null || value.isEmpty ? null : value;
   }
 
   Future<ReplyResult> submitReply({
@@ -558,18 +593,7 @@ class ForumRepository {
       }
       return favorite;
     }
-
-    final tid = _urls.tidFromUrl(thread.url);
-    if (tid == null || thread.url.contains('/read.php?')) return null;
-
-    try {
-      final readHtml = await _client.get('read.php?tid-$tid.html');
-      favorite = _threadFavoriteFromHtml(thread, readHtml);
-      if (favorite == null) return null;
-      return favorite.copyWith(state: await _fetchFavoriteState(tid));
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
   ThreadFavorite? _threadFavoriteFromHtml(ForumThread thread, String html) {

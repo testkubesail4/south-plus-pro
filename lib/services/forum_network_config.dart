@@ -51,6 +51,22 @@ class ForumNetworkConfig {
     ForumSite('imoutolove.me'),
   ];
 
+  static const Map<String, String> routeLabels = {
+    '104.18.26.110': '低丢包通道',
+    '172.67.74.152': 'Anycast 通道',
+    '141.101.115.10': '稳定性通道 1',
+    '104.17.147.40': '稳定性通道 2',
+    '198.41.219.125': '稳定性通道 3',
+  };
+
+  static List<InternetAddress> defaultRouteAddresses() {
+    return routeLabels.keys.map(InternetAddress.new).toList(growable: false);
+  }
+
+  static String routeLabelForAddress(String address, int fallbackIndex) {
+    return routeLabels[address] ?? '专属线路 $fallbackIndex';
+  }
+
   final ForumSite site;
   final bool dohEnabled;
   final DohProvider dohProvider;
@@ -319,14 +335,18 @@ class ForumResolvedAddressStore {
   static const _maxAddresses = 3;
 
   static Future<List<InternetAddress>> load() async {
+    final defaultAddresses = ForumNetworkConfig.defaultRouteAddresses();
     final prefs = await SharedPreferences.getInstance();
     final savedAt = prefs.getInt(_savedAtKey);
     if (savedAt == null ||
         DateTime.now().millisecondsSinceEpoch - savedAt > _ttl.inMilliseconds) {
-      return const [];
+      return defaultAddresses;
     }
 
-    return _parseAddresses(prefs.getStringList(_addressesKey) ?? const []);
+    return _uniqueAddresses([
+      ...defaultAddresses,
+      ..._parseAddresses(prefs.getStringList(_addressesKey) ?? const []),
+    ]);
   }
 
   static Future<List<InternetAddress>> mergeAndSave(

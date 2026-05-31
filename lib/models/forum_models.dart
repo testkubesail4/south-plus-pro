@@ -10,6 +10,8 @@ class ForumThread {
     this.lastPost,
     this.author,
     this.authorUrl,
+    this.authorAvatarUrl,
+    this.authorPostsUrl,
     this.isSticky = false,
   });
 
@@ -21,6 +23,8 @@ class ForumThread {
   final String? lastPost;
   final String? author;
   final String? authorUrl;
+  final String? authorAvatarUrl;
+  final String? authorPostsUrl;
   final bool isSticky;
 
   ForumThread copyWith({
@@ -32,6 +36,8 @@ class ForumThread {
     String? lastPost,
     String? author,
     String? authorUrl,
+    String? authorAvatarUrl,
+    String? authorPostsUrl,
     bool? isSticky,
   }) {
     return ForumThread(
@@ -43,6 +49,8 @@ class ForumThread {
       lastPost: lastPost ?? this.lastPost,
       author: author ?? this.author,
       authorUrl: authorUrl ?? this.authorUrl,
+      authorAvatarUrl: authorAvatarUrl ?? this.authorAvatarUrl,
+      authorPostsUrl: authorPostsUrl ?? this.authorPostsUrl,
       isSticky: isSticky ?? this.isSticky,
     );
   }
@@ -84,23 +92,44 @@ class ThreadDetail {
     required this.thread,
     required this.body,
     required this.replies,
+    this.pagination = const ThreadPagination(currentPage: 1, totalPages: 1),
     this.bodyImages = const [],
     this.bodyLinks = const [],
     this.bodySegments = const [],
     this.bodySaleBoxes = const [],
     this.bodySaleBoxesFirst = false,
     this.favorite,
+    this.previousThread,
+    this.nextThread,
+    this.rssFeed,
   });
 
   final ForumThread thread;
   final String body;
   final List<ThreadReply> replies;
+  final ThreadPagination pagination;
   final List<ThreadImage> bodyImages;
   final List<ThreadLink> bodyLinks;
   final List<ThreadContentSegment> bodySegments;
   final List<ThreadSaleBox> bodySaleBoxes;
   final bool bodySaleBoxesFirst;
   final ThreadFavorite? favorite;
+  final ThreadActionLink? previousThread;
+  final ThreadActionLink? nextThread;
+  final ThreadActionLink? rssFeed;
+}
+
+class ThreadPagination {
+  const ThreadPagination({
+    required this.currentPage,
+    required this.totalPages,
+  });
+
+  final int currentPage;
+  final int totalPages;
+
+  bool get hasPrevious => currentPage > 1;
+  bool get hasNext => currentPage < totalPages;
 }
 
 class ThreadReply {
@@ -108,9 +137,12 @@ class ThreadReply {
     required this.author,
     required this.content,
     this.authorUrl,
+    this.authorAvatarUrl,
+    this.authorPostsUrl,
     this.postedAt,
     this.floor,
     this.quote,
+    this.quoteUrl,
     this.segments = const [],
     this.images = const [],
     this.links = const [],
@@ -121,9 +153,12 @@ class ThreadReply {
   final String author;
   final String content;
   final String? authorUrl;
+  final String? authorAvatarUrl;
+  final String? authorPostsUrl;
   final String? postedAt;
   final String? floor;
   final String? quote;
+  final String? quoteUrl;
   final List<ThreadContentSegment> segments;
   final List<ThreadImage> images;
   final List<ThreadLink> links;
@@ -235,6 +270,16 @@ class ThreadSaleBox {
   final String? warning;
   final int? price;
   final int? buyers;
+}
+
+class ThreadActionLink {
+  const ThreadActionLink({
+    required this.label,
+    required this.url,
+  });
+
+  final String label;
+  final String url;
 }
 
 enum ThreadFavoriteState {
