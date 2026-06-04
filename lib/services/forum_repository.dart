@@ -1,4 +1,5 @@
 import 'package:html/parser.dart' as html_parser;
+import 'package:html/dom.dart' as dom;
 
 import '../models/forum_models.dart';
 import 'forum_client.dart';
@@ -128,22 +129,26 @@ class ForumRepository {
   Future<LoginChallenge> fetchLoginChallenge() async {
     final html = await _client.get('login.php');
     final document = html_parser.parse(html);
-    final form = document.querySelector('form[name="login"]');
+    final form = document.querySelector('form[name="login"]') ??
+        document.querySelector('form[action*="login.php"]') ??
+        _loginFormFromFields(document);
     if (form == null) {
-      throw const ForumRepositoryException('没有找到登录表单');
+      throw ForumRepositoryException(
+        _responseParser.pageMessage(html) == '登录失败'
+            ? '没有找到登录表单'
+            : _responseParser.pageMessage(html),
+      );
     }
 
-    final fields = <String, String>{};
-    for (final input in form.querySelectorAll('input[name]')) {
-      final name = input.attributes['name'];
-      if (name == null || name.isEmpty) continue;
-      final type = input.attributes['type'] ?? '';
-      if (type == 'text' || type == 'password') continue;
-      if (type == 'radio' && !input.attributes.containsKey('checked')) continue;
-      fields[name] = input.attributes['value'] ?? '';
-    }
+    final fields = _formParser.defaults(form)
+      ..remove('pwuser')
+      ..remove('pwpwd')
+      ..remove('gdcode');
 
-    final captchaSrc = form.querySelector('#ckcode')?.attributes['src'];
+    final captchaSrc = form.querySelector('#ckcode')?.attributes['src'] ??
+        form.querySelector('img[src*="ck.php"]')?.attributes['src'] ??
+        form.querySelector('img[src*="gdcode"]')?.attributes['src'] ??
+        form.querySelector('img[src*="captcha"]')?.attributes['src'];
     if (captchaSrc == null || captchaSrc.isEmpty) {
       throw const ForumRepositoryException('没有找到验证码图片');
     }
@@ -639,6 +644,16 @@ class ForumRepository {
 
   String _cleanText(String input) {
     return input.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  dom.Element? _loginFormFromFields(dom.Document document) {
+    for (final form in document.querySelectorAll('form')) {
+      if (form.querySelector('input[name="pwuser"]') != null &&
+          form.querySelector('input[name="pwpwd"]') != null) {
+        return form;
+      }
+    }
+    return null;
   }
 }
 

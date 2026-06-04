@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
+import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';
@@ -45,6 +46,61 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('login failure remains visible if captcha refresh fails',
+      (tester) async {
+    final repository = _FakeLoginRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: LoginScreen(repository: repository)),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField).at(0), 'alice');
+    await tester.enterText(find.byType(TextField).at(1), 'secret');
+    await tester.enterText(find.byType(TextField).at(2), '1234');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '登录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '登录'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('密码错误'), findsOneWidget);
+    expect(
+      find.textContaining('验证码加载失败：没有找到登录表单'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('login submits selected forum options', (tester) async {
+    final repository = _FakeLoginRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: LoginScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('UID'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('一年'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('一个月').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('隐身登录'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(0), '10001');
+    await tester.enterText(find.byType(TextField).at(1), 'secret');
+    await tester.enterText(find.byType(TextField).at(2), '1234');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '登录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '登录'));
+    await tester.pumpAndSettle();
+
+    expect(repository.lastFields, containsPair('lgt', '1'));
+    expect(repository.lastFields, containsPair('hideid', '1'));
+    expect(repository.lastFields, containsPair('cktime', '2592000'));
   });
 
   testWidgets('profile overview renders before detail tabs finish loading',
@@ -616,6 +672,104 @@ class _FakeProfileRepository extends ForumRepository {
     );
   }
 }
+
+class _FakeLoginRepository extends ForumRepository {
+  int challengeRequests = 0;
+  Map<String, String>? lastFields;
+
+  @override
+  Future<LoginChallenge> fetchLoginChallenge() async {
+    challengeRequests += 1;
+    if (challengeRequests == 1) {
+      return LoginChallenge(
+        captchaBytes: Uint8List.fromList(_onePixelPng),
+        fields: const {'step': '2'},
+      );
+    }
+    throw const ForumRepositoryException('没有找到登录表单');
+  }
+
+  @override
+  Future<LoginResult> submitLogin({
+    required String username,
+    required String password,
+    required String captcha,
+    required Map<String, String> fields,
+  }) async {
+    lastFields = Map<String, String>.from(fields);
+    return const LoginResult(success: false, message: '密码错误');
+  }
+}
+
+const _onePixelPng = <int>[
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0A,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x63,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x05,
+  0x00,
+  0x01,
+  0x0D,
+  0x0A,
+  0x2D,
+  0xB4,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
+];
 
 class _CachedProfileRepository extends ForumRepository {
   _CachedProfileRepository();
