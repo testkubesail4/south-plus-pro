@@ -192,7 +192,7 @@ class _AccountScreenState extends State<AccountScreen> {
               const _StaticInfoTile(
                 icon: Icons.info_outline,
                 title: 'South Plus Rewrite',
-                subtitle: 'v0.1.2',
+                subtitle: 'v0.1.3',
               ),
               if (kDebugMode)
                 _AccountTile(
