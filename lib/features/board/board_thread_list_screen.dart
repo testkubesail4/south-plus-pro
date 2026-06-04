@@ -123,6 +123,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                       onRefresh: _refresh,
                       child: ListView.separated(
                           controller: _scrollController,
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
                           itemCount: items.length + 1,
                           separatorBuilder: (_, __) => const SizedBox.shrink(),

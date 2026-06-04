@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/auth/login_screen.dart';
+import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';
@@ -101,6 +102,25 @@ void main() {
     expect(repository.lastFields, containsPair('lgt', '1'));
     expect(repository.lastFields, containsPair('hideid', '1'));
     expect(repository.lastFields, containsPair('cktime', '2592000'));
+  });
+
+  testWidgets('board thread list supports pull refresh on short pages',
+      (tester) async {
+    final repository = _FakeBoardRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardThreadListScreen(
+          category: _FakeBoardRepository.category,
+          repository: repository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RefreshIndicator), findsOneWidget);
+    final listView = tester.widget<ListView>(find.byType(ListView));
+    expect(listView.physics, isA<AlwaysScrollableScrollPhysics>());
   });
 
   testWidgets('profile overview renders before detail tabs finish loading',
@@ -708,6 +728,33 @@ class _FakeLoginRepository extends ForumRepository {
   }) async {
     lastFields = Map<String, String>.from(fields);
     return const LoginResult(success: false, message: '密码错误');
+  }
+}
+
+class _FakeBoardRepository extends ForumRepository {
+  static const category = ForumCategory(
+    name: '测试版块',
+    slug: 'test',
+    url: 'https://south-plus.net/thread.php?fid-1.html',
+  );
+
+  @override
+  Future<ForumThreadPage> fetchBoardThreadPage(
+    ForumCategory category, {
+    int page = 1,
+  }) async {
+    return const ForumThreadPage(
+      currentPage: 1,
+      totalPages: 1,
+      threads: [
+        ForumThread(
+          title: '短列表主题',
+          url: 'https://south-plus.net/read.php?tid-1.html',
+          replies: 0,
+          section: '测试版块',
+        ),
+      ],
+    );
   }
 }
 
