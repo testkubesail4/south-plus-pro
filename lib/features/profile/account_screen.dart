@@ -77,20 +77,45 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   Widget build(BuildContext context) {
     final username = widget.repository.currentUsername;
+    final networkConfig = widget.repository.networkConfig;
     return SafeArea(
       bottom: false,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
         children: [
           _AccountHeader(
             title: username ?? '未登录',
             subtitle: widget.repository.isLoggedIn
                 ? 'South Plus 账号已连接'
                 : '登录后可查看个人内容和收藏',
+            loggedIn: widget.repository.isLoggedIn,
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _StatusSummaryTile(
+                  icon: Icons.public_outlined,
+                  label: '访问入口',
+                  value: networkConfig.site.host,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _StatusSummaryTile(
+                  icon: networkConfig.dohEnabled
+                      ? Icons.enhanced_encryption_outlined
+                      : Icons.dns_outlined,
+                  label: '解析方式',
+                  value: networkConfig.dohEnabled ? '加密解析' : '系统默认',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           _AccountSection(
             title: '账号',
+            subtitle: '管理登录状态和个人内容入口',
             children: [
               _AccountTile(
                 icon: Icons.person_outline,
@@ -98,6 +123,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 subtitle: widget.repository.isLoggedIn
                     ? '资料、主题、回复、收藏'
                     : '登录 South Plus 账号',
+                accent: widget.repository.isLoggedIn,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => widget.repository.isLoggedIn
@@ -116,6 +142,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   icon: Icons.logout,
                   title: '退出登录',
                   subtitle: '清除本地登录状态',
+                  danger: true,
                   onTap: _logout,
                 ),
             ],
@@ -123,12 +150,14 @@ class _AccountScreenState extends State<AccountScreen> {
           const SizedBox(height: 14),
           _AccountSection(
             title: '网络',
+            subtitle: '调整访问入口、解析方式和连接探测',
             children: [
               _AccountTile(
                 icon: Icons.public_outlined,
                 title: '连接设置',
                 subtitle:
-                    '${widget.repository.networkConfig.site.host} · ${widget.repository.networkConfig.dohEnabled ? '加密解析' : '系统默认解析'}',
+                    '${networkConfig.site.host} · ${networkConfig.dohEnabled ? '加密解析' : '系统默认解析'}',
+                accent: true,
                 onTap: () async {
                   await Navigator.of(context).push(
                     MaterialPageRoute(
@@ -152,6 +181,7 @@ class _AccountScreenState extends State<AccountScreen> {
           const SizedBox(height: 14),
           _AccountSection(
             title: '图片与流量',
+            subtitle: '控制帖子图片的加载策略和本地缓存',
             children: [
               FutureBuilder<ImageLoadMode>(
                 future: _imageMode,
@@ -160,18 +190,12 @@ class _AccountScreenState extends State<AccountScreen> {
                   return Column(
                     children: ImageLoadMode.values.map((item) {
                       final selected = item == mode;
-                      return ListTile(
+                      return _SelectableAccountTile(
+                        icon: _iconForImageMode(item),
                         onTap: () => _setImageMode(item),
-                        contentPadding: EdgeInsets.zero,
                         title: Text(item.label),
                         subtitle: Text(item.description),
-                        trailing: Icon(
-                          selected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_unchecked,
-                          color:
-                              selected ? AppColors.brand : AppColors.textFaint,
-                        ),
+                        selected: selected,
                       );
                     }).toList(),
                   );
@@ -188,11 +212,12 @@ class _AccountScreenState extends State<AccountScreen> {
           const SizedBox(height: 14),
           _AccountSection(
             title: '应用',
+            subtitle: '版本信息和开发调试入口',
             children: [
               const _StaticInfoTile(
                 icon: Icons.info_outline,
                 title: 'South Plus Rewrite',
-                subtitle: 'v0.1.3',
+                subtitle: 'v0.1.4',
               ),
               if (kDebugMode)
                 _AccountTile(
@@ -210,28 +235,41 @@ class _AccountScreenState extends State<AccountScreen> {
 }
 
 class _AccountHeader extends StatelessWidget {
-  const _AccountHeader({required this.title, required this.subtitle});
+  const _AccountHeader({
+    required this.title,
+    required this.subtitle,
+    required this.loggedIn,
+  });
 
   final String title;
   final String subtitle;
+  final bool loggedIn;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppColors.surfaceTint,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.brandSoft),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            width: 52,
-            height: 52,
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
               color: AppColors.brandSoft,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFFFD6DB)),
             ),
             child: const Icon(
               Icons.account_circle_outlined,
@@ -247,6 +285,14 @@ class _AccountHeader extends StatelessWidget {
                 Text(title, style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 3),
                 Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 10),
+                _AccountBadge(
+                  label: loggedIn ? '已连接' : '游客模式',
+                  icon: loggedIn
+                      ? Icons.verified_user_outlined
+                      : Icons.person_off_outlined,
+                  active: loggedIn,
+                ),
               ],
             ),
           ),
@@ -257,27 +303,60 @@ class _AccountHeader extends StatelessWidget {
 }
 
 class _AccountSection extends StatelessWidget {
-  const _AccountSection({required this.title, required this.children});
+  const _AccountSection({
+    required this.title,
+    required this.children,
+    this.subtitle,
+  });
 
   final String title;
+  final String? subtitle;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
+    final dividedChildren = <Widget>[];
+    for (var index = 0; index < children.length; index++) {
+      if (index > 0) {
+        dividedChildren.add(const Divider(indent: 64, endIndent: 12));
+      }
+      dividedChildren.add(children[index]);
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x06000000),
+            blurRadius: 14,
+            offset: Offset(0, 6),
+          ),
+        ],
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
-            child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleMedium),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle!,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
           ),
-          ...children,
+          ...dividedChildren,
         ],
       ),
     );
@@ -290,22 +369,27 @@ class _AccountTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.accent = false,
+    this.danger = false,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
+  final bool accent;
+  final bool danger;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      enabled: onTap != null,
-      leading: Icon(icon, color: AppColors.brand),
+    return _BaseAccountTile(
+      icon: icon,
       title: Text(title),
       subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
+      accent: accent,
+      danger: danger,
+      trailing: const Icon(Icons.chevron_right, color: AppColors.textFaint),
     );
   }
 }
@@ -323,10 +407,241 @@ class _StaticInfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon, color: AppColors.brand),
+    return _BaseAccountTile(
+      icon: icon,
       title: Text(title),
       subtitle: Text(subtitle),
     );
   }
+}
+
+class _SelectableAccountTile extends StatelessWidget {
+  const _SelectableAccountTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Widget title;
+  final Widget subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _BaseAccountTile(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      onTap: onTap,
+      accent: selected,
+      trailing: Icon(
+        selected ? Icons.check_circle : Icons.radio_button_unchecked_outlined,
+        color: selected ? AppColors.brand : AppColors.textFaint,
+      ),
+    );
+  }
+}
+
+class _BaseAccountTile extends StatelessWidget {
+  const _BaseAccountTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onTap,
+    this.trailing,
+    this.accent = false,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final Widget title;
+  final Widget subtitle;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+  final bool accent;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    final iconColor = danger
+        ? AppColors.brandDark
+        : accent
+            ? AppColors.brand
+            : AppColors.link;
+    final iconBackground = danger
+        ? AppColors.brandSoft
+        : accent
+            ? AppColors.brandSoft
+            : AppColors.inkSoft;
+    final titleColor = danger ? AppColors.brandDark : AppColors.text;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 74),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: enabled ? iconBackground : AppColors.inkSoft,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 22,
+                    color: enabled ? iconColor : AppColors.textFaint,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      DefaultTextStyle.merge(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: titleColor,
+                            ),
+                        child: title,
+                      ),
+                      const SizedBox(height: 3),
+                      DefaultTextStyle.merge(
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: enabled
+                                  ? AppColors.textMuted
+                                  : AppColors.textFaint,
+                            ),
+                        child: subtitle,
+                      ),
+                    ],
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const SizedBox(width: 8),
+                  trailing!,
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusSummaryTile extends StatelessWidget {
+  const _StatusSummaryTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 84),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 17, color: AppColors.link),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountBadge extends StatelessWidget {
+  const _AccountBadge({
+    required this.label,
+    required this.icon,
+    required this.active,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFFEAF7EF) : AppColors.inkSoft,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 15,
+            color: active ? const Color(0xFF168A46) : AppColors.textMuted,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: active ? const Color(0xFF168A46) : AppColors.textMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+IconData _iconForImageMode(ImageLoadMode mode) {
+  return switch (mode) {
+    ImageLoadMode.automatic => Icons.image_outlined,
+    ImageLoadMode.wifiOnly => Icons.wifi_outlined,
+    ImageLoadMode.manual => Icons.touch_app_outlined,
+  };
 }
