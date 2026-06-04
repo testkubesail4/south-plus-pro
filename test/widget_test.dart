@@ -397,7 +397,8 @@ void main() {
     expect(find.text('上一主题'), findsOneWidget);
     expect(find.text('下一主题'), findsOneWidget);
     expect(find.text('RSS'), findsOneWidget);
-    expect(find.text('只看该作者'), findsOneWidget);
+    expect(find.byTooltip('更多操作'), findsOneWidget);
+    expect(find.text('只看该作者'), findsNothing);
     expect(find.text('2 / 4'), findsNWidgets(2));
     expect(find.text('page 2 body', findRichText: true), findsNothing);
     expect(find.text('reply on page 2', findRichText: true), findsOneWidget);
@@ -488,6 +489,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const ValueKey('floor-actions-Bob-B2F')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('只看该作者'));
     await tester.pumpAndSettle();
 
@@ -588,6 +591,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byKey(const ValueKey('floor-actions-Bob-B2F')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('只看该作者'));
     await tester.pumpAndSettle();
 
@@ -611,7 +616,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('引用').first);
+    final floorActions = find.byKey(const ValueKey('floor-actions-Bob-B2F'));
+    await tester.ensureVisible(floorActions);
+    await tester.pumpAndSettle();
+    await tester.tap(floorActions);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('引用').last);
     await tester.pumpAndSettle();
 
     expect(repository.requestedQuoteUrls, [

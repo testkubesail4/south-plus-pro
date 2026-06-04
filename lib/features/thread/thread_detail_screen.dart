@@ -912,49 +912,56 @@ class _FloorCard extends StatelessWidget {
             const SizedBox(height: 12),
             child,
             if (onShowAuthorPosts != null || onQuote != null) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (onShowAuthorPosts != null)
-                    OutlinedButton.icon(
-                      key: ValueKey('show-author-posts-$author'),
-                      onPressed: onShowAuthorPosts,
-                      icon: const Icon(Icons.person_search_outlined, size: 17),
-                      label: const Text('只看该作者'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(44, 44),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        tapTargetSize: MaterialTapTargetSize.padded,
-                        textStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerRight,
+                child: PopupMenuButton<_FloorAction>(
+                  key: ValueKey('floor-actions-$author-$floor'),
+                  tooltip: '更多操作',
+                  icon: const Icon(Icons.more_horiz),
+                  constraints: const BoxConstraints(minWidth: 180),
+                  onSelected: (action) {
+                    switch (action) {
+                      case _FloorAction.showAuthorPosts:
+                        onShowAuthorPosts?.call();
+                        break;
+                      case _FloorAction.quote:
+                        onQuote?.call();
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (onShowAuthorPosts != null)
+                      const PopupMenuItem(
+                        value: _FloorAction.showAuthorPosts,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.person_search_outlined),
+                          title: Text('只看该作者'),
+                          dense: true,
                         ),
                       ),
-                    ),
-                  if (onQuote != null)
-                    OutlinedButton.icon(
-                      onPressed: quoteLoading ? null : onQuote,
-                      icon: quoteLoading
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.format_quote, size: 16),
-                      label: Text(quoteLoading ? '引用中...' : '引用'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(44, 44),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        tapTargetSize: MaterialTapTargetSize.padded,
-                        textStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                    if (onQuote != null)
+                      PopupMenuItem(
+                        value: _FloorAction.quote,
+                        enabled: !quoteLoading,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: quoteLoading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.format_quote),
+                          title: Text(quoteLoading ? '引用中...' : '引用'),
+                          dense: true,
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ],
           ],
@@ -962,6 +969,11 @@ class _FloorCard extends StatelessWidget {
       ),
     );
   }
+}
+
+enum _FloorAction {
+  showAuthorPosts,
+  quote,
 }
 
 class _AuthorAvatar extends StatelessWidget {
