@@ -20,6 +20,7 @@ dependencies:
   shared_preferences: ^2.5.5
   sqlite3: ^3.3.2
   sqlite3_flutter_libs: ^0.5.26
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

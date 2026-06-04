@@ -18,6 +18,23 @@ void main() {
     expect(segments.single.text, '正文第一行\n正文第二行');
   });
 
+  test('extractInlineSegments keeps link style scoped to anchor text', () {
+    final fragment = html_parser.parseFragment(
+      '<div class="card-text">前缀 <a href="https://example.com">链接</a> 后缀</div>',
+    );
+    final content = fragment.querySelector('.card-text')!;
+
+    final segments = ThreadContentParser().extractInlineSegments(content);
+
+    expect(segments, hasLength(3));
+    expect(segments[0].text, '前缀 ');
+    expect(segments[0].href, isNull);
+    expect(segments[1].text, '链接');
+    expect(segments[1].href, 'https://example.com');
+    expect(segments[2].text, ' 后缀');
+    expect(segments[2].href, isNull);
+  });
+
   test('WhatsLinkPreviewService treats empty api error as success', () {
     final error = WhatsLinkPreviewService.apiErrorMessage({
       'error': '',

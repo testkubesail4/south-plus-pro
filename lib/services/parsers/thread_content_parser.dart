@@ -74,11 +74,14 @@ class ThreadContentParser {
       }
 
       final previousStyle = activeStyle;
-      activeStyle = _styleForElement(node, activeStyle);
+      final nextStyle = _styleForElement(node, activeStyle);
+      final styleChanged = !_sameInlineStyle(activeStyle, nextStyle);
+      if (styleChanged) flushText();
+      activeStyle = nextStyle;
       for (final child in node.nodes) {
         walk(child);
       }
-      flushText();
+      if (styleChanged) flushText();
       activeStyle = previousStyle;
     }
 
@@ -256,6 +259,20 @@ class ThreadContentParser {
   bool _isInlineEmojiImage(String src) {
     return src.contains('images/post/smile/') ||
         src.contains('/images/post/smile/');
+  }
+
+  bool _sameInlineStyle(
+    _InlineTextStyleData left,
+    _InlineTextStyleData right,
+  ) {
+    return left.colorValue == right.colorValue &&
+        left.backgroundColorValue == right.backgroundColorValue &&
+        left.isBold == right.isBold &&
+        left.isItalic == right.isItalic &&
+        left.isUnderline == right.isUnderline &&
+        left.isStrike == right.isStrike &&
+        left.fontScale == right.fontScale &&
+        left.href == right.href;
   }
 
   String _cleanText(String input) {
