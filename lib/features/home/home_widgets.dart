@@ -1,9 +1,10 @@
 part of 'home_shell.dart';
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.repository});
+  const _TopBar({required this.repository, this.onHistoryTap});
 
   final ForumRepository repository;
+  final VoidCallback? onHistoryTap;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +41,15 @@ class _TopBar extends StatelessWidget {
                           );
                         },
                       ),
+                      if (onHistoryTap != null)
+                        ListTile(
+                          leading: const Icon(Icons.history_outlined),
+                          title: const Text('浏览历史'),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            onHistoryTap?.call();
+                          },
+                        ),
                       ListTile(
                         leading: const Icon(Icons.person_outline),
                         title: Text(repository.isLoggedIn ? '个人中心' : '登录'),

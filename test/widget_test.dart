@@ -8,6 +8,7 @@ import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
+import 'package:south_plus_rewrite/features/history/browsing_history_screen.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
@@ -121,6 +122,46 @@ void main() {
     expect(find.byType(RefreshIndicator), findsOneWidget);
     final listView = tester.widget<ListView>(find.byType(ListView));
     expect(listView.physics, isA<AlwaysScrollableScrollPhysics>());
+  });
+
+  testWidgets('browsing history opens a viewed thread', (tester) async {
+    final repository = _FakeHistoryRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: BrowsingHistoryScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('浏览历史'), findsOneWidget);
+    expect(find.text('看过的主题'), findsOneWidget);
+    expect(find.text('10 回'), findsOneWidget);
+
+    await tester.tap(find.text('看过的主题'));
+    await tester.pumpAndSettle();
+
+    expect(repository.requestedThreadUrls, [
+      'https://south-plus.net/read.php?tid-88.html',
+    ]);
+    expect(find.text('history body', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets('browsing history can be cleared after confirmation',
+      (tester) async {
+    final repository = _FakeHistoryRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: BrowsingHistoryScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('清空浏览历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '清空'));
+    await tester.pumpAndSettle();
+
+    expect(repository.cleared, isTrue);
+    expect(find.text('还没有浏览历史'), findsOneWidget);
+    expect(find.text('浏览历史已清空'), findsOneWidget);
   });
 
   testWidgets('profile overview renders before detail tabs finish loading',
@@ -754,6 +795,53 @@ class _FakeBoardRepository extends ForumRepository {
           section: '测试版块',
         ),
       ],
+    );
+  }
+}
+
+class _FakeHistoryRepository extends ForumRepository {
+  bool cleared = false;
+  var _entries = [
+    BrowsingHistoryEntry(
+      thread: ForumThread(
+        title: '看过的主题',
+        url: 'https://south-plus.net/read.php?tid-88.html',
+        replies: 10,
+        section: '茶馆',
+        bodyPreview: '历史里的摘要',
+        author: 'Alice',
+      ),
+      viewedAt: DateTime.now().subtract(const Duration(minutes: 3)).toUtc(),
+    ),
+  ];
+  final requestedThreadUrls = <String>[];
+
+  @override
+  Future<List<BrowsingHistoryEntry>> browsingHistory({int limit = 100}) async {
+    return _entries;
+  }
+
+  @override
+  Future<void> clearBrowsingHistory() async {
+    cleared = true;
+    _entries = const [];
+  }
+
+  @override
+  Future<ThreadDetail> fetchThreadDetail(
+    ForumThread thread, {
+    int page = 1,
+  }) async {
+    requestedThreadUrls.add(thread.url);
+    return ThreadDetail(
+      thread: thread.copyWith(
+        author: 'Alice',
+        lastPost: '2026-05-30 10:00',
+      ),
+      body: 'history body',
+      bodySegments: const [ThreadContentSegment.text('history body')],
+      replies: const [],
+      pagination: const ThreadPagination(currentPage: 1, totalPages: 1),
     );
   }
 }

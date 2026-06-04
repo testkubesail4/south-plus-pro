@@ -56,6 +56,16 @@ class ForumThread {
   }
 }
 
+class BrowsingHistoryEntry {
+  const BrowsingHistoryEntry({
+    required this.thread,
+    required this.viewedAt,
+  });
+
+  final ForumThread thread;
+  final DateTime viewedAt;
+}
+
 class ForumThreadPage {
   const ForumThreadPage({
     required this.threads,

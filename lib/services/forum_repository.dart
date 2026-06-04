@@ -2,6 +2,7 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
 
 import '../models/forum_models.dart';
+import 'browsing_history_store.dart';
 import 'forum_client.dart';
 import 'forum_network_config.dart';
 import 'forum_url_resolver.dart';
@@ -20,6 +21,7 @@ class ForumRepository {
     ForumClient? client,
     ForumNetworkConfig? config,
     UserProfileCache? profileCache,
+    BrowsingHistoryStore? historyStore,
   })  : _client = client ??
             ForumClient(
               config: config ??
@@ -46,7 +48,8 @@ class ForumRepository {
                 baseUri: (config ?? client?.config)?.baseUri ??
                     ForumNetworkConfig.defaultSite.baseUri,
               ),
-            );
+            ),
+        _historyStore = historyStore ?? BrowsingHistoryStore();
 
   ForumClient _client;
   ForumNetworkConfig _config;
@@ -63,6 +66,7 @@ class ForumRepository {
   );
   late UserProfileParser _userProfileParser = UserProfileParser(urls: _urls);
   UserProfileCache _profileCache;
+  final BrowsingHistoryStore _historyStore;
   String? _currentUsername;
 
   bool get isLoggedIn => _client.isLoggedIn;
@@ -225,6 +229,14 @@ class ForumRepository {
   Future<List<ForumThread>> fetchLatestThreads() async {
     final home = await fetchHome();
     return home.latest;
+  }
+
+  Future<List<BrowsingHistoryEntry>> browsingHistory({int limit = 100}) {
+    return _historyStore.recent(limit: limit);
+  }
+
+  Future<void> clearBrowsingHistory() {
+    return _historyStore.clear();
   }
 
   Future<List<ForumCategory>> fetchHotCategories() async {
@@ -439,8 +451,11 @@ class ForumRepository {
     final first = isOpeningPage ? posts.first : null;
     final detailThread = thread.copyWith(
       title: _threadDetailParser.threadTitle(document) ?? thread.title,
-      url: _threadDetailParser.threadUrl(document) ??
-          _urls.absoluteUrl(detailPath),
+      url: _canonicalThreadUrl(
+        parserUrl: _threadDetailParser.threadUrl(document),
+        sourceUrl: thread.url,
+        detailPath: detailPath,
+      ),
       section: section ?? thread.section,
       author: first?.author,
       authorUrl: first?.authorUrl,
@@ -449,7 +464,7 @@ class ForumRepository {
       lastPost: first?.postedAt ?? thread.lastPost,
     );
 
-    return ThreadDetail(
+    final detail = ThreadDetail(
       thread: detailThread,
       body: first?.content ?? '',
       bodyImages: first?.images ?? const [],
@@ -464,6 +479,8 @@ class ForumRepository {
       nextThread: _threadDetailParser.nextThread(document),
       rssFeed: _threadDetailParser.rssFeed(document),
     );
+    await _recordThreadView(detail.thread);
+    return detail;
   }
 
   Future<String?> fetchQuoteDraft(ThreadReply reply) async {
@@ -644,6 +661,29 @@ class ForumRepository {
 
   String _cleanText(String input) {
     return input.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  String _canonicalThreadUrl({
+    required String? parserUrl,
+    required String sourceUrl,
+    required String detailPath,
+  }) {
+    final parsed = parserUrl;
+    if (parsed != null && parsed.isNotEmpty) return parsed;
+
+    final tid = _urls.tidFromUrl(sourceUrl);
+    if (tid != null) {
+      return _urls.absoluteUrl('read.php?tid-$tid.html');
+    }
+    return _urls.absoluteUrl(detailPath);
+  }
+
+  Future<void> _recordThreadView(ForumThread thread) async {
+    try {
+      await _historyStore.recordThread(thread);
+    } catch (_) {
+      // Browsing must keep working even if local history persistence fails.
+    }
   }
 
   dom.Element? _loginFormFromFields(dom.Document document) {

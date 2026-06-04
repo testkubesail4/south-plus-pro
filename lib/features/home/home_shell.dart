@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
+import '../history/browsing_history_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/user_profile_screen.dart';
 import '../search/search_screen.dart';
@@ -32,14 +33,27 @@ class _HomeShellState extends State<HomeShell> {
     setState(() => _index = 0);
   }
 
+  void _showHistory() {
+    setState(() => _index = 2);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _index,
         children: [
-          ForumHomePage(repository: _repository),
+          ForumHomePage(
+            repository: _repository,
+            onHistoryTap: _showHistory,
+          ),
           BoardDirectoryPage(repository: _repository),
+          _index == 2
+              ? BrowsingHistoryScreen(
+                  repository: _repository,
+                  onBrowseHome: _showHome,
+                )
+              : const SizedBox.shrink(),
           SearchScreen(repository: _repository),
           AccountScreen(repository: _repository, onLoggedOut: _showHome),
         ],
@@ -59,6 +73,11 @@ class _HomeShellState extends State<HomeShell> {
             label: '版块',
           ),
           NavigationDestination(
+            icon: Icon(Icons.history_outlined),
+            selectedIcon: Icon(Icons.history),
+            label: '历史',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.search),
             label: '搜索',
           ),
@@ -74,9 +93,14 @@ class _HomeShellState extends State<HomeShell> {
 }
 
 class ForumHomePage extends StatefulWidget {
-  const ForumHomePage({super.key, required this.repository});
+  const ForumHomePage({
+    super.key,
+    required this.repository,
+    this.onHistoryTap,
+  });
 
   final ForumRepository repository;
+  final VoidCallback? onHistoryTap;
 
   @override
   State<ForumHomePage> createState() => _ForumHomePageState();
@@ -118,7 +142,10 @@ class _ForumHomePageState extends State<ForumHomePage> {
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 20),
                 children: [
-                  _TopBar(repository: widget.repository),
+                  _TopBar(
+                    repository: widget.repository,
+                    onHistoryTap: widget.onHistoryTap,
+                  ),
                   if (snapshot.hasError)
                     AsyncErrorView(
                       title: '主页加载失败',
