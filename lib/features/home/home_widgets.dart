@@ -205,62 +205,6 @@ class _ForumCrumbs extends StatelessWidget {
   }
 }
 
-class _BoardOverview extends StatelessWidget {
-  const _BoardOverview({
-    required this.sections,
-    required this.hot,
-    required this.latest,
-  });
-
-  final int sections;
-  final int hot;
-  final int latest;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
-      child: Row(
-        children: [
-          Expanded(child: _OverviewStat(label: '新帖', value: '$latest')),
-          const SizedBox(width: 8),
-          Expanded(child: _OverviewStat(label: '热门', value: '$hot')),
-          const SizedBox(width: 8),
-          Expanded(child: _OverviewStat(label: '分区', value: '$sections')),
-        ],
-      ),
-    );
-  }
-}
-
-class _OverviewStat extends StatelessWidget {
-  const _OverviewStat({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 58),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(value, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 2),
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-        ],
-      ),
-    );
-  }
-}
-
 class _LatestThreads extends StatelessWidget {
   const _LatestThreads({
     required this.threads,

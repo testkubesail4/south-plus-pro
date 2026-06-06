@@ -8,6 +8,7 @@ import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
 import '../history/browsing_history_screen.dart';
 import '../profile/account_screen.dart';
+import '../profile/favorite_threads_page.dart';
 import '../profile/user_profile_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
@@ -47,7 +48,10 @@ class _HomeShellState extends State<HomeShell> {
             repository: _repository,
             onHistoryTap: _showHistory,
           ),
-          BoardDirectoryPage(repository: _repository),
+          FavoriteThreadsPage(
+            repository: _repository,
+            onLoginTap: () => setState(() => _index = 4),
+          ),
           _index == 2
               ? BrowsingHistoryScreen(
                   repository: _repository,
@@ -68,9 +72,9 @@ class _HomeShellState extends State<HomeShell> {
             label: '首页',
           ),
           NavigationDestination(
-            icon: Icon(Icons.view_list_outlined),
-            selectedIcon: Icon(Icons.view_list),
-            label: '版块',
+            icon: Icon(Icons.star_border_rounded),
+            selectedIcon: Icon(Icons.star_rounded),
+            label: '收藏',
           ),
           NavigationDestination(
             icon: Icon(Icons.history_outlined),
@@ -159,11 +163,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
                       items: const ['南+', 'South Plus', '茶馆'],
                       current: '移动端首页',
                     ),
-                    _BoardOverview(
-                      sections: data.sections.length,
-                      hot: data.hot.length,
-                      latest: data.latest.length,
-                    ),
+                    const SizedBox(height: 14),
                     _LatestThreads(
                       threads: data.latest,
                       repository: widget.repository,
