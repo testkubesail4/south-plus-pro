@@ -409,6 +409,30 @@ void main() {
 
   testWidgets('download links render preview and download actions',
       (tester) async {
+    final clipboardWrites = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          final arguments = call.arguments as Map<Object?, Object?>;
+          clipboardWrites.add(arguments['text']! as String);
+          return null;
+        }
+        if (call.method == 'Clipboard.getData') {
+          return <String, Object?>{
+            'text': clipboardWrites.isEmpty ? null : clipboardWrites.last,
+          };
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
+
     const magnetUrl =
         'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12';
 
@@ -425,8 +449,46 @@ void main() {
     );
 
     expect(find.text(magnetUrl), findsOneWidget);
+    expect(find.text('复制'), findsOneWidget);
     expect(find.text('预览'), findsOneWidget);
     expect(find.text('下载'), findsOneWidget);
+
+    await tester.tap(find.text('复制'));
+    await tester.pump();
+
+    final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+    expect(clipboardData?.text, magnetUrl);
+    expect(find.text('链接已复制'), findsOneWidget);
+  });
+
+  testWidgets('download link preview dialog includes copy action',
+      (tester) async {
+    const magnetUrl =
+        'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ThreadRichContent(
+            segments: [
+              ThreadContentSegment.text(magnetUrl),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('预览'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('复制'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('thread detail shows avatar fallback and page controls',

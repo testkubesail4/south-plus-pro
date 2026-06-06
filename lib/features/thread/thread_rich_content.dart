@@ -248,11 +248,7 @@ Future<void> _openInlineLink(BuildContext context, String url) async {
 }
 
 Future<void> _copyInlineLink(BuildContext context, String url) async {
-  await Clipboard.setData(ClipboardData(text: url));
-  if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('链接已复制')),
-  );
+  await _copyDownloadLink(context, url);
 }
 
 class _DownloadLinkPanel extends StatelessWidget {
@@ -292,6 +288,11 @@ class _DownloadLinkPanel extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
+              _DownloadActionButton(
+                onPressed: () => _copyDownloadLink(context, url),
+                icon: const Icon(Icons.copy_outlined),
+                label: '复制',
+              ),
               _DownloadActionButton(
                 onPressed: () => _showWhatsLinkPreview(context, url),
                 icon: const Icon(Icons.visibility_outlined),
@@ -340,8 +341,8 @@ class _DownloadActionButton extends StatelessWidget {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(6),
           child: Container(
-            height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: borderColor),
@@ -445,6 +446,11 @@ class _WhatsLinkPreviewDialogState extends State<_WhatsLinkPreviewDialog> {
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('关闭'),
+        ),
+        TextButton.icon(
+          onPressed: () => _copyDownloadLink(context, widget.url),
+          icon: const Icon(Icons.copy_outlined),
+          label: const Text('复制'),
         ),
         FilledButton.icon(
           onPressed: () => _openDownloadLink(context, widget.url),
@@ -730,6 +736,14 @@ Future<void> _openDownloadLink(BuildContext context, String url) async {
       SnackBar(content: Text('$error')),
     );
   }
+}
+
+Future<void> _copyDownloadLink(BuildContext context, String url) async {
+  await Clipboard.setData(ClipboardData(text: url));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('链接已复制')),
+  );
 }
 
 String _downloadLinkLabel(String? label, String url) {
