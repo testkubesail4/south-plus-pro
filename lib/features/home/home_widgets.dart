@@ -400,6 +400,76 @@ class _ForumLink extends StatelessWidget {
   }
 }
 
+class _ForumBoardLink extends StatelessWidget {
+  const _ForumBoardLink({
+    required this.board,
+    required this.onTap,
+    required this.onChildTap,
+  });
+
+  final ForumBoard board;
+  final VoidCallback onTap;
+  final ValueChanged<ForumBoard> onChildTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final children = board.children;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ForumLink(
+            title: board.name,
+            subtitle: _boardSubtitle(board),
+            onTap: onTap,
+          ),
+          if (children.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(52, 0, 8, 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final child in children)
+                    ActionChip(
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      side: const BorderSide(color: AppColors.border),
+                      backgroundColor: AppColors.surfaceTint,
+                      label: Text(
+                        child.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.link,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      onPressed: () => onChildTap(child),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _boardSubtitle(ForumBoard board) {
+    final stats = board.topicCount == null || board.postCount == null
+        ? null
+        : '${board.topicCount} 主题 / ${board.postCount} 文章';
+    final subtitle = board.subtitle;
+    if (subtitle == null || subtitle.isEmpty) {
+      return stats ?? board.section;
+    }
+    return stats == null ? subtitle : '$subtitle · $stats';
+  }
+}
+
 class _SimpleSection extends StatelessWidget {
   const _SimpleSection({required this.title, required this.child, this.icon});
 

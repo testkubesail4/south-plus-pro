@@ -8,6 +8,7 @@ import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
+import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/history/browsing_history_screen.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';
@@ -122,6 +123,36 @@ void main() {
     expect(find.byType(RefreshIndicator), findsOneWidget);
     final listView = tester.widget<ListView>(find.byType(ListView));
     expect(listView.physics, isA<AlwaysScrollableScrollPhysics>());
+  });
+
+  testWidgets('home renders nested boards as mobile-friendly child chips',
+      (tester) async {
+    final repository = _FakeHomeRepository();
+
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(home: ForumHomePage(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('漫区特设'), findsOneWidget);
+
+    await tester.tap(find.text('漫区特设'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('旧物仓库'), findsOneWidget);
+    expect(find.text('C103'), findsOneWidget);
+    expect(find.text('C102'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('C103'));
+    await tester.pumpAndSettle();
+
+    expect(repository.requestedCategoryUrls, [
+      'https://south-plus.net/thread.php?fid-218.html',
+    ]);
   });
 
   testWidgets('browsing history opens a viewed thread', (tester) async {
@@ -855,6 +886,77 @@ class _FakeBoardRepository extends ForumRepository {
           url: 'https://south-plus.net/read.php?tid-1.html',
           replies: 0,
           section: '测试版块',
+        ),
+      ],
+    );
+  }
+}
+
+class _FakeHomeRepository extends ForumRepository {
+  final requestedCategoryUrls = <String>[];
+
+  @override
+  Future<ForumHomeSnapshot> fetchHome() async {
+    return const ForumHomeSnapshot(
+      latest: [
+        ForumThread(
+          title: '首页主题',
+          url: 'https://south-plus.net/read.php?tid-1.html',
+          replies: 1,
+          section: '茶馆',
+        ),
+      ],
+      hot: [
+        ForumCategory(
+          name: '茶馆',
+          slug: 'fid-9',
+          url: 'https://south-plus.net/thread.php?fid-9.html',
+        ),
+      ],
+      sections: [
+        ForumSection(
+          title: '漫区特设',
+          items: [
+            ForumBoard(
+              name: '旧物仓库',
+              url: 'https://south-plus.net/thread.php?fid-43.html',
+              section: '漫区特设',
+              topicCount: 35097,
+              postCount: 882487,
+              children: [
+                ForumBoard(
+                  name: 'C103',
+                  url: 'https://south-plus.net/thread.php?fid-218.html',
+                  section: '漫区特设 / 旧物仓库',
+                ),
+                ForumBoard(
+                  name: 'C102',
+                  url: 'https://south-plus.net/thread.php?fid-215.html',
+                  section: '漫区特设 / 旧物仓库',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<ForumThreadPage> fetchBoardThreadPage(
+    ForumCategory category, {
+    int page = 1,
+  }) async {
+    requestedCategoryUrls.add(category.url ?? '');
+    return const ForumThreadPage(
+      currentPage: 1,
+      totalPages: 1,
+      threads: [
+        ForumThread(
+          title: '子版主题',
+          url: 'https://south-plus.net/read.php?tid-2.html',
+          replies: 0,
+          section: 'C103',
         ),
       ],
     );

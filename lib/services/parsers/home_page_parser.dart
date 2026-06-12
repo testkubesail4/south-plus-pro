@@ -46,6 +46,33 @@ class HomePageParser {
   }
 
   List<ForumSection> parseForumSections(dom.Document document) {
+    final simpleSections = _parseSimpleForumSections(document);
+    if (simpleSections.isNotEmpty) return simpleSections;
+    return parseDesktopForumSections(document);
+  }
+
+  List<ForumSection> parseDesktopForumSections(dom.Document document) {
+    final sections = <ForumSection>[];
+    for (final heading in document.querySelectorAll('h2 a')) {
+      final title = _cleanText(heading.text);
+      if (title.isEmpty) continue;
+
+      final table = _closest(heading, 'table');
+      if (table == null) continue;
+
+      final boards = <ForumBoard>[];
+      for (final row in table.querySelectorAll('tr')) {
+        final board = _desktopBoardFromRow(row, title);
+        if (board != null) boards.add(board);
+      }
+      if (boards.isEmpty) continue;
+
+      sections.add(ForumSection(title: title, items: boards));
+    }
+    return sections;
+  }
+
+  List<ForumSection> _parseSimpleForumSections(dom.Document document) {
     final accordion = document.querySelector('ul.accordion');
     if (accordion == null) return const [];
 
@@ -69,12 +96,10 @@ class HomePageParser {
           title: title,
           items: links
               .map(
-                (link) => ForumThread(
-                  title: link.title,
+                (link) => ForumBoard(
+                  name: link.title,
                   url: urls.absoluteUrl(link.href),
-                  replies: 0,
                   section: title,
-                  author: '版块',
                 ),
               )
               .toList(),
@@ -163,6 +188,91 @@ class HomePageParser {
 
   String _cleanText(String input) {
     return input.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  ForumBoard? _desktopBoardFromRow(dom.Element row, String sectionTitle) {
+    final titleCell = _desktopBoardTitleCell(row);
+    if (titleCell == null) return null;
+
+    final links = titleCell
+        .querySelectorAll(
+            'a[href*="thread.php?fid-"], a[href*="thread_new.php?fid"]')
+        .where((link) => _cleanText(link.text).isNotEmpty)
+        .toList();
+    if (links.isEmpty) return null;
+
+    final main = links.first;
+    final mainHref = main.attributes['href'] ?? '';
+    final mainName = _cleanText(main.text);
+    if (mainHref.isEmpty || mainName.isEmpty) return null;
+
+    final counts = _countsFromRow(row);
+    final children = <ForumBoard>[];
+    final seenChildren = <String>{};
+    for (final link in links.skip(1)) {
+      final href = link.attributes['href'] ?? '';
+      final name = _cleanText(link.text);
+      if (href.isEmpty || name.isEmpty || !seenChildren.add('$href$name')) {
+        continue;
+      }
+      children.add(
+        ForumBoard(
+          name: name,
+          url: urls.absoluteUrl(href),
+          section: '$sectionTitle / $mainName',
+        ),
+      );
+    }
+
+    return ForumBoard(
+      name: mainName,
+      url: urls.absoluteUrl(mainHref),
+      section: sectionTitle,
+      subtitle: _desktopBoardSubtitle(titleCell, mainName),
+      topicCount: counts?.$1,
+      postCount: counts?.$2,
+      children: children,
+    );
+  }
+
+  dom.Element? _desktopBoardTitleCell(dom.Element row) {
+    for (final cell in row.children) {
+      if (cell.querySelector(
+              'h3 a[href*="thread.php?fid-"], h3 a[href*="thread_new.php?fid"]') !=
+          null) {
+        return cell;
+      }
+    }
+    return null;
+  }
+
+  (int, int)? _countsFromRow(dom.Element row) {
+    for (final cell in row.children) {
+      final match =
+          RegExp(r'(\d+)\s*/\s*(\d+)').firstMatch(_cleanText(cell.text));
+      if (match == null) continue;
+      final topics = int.tryParse(match.group(1)!);
+      final posts = int.tryParse(match.group(2)!);
+      if (topics != null && posts != null) return (topics, posts);
+    }
+    return null;
+  }
+
+  String? _desktopBoardSubtitle(dom.Element titleCell, String boardName) {
+    var text = _cleanText(titleCell.text);
+    text = text.replaceFirst(boardName, '').trim();
+    text = text.replaceFirst(RegExp(r'^\(\d+\)\s*'), '').trim();
+    text = text.replaceAll(RegExp(r'子版[:：].*$'), '').trim();
+    return text.isEmpty ? null : text;
+  }
+
+  dom.Element? _closest(dom.Element element, String tagName) {
+    dom.Element? current = element;
+    while (current != null) {
+      if (current.localName == tagName) return current;
+      current = current.parent;
+    }
+    return null;
   }
 }
 

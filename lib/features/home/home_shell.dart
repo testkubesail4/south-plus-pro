@@ -131,6 +131,25 @@ class _ForumHomePageState extends State<ForumHomePage> {
     }
   }
 
+  void _openBoard(ForumBoard board) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BoardThreadListScreen(
+          category: _categoryFromBoard(board),
+          repository: widget.repository,
+        ),
+      ),
+    );
+  }
+
+  ForumCategory _categoryFromBoard(ForumBoard board) {
+    return ForumCategory(
+      name: board.name,
+      slug: board.slug,
+      url: board.url,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -195,21 +214,10 @@ class _ForumHomePageState extends State<ForumHomePage> {
                         initiallyExpanded: false,
                         children: section.items
                             .map(
-                              (item) => _ForumLink(
-                                title: item.title,
-                                subtitle: item.section,
-                                onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => BoardThreadListScreen(
-                                      category: ForumCategory(
-                                        name: item.title,
-                                        slug: item.section,
-                                        url: item.url,
-                                      ),
-                                      repository: widget.repository,
-                                    ),
-                                  ),
-                                ),
+                              (board) => _ForumBoardLink(
+                                board: board,
+                                onTap: () => _openBoard(board),
+                                onChildTap: _openBoard,
                               ),
                             )
                             .toList(),
@@ -249,6 +257,21 @@ class _BoardDirectoryPageState extends State<BoardDirectoryPage> {
     } catch (_) {
       // FutureBuilder renders the error state.
     }
+  }
+
+  void _openBoard(ForumBoard board) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BoardThreadListScreen(
+          category: ForumCategory(
+            name: board.name,
+            slug: board.slug,
+            url: board.url,
+          ),
+          repository: widget.repository,
+        ),
+      ),
+    );
   }
 
   @override
@@ -307,21 +330,10 @@ class _BoardDirectoryPageState extends State<BoardDirectoryPage> {
                     initiallyExpanded: false,
                     children: section.items
                         .map(
-                          (item) => _ForumLink(
-                            title: item.title,
-                            subtitle: item.section,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => BoardThreadListScreen(
-                                  category: ForumCategory(
-                                    name: item.title,
-                                    slug: item.section,
-                                    url: item.url,
-                                  ),
-                                  repository: widget.repository,
-                                ),
-                              ),
-                            ),
+                          (board) => _ForumBoardLink(
+                            board: board,
+                            onTap: () => _openBoard(board),
+                            onChildTap: _openBoard,
                           ),
                         )
                         .toList(),

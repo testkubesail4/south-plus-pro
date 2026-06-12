@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_url_resolver.dart';
 
@@ -53,6 +54,35 @@ void main() {
         page: 3,
       ),
       'read.php?tid-123-uid-456-fpage-0-toread--page-3.html',
+    );
+  });
+
+  test('ForumUrlResolver builds desktop board paths for list and wall modes',
+      () {
+    final resolver = ForumUrlResolver(
+      baseUri: Uri.https('east-plus.net', '/'),
+    );
+
+    expect(
+      resolver.boardDesktopPath(
+        const ForumCategory(
+          name: 'C103',
+          slug: 'fid-218',
+          url: 'https://south-plus.net/thread.php?fid-218.html',
+        ),
+      ),
+      'thread.php?fid-218.html',
+    );
+    expect(
+      resolver.boardDesktopPath(
+        const ForumCategory(
+          name: '图墙模式',
+          slug: 'fid=218',
+          url: 'https://south-plus.net/thread_new.php?fid=218',
+        ),
+        page: 2,
+      ),
+      'thread_new.php?fid=218&page=2',
     );
   });
 

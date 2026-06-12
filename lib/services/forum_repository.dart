@@ -214,7 +214,15 @@ class ForumRepository {
       latest = _homePageParser.parseLatestThreadsFromScript(script);
     }
     final hot = _homePageParser.parseHotCategories(document);
-    final sections = _homePageParser.parseForumSections(document);
+    var sections = _homePageParser.parseForumSections(document);
+    try {
+      final desktopDocument = html_parser.parse(await _client.get('index.php'));
+      final desktopSections =
+          _homePageParser.parseDesktopForumSections(desktopDocument);
+      if (desktopSections.isNotEmpty) sections = desktopSections;
+    } catch (_) {
+      // Keep the mobile/simple directory if the desktop home is unavailable.
+    }
 
     if (latest.isEmpty) {
       throw const ForumRepositoryException('没有解析到最新讨论');

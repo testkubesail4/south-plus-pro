@@ -70,13 +70,22 @@ class ForumUrlResolver {
 
   String? fidFromCategory(ForumCategory category) {
     for (final value in [category.slug, category.url ?? '']) {
-      final match = RegExp(r'(?:^f|fid-|[?&]f)(\d+)').firstMatch(value);
+      final match =
+          RegExp(r'(?:^f|fid-|[?&]fid=?|[?&]f)(\d+)').firstMatch(value);
       if (match != null) return match.group(1);
     }
     return null;
   }
 
   String? boardDesktopPath(ForumCategory category, {int page = 1}) {
+    final href = category.url;
+    if (href != null && href.contains('thread_new.php')) {
+      final fid = fidFromCategory(category);
+      if (fid != null) {
+        final pagePart = page <= 1 ? '' : '&page=$page';
+        return 'thread_new.php?fid=$fid$pagePart';
+      }
+    }
     final fid = fidFromCategory(category);
     if (fid != null) {
       final pagePart = page <= 1 ? '' : '-page-$page';
@@ -84,10 +93,11 @@ class ForumUrlResolver {
     }
     final slug = category.slug;
     if (slug.startsWith('fid-')) return 'thread.php?$slug.html';
-    final href = category.url;
     if (href == null) return null;
     final hrefFid = RegExp(r'fid-\d+').firstMatch(href)?.group(0);
-    return hrefFid == null ? null : 'thread.php?$hrefFid.html';
+    if (hrefFid != null) return 'thread.php?$hrefFid.html';
+    final queryFid = RegExp(r'[?&]fid=(\d+)').firstMatch(href)?.group(1);
+    return queryFid == null ? null : 'thread.php?fid-$queryFid.html';
   }
 
   String boardSimplePath(ForumCategory category, {int page = 1}) {

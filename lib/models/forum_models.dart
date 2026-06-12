@@ -339,7 +339,34 @@ class ForumSection {
   });
 
   final String title;
-  final List<ForumThread> items;
+  final List<ForumBoard> items;
+}
+
+class ForumBoard {
+  const ForumBoard({
+    required this.name,
+    required this.url,
+    required this.section,
+    this.subtitle,
+    this.topicCount,
+    this.postCount,
+    this.children = const [],
+  });
+
+  final String name;
+  final String url;
+  final String section;
+  final String? subtitle;
+  final int? topicCount;
+  final int? postCount;
+  final List<ForumBoard> children;
+
+  String get slug {
+    final query = Uri.tryParse(url)?.query ?? url;
+    return query.endsWith('.html')
+        ? query.substring(0, query.length - '.html'.length)
+        : query;
+  }
 }
 
 class ForumCategory {
