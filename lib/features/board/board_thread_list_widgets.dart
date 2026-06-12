@@ -6,6 +6,7 @@ sealed class _BoardListItem {
   static List<_BoardListItem> fromPage(ForumThreadPage page) {
     final threads = page.threads;
     return [
+      if (page.subBoards.isNotEmpty) _BoardSubBoardsItem(page.subBoards),
       ...page.ads.map(_BoardAdItem.new),
       ...threads.map(_BoardThreadItem.new),
     ];
@@ -22,6 +23,12 @@ class _BoardAdItem extends _BoardListItem {
   const _BoardAdItem(this.ad);
 
   final ForumBoardAd ad;
+}
+
+class _BoardSubBoardsItem extends _BoardListItem {
+  const _BoardSubBoardsItem(this.boards);
+
+  final List<ForumBoard> boards;
 }
 
 class _BoardThreadListSkeleton extends StatelessWidget {
@@ -189,6 +196,132 @@ class _BoardAdBanner extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SubBoardPanel extends StatelessWidget {
+  const _SubBoardPanel({
+    required this.boards,
+    required this.onBoardTap,
+  });
+
+  final List<ForumBoard> boards;
+  final ValueChanged<ForumBoard> onBoardTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceTint,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.account_tree_outlined,
+                  color: AppColors.brand, size: 18),
+              SizedBox(width: 7),
+              Text(
+                '子版块',
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final board in boards)
+                _SubBoardChip(
+                  board: board,
+                  onTap: () => onBoardTap(board),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SubBoardChip extends StatelessWidget {
+  const _SubBoardChip({
+    required this.board,
+    required this.onTap,
+  });
+
+  final ForumBoard board;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = board.postCount;
+
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44, maxWidth: 220),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.subdirectory_arrow_right_outlined,
+                  color: AppColors.brand, size: 16),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      board.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.link,
+                        fontSize: 13,
+                        height: 1.2,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (count != null)
+                      Text(
+                        '$count 文章',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 11,
+                          height: 1.2,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

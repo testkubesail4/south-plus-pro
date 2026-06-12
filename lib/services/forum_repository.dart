@@ -300,6 +300,18 @@ class ForumRepository {
     final simpleDocument = html_parser.parse(simpleHtml);
     final simpleThreads =
         _boardThreadPageParser.parseSimpleThreads(simpleDocument, category);
+    final desktopPath = _urls.boardDesktopPath(category, page: normalizedPage);
+    var desktopSubBoards = const <ForumBoard>[];
+    if (desktopPath != null) {
+      try {
+        final desktopHtml = await _client.get(desktopPath);
+        final desktopDocument = html_parser.parse(desktopHtml);
+        desktopSubBoards = _boardThreadPageParser.parseDesktopSubBoards(
+            desktopDocument, category);
+      } catch (_) {
+        // The simple/mobile thread list should still render if desktop fails.
+      }
+    }
     if (simpleThreads.isNotEmpty) {
       final pages = _boardThreadPageParser.simplePages(simpleDocument) ??
           (current: normalizedPage, total: normalizedPage);
@@ -308,10 +320,10 @@ class ForumRepository {
         currentPage: pages.current,
         totalPages: pages.total,
         ads: _boardThreadPageParser.parseSimpleAds(simpleDocument),
+        subBoards: desktopSubBoards,
       );
     }
 
-    final desktopPath = _urls.boardDesktopPath(category, page: normalizedPage);
     if (desktopPath != null) {
       final desktopHtml = await _client.get(desktopPath);
       final desktopDocument = html_parser.parse(desktopHtml);
@@ -326,6 +338,8 @@ class ForumRepository {
           totalPages:
               _boardThreadPageParser.desktopTotalPages(desktopDocument) ??
                   normalizedPage,
+          subBoards: _boardThreadPageParser.parseDesktopSubBoards(
+              desktopDocument, category),
         );
       }
     }

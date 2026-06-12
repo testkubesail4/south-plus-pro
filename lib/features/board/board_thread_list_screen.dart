@@ -29,6 +29,7 @@ class BoardThreadListScreen extends StatefulWidget {
 class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   late Future<ForumThreadPage> _future;
   final ScrollController _scrollController = ScrollController();
+  late ForumCategory _category = widget.category;
   int _page = 1;
 
   @override
@@ -39,7 +40,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 
   Future<ForumThreadPage> _fetchPage(int page) {
     return widget.repository.fetchBoardThreadPage(
-      widget.category,
+      _category,
       page: page,
     );
   }
@@ -70,7 +71,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     final posted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => ThreadComposeScreen(
-          category: widget.category,
+          category: _category,
           repository: widget.repository,
         ),
       ),
@@ -78,6 +79,25 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     if (posted == true) {
       await _refresh();
     }
+  }
+
+  Future<void> _openSubBoard(ForumBoard board) async {
+    setState(() {
+      _category = ForumCategory(
+        name: board.name,
+        slug: board.slug,
+        url: board.url,
+      );
+      _page = 1;
+      _future = _fetchPage(_page);
+    });
+    await _future;
+    if (!mounted || !_scrollController.hasClients) return;
+    await _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -93,8 +113,8 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         child: Column(
           children: [
             _BoardHeader(
-              title: widget.category.name,
-              slug: widget.category.slug,
+              title: _category.name,
+              slug: _category.slug,
               onCompose: _openComposer,
             ),
             Expanded(
@@ -136,6 +156,11 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                             }
                             final item = items[index];
                             return switch (item) {
+                              _BoardSubBoardsItem(:final boards) =>
+                                _SubBoardPanel(
+                                  boards: boards,
+                                  onBoardTap: _openSubBoard,
+                                ),
                               _BoardAdItem(:final ad) => _BoardAdBanner(ad: ad),
                               _BoardThreadItem(:final thread) => _ThreadRow(
                                   thread: thread,

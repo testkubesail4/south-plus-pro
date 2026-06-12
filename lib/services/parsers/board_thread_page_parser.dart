@@ -85,6 +85,23 @@ class BoardThreadPageParser {
     return threads;
   }
 
+  List<ForumBoard> parseDesktopSubBoards(
+    dom.Document document,
+    ForumCategory category,
+  ) {
+    final subBoardTable = _subBoardTable(document);
+    if (subBoardTable == null) return const [];
+
+    final boards = <ForumBoard>[];
+    final seen = <String>{};
+    for (final row in subBoardTable.querySelectorAll('tr')) {
+      final board = _subBoardFromRow(row, category);
+      if (board == null || !seen.add(board.url)) continue;
+      boards.add(board);
+    }
+    return boards;
+  }
+
   List<ForumBoardAd> parseSimpleAds(dom.Document document) {
     final ads = <ForumBoardAd>[];
     final seen = <String>{};
@@ -191,6 +208,43 @@ class BoardThreadPageParser {
       return link;
     }
     return null;
+  }
+
+  dom.Element? _subBoardTable(dom.Document document) {
+    for (final table in document.querySelectorAll('table')) {
+      final text = _cleanText(table.text);
+      if (!text.startsWith('子版块')) continue;
+      if (!text.contains('论坛') || !text.contains('文章')) continue;
+      return table;
+    }
+    return null;
+  }
+
+  ForumBoard? _subBoardFromRow(dom.Element row, ForumCategory category) {
+    final titleLink = row.querySelector('h3 a[href*="thread.php?fid-"]') ??
+        row.querySelector('a[href*="thread.php?fid-"]');
+    if (titleLink == null) return null;
+
+    final href = titleLink.attributes['href'] ?? '';
+    final name = _cleanText(titleLink.text);
+    if (href.isEmpty || name.isEmpty || name == category.name) return null;
+
+    final cells = row.children.map((cell) => _cleanText(cell.text)).toList();
+    final postCount =
+        cells.map((value) => int.tryParse(value)).whereType<int>().firstOrNull;
+    final latest = cells
+        .where((value) => value.isNotEmpty)
+        .where((value) => value != name)
+        .where((value) => int.tryParse(value) == null)
+        .lastOrNull;
+
+    return ForumBoard(
+      name: name,
+      url: urls.absoluteUrl(href),
+      section: category.name,
+      postCount: postCount,
+      subtitle: latest,
+    );
   }
 
   bool _isSimpleStickyThread(dom.Element link) {

@@ -125,6 +125,38 @@ void main() {
     expect(listView.physics, isA<AlwaysScrollableScrollPhysics>());
   });
 
+  testWidgets('board thread list exposes nested sub boards at the top',
+      (tester) async {
+    final repository = _FakeBoardRepository();
+
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardThreadListScreen(
+          category: _FakeBoardRepository.archiveCategory,
+          repository: repository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('子版块'), findsOneWidget);
+    expect(find.text('同人志&CG'), findsOneWidget);
+    expect(find.text('26246 文章'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('同人志&CG'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('子版主题'), findsOneWidget);
+    expect(repository.requestedCategoryUrls, [
+      'https://south-plus.net/thread.php?fid-218.html',
+      'https://south-plus.net/thread.php?fid-213.html',
+    ]);
+  });
+
   testWidgets('home renders nested boards as mobile-friendly child chips',
       (tester) async {
     final repository = _FakeHomeRepository();
@@ -871,19 +903,54 @@ class _FakeBoardRepository extends ForumRepository {
     slug: 'test',
     url: 'https://south-plus.net/thread.php?fid-1.html',
   );
+  static const archiveCategory = ForumCategory(
+    name: 'C103',
+    slug: 'fid-218',
+    url: 'https://south-plus.net/thread.php?fid-218.html',
+  );
+
+  final requestedCategoryUrls = <String>[];
 
   @override
   Future<ForumThreadPage> fetchBoardThreadPage(
     ForumCategory category, {
     int page = 1,
   }) async {
+    requestedCategoryUrls.add(category.url ?? '');
+    if (category.url?.contains('fid-218') == true) {
+      return const ForumThreadPage(
+        currentPage: 1,
+        totalPages: 1,
+        subBoards: [
+          ForumBoard(
+            name: '同人志&CG',
+            url: 'https://south-plus.net/thread.php?fid-213.html',
+            section: 'C103',
+            postCount: 26246,
+          ),
+          ForumBoard(
+            name: '同人志&CG (图墙模式)',
+            url: 'https://south-plus.net/thread.php?fid-214.html',
+            section: 'C103',
+          ),
+        ],
+        threads: [
+          ForumThread(
+            title: '父版公告',
+            url: 'https://south-plus.net/read.php?tid-1.html',
+            replies: 0,
+            section: 'C103',
+          ),
+        ],
+      );
+    }
     return const ForumThreadPage(
       currentPage: 1,
       totalPages: 1,
       threads: [
         ForumThread(
-          title: '短列表主题',
-          url: 'https://south-plus.net/read.php?tid-1.html',
+          title: '子版主题',
+          url: 'https://south-plus.net/read.php?tid-2.html',
           replies: 0,
           section: '测试版块',
         ),
