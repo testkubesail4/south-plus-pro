@@ -6,7 +6,6 @@ sealed class _BoardListItem {
   static List<_BoardListItem> fromPage(ForumThreadPage page) {
     final threads = page.threads;
     return [
-      if (page.subBoards.isNotEmpty) _BoardSubBoardsItem(page.subBoards),
       ...page.ads.map(_BoardAdItem.new),
       ...threads.map(_BoardThreadItem.new),
     ];
@@ -23,12 +22,6 @@ class _BoardAdItem extends _BoardListItem {
   const _BoardAdItem(this.ad);
 
   final ForumBoardAd ad;
-}
-
-class _BoardSubBoardsItem extends _BoardListItem {
-  const _BoardSubBoardsItem(this.boards);
-
-  final List<ForumBoard> boards;
 }
 
 class _BoardThreadListSkeleton extends StatelessWidget {
@@ -214,42 +207,44 @@ class _SubBoardPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      padding: const EdgeInsets.fromLTRB(24, 2, 24, 10),
       decoration: BoxDecoration(
-        color: AppColors.surfaceTint,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(8),
+        color: AppColors.surface,
+        border: const Border(bottom: BorderSide(color: AppColors.border)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.account_tree_outlined,
-                  color: AppColors.brand, size: 18),
-              SizedBox(width: 7),
+                  color: AppColors.textMuted, size: 15),
+              SizedBox(width: 5),
               Text(
                 '子版块',
                 style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
+                  color: AppColors.textMuted,
+                  fontSize: 12,
+                  height: 1.2,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final board in boards)
-                _SubBoardChip(
-                  board: board,
-                  onTap: () => onBoardTap(board),
-                ),
-            ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final board in boards)
+                  _SubBoardChip(
+                    board: board,
+                    onTap: () => onBoardTap(board),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -268,55 +263,36 @@ class _SubBoardChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final count = board.postCount;
-
     return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(8),
+      color: AppColors.inkSoft,
+      borderRadius: BorderRadius.circular(999),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(999),
         onTap: onTap,
         child: Container(
-          constraints: const BoxConstraints(minHeight: 44, maxWidth: 220),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          constraints: const BoxConstraints(minHeight: 34, maxWidth: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            border: Border.all(color: AppColors.border),
-            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border, width: 0.8),
+            borderRadius: BorderRadius.circular(999),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Icon(Icons.subdirectory_arrow_right_outlined,
-                  color: AppColors.brand, size: 16),
-              const SizedBox(width: 6),
+                  color: AppColors.brand, size: 14),
+              const SizedBox(width: 5),
               Flexible(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      board.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.link,
-                        fontSize: 13,
-                        height: 1.2,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    if (count != null)
-                      Text(
-                        '$count 文章',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 11,
-                          height: 1.2,
-                        ),
-                      ),
-                  ],
+                child: Text(
+                  board.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.link,
+                    fontSize: 12.5,
+                    height: 1.2,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],

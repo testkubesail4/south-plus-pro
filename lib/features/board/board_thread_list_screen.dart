@@ -17,10 +17,12 @@ class BoardThreadListScreen extends StatefulWidget {
     super.key,
     required this.category,
     required this.repository,
+    this.initialSubBoards = const [],
   });
 
   final ForumCategory category;
   final ForumRepository repository;
+  final List<ForumBoard> initialSubBoards;
 
   @override
   State<BoardThreadListScreen> createState() => _BoardThreadListScreenState();
@@ -30,6 +32,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   late Future<ForumThreadPage> _future;
   final ScrollController _scrollController = ScrollController();
   late ForumCategory _category = widget.category;
+  late List<ForumBoard> _knownSubBoards = List.of(widget.initialSubBoards);
   int _page = 1;
 
   @override
@@ -38,11 +41,15 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     _future = _fetchPage(_page);
   }
 
-  Future<ForumThreadPage> _fetchPage(int page) {
-    return widget.repository.fetchBoardThreadPage(
+  Future<ForumThreadPage> _fetchPage(int page) async {
+    final threadPage = await widget.repository.fetchBoardThreadPage(
       _category,
       page: page,
     );
+    if (mounted && threadPage.subBoards.isNotEmpty) {
+      _knownSubBoards = List.of(threadPage.subBoards);
+    }
+    return threadPage;
   }
 
   Future<void> _refresh() async {
@@ -88,6 +95,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         slug: board.slug,
         url: board.url,
       );
+      _knownSubBoards = List.of(board.children);
       _page = 1;
       _future = _fetchPage(_page);
     });
@@ -134,48 +142,58 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                       return const _BoardThreadListSkeleton();
                     }
                     final page = snapshot.data!;
+                    final subBoards = page.subBoards.isNotEmpty
+                        ? page.subBoards
+                        : _knownSubBoards;
                     final items = _BoardListItem.fromPage(page);
                     if (_page != page.currentPage) {
                       _page = page.currentPage;
                     }
+                    final hasSubBoards = subBoards.isNotEmpty;
+                    final listItemCount =
+                        items.length + 1 + (hasSubBoards ? 1 : 0);
                     return RefreshIndicator(
                       color: AppColors.brand,
                       onRefresh: _refresh,
                       child: ListView.separated(
-                          controller: _scrollController,
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
-                          itemCount: items.length + 1,
-                          separatorBuilder: (_, __) => const SizedBox.shrink(),
-                          itemBuilder: (context, index) {
-                            if (index == items.length) {
-                              return _PaginationBar(
-                                page: page,
-                                onPageSelected: _goToPage,
-                              );
-                            }
-                            final item = items[index];
-                            return switch (item) {
-                              _BoardSubBoardsItem(:final boards) =>
-                                _SubBoardPanel(
-                                  boards: boards,
-                                  onBoardTap: _openSubBoard,
-                                ),
-                              _BoardAdItem(:final ad) => _BoardAdBanner(ad: ad),
-                              _BoardThreadItem(:final thread) => _ThreadRow(
-                                  thread: thread,
-                                  repository: widget.repository,
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => ThreadDetailScreen(
-                                        thread: thread,
-                                        repository: widget.repository,
-                                      ),
+                        controller: _scrollController,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
+                        itemCount: listItemCount,
+                        separatorBuilder: (_, __) => const SizedBox.shrink(),
+                        itemBuilder: (context, index) {
+                          if (hasSubBoards && index == 0) {
+                            return _SubBoardPanel(
+                              boards: subBoards,
+                              onBoardTap: _openSubBoard,
+                            );
+                          }
+
+                          final itemIndex = index - (hasSubBoards ? 1 : 0);
+                          if (itemIndex == items.length) {
+                            return _PaginationBar(
+                              page: page,
+                              onPageSelected: _goToPage,
+                            );
+                          }
+                          final item = items[itemIndex];
+                          return switch (item) {
+                            _BoardAdItem(:final ad) => _BoardAdBanner(ad: ad),
+                            _BoardThreadItem(:final thread) => _ThreadRow(
+                                thread: thread,
+                                repository: widget.repository,
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => ThreadDetailScreen(
+                                      thread: thread,
+                                      repository: widget.repository,
                                     ),
                                   ),
                                 ),
-                            };
-                          }),
+                              ),
+                          };
+                        },
+                      ),
                     );
                   },
                 ),

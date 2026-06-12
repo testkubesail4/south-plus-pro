@@ -144,7 +144,6 @@ void main() {
 
     expect(find.text('子版块'), findsOneWidget);
     expect(find.text('同人志&CG'), findsOneWidget);
-    expect(find.text('26246 文章'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('同人志&CG'));
@@ -155,6 +154,68 @@ void main() {
       'https://south-plus.net/thread.php?fid-218.html',
       'https://south-plus.net/thread.php?fid-213.html',
     ]);
+  });
+
+  testWidgets('board thread list keeps known sub boards when fetch lacks them',
+      (tester) async {
+    final repository = _FakeBoardRepository();
+
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardThreadListScreen(
+          category: _FakeBoardRepository.category,
+          repository: repository,
+          initialSubBoards: const [
+            ForumBoard(
+              name: '同人志&CG',
+              url: 'https://south-plus.net/thread.php?fid-227.html',
+              section: 'Comic Market 107',
+            ),
+            ForumBoard(
+              name: '同人志&CG (图墙模式)',
+              url: 'https://south-plus.net/thread.php?fid-228.html',
+              section: 'Comic Market 107',
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('子版块'), findsOneWidget);
+    expect(find.text('同人志&CG'), findsOneWidget);
+    expect(find.text('同人志&CG (图墙模式)'), findsOneWidget);
+    expect(find.text('子版主题'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('board sub board entry scrolls with thread list', (tester) async {
+    final repository = _FakeBoardRepository();
+
+    await tester.binding.setSurfaceSize(const Size(360, 420));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardThreadListScreen(
+          category: _FakeBoardRepository.archiveCategory,
+          repository: repository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('子版块'), findsOneWidget);
+
+    await tester.drag(find.byType(ListView), const Offset(0, -520));
+    await tester.pumpAndSettle();
+
+    expect(find.text('子版块'), findsNothing);
+    expect(find.text('父版主题 8'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('home renders nested boards as mobile-friendly child chips',
@@ -185,6 +246,32 @@ void main() {
     expect(repository.requestedCategoryUrls, [
       'https://south-plus.net/thread.php?fid-218.html',
     ]);
+  });
+
+  testWidgets('home passes parent board children into board pages',
+      (tester) async {
+    final repository = _FakeHomeRepository();
+
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(home: ForumHomePage(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('漫区特设'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('旧物仓库'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('子版块'), findsOneWidget);
+    expect(find.text('C103'), findsOneWidget);
+    expect(find.text('C102'), findsOneWidget);
+    expect(repository.requestedCategoryUrls, [
+      'https://south-plus.net/thread.php?fid-43.html',
+    ]);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('browsing history opens a viewed thread', (tester) async {
@@ -918,7 +1005,7 @@ class _FakeBoardRepository extends ForumRepository {
   }) async {
     requestedCategoryUrls.add(category.url ?? '');
     if (category.url?.contains('fid-218') == true) {
-      return const ForumThreadPage(
+      return ForumThreadPage(
         currentPage: 1,
         totalPages: 1,
         subBoards: [
@@ -935,12 +1022,13 @@ class _FakeBoardRepository extends ForumRepository {
           ),
         ],
         threads: [
-          ForumThread(
-            title: '父版公告',
-            url: 'https://south-plus.net/read.php?tid-1.html',
-            replies: 0,
-            section: 'C103',
-          ),
+          for (var index = 1; index <= 12; index++)
+            ForumThread(
+              title: '父版主题 $index',
+              url: 'https://south-plus.net/read.php?tid-$index.html',
+              replies: index,
+              section: 'C103',
+            ),
         ],
       );
     }

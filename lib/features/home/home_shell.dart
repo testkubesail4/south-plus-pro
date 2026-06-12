@@ -137,6 +137,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
         builder: (_) => BoardThreadListScreen(
           category: _categoryFromBoard(board),
           repository: widget.repository,
+          initialSubBoards: board.children,
         ),
       ),
     );
@@ -269,6 +270,7 @@ class _BoardDirectoryPageState extends State<BoardDirectoryPage> {
             url: board.url,
           ),
           repository: widget.repository,
+          initialSubBoards: board.children,
         ),
       ),
     );

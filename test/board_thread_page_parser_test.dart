@@ -19,18 +19,36 @@ void main() {
               <td>最后发表</td>
             </tr>
             <tr>
-              <td><a href="thread.php?fid-213.html"></a></td>
-              <th><h3><a href="thread.php?fid-213.html">同人志&CG</a></h3></th>
+              <td>
+                <a href="thread.php?fid-213.html">
+                  <img src="images/colorImagination/old.gif">
+                </a>
+              </td>
+              <th>
+                <a class="bklogo" href="thread.php?fid-213.html"></a>
+                <h2>
+                  <a href="thread.php?fid-213.html" class="fnamecolor a1">
+                    <b>同人志&CG</b>
+                  </a>
+                </h2>
+              </th>
               <td></td>
               <td>26246</td>
               <th><a href="read.php?tid-1.html">Re:(C103)[自购][ ..</a> 8ff82385</th>
             </tr>
             <tr>
-              <td><a href="thread.php?fid-214.html"></a></td>
+              <td>
+                <a href="thread.php?fid-214.html">
+                  <img src="images/colorImagination/old.gif">
+                </a>
+              </td>
               <th>
-                <h3>
-                  <a href="thread.php?fid-214.html">同人志&CG (图墙模式)</a>
-                </h3>
+                <a class="bklogo" href="thread.php?fid-214.html"></a>
+                <h2>
+                  <a href="thread.php?fid-214.html" class="fnamecolor a1">
+                    <b>同人志&CG (图墙模式)</b>
+                  </a>
+                </h2>
               </th>
               <td></td>
               <td>0</td>

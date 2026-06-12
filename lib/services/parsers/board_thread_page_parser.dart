@@ -221,8 +221,7 @@ class BoardThreadPageParser {
   }
 
   ForumBoard? _subBoardFromRow(dom.Element row, ForumCategory category) {
-    final titleLink = row.querySelector('h3 a[href*="thread.php?fid-"]') ??
-        row.querySelector('a[href*="thread.php?fid-"]');
+    final titleLink = _subBoardTitleLink(row);
     if (titleLink == null) return null;
 
     final href = titleLink.attributes['href'] ?? '';
@@ -245,6 +244,20 @@ class BoardThreadPageParser {
       postCount: postCount,
       subtitle: latest,
     );
+  }
+
+  dom.Element? _subBoardTitleLink(dom.Element row) {
+    for (final selector in [
+      'h2 a[href*="thread.php?fid-"]',
+      'h3 a[href*="thread.php?fid-"]',
+      'a.fnamecolor[href*="thread.php?fid-"]',
+      'a[href*="thread.php?fid-"]',
+    ]) {
+      for (final link in row.querySelectorAll(selector)) {
+        if (_cleanText(link.text).isNotEmpty) return link;
+      }
+    }
+    return null;
   }
 
   bool _isSimpleStickyThread(dom.Element link) {
