@@ -1,5 +1,9 @@
-import 'package:html/parser.dart' as html_parser;
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
 
 import '../models/forum_models.dart';
 import 'browsing_history_store.dart';
@@ -14,6 +18,7 @@ import 'parsers/home_page_parser.dart';
 import 'parsers/search_result_parser.dart';
 import 'parsers/thread_content_parser.dart';
 import 'parsers/thread_detail_parser.dart';
+import 'parsers/thread_image_preview_parser.dart';
 import 'parsers/user_profile_parser.dart';
 
 class ForumRepository {
@@ -64,9 +69,13 @@ class ForumRepository {
     urls: _urls,
     contentParser: ThreadContentParser(urls: _urls),
   );
+  late ThreadImagePreviewParser _threadImagePreviewParser =
+      ThreadImagePreviewParser(urls: _urls);
   late UserProfileParser _userProfileParser = UserProfileParser(urls: _urls);
   UserProfileCache _profileCache;
   final BrowsingHistoryStore _historyStore;
+  final Map<String, Future<ThreadImagePreview>> _threadImagePreviewCache =
+      <String, Future<ThreadImagePreview>>{};
   String? _currentUsername;
 
   bool get isLoggedIn => _client.isLoggedIn;
@@ -87,8 +96,10 @@ class ForumRepository {
       urls: _urls,
       contentParser: ThreadContentParser(urls: _urls),
     );
+    _threadImagePreviewParser = ThreadImagePreviewParser(urls: _urls);
     _userProfileParser = UserProfileParser(urls: _urls);
     _profileCache = UserProfileCache(urls: _urls);
+    _threadImagePreviewCache.clear();
     _client = ForumClient(config: config);
     _currentUsername = null;
     await ForumNetworkSettings.save(config);
@@ -237,6 +248,281 @@ class ForumRepository {
   Future<List<ForumThread>> fetchLatestThreads() async {
     final home = await fetchHome();
     return home.latest;
+  }
+
+  Future<ThreadImagePreview> fetchThreadImagePreview(ForumThread thread) {
+    final tid = _urls.tidFromUrl(thread.url);
+    final cacheKey = tid ?? thread.url;
+    return _threadImagePreviewCache.putIfAbsent(
+      cacheKey,
+      () => _fetchThreadImagePreview(thread),
+    );
+  }
+
+  Future<ThreadImagePreview> _fetchThreadImagePreview(
+    ForumThread thread,
+  ) async {
+    final detailPath = _urls.threadDetailPath(thread.url);
+    final html = await _client.get(detailPath);
+    final pages = <({dom.Document document, String url})>[
+      (document: html_parser.parse(html), url: _urls.absoluteUrl(detailPath)),
+    ];
+    var preview = _threadImagePreviewParser.parsePages(pages);
+
+    for (var page = 2;
+        page <= ThreadImagePreviewParser.maxDetailPages &&
+            preview.media.length < ThreadImagePreviewParser.maxImages;
+        page += 1) {
+      try {
+        final pagePath = _urls.threadDetailPath(thread.url, page: page);
+        final pageHtml = await _client.get(pagePath);
+        pages.add((
+          document: html_parser.parse(pageHtml),
+          url: _urls.absoluteUrl(pagePath),
+        ));
+        preview = _threadImagePreviewParser.parsePages(pages);
+      } catch (_) {
+        // Later detail pages are best-effort for list previews.
+      }
+    }
+
+    if (preview.hostPages.isEmpty) return preview;
+
+    final media = [...preview.media];
+    for (final hostPage in preview.hostPages.take(
+      ThreadImagePreviewParser.maxHostPages,
+    )) {
+      if (media.length >= ThreadImagePreviewParser.maxImages) break;
+      try {
+        final resolved = await _resolveHostPageMedia(hostPage);
+        for (final item in resolved) {
+          final key = item.type == ThreadPreviewMediaType.video
+              ? item.videoUrl ?? item.openUrl
+              : item.displayUrl;
+          if (media.any((existing) {
+            final existingKey = existing.type == ThreadPreviewMediaType.video
+                ? existing.videoUrl ?? existing.openUrl
+                : existing.displayUrl;
+            return existingKey == key;
+          })) {
+            continue;
+          }
+          media.add(item);
+          if (media.length >= ThreadImagePreviewParser.maxImages) break;
+        }
+      } catch (_) {
+        // Third-party preview pages are best-effort.
+      }
+    }
+
+    final images = media
+        .where((item) => item.type == ThreadPreviewMediaType.image)
+        .map((item) => ThreadImage(url: item.url))
+        .toList();
+    return ThreadImagePreview(
+      images: images,
+      media: media,
+      hostPages: preview.hostPages,
+      hasBuyBlock: preview.hasBuyBlock,
+      note: media.isNotEmpty ? null : preview.note,
+    );
+  }
+
+  Future<List<ThreadPreviewMedia>> _resolveHostPageMedia(String url) async {
+    if (RegExp(r'gofile\.io/d/', caseSensitive: false).hasMatch(url)) {
+      final gofileMedia = await _resolveGofileMediaList(url);
+      if (gofileMedia.isNotEmpty) return gofileMedia;
+    }
+
+    final hostHtml = await _client.get(url);
+    final hostDocument = html_parser.parse(hostHtml);
+    return _threadImagePreviewParser.parseHostPageMedia(hostDocument, url);
+  }
+
+  Future<List<ThreadPreviewMedia>> _resolveGofileMediaList(String url) async {
+    final idMatch =
+        RegExp(r'gofile\.io/d/([a-z0-9]+)', caseSensitive: false)
+            .firstMatch(url);
+    final contentId = idMatch?.group(1);
+    if (contentId == null || contentId.isEmpty) return const [];
+
+    final token = await _createGofileGuestToken();
+    final uri = Uri.https('api.gofile.io', '/contents/$contentId', {
+      'contentFilter': '',
+      'page': '1',
+      'pageSize': '1000',
+      'sortField': 'createTime',
+      'sortDirection': '-1',
+    });
+    final response = await _getExternalJson(uri, headers: {
+      HttpHeaders.authorizationHeader: 'Bearer $token',
+      'X-Website-Token': _generateGofileWebsiteToken(token),
+      'X-BL': 'zh-CN',
+      HttpHeaders.userAgentHeader: _gofileUserAgent,
+    });
+    final data = response['data'];
+    final children = data is Map<String, dynamic> ? data['children'] : null;
+    final files = _flattenGofileChildren(children);
+    return files
+        .map(
+          (file) => _gofileFileToPreviewMedia(
+            file,
+            sourceUrl: url,
+            accountToken: token,
+          ),
+        )
+        .nonNulls
+        .take(ThreadImagePreviewParser.maxImages)
+        .toList();
+  }
+
+  Future<String> _createGofileGuestToken() async {
+    final response = await _postExternalJson(
+      Uri.https('api.gofile.io', '/accounts'),
+      headers: {
+        HttpHeaders.userAgentHeader: _gofileUserAgent,
+      },
+    );
+    final data = response['data'];
+    if (data is Map<String, dynamic>) {
+      final token = data['token'];
+      if (token is String && token.isNotEmpty) return token;
+    }
+    throw const FormatException('Gofile token missing');
+  }
+
+  Future<Map<String, dynamic>> _getExternalJson(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  }) {
+    return _externalJson(uri, method: 'GET', headers: headers);
+  }
+
+  Future<Map<String, dynamic>> _postExternalJson(
+    Uri uri, {
+    Map<String, String> headers = const {},
+  }) {
+    return _externalJson(uri, method: 'POST', headers: headers);
+  }
+
+  Future<Map<String, dynamic>> _externalJson(
+    Uri uri, {
+    required String method,
+    Map<String, String> headers = const {},
+  }) async {
+    final client = HttpClient()..findProxy = (_) => 'DIRECT';
+    try {
+      final request = method == 'POST'
+          ? await client.postUrl(uri)
+          : await client.getUrl(uri);
+      headers.forEach(request.headers.set);
+      final response = await request.close();
+      final body = await utf8.decoder.bind(response).join();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final preview = body.length > 400 ? body.substring(0, 400) : body;
+        throw HttpException(
+          'HTTP ${response.statusCode}: $preview',
+          uri: uri,
+        );
+      }
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      throw const FormatException('Expected JSON object');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  String _generateGofileWebsiteToken(String accountToken) {
+    final bucket =
+        (DateTime.now().millisecondsSinceEpoch ~/ 1000 ~/ 14400).toString();
+    final input = '$_gofileUserAgent::zh-CN::$accountToken::$bucket::9844d94d963d30';
+    return crypto.sha256.convert(utf8.encode(input)).toString();
+  }
+
+  List<Map<String, dynamic>> _flattenGofileChildren(Object? children) {
+    final values = switch (children) {
+      List<Object?> list => list,
+      Map<Object?, Object?> map => map.values.toList(),
+      _ => const <Object?>[],
+    };
+    final files = <Map<String, dynamic>>[];
+    for (final child in values) {
+      if (child is! Map) continue;
+      final normalized = child.cast<String, dynamic>();
+      final nested = normalized['children'];
+      if (nested != null) {
+        files.addAll(_flattenGofileChildren(nested));
+      } else {
+        files.add(normalized);
+      }
+    }
+    return files;
+  }
+
+  ThreadPreviewMedia? _gofileFileToPreviewMedia(
+    Map<String, dynamic> file, {
+    required String sourceUrl,
+    required String accountToken,
+  }) {
+    final mime = _stringValue(file, ['mimetype', 'mimeType', 'contentType']);
+    final name = _stringValue(file, ['name']);
+    final url = _stringValue(file, ['directLink', 'link', 'downloadPage']);
+    final poster = _stringValue(file, ['thumbnail', 'preview']);
+    if (url.isEmpty && poster.isEmpty) return null;
+
+    if (_isVideoMedia(mime, name, url)) {
+      final videoUrl = url.isNotEmpty ? url : poster;
+      return ThreadPreviewMedia.video(
+        url: poster.isNotEmpty ? poster : videoUrl,
+        videoUrl: videoUrl,
+        poster: poster.isNotEmpty ? poster : null,
+        videoHeaders: _gofileVideoHeaders(accountToken: accountToken),
+        source: sourceUrl,
+        name: name.isNotEmpty ? name : null,
+      );
+    }
+
+    if (_isImageMedia(mime, name, url, poster)) {
+      final imageUrl = poster.isNotEmpty ? poster : url;
+      return ThreadPreviewMedia.image(
+        url: imageUrl,
+        source: url.isNotEmpty ? url : imageUrl,
+        name: name.isNotEmpty ? name : null,
+      );
+    }
+
+    return null;
+  }
+
+  String _stringValue(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value is String && value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  bool _isVideoMedia(String mime, String name, String url) {
+    return mime.toLowerCase().startsWith('video/') ||
+        _videoExtensionPattern.hasMatch(name) ||
+        _videoExtensionPattern.hasMatch(url);
+  }
+
+  bool _isImageMedia(String mime, String name, String url, String poster) {
+    return mime.toLowerCase().startsWith('image/') ||
+        _imageExtensionPattern.hasMatch(name) ||
+        _imageExtensionPattern.hasMatch(url) ||
+        _imageExtensionPattern.hasMatch(poster);
+  }
+
+  Map<String, String> _gofileVideoHeaders({required String accountToken}) {
+    return {
+      HttpHeaders.authorizationHeader: 'Bearer $accountToken',
+      HttpHeaders.cookieHeader: 'accountToken=$accountToken',
+      HttpHeaders.refererHeader: 'https://gofile.io/',
+      HttpHeaders.userAgentHeader: _gofileUserAgent,
+    };
   }
 
   Future<List<BrowsingHistoryEntry>> browsingHistory({int limit = 100}) {
@@ -718,6 +1004,20 @@ class ForumRepository {
     return null;
   }
 }
+
+const _gofileUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+final _videoExtensionPattern = RegExp(
+  r'\.(?:mp4|webm|mov|m4v)(?:[?#].*)?$',
+  caseSensitive: false,
+);
+
+final _imageExtensionPattern = RegExp(
+  r'\.(?:jpg|jpeg|png|webp|gif|bmp)(?:[?#].*)?$',
+  caseSensitive: false,
+);
 
 class ForumRepositoryException implements Exception {
   const ForumRepositoryException(this.message);

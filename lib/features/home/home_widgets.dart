@@ -265,6 +265,10 @@ class _LatestThreads extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
+                    ThreadImagePreviewStrip(
+                      thread: thread,
+                      repository: repository,
+                    ),
                     const SizedBox(height: 8),
                     Row(
                       children: [

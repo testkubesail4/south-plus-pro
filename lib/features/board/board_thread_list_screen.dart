@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
+import '../common/thread_image_preview_strip.dart';
 import '../profile/user_profile_screen.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_compose_screen.dart';
@@ -31,9 +33,11 @@ class BoardThreadListScreen extends StatefulWidget {
 class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   late Future<ForumThreadPage> _future;
   final ScrollController _scrollController = ScrollController();
+  final Set<String> _warmedPreviewPageKeys = <String>{};
   late ForumCategory _category = widget.category;
   late List<ForumBoard> _knownSubBoards = List.of(widget.initialSubBoards);
   int _page = 1;
+  int _fetchGeneration = 0;
 
   @override
   void initState() {
@@ -42,14 +46,52 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   }
 
   Future<ForumThreadPage> _fetchPage(int page) async {
+    final generation = ++_fetchGeneration;
+    final category = _category;
     final threadPage = await widget.repository.fetchBoardThreadPage(
-      _category,
+      category,
       page: page,
     );
-    if (mounted && threadPage.subBoards.isNotEmpty) {
+    if (!mounted || generation != _fetchGeneration || category != _category) {
+      return threadPage;
+    }
+    if (threadPage.subBoards.isNotEmpty) {
       _knownSubBoards = List.of(threadPage.subBoards);
     }
+    _warmThreadImagePreviews(category, threadPage);
     return threadPage;
+  }
+
+  void _warmThreadImagePreviews(
+    ForumCategory category,
+    ForumThreadPage threadPage,
+  ) {
+    final threadKeys = threadPage.threads
+        .take(6)
+        .map((thread) => thread.url)
+        .join('|');
+    final cacheKey = '${category.url}#${threadPage.currentPage}#$threadKeys';
+    if (!_warmedPreviewPageKeys.add(cacheKey)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || category != _category) return;
+      unawaited(_delayedPreviewWarmup(threadPage.threads.take(6)));
+    });
+  }
+
+  Future<void> _delayedPreviewWarmup(Iterable<ForumThread> threads) async {
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    if (!mounted) return;
+    await _fetchPreviewWarmup(threads);
+  }
+
+  Future<void> _fetchPreviewWarmup(Iterable<ForumThread> threads) async {
+    for (final thread in threads) {
+      try {
+        await widget.repository.fetchThreadImagePreview(thread);
+      } catch (_) {
+        // Preview warmup is best-effort; visible rows still handle failures.
+      }
+    }
   }
 
   Future<void> _refresh() async {
@@ -83,6 +125,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         ),
       ),
     );
+    if (!mounted) return;
     if (posted == true) {
       await _refresh();
     }
@@ -157,6 +200,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                       onRefresh: _refresh,
                       child: ListView.separated(
                         controller: _scrollController,
+                        cacheExtent: 500,
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
                         itemCount: listItemCount,

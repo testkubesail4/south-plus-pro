@@ -10,6 +10,7 @@ environment:
 dependencies:
   animations: ^2.2.0
   cached_network_image: ^3.4.1
+  crypto: ^3.0.7
   flutter:
     sdk: flutter
   flutter_animate: ^4.5.2
@@ -18,9 +19,10 @@ dependencies:
   path: ^1.9.0
   path_provider: ^2.1.5
   shared_preferences: ^2.5.5
-  sqlite3: ^3.3.2
+  sqlite3: ^2.9.4
   sqlite3_flutter_libs: ^0.5.26
   url_launcher: ^6.3.2
+  video_player: ^2.10.0
 
 dev_dependencies:
   flutter_test:
