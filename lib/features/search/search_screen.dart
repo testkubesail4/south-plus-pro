@@ -66,7 +66,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     decoration: InputDecoration(
                       labelText: '关键词',
                       hintText: '搜索主题标题',
-                      prefixIcon: const Icon(Icons.search),
+                      prefixIcon: Icon(Icons.search),
                       suffixIcon: _keyword.text.isEmpty
                           ? null
                           : IconButton(
@@ -75,7 +75,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 _keyword.clear();
                                 setState(() {});
                               },
-                              icon: const Icon(Icons.close),
+                              icon: Icon(Icons.close),
                             ),
                     ),
                     onChanged: (_) => setState(() {}),
@@ -92,13 +92,13 @@ class _SearchScreenState extends State<SearchScreen> {
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: _search,
-                    icon: const Icon(Icons.search),
+                    icon: Icon(Icons.search),
                     label: const Text('搜索'),
                   ),
                 ],
               ),
             ),
-            const Divider(height: 1, color: AppColors.border),
+            Divider(height: 1, color: AppColors.border),
             Expanded(
               child: future == null
                   ? const _SearchIntro()
@@ -176,7 +176,7 @@ class _SearchResultTile extends StatelessWidget {
                 thread.title,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.text,
                   fontSize: 16,
                   height: 1.35,
@@ -238,7 +238,7 @@ class _SearchMetaChip extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             text,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 12,
               fontWeight: FontWeight.w500,

@@ -43,7 +43,7 @@ class AsyncErrorView extends StatelessWidget {
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
+              icon: Icon(Icons.refresh),
               label: const Text('重试'),
             ),
           ],

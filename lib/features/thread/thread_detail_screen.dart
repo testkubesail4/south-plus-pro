@@ -354,7 +354,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           IconButton(
             tooltip: '回复',
             onPressed: () => _scrollToReply(),
-            icon: const Icon(Icons.reply_outlined),
+            icon: Icon(Icons.reply_outlined),
           ),
         ],
       ),
@@ -362,7 +362,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         backgroundColor: AppColors.brand,
         foregroundColor: Colors.white,
         onPressed: () => _scrollToReply(),
-        child: const Icon(Icons.edit_outlined),
+        child: Icon(Icons.edit_outlined),
       ),
       body: detail == null
           ? _InitialThreadState(
@@ -728,7 +728,7 @@ class _ThreadHeaderCard extends StatelessWidget {
                     authorName == null || authorName.isEmpty
                         ? '第 ${pagination.currentPage} 页'
                         : '$authorName · 第 ${pagination.currentPage} 页',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.textMuted,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -772,7 +772,7 @@ class _ActiveAuthorFilterChip extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.person_search_outlined,
             size: 18,
             color: AppColors.link,
@@ -786,7 +786,7 @@ class _ActiveAuthorFilterChip extends StatelessWidget {
                   '只看 $author',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.text,
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
@@ -797,7 +797,7 @@ class _ActiveAuthorFilterChip extends StatelessWidget {
                   '第 ${pagination.currentPage} / ${pagination.totalPages} 页 · 本页 $visibleFloorCount 楼',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -809,7 +809,7 @@ class _ActiveAuthorFilterChip extends StatelessWidget {
           IconButton(
             tooltip: '取消只看该作者',
             onPressed: loading ? null : onClear,
-            icon: const Icon(Icons.close, size: 18),
+            icon: Icon(Icons.close, size: 18),
             constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
           ),
         ],
@@ -886,7 +886,7 @@ class _FloorCard extends StatelessWidget {
                       if (postedAt != null)
                         Text(
                           '- $postedAt',
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppColors.textMuted,
                             fontSize: 13,
                           ),
@@ -897,7 +897,7 @@ class _FloorCard extends StatelessWidget {
                 if (floorText != null)
                   Text(
                     floorText,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.link,
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -918,7 +918,7 @@ class _FloorCard extends StatelessWidget {
                 child: PopupMenuButton<_FloorAction>(
                   key: ValueKey('floor-actions-$author-$floor'),
                   tooltip: '更多操作',
-                  icon: const Icon(Icons.more_horiz),
+                  icon: Icon(Icons.more_horiz),
                   constraints: const BoxConstraints(minWidth: 180),
                   onSelected: (action) {
                     switch (action) {
@@ -955,7 +955,7 @@ class _FloorCard extends StatelessWidget {
                                     strokeWidth: 2,
                                   ),
                                 )
-                              : const Icon(Icons.format_quote),
+                              : Icon(Icons.format_quote),
                           title: Text(quoteLoading ? '引用中...' : '引用'),
                           dense: true,
                         ),
@@ -1032,14 +1032,14 @@ class _AvatarFallback extends StatelessWidget {
     final initial = trimmed.isEmpty ? '?' : trimmed.substring(0, 1);
     return DecoratedBox(
       key: const ValueKey('thread-author-avatar-fallback'),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.inkSoft,
         shape: BoxShape.circle,
       ),
       child: Center(
         child: Text(
           initial,
-          style: const TextStyle(
+          style: TextStyle(
             color: AppColors.link,
             fontSize: 17,
             fontWeight: FontWeight.w800,
@@ -1248,7 +1248,7 @@ class _FloorAuthorName extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const style = TextStyle(
+    final style = TextStyle(
       color: AppColors.brand,
       fontSize: 15,
       fontWeight: FontWeight.w800,
@@ -1302,21 +1302,21 @@ class _ThreadHeaderActions extends StatelessWidget {
         if (previousThread != null)
           OutlinedButton.icon(
             onPressed: () => onThreadLink(previousThread!),
-            icon: const Icon(Icons.chevron_left, size: 18),
+            icon: Icon(Icons.chevron_left, size: 18),
             label: Text(previousThread!.label),
             style: _compactActionStyle(),
           ),
         if (nextThread != null)
           OutlinedButton.icon(
             onPressed: () => onThreadLink(nextThread!),
-            icon: const Icon(Icons.chevron_right, size: 18),
+            icon: Icon(Icons.chevron_right, size: 18),
             label: Text(nextThread!.label),
             style: _compactActionStyle(),
           ),
         if (rssFeed != null)
           OutlinedButton.icon(
             onPressed: () => onExternalLink(rssFeed!),
-            icon: const Icon(Icons.rss_feed, size: 18),
+            icon: Icon(Icons.rss_feed, size: 18),
             label: const Text('RSS'),
             style: _compactActionStyle(),
           ),
@@ -1347,7 +1347,7 @@ class _ThreadHeaderActions extends StatelessWidget {
           onSelected:
               originalAuthor == null ? null : onOnlyOriginalPosterChanged,
           materialTapTargetSize: MaterialTapTargetSize.padded,
-          labelStyle: const TextStyle(
+          labelStyle: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
           ),
@@ -1362,7 +1362,7 @@ class _ThreadHeaderActions extends StatelessWidget {
       minimumSize: const Size(44, 44),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       tapTargetSize: MaterialTapTargetSize.padded,
-      textStyle: const TextStyle(
+      textStyle: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w700,
       ),

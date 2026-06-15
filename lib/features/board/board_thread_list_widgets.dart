@@ -102,7 +102,7 @@ class _BoardAdBanner extends StatelessWidget {
             return ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: DecoratedBox(
-                decoration: const BoxDecoration(color: AppColors.surface),
+                decoration: BoxDecoration(color: AppColors.surface),
                 child: SizedBox(
                   width: double.infinity,
                   height: height,
@@ -117,7 +117,7 @@ class _BoardAdBanner extends StatelessWidget {
                           ad.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppColors.textMuted,
                             fontWeight: FontWeight.w700,
                           ),
@@ -147,7 +147,7 @@ class _BoardAdBanner extends StatelessWidget {
                   ad.title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.link,
                     fontSize: 15,
                     height: 1.35,
@@ -161,7 +161,7 @@ class _BoardAdBanner extends StatelessWidget {
                       : ad.subtitle!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 12,
                     height: 1.2,
@@ -178,7 +178,7 @@ class _BoardAdBanner extends StatelessWidget {
               borderRadius: BorderRadius.circular(999),
               border: Border.all(color: AppColors.border),
             ),
-            child: const Text(
+            child: Text(
               '广告',
               style: TextStyle(
                 color: AppColors.textFaint,
@@ -210,17 +210,17 @@ class _SubBoardPanel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 2, 24, 10),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        border: const Border(bottom: BorderSide(color: AppColors.border)),
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Row(
+          Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.account_tree_outlined,
                   color: AppColors.textMuted, size: 15),
-              SizedBox(width: 5),
+              const SizedBox(width: 5),
               Text(
                 '子版块',
                 style: TextStyle(
@@ -279,7 +279,7 @@ class _SubBoardChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.subdirectory_arrow_right_outlined,
+              Icon(Icons.subdirectory_arrow_right_outlined,
                   color: AppColors.brand, size: 14),
               const SizedBox(width: 5),
               Flexible(
@@ -287,7 +287,7 @@ class _SubBoardChip extends StatelessWidget {
                   board.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.link,
                     fontSize: 12.5,
                     height: 1.2,
@@ -326,7 +326,7 @@ class _ListLine extends StatelessWidget {
               child: child,
             ),
           ),
-          const Divider(
+          Divider(
             height: 1,
             thickness: 0.8,
             indent: 20,
@@ -564,7 +564,7 @@ class _BoardHeader extends StatelessWidget {
         Container(
           height: 58,
           padding: const EdgeInsets.fromLTRB(4, 6, 12, 6),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.header,
             border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
@@ -573,7 +573,7 @@ class _BoardHeader extends StatelessWidget {
               IconButton(
                 tooltip: '返回',
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.chevron_left, size: 30),
+                icon: Icon(Icons.chevron_left, size: 30),
               ),
               Expanded(
                 child: Text(
@@ -581,7 +581,7 @@ class _BoardHeader extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.text,
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
@@ -591,7 +591,7 @@ class _BoardHeader extends StatelessWidget {
               IconButton.filled(
                 tooltip: '发帖',
                 onPressed: onCompose,
-                icon: const Icon(Icons.edit_outlined, size: 20),
+                icon: Icon(Icons.edit_outlined, size: 20),
                 style: IconButton.styleFrom(
                   backgroundColor: AppColors.brand,
                   foregroundColor: Colors.white,
@@ -603,7 +603,7 @@ class _BoardHeader extends StatelessWidget {
         Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.surface,
             border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
@@ -611,25 +611,24 @@ class _BoardHeader extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 4,
             children: [
-              const Text(
+              Text(
                 '南+ South Plus',
                 style: TextStyle(
                   color: AppColors.brand,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const Icon(Icons.chevron_right,
-                  size: 18, color: AppColors.textFaint),
+              Icon(Icons.chevron_right, size: 18, color: AppColors.textFaint),
               Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.link,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               Text(
                 ' / $slug',
-                style: const TextStyle(color: AppColors.textMuted),
+                style: TextStyle(color: AppColors.textMuted),
               ),
             ],
           ),
@@ -686,7 +685,7 @@ class _ThreadRow extends StatelessWidget {
                         thread.bodyPreview!,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppColors.textMuted,
                           fontSize: 12,
                           height: 1.2,
@@ -714,7 +713,7 @@ class _ThreadRow extends StatelessWidget {
                                 thread.author!,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: AppColors.textMuted,
                                   fontSize: 12,
                                   height: 1.2,
@@ -723,7 +722,7 @@ class _ThreadRow extends StatelessWidget {
                             ),
                           )
                         else
-                          const Text(
+                          Text(
                             '匿名',
                             style: TextStyle(
                               color: AppColors.textMuted,
@@ -738,7 +737,7 @@ class _ThreadRow extends StatelessWidget {
                                 : ' - 发布于 ${thread.lastPost}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: AppColors.textMuted,
                               fontSize: 12,
                               height: 1.2,
@@ -761,7 +760,7 @@ class _ThreadRow extends StatelessWidget {
                 child: Text(
                   '${thread.replies} 回',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 12,
                     height: 1.2,

@@ -152,7 +152,7 @@ class _FavoriteHeader extends StatelessWidget {
                   color: AppColors.brandSoft,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.star_rounded,
                   color: AppColors.brand,
                 ),
@@ -201,7 +201,7 @@ class _FavoriteHeader extends StatelessWidget {
                 ),
               ),
             ),
-            icon: const Icon(Icons.person_outline),
+            icon: Icon(Icons.person_outline),
             label: const Text('查看完整个人中心'),
           ),
         ],
@@ -301,7 +301,7 @@ class _FavoriteThreadTile extends StatelessWidget {
                       item.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.text,
                         fontSize: 15,
                         height: 1.35,
@@ -317,7 +317,7 @@ class _FavoriteThreadTile extends StatelessWidget {
                       color: AppColors.brandSoft,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.star_rounded,
                       size: 18,
                       color: AppColors.brand,
@@ -331,7 +331,7 @@ class _FavoriteThreadTile extends StatelessWidget {
                   meta,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 12,
                   ),
@@ -395,7 +395,7 @@ class _MetaPill extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -440,7 +440,7 @@ class _FavoriteLoginPrompt extends StatelessWidget {
                     color: AppColors.brandSoft,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.star_border_rounded,
                     color: AppColors.brand,
                     size: 28,
@@ -456,7 +456,7 @@ class _FavoriteLoginPrompt extends StatelessWidget {
                 const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: onLoginTap ?? () => _openLogin(context),
-                  icon: const Icon(Icons.login),
+                  icon: Icon(Icons.login),
                   label: const Text('去登录'),
                 ),
                 const SizedBox(height: 10),
@@ -466,7 +466,7 @@ class _FavoriteLoginPrompt extends StatelessWidget {
                       builder: (_) => LoginScreen(repository: repository),
                     ),
                   ),
-                  icon: const Icon(Icons.open_in_new),
+                  icon: Icon(Icons.open_in_new),
                   label: const Text('打开登录页'),
                 ),
               ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../thread/thread_detail_screen.dart';
 
@@ -76,7 +77,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     return DefaultTabController(
       length: 5,
       child: Scaffold(
-        backgroundColor: const Color(0xfff7f7f8),
+        backgroundColor: AppColors.background,
         body: SafeArea(
           bottom: false,
           child: FutureBuilder<UserProfile>(

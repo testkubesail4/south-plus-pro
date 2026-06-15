@@ -117,7 +117,7 @@ class ReplyComposerState extends State<ReplyComposer> {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   '快速回复',
                   style: TextStyle(
@@ -133,7 +133,7 @@ class ReplyComposerState extends State<ReplyComposer> {
                   color: AppColors.brandSoft,
                   borderRadius: BorderRadius.circular(999),
                 ),
-                child: const Text(
+                child: Text(
                   'WindCode',
                   style: TextStyle(
                     color: AppColors.brandDark,
@@ -193,7 +193,7 @@ class ReplyComposerState extends State<ReplyComposer> {
                             color: Colors.white,
                           ),
                         )
-                      : const Icon(Icons.send_outlined, size: 18),
+                      : Icon(Icons.send_outlined, size: 18),
                   label: Text(_submitting ? '提交中...' : '提交回复'),
                 ),
               ),

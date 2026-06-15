@@ -178,7 +178,7 @@ class WindCodeToolbar extends StatelessWidget {
                           context,
                           priceController.text,
                         ),
-                        icon: const Icon(Icons.sell_outlined, size: 18),
+                        icon: Icon(Icons.sell_outlined, size: 18),
                         label: const Text('插入出售'),
                       ),
                     ),

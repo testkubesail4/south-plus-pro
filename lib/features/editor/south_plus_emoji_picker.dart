@@ -33,7 +33,7 @@ class SouthPlusEmojiPicker extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
-              const TabBar(
+              TabBar(
                 isScrollable: true,
                 tabAlignment: TabAlignment.start,
                 tabs: [
@@ -80,7 +80,7 @@ class SouthPlusEmojiPicker extends StatelessWidget {
                                         return Center(
                                           child: Text(
                                             emoji.id,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 10,
                                               color: AppColors.textMuted,
                                             ),

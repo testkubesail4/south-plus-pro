@@ -84,7 +84,7 @@ class _QuoteView extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
           left: BorderSide(color: AppColors.brand, width: 4),
         ),
@@ -140,7 +140,7 @@ class _SaleBoxView extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: AppColors.border),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.lock_outline,
                       size: 18,
                       color: AppColors.brandDark,
@@ -222,7 +222,7 @@ class _SaleBoxView extends StatelessWidget {
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               border: Border(
                 left: BorderSide(color: AppColors.brand, width: 4),
               ),
@@ -268,7 +268,7 @@ class _SaleMetaPill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.text,
               fontSize: 12,
               fontWeight: FontWeight.w700,

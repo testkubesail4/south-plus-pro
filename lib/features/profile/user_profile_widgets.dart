@@ -8,9 +8,9 @@ class _ProfileHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xffeeeeef))),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
       child: Column(
@@ -21,7 +21,7 @@ class _ProfileHeader extends StatelessWidget {
               IconButton(
                 tooltip: '返回',
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.chevron_left, size: 30),
+                icon: Icon(Icons.chevron_left, size: 30),
               ),
               const Text(
                 '用户中心',
@@ -33,9 +33,9 @@ class _ProfileHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xfffffbfb),
+              color: AppColors.surfaceTint,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xffffe3e8)),
+              border: Border.all(color: AppColors.brandSoft),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -45,15 +45,15 @@ class _ProfileHeader extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 36,
-                      backgroundColor: const Color(0xfff2d8dd),
+                      backgroundColor: AppColors.brandSoft,
                       backgroundImage: profile.avatarUrl == null
                           ? null
                           : NetworkImage(profile.avatarUrl!),
                       child: profile.avatarUrl == null
                           ? Text(
                               profile.name.characters.firstOrNull ?? '?',
-                              style: const TextStyle(
-                                color: _ProfileTheme.accent,
+                              style: TextStyle(
+                                color: AppColors.brandDark,
                                 fontSize: 26,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -80,7 +80,7 @@ class _ProfileHeader extends StatelessWidget {
                               profile.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.w800,
                                 height: 1.15,
@@ -100,8 +100,8 @@ class _ProfileHeader extends StatelessWidget {
                           profile.tagline!,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xff666666),
+                          style: TextStyle(
+                            color: AppColors.textMuted,
                             fontSize: 13,
                             height: 1.35,
                           ),
@@ -148,17 +148,17 @@ class _OnlineDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isOnline == null
-        ? const Color(0xffb9b9b9)
+        ? AppColors.textFaint
         : isOnline!
-            ? const Color(0xff24b26b)
-            : const Color(0xff9b9b9b);
+            ? AppColors.success
+            : AppColors.textFaint;
     return Container(
       width: 15,
       height: 15,
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 3),
+        border: Border.all(color: AppColors.surface, width: 3),
       ),
     );
   }
@@ -174,15 +174,15 @@ class _OnlinePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final online = isOnline == true;
     final color = isOnline == null
-        ? const Color(0xff777777)
+        ? AppColors.textMuted
         : online
-            ? const Color(0xff167a49)
-            : const Color(0xff666666);
+            ? AppColors.success
+            : AppColors.textMuted;
     final background = isOnline == null
-        ? const Color(0xfff1f1f2)
+        ? AppColors.inkSoft
         : online
-            ? const Color(0xffe8f8ef)
-            : const Color(0xfff1f1f2);
+            ? AppColors.successSoft
+            : AppColors.inkSoft;
     return Container(
       constraints: const BoxConstraints(minHeight: 28),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -228,7 +228,7 @@ class _ActionChip extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: 32),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: _ProfileTheme.accent,
+        color: AppColors.brand,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -238,7 +238,7 @@ class _ActionChip extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
               fontSize: 12,
               fontWeight: FontWeight.w700,
@@ -256,13 +256,13 @@ class _ProfileTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.white,
-      child: const TabBar(
+      color: AppColors.surface,
+      child: TabBar(
         isScrollable: true,
         tabAlignment: TabAlignment.start,
-        labelColor: _ProfileTheme.accent,
-        unselectedLabelColor: Color(0xff777777),
-        indicatorColor: _ProfileTheme.accent,
+        labelColor: AppColors.brand,
+        unselectedLabelColor: AppColors.textMuted,
+        indicatorColor: AppColors.brand,
         tabs: [
           Tab(text: '首页'),
           Tab(text: '资料'),
@@ -307,9 +307,9 @@ class _ProfileLoadingHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xffeeeeef))),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
       child: Column(
@@ -320,7 +320,7 @@ class _ProfileLoadingHeader extends StatelessWidget {
               IconButton(
                 tooltip: '返回',
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.chevron_left, size: 30),
+                icon: Icon(Icons.chevron_left, size: 30),
               ),
               const Text(
                 '用户中心',
@@ -332,11 +332,11 @@ class _ProfileLoadingHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xfffffbfb),
+              color: AppColors.surfaceTint,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xffffe3e8)),
+              border: Border.all(color: AppColors.brandSoft),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Stack(
@@ -344,7 +344,7 @@ class _ProfileLoadingHeader extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 36,
-                      backgroundColor: Color(0xfff2d8dd),
+                      backgroundColor: AppColors.brandSoft,
                       child: _SkeletonBox(width: 32, height: 32, radius: 16),
                     ),
                     Positioned(
@@ -354,7 +354,7 @@ class _ProfileLoadingHeader extends StatelessWidget {
                     ),
                   ],
                 ),
-                SizedBox(width: 14),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -368,12 +368,12 @@ class _ProfileLoadingHeader extends StatelessWidget {
                               radius: 7,
                             ),
                           ),
-                          SizedBox(width: 8),
-                          _SkeletonBox(width: 58, height: 28, radius: 14),
+                          const SizedBox(width: 8),
+                          const _SkeletonBox(width: 58, height: 28, radius: 14),
                         ],
                       ),
-                      SizedBox(height: 9),
-                      _SkeletonBox(width: 180, height: 14, radius: 5),
+                      const SizedBox(height: 9),
+                      const _SkeletonBox(width: 180, height: 14, radius: 5),
                     ],
                   ),
                 ),
@@ -614,10 +614,10 @@ class _ActivityTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(
+            Icon(
               Icons.bolt_outlined,
               size: 18,
-              color: _ProfileTheme.accent,
+              color: AppColors.brand,
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -626,8 +626,8 @@ class _ActivityTile extends StatelessWidget {
                 children: [
                   Text(
                     item.action ?? '动态',
-                    style: const TextStyle(
-                      color: Color(0xff777777),
+                    style: TextStyle(
+                      color: AppColors.textMuted,
                       fontSize: 12,
                     ),
                   ),
@@ -636,13 +636,13 @@ class _ActivityTile extends StatelessWidget {
                     item.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14, height: 1.35),
+                    style: TextStyle(fontSize: 14, height: 1.35),
                   ),
                   if (item.date != null)
                     Text(
                       item.date!,
-                      style: const TextStyle(
-                        color: Color(0xff999999),
+                      style: TextStyle(
+                        color: AppColors.textFaint,
                         fontSize: 12,
                       ),
                     ),
@@ -674,7 +674,7 @@ class _ThreadLikeTile extends StatelessWidget {
       if (item.date != null) item.date!,
     ].join(' · ');
     return Material(
-      color: Colors.white,
+      color: AppColors.surface,
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
@@ -688,7 +688,7 @@ class _ThreadLikeTile extends StatelessWidget {
                 item.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   height: 1.35,
                   fontWeight: FontWeight.w600,
@@ -700,7 +700,7 @@ class _ThreadLikeTile extends StatelessWidget {
                   meta,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Color(0xff777777),
                     fontSize: 12,
                   ),
@@ -766,22 +766,22 @@ class _AuthorLink extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
-          color: const Color(0xfffff1f3),
+          color: AppColors.brandSoft,
           borderRadius: BorderRadius.circular(999),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
+            Icon(
               Icons.person_outline,
               size: 14,
-              color: _ProfileTheme.accent,
+              color: AppColors.brand,
             ),
             const SizedBox(width: 4),
             Text(
               name,
-              style: const TextStyle(
-                color: _ProfileTheme.accent,
+              style: TextStyle(
+                color: AppColors.brand,
                 fontSize: 12,
               ),
             ),
@@ -815,8 +815,8 @@ class _FieldSection extends StatelessWidget {
                       width: 86,
                       child: Text(
                         field.label,
-                        style: const TextStyle(
-                          color: Color(0xff777777),
+                        style: TextStyle(
+                          color: AppColors.textMuted,
                           fontSize: 13,
                         ),
                       ),
@@ -824,7 +824,7 @@ class _FieldSection extends StatelessWidget {
                     Expanded(
                       child: Text(
                         field.value,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                       ),
                     ),
                   ],
@@ -849,7 +849,7 @@ class _Panel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -857,7 +857,7 @@ class _Panel extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
             ),
@@ -880,7 +880,7 @@ class _TextPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return _Panel(
       title: title,
-      child: Text(text, style: const TextStyle(color: Color(0xff777777))),
+      child: Text(text, style: TextStyle(color: AppColors.textMuted)),
     );
   }
 }
@@ -894,7 +894,7 @@ class _RefreshTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
-      color: _ProfileTheme.accent,
+      color: AppColors.brand,
       onRefresh: onRefresh,
       child: child,
     );
@@ -912,12 +912,12 @@ class _MetricChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xfffff1f3),
+        color: AppColors.brandSoft,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         '$label $value',
-        style: const TextStyle(color: _ProfileTheme.accent, fontSize: 12),
+        style: TextStyle(color: AppColors.brand, fontSize: 12),
       ),
     );
   }
@@ -934,11 +934,11 @@ class _TinyStat extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: const Color(0xff999999)),
+        Icon(icon, size: 14, color: AppColors.textFaint),
         const SizedBox(width: 4),
         Text(
           text,
-          style: const TextStyle(color: Color(0xff777777), fontSize: 12),
+          style: TextStyle(color: AppColors.textMuted, fontSize: 12),
         ),
       ],
     );
@@ -956,7 +956,7 @@ class _EmptyList extends StatelessWidget {
       padding: const EdgeInsets.all(28),
       children: [
         Center(
-          child: Text(text, style: const TextStyle(color: Color(0xff777777))),
+          child: Text(text, style: TextStyle(color: AppColors.textMuted)),
         ),
       ],
     );
@@ -971,7 +971,7 @@ class _SkeletonPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(10),
       ),
       child: const Column(
@@ -1032,7 +1032,7 @@ class _SkeletonBox extends StatelessWidget {
             width: width,
             height: height,
             decoration: BoxDecoration(
-              color: const Color(0xffe7e7ea),
+              color: AppColors.inkSoft,
               borderRadius: BorderRadius.circular(radius),
             ),
           ),
@@ -1041,8 +1041,4 @@ class _SkeletonBox extends StatelessWidget {
       onEnd: () {},
     );
   }
-}
-
-class _ProfileTheme {
-  static const accent = Color(0xFFD97786);
 }

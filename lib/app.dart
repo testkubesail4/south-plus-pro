@@ -16,6 +16,8 @@ class SouthPlusApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'South Plus',
       theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
       home: const SessionGate(),
     );
   }
@@ -130,18 +132,18 @@ class _SessionSplash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       body: SafeArea(
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
+              const SizedBox(
                 width: 42,
                 height: 42,
                 child: CircularProgressIndicator(strokeWidth: 3),
               ),
-              SizedBox(height: 18),
+              const SizedBox(height: 18),
               Text(
                 'South Plus',
                 style: TextStyle(
@@ -150,7 +152,7 @@ class _SessionSplash extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              SizedBox(height: 6),
+              const SizedBox(height: 6),
               Text(
                 '正在恢复登录状态',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 13),
@@ -194,7 +196,7 @@ class _SessionError extends StatelessWidget {
                 const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: onRetry,
-                  icon: const Icon(Icons.refresh),
+                  icon: Icon(Icons.refresh),
                   label: const Text('重试'),
                 ),
                 const SizedBox(height: 10),

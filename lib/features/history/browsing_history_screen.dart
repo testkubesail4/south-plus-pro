@@ -115,7 +115,7 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.delete_outline),
+                : Icon(Icons.delete_outline),
           ),
         ],
       ),
@@ -183,7 +183,7 @@ class _EmptyHistory extends StatelessWidget {
           Center(
             child: FilledButton.icon(
               onPressed: onBrowseHome,
-              icon: const Icon(Icons.home_outlined),
+              icon: Icon(Icons.home_outlined),
               label: const Text('去首页看看'),
             ),
           ),
@@ -229,7 +229,7 @@ class _HistoryItem extends StatelessWidget {
                       thread.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.text,
                         fontSize: 15.5,
                         height: 1.35,
@@ -238,7 +238,7 @@ class _HistoryItem extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right,
                     color: AppColors.textMuted,
                     size: 22,
@@ -332,7 +332,7 @@ class _HistoryMetaChip extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.textMuted,
                 fontSize: 12,
                 height: 1.2,

@@ -277,7 +277,7 @@ class _DownloadLinkPanel extends StatelessWidget {
             label,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 12,
               height: 1.35,
@@ -290,18 +290,18 @@ class _DownloadLinkPanel extends StatelessWidget {
             children: [
               _DownloadActionButton(
                 onPressed: () => _copyDownloadLink(context, url),
-                icon: const Icon(Icons.copy_outlined),
+                icon: Icon(Icons.copy_outlined),
                 label: '复制',
               ),
               _DownloadActionButton(
                 onPressed: () => _showWhatsLinkPreview(context, url),
-                icon: const Icon(Icons.visibility_outlined),
+                icon: Icon(Icons.visibility_outlined),
                 label: '预览',
               ),
               _DownloadActionButton(
                 filled: true,
                 onPressed: () => _openDownloadLink(context, url),
-                icon: const Icon(Icons.download_outlined),
+                icon: Icon(Icons.download_outlined),
                 label: '下载',
               ),
             ],
@@ -430,7 +430,7 @@ class _WhatsLinkPreviewDialogState extends State<_WhatsLinkPreviewDialog> {
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     onPressed: _retry,
-                    icon: const Icon(Icons.refresh),
+                    icon: Icon(Icons.refresh),
                     label: const Text('重试'),
                   ),
                 ],
@@ -449,12 +449,12 @@ class _WhatsLinkPreviewDialogState extends State<_WhatsLinkPreviewDialog> {
         ),
         TextButton.icon(
           onPressed: () => _copyDownloadLink(context, widget.url),
-          icon: const Icon(Icons.copy_outlined),
+          icon: Icon(Icons.copy_outlined),
           label: const Text('复制'),
         ),
         FilledButton.icon(
           onPressed: () => _openDownloadLink(context, widget.url),
-          icon: const Icon(Icons.download_outlined),
+          icon: Icon(Icons.download_outlined),
           label: const Text('下载'),
         ),
       ],
@@ -542,7 +542,7 @@ class _PreviewScreenshotStrip extends StatelessWidget {
                     imageUrl: urls[index],
                     cacheManager: ForumImageCache.manager,
                     fit: BoxFit.cover,
-                    placeholder: (context, url) => const ColoredBox(
+                    placeholder: (context, url) => ColoredBox(
                       color: AppColors.surfaceTint,
                       child: Center(
                         child: SizedBox.square(
@@ -551,7 +551,7 @@ class _PreviewScreenshotStrip extends StatelessWidget {
                         ),
                       ),
                     ),
-                    errorWidget: (context, url, error) => const ColoredBox(
+                    errorWidget: (context, url, error) => ColoredBox(
                       color: AppColors.surfaceTint,
                       child: Center(
                         child: Icon(
@@ -658,7 +658,7 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   child: Text(
                     '${_index + 1} / ${widget.urls.length}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
               ),
@@ -668,7 +668,7 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
               top: 4,
               child: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: Colors.white),
+                icon: Icon(Icons.close, color: Colors.white),
                 tooltip: '关闭',
               ),
             ),
@@ -797,7 +797,7 @@ class _RichQuoteBlock extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surfaceTint,
         border: Border(
           left: BorderSide(color: AppColors.brand, width: 4),
@@ -875,14 +875,14 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                     ),
                   ),
                 ),
-                const Divider(height: 1),
+                Divider(height: 1),
                 Align(
                   alignment: Alignment.centerRight,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
                     child: TextButton.icon(
                       onPressed: _saveImage,
-                      icon: const Icon(Icons.download_outlined),
+                      icon: Icon(Icons.download_outlined),
                       label: const Text('保存图片'),
                     ),
                   ),

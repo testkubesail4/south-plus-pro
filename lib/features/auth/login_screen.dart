@@ -142,8 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         color: AppColors.brand,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child:
-                          const Icon(Icons.forum_outlined, color: Colors.white),
+                      child: Icon(Icons.forum_outlined, color: Colors.white),
                     ),
                     const SizedBox(height: 18),
                     Text(
@@ -174,7 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             controller: _username,
                             decoration: InputDecoration(
                               labelText: _accountLabel,
-                              prefixIcon: const Icon(Icons.person_outline),
+                              prefixIcon: Icon(Icons.person_outline),
                             ),
                             keyboardType: _accountKeyboardType,
                             autofillHints: _accountAutofillHints,
@@ -186,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             controller: _password,
                             decoration: InputDecoration(
                               labelText: '密码',
-                              prefixIcon: const Icon(Icons.lock_outline),
+                              prefixIcon: Icon(Icons.lock_outline),
                               suffixIcon: IconButton(
                                 tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
                                 onPressed: _loading
@@ -475,7 +474,7 @@ class _CaptchaField extends StatelessWidget {
         IconButton(
           tooltip: '刷新验证码',
           onPressed: enabled ? onRefresh : null,
-          icon: const Icon(Icons.refresh),
+          icon: Icon(Icons.refresh),
         ),
       ],
     );
@@ -560,7 +559,7 @@ class _ChallengeError extends StatelessWidget {
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
       onPressed: onRetry,
-      icon: const Icon(Icons.refresh),
+      icon: Icon(Icons.refresh),
       label: Text('验证码加载失败：$message'),
     );
   }

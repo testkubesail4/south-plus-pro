@@ -238,7 +238,7 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
                       _config = widget.repository.networkConfig;
                     });
                   },
-            icon: const Icon(Icons.auto_fix_high_outlined),
+            icon: Icon(Icons.auto_fix_high_outlined),
             label: const Text('引导'),
           ),
         ],
@@ -329,7 +329,7 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
           actionBuilder: (context, refresh) => IconButton(
             tooltip: '添加专属线路',
             onPressed: _saving ? null : () => _openManualAddressPage(refresh),
-            icon: const Icon(Icons.add),
+            icon: Icon(Icons.add),
           ),
           builder: (context, refresh) => _buildFixedAddressOptions(refresh),
         ),
@@ -346,7 +346,7 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
           actionBuilder: (context, refresh) => IconButton(
             tooltip: '添加访问入口',
             onPressed: _saving ? null : () => _openManualSitePage(refresh),
-            icon: const Icon(Icons.add),
+            icon: Icon(Icons.add),
           ),
           builder: (context, refresh) => _buildSiteOptions(refresh),
         ),
@@ -365,7 +365,7 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
             onPressed: _saving || !_config.dohEnabled
                 ? null
                 : () => _openManualDohPage(refresh),
-            icon: const Icon(Icons.add),
+            icon: Icon(Icons.add),
           ),
           builder: (context, refresh) => _buildDohOptions(refresh),
         ),
@@ -393,7 +393,7 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
                   dimension: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.refresh),
+              : Icon(Icons.refresh),
         ),
         children: [
           _NetworkOptionTile(
@@ -976,7 +976,7 @@ class _ManualNetworkInputPageState extends State<_ManualNetworkInputPage> {
                           dimension: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.speed_outlined),
+                      : Icon(Icons.speed_outlined),
                   label: const Text('测试'),
                 ),
               ),
@@ -1013,17 +1013,17 @@ class _InlineProbeResult extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: status.success ? const Color(0xFFEAF7EF) : AppColors.brandSoft,
+        color: status.success ? AppColors.successSoft : AppColors.brandSoft,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: status.success ? const Color(0xFFB8EBC8) : AppColors.brand,
+          color: status.success ? AppColors.successBorder : AppColors.brand,
         ),
       ),
       child: Row(
         children: [
           Icon(
             status.success ? Icons.check_circle : Icons.error_outline,
-            color: status.success ? const Color(0xFF168A46) : AppColors.brand,
+            color: status.success ? AppColors.success : AppColors.brand,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1259,7 +1259,7 @@ class _ConnectionEntryTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(
+              Icon(
                 Icons.chevron_right,
                 color: AppColors.textFaint,
               ),
@@ -1357,7 +1357,7 @@ class _Section extends StatelessWidget {
     final dividedChildren = <Widget>[];
     for (var index = 0; index < children.length; index++) {
       if (index > 0) {
-        dividedChildren.add(const Divider(indent: 58, endIndent: 12));
+        dividedChildren.add(Divider(indent: 58, endIndent: 12));
       }
       dividedChildren.add(children[index]);
     }
@@ -1545,7 +1545,7 @@ class _NetworkOptionTile extends StatelessWidget {
                             dimension: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.speed_outlined),
+                        : Icon(Icons.speed_outlined),
                   ),
                 ],
               ],
@@ -1631,10 +1631,9 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        status.success ? const Color(0xFF168A46) : AppColors.brandDark;
+    final color = status.success ? AppColors.success : AppColors.brandDark;
     final background =
-        status.success ? const Color(0xFFEAF7EF) : AppColors.brandSoft;
+        status.success ? AppColors.successSoft : AppColors.brandSoft;
     return Container(
       constraints: const BoxConstraints(minHeight: 24),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

@@ -271,7 +271,7 @@ class _AccountHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: const Color(0xFFFFD6DB)),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.account_circle_outlined,
               color: AppColors.brand,
               size: 30,
@@ -318,7 +318,7 @@ class _AccountSection extends StatelessWidget {
     final dividedChildren = <Widget>[];
     for (var index = 0; index < children.length; index++) {
       if (index > 0) {
-        dividedChildren.add(const Divider(indent: 64, endIndent: 12));
+        dividedChildren.add(Divider(indent: 64, endIndent: 12));
       }
       dividedChildren.add(children[index]);
     }
@@ -389,7 +389,7 @@ class _AccountTile extends StatelessWidget {
       onTap: onTap,
       accent: accent,
       danger: danger,
-      trailing: const Icon(Icons.chevron_right, color: AppColors.textFaint),
+      trailing: Icon(Icons.chevron_right, color: AppColors.textFaint),
     );
   }
 }
@@ -612,7 +612,7 @@ class _AccountBadge extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: 28),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: active ? const Color(0xFFEAF7EF) : AppColors.inkSoft,
+        color: active ? AppColors.successSoft : AppColors.inkSoft,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -621,13 +621,13 @@ class _AccountBadge extends StatelessWidget {
           Icon(
             icon,
             size: 15,
-            color: active ? const Color(0xFF168A46) : AppColors.textMuted,
+            color: active ? AppColors.success : AppColors.textMuted,
           ),
           const SizedBox(width: 5),
           Text(
             label,
             style: TextStyle(
-              color: active ? const Color(0xFF168A46) : AppColors.textMuted,
+              color: active ? AppColors.success : AppColors.textMuted,
               fontSize: 12,
               fontWeight: FontWeight.w800,
             ),

@@ -173,7 +173,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                               color: Colors.white,
                             ),
                           )
-                        : const Icon(Icons.send_outlined),
+                        : Icon(Icons.send_outlined),
                     label: Text(_submitting ? '提交中...' : '提交'),
                   ),
                   const SizedBox(height: 10),
@@ -182,7 +182,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: _submitting ? null : _preview,
-                          icon: const Icon(Icons.visibility_outlined),
+                          icon: Icon(Icons.visibility_outlined),
                           label: const Text('预览'),
                         ),
                       ),
@@ -190,7 +190,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: _submitting ? null : _saveDraft,
-                          icon: const Icon(Icons.save_outlined),
+                          icon: Icon(Icons.save_outlined),
                           label: const Text('存草稿'),
                         ),
                       ),
@@ -217,7 +217,7 @@ class _ComposeNote extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
-      child: const Text(
+      child: Text(
         '出售内容请使用 WindCode：[sell=0]出售内容[/sell]。整帖出售、隐藏帖和附件后续单独补。',
         style: TextStyle(color: AppColors.textMuted, height: 1.45),
       ),

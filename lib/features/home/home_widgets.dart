@@ -11,7 +11,7 @@ class _TopBar extends StatelessWidget {
     return Container(
       height: 58,
       padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.header,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
@@ -29,7 +29,7 @@ class _TopBar extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       ListTile(
-                        leading: const Icon(Icons.search),
+                        leading: Icon(Icons.search),
                         title: const Text('搜索'),
                         onTap: () {
                           Navigator.of(context).pop();
@@ -43,7 +43,7 @@ class _TopBar extends StatelessWidget {
                       ),
                       if (onHistoryTap != null)
                         ListTile(
-                          leading: const Icon(Icons.history_outlined),
+                          leading: Icon(Icons.history_outlined),
                           title: const Text('浏览历史'),
                           onTap: () {
                             Navigator.of(context).pop();
@@ -51,7 +51,7 @@ class _TopBar extends StatelessWidget {
                           },
                         ),
                       ListTile(
-                        leading: const Icon(Icons.person_outline),
+                        leading: Icon(Icons.person_outline),
                         title: Text(repository.isLoggedIn ? '个人中心' : '登录'),
                         onTap: () {
                           Navigator.of(context).pop();
@@ -72,9 +72,9 @@ class _TopBar extends StatelessWidget {
                 ),
               ),
             ),
-            icon: const Icon(Icons.menu, color: AppColors.text, size: 30),
+            icon: Icon(Icons.menu, color: AppColors.text, size: 30),
           ),
-          const Expanded(
+          Expanded(
             child: Center(
               child: Text(
                 'southplus',
@@ -95,7 +95,7 @@ class _TopBar extends StatelessWidget {
                 builder: (_) => SearchScreen(repository: repository),
               ),
             ),
-            icon: const Icon(Icons.search, color: AppColors.text),
+            icon: Icon(Icons.search, color: AppColors.text),
           ),
           if (repository.isLoggedIn)
             InkWell(
@@ -119,7 +119,7 @@ class _TopBar extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.account_circle_outlined,
                       color: AppColors.brand,
                       size: 18,
@@ -127,7 +127,7 @@ class _TopBar extends StatelessWidget {
                     const SizedBox(width: 5),
                     Text(
                       repository.currentUsername ?? '已登录',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.brand,
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -170,7 +170,7 @@ class _ForumCrumbs extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
@@ -182,18 +182,17 @@ class _ForumCrumbs extends StatelessWidget {
           for (final item in items) ...[
             Text(
               item,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.brand,
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const Icon(Icons.chevron_right,
-                size: 18, color: AppColors.textFaint),
+            Icon(Icons.chevron_right, size: 18, color: AppColors.textFaint),
           ],
           Text(
             current,
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.link,
               fontSize: 16,
               fontWeight: FontWeight.w800,
@@ -249,7 +248,7 @@ class _LatestThreads extends StatelessWidget {
                       thread.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: AppColors.text,
                         fontSize: 15,
                         height: 1.35,
@@ -268,7 +267,7 @@ class _LatestThreads extends StatelessWidget {
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.forum_outlined,
                           color: AppColors.textMuted,
                           size: 15,
@@ -279,7 +278,7 @@ class _LatestThreads extends StatelessWidget {
                             thread.section,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: AppColors.textMuted,
                               fontSize: 12,
                             ),
@@ -287,7 +286,7 @@ class _LatestThreads extends StatelessWidget {
                         ),
                         Text(
                           '[${thread.replies}]',
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppColors.link,
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -342,7 +341,7 @@ class _ForumGroup extends StatelessWidget {
                 : Icon(icon, color: AppColors.brand, size: 20),
             title: Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.text,
                 fontSize: 17,
                 fontWeight: FontWeight.w800,
@@ -376,13 +375,13 @@ class _ForumLink extends StatelessWidget {
           color: AppColors.brandSoft,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: const Icon(Icons.tag_outlined, color: AppColors.brand, size: 18),
+        child: Icon(Icons.tag_outlined, color: AppColors.brand, size: 18),
       ),
       title: Text(
         title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
+        style: TextStyle(
           color: AppColors.text,
           fontSize: 15,
           fontWeight: FontWeight.w700,
@@ -392,9 +391,9 @@ class _ForumLink extends StatelessWidget {
         subtitle,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+        style: TextStyle(color: AppColors.textMuted, fontSize: 12),
       ),
-      trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+      trailing: Icon(Icons.chevron_right, color: AppColors.textMuted),
       onTap: onTap,
     );
   }
@@ -436,13 +435,13 @@ class _ForumBoardLink extends StatelessWidget {
                     ActionChip(
                       visualDensity: VisualDensity.compact,
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      side: const BorderSide(color: AppColors.border),
+                      side: BorderSide(color: AppColors.border),
                       backgroundColor: AppColors.surfaceTint,
                       label: Text(
                         child.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppColors.link,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -494,7 +493,7 @@ class _SimpleSection extends StatelessWidget {
                 ],
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.text,
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
@@ -515,8 +514,8 @@ class _DesktopLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(top: 14, bottom: 10),
+    return Padding(
+      padding: const EdgeInsets.only(top: 14, bottom: 10),
       child: Column(
         children: [
           Row(
@@ -524,14 +523,14 @@ class _DesktopLink extends StatelessWidget {
             children: [
               Icon(Icons.desktop_windows_outlined,
                   size: 17, color: AppColors.brand),
-              SizedBox(width: 6),
+              const SizedBox(width: 6),
               Text(
                 '桌面版',
                 style: TextStyle(color: AppColors.brand, fontSize: 14),
               ),
             ],
           ),
-          SizedBox(height: 18),
+          const SizedBox(height: 18),
           Text(
             'Powered by SP Project v1.0',
             style: TextStyle(color: AppColors.textMuted, fontSize: 12),

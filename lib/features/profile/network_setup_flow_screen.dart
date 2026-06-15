@@ -286,7 +286,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
                           onPressed: _saving
                               ? null
                               : () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close),
+                          icon: Icon(Icons.close),
                         ),
                       const Spacer(),
                       _ProbeBadge(
@@ -745,7 +745,7 @@ class _SignalHeroVisual extends StatelessWidget {
           Container(
             width: 132,
             height: 132,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
@@ -796,11 +796,11 @@ class _SignalHeroVisual extends StatelessWidget {
                 Container(
                   width: 54,
                   height: 54,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: AppColors.brand,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.hub_outlined,
                     color: Colors.white,
                     size: 28,
@@ -836,7 +836,7 @@ class _ProbeBadge extends StatelessWidget {
           duration: 220.ms,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
-            color: const Color(0xFFEFFAF3),
+            color: AppColors.successSoft,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: const Color(0xFF9DE7B4),
@@ -849,7 +849,7 @@ class _ProbeBadge extends StatelessWidget {
                 dimension: 8,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: const Color(0xFF16A34A),
+                    color: AppColors.success,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -857,7 +857,7 @@ class _ProbeBadge extends StatelessWidget {
               const SizedBox(width: 7),
               Text(
                 probing ? '线路探测中' : '重新测速',
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.text,
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
@@ -1046,8 +1046,8 @@ class _MiniPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = positive ? const Color(0xFF168A46) : AppColors.brandDark;
-    final background = positive ? const Color(0xFFEAF7EF) : AppColors.brandSoft;
+    final color = positive ? AppColors.success : AppColors.brandDark;
+    final background = positive ? AppColors.successSoft : AppColors.brandSoft;
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 22, maxWidth: 96),
       child: Container(
@@ -1161,9 +1161,9 @@ class _ConfidencePanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFEFFAF3),
+        color: AppColors.successSoft,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFB8EBC8)),
+        border: Border.all(color: AppColors.successBorder),
       ),
       child: Row(
         children: [
@@ -1226,8 +1226,8 @@ class _BottomBar extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.9),
-          border: const Border(top: BorderSide(color: AppColors.border)),
+          color: AppColors.surface.withValues(alpha: 0.92),
+          border: Border(top: BorderSide(color: AppColors.border)),
         ),
         child: Row(
           children: [
