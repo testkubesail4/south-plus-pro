@@ -609,6 +609,7 @@ class DohResolver {
 HttpClient createForumHttpClient(ForumNetworkConfig config) {
   final client = HttpClient();
   client.findProxy = (_) => 'DIRECT';
+  client.maxConnectionsPerHost = 8;
 
   final resolvers = {
     for (final provider in DohProvider.values)

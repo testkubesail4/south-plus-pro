@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:html/dom.dart' as dom;
@@ -76,6 +77,8 @@ class ForumRepository {
   final BrowsingHistoryStore _historyStore;
   final Map<String, Future<ThreadImagePreview>> _threadImagePreviewCache =
       <String, Future<ThreadImagePreview>>{};
+  final Map<String, ThreadImagePreview> _completedThreadImagePreviewCache =
+      <String, ThreadImagePreview>{};
   String? _currentUsername;
 
   bool get isLoggedIn => _client.isLoggedIn;
@@ -100,6 +103,7 @@ class ForumRepository {
     _userProfileParser = UserProfileParser(urls: _urls);
     _profileCache = UserProfileCache(urls: _urls);
     _threadImagePreviewCache.clear();
+    _completedThreadImagePreviewCache.clear();
     _client = ForumClient(config: config);
     _currentUsername = null;
     await ForumNetworkSettings.save(config);
@@ -250,18 +254,56 @@ class ForumRepository {
     return home.latest;
   }
 
-  Future<ThreadImagePreview> fetchThreadImagePreview(ForumThread thread) {
-    final tid = _urls.tidFromUrl(thread.url);
-    final cacheKey = tid ?? thread.url;
+  Future<ThreadImagePreview> fetchThreadImagePreview(
+    ForumThread thread, {
+    int maxDetailPages = ThreadImagePreviewParser.maxDetailPages,
+    int targetMediaCount = ThreadImagePreviewParser.maxImages,
+  }) {
+    final cacheKey = _threadImagePreviewCacheKey(
+      thread,
+      maxDetailPages: maxDetailPages,
+      targetMediaCount: targetMediaCount,
+    );
     return _threadImagePreviewCache.putIfAbsent(
       cacheKey,
-      () => _fetchThreadImagePreview(thread),
+      () async {
+        final preview = await _fetchThreadImagePreview(
+          thread,
+          maxDetailPages: maxDetailPages,
+          targetMediaCount: targetMediaCount,
+        );
+        _completedThreadImagePreviewCache[cacheKey] = preview;
+        return preview;
+      },
     );
   }
 
+  ThreadImagePreview? cachedThreadImagePreview(
+    ForumThread thread, {
+    int maxDetailPages = ThreadImagePreviewParser.maxDetailPages,
+    int targetMediaCount = ThreadImagePreviewParser.maxImages,
+  }) {
+    return _completedThreadImagePreviewCache[_threadImagePreviewCacheKey(
+      thread,
+      maxDetailPages: maxDetailPages,
+      targetMediaCount: targetMediaCount,
+    )];
+  }
+
+  String _threadImagePreviewCacheKey(
+    ForumThread thread, {
+    required int maxDetailPages,
+    required int targetMediaCount,
+  }) {
+    final tid = _urls.tidFromUrl(thread.url);
+    return '${tid ?? thread.url}#$maxDetailPages#$targetMediaCount';
+  }
+
   Future<ThreadImagePreview> _fetchThreadImagePreview(
-    ForumThread thread,
-  ) async {
+    ForumThread thread, {
+    required int maxDetailPages,
+    required int targetMediaCount,
+  }) async {
     final detailPath = _urls.threadDetailPath(thread.url);
     final html = await _client.get(detailPath);
     final pages = <({dom.Document document, String url})>[
@@ -269,9 +311,18 @@ class ForumRepository {
     ];
     var preview = _threadImagePreviewParser.parsePages(pages);
 
+    final normalizedMaxDetailPages = maxDetailPages.clamp(
+      1,
+      ThreadImagePreviewParser.maxDetailPages,
+    ).toInt();
+    final normalizedTargetMediaCount = targetMediaCount.clamp(
+      1,
+      ThreadImagePreviewParser.maxImages,
+    ).toInt();
+
     for (var page = 2;
-        page <= ThreadImagePreviewParser.maxDetailPages &&
-            preview.media.length < ThreadImagePreviewParser.maxImages;
+        page <= normalizedMaxDetailPages &&
+            preview.media.length < normalizedTargetMediaCount;
         page += 1) {
       try {
         final pagePath = _urls.threadDetailPath(thread.url, page: page);
@@ -286,35 +337,54 @@ class ForumRepository {
       }
     }
 
-    if (preview.hostPages.isEmpty) return preview;
-
-    final media = [...preview.media];
-    for (final hostPage in preview.hostPages.take(
-      ThreadImagePreviewParser.maxHostPages,
-    )) {
-      if (media.length >= ThreadImagePreviewParser.maxImages) break;
-      try {
-        final resolved = await _resolveHostPageMedia(hostPage);
-        for (final item in resolved) {
-          final key = item.type == ThreadPreviewMediaType.video
-              ? item.videoUrl ?? item.openUrl
-              : item.displayUrl;
-          if (media.any((existing) {
-            final existingKey = existing.type == ThreadPreviewMediaType.video
-                ? existing.videoUrl ?? existing.openUrl
-                : existing.displayUrl;
-            return existingKey == key;
-          })) {
-            continue;
-          }
-          media.add(item);
-          if (media.length >= ThreadImagePreviewParser.maxImages) break;
-        }
-      } catch (_) {
-        // Third-party preview pages are best-effort.
-      }
+    if (preview.hostPages.isEmpty ||
+        preview.media.length >= normalizedTargetMediaCount) {
+      return _previewWithMediaLimit(preview, normalizedTargetMediaCount);
     }
 
+    final media = preview.media.take(normalizedTargetMediaCount).toList();
+    final resolvedHostMedia = await _resolveHostPagesMedia(
+      preview.hostPages
+          .take(math.min(
+            ThreadImagePreviewParser.maxHostPages,
+            normalizedTargetMediaCount,
+          ))
+          .toList(),
+    );
+    for (final item in resolvedHostMedia) {
+      if (media.length >= normalizedTargetMediaCount) break;
+      final key = item.type == ThreadPreviewMediaType.video
+          ? item.videoUrl ?? item.openUrl
+          : item.displayUrl;
+      if (media.any((existing) {
+        final existingKey = existing.type == ThreadPreviewMediaType.video
+            ? existing.videoUrl ?? existing.openUrl
+            : existing.displayUrl;
+        return existingKey == key;
+      })) {
+        continue;
+      }
+      media.add(item);
+    }
+
+    final images = media
+        .where((item) => item.type == ThreadPreviewMediaType.image)
+        .map((item) => ThreadImage(url: item.url))
+        .toList();
+    return ThreadImagePreview(
+      images: images,
+      media: media,
+      hostPages: preview.hostPages,
+      hasBuyBlock: preview.hasBuyBlock,
+      note: media.isNotEmpty ? null : preview.note,
+    );
+  }
+
+  ThreadImagePreview _previewWithMediaLimit(
+    ThreadImagePreview preview,
+    int maxMedia,
+  ) {
+    final media = preview.media.take(maxMedia).toList();
     final images = media
         .where((item) => item.type == ThreadPreviewMediaType.image)
         .map((item) => ThreadImage(url: item.url))
@@ -337,6 +407,34 @@ class ForumRepository {
     final hostHtml = await _client.get(url);
     final hostDocument = html_parser.parse(hostHtml);
     return _threadImagePreviewParser.parseHostPageMedia(hostDocument, url);
+  }
+
+  Future<List<ThreadPreviewMedia>> _resolveHostPagesMedia(
+    List<String> urls,
+  ) async {
+    const concurrency = 3;
+    final output = <ThreadPreviewMedia>[];
+    var nextIndex = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        final index = nextIndex++;
+        if (index >= urls.length) return;
+        try {
+          output.addAll(await _resolveHostPageMedia(urls[index]));
+        } catch (_) {
+          // Third-party preview pages are best-effort.
+        }
+      }
+    }
+
+    await Future.wait(
+      List<Future<void>>.generate(
+        math.min(concurrency, urls.length),
+        (_) => worker(),
+      ),
+    );
+    return output;
   }
 
   Future<List<ThreadPreviewMedia>> _resolveGofileMediaList(String url) async {

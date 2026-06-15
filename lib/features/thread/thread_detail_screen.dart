@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -41,12 +43,34 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   ThreadDetail? _detail;
   int _page = 1;
   int _loadRunId = 0;
+  bool _loadingMore = false;
+  DateTime? _loadMoreFailedAt;
+  double? _lastAutoLoadOffset;
 
   @override
   void initState() {
     super.initState();
     _thread = widget.thread;
+    _scrollController.addListener(_handleScroll);
     _loadPage(1);
+  }
+
+  void _handleScroll() {
+    if (!_scrollController.hasClients || _loading || _loadingMore) return;
+    final detail = _detail;
+    if (detail == null || !detail.pagination.hasNext) return;
+    final position = _scrollController.position;
+    final lastOffset = _lastAutoLoadOffset;
+    if (lastOffset != null && (position.pixels - lastOffset).abs() < 80) {
+      return;
+    }
+    if (position.extentAfter > 900) return;
+    final failedAt = _loadMoreFailedAt;
+    if (failedAt != null &&
+        DateTime.now().difference(failedAt) < const Duration(seconds: 3)) {
+      return;
+    }
+    unawaited(_loadNextPage());
   }
 
   @override
@@ -57,6 +81,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _authorFilterName = null;
     _onlyOriginalPoster = false;
     _detail = null;
+    _loadingMore = false;
+    _loadMoreFailedAt = null;
+    _lastAutoLoadOffset = null;
     _page = 1;
     _loadPage(1);
   }
@@ -75,6 +102,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     setState(() {
       _loading = true;
       _loadError = null;
+      if (scrollToTop) _loadMoreFailedAt = null;
     });
     try {
       final detail = await widget.repository.fetchThreadDetail(
@@ -87,6 +115,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _thread = detail.thread;
         _page = detail.pagination.currentPage;
         _loading = false;
+        _loadingMore = false;
+        _loadMoreFailedAt = null;
+        _lastAutoLoadOffset = null;
       });
       if (scrollToTop && _scrollController.hasClients) {
         await _scrollController.animateTo(
@@ -100,6 +131,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       setState(() {
         _loadError = error;
         _loading = false;
+        _loadingMore = false;
       });
       if (_detail != null && showSnackBarOnError) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -114,6 +146,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     if (detail != null) {
       final target = page.clamp(1, detail.pagination.totalPages).toInt();
       if (target == _page) return;
+      _loadingMore = false;
+      _loadMoreFailedAt = null;
+      _lastAutoLoadOffset = null;
       await _loadPage(target, scrollToTop: true);
       return;
     }
@@ -141,6 +176,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _thread = current.copyWith(url: authorPostsUrl);
       _authorFilterName = author;
       _onlyOriginalPoster = false;
+      _loadMoreFailedAt = null;
+      _lastAutoLoadOffset = null;
     });
     await _loadPage(1, scrollToTop: true);
   }
@@ -151,6 +188,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _thread = widget.thread;
       _authorFilterName = null;
       _onlyOriginalPoster = false;
+      _loadMoreFailedAt = null;
+      _lastAutoLoadOffset = null;
     });
     await _loadPage(1, scrollToTop: true);
   }
@@ -168,8 +207,65 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_handleScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadNextPage() async {
+    final current = _detail;
+    if (current == null || !current.pagination.hasNext) return;
+    setState(() {
+      _loadingMore = true;
+      _lastAutoLoadOffset = _scrollController.hasClients
+          ? _scrollController.position.pixels
+          : null;
+    });
+    final runId = _loadRunId;
+    var shouldClearLoadingMore = true;
+    try {
+      final nextPage = await widget.repository.fetchThreadDetail(
+        _thread,
+        page: current.pagination.currentPage + 1,
+      );
+      if (!mounted || runId != _loadRunId || _detail != current) return;
+      setState(() {
+        _detail = ThreadDetail(
+          thread: current.thread,
+          body: current.body,
+          replies: [...current.replies, ...nextPage.replies],
+          pagination: nextPage.pagination,
+          bodyImages: current.bodyImages,
+          bodyLinks: current.bodyLinks,
+          bodySegments: current.bodySegments,
+          bodySaleBoxes: current.bodySaleBoxes,
+          bodySaleBoxesFirst: current.bodySaleBoxesFirst,
+          favorite: nextPage.favorite ?? current.favorite,
+          previousThread: current.previousThread,
+          nextThread: nextPage.nextThread,
+          rssFeed: current.rssFeed,
+        );
+        _thread = nextPage.thread;
+        _page = nextPage.pagination.currentPage;
+        _loadingMore = false;
+        _loadMoreFailedAt = null;
+      });
+      shouldClearLoadingMore = false;
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingMore = false;
+        _loadMoreFailedAt = DateTime.now();
+      });
+      shouldClearLoadingMore = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('下一页加载失败：$error')),
+      );
+    } finally {
+      if (shouldClearLoadingMore && mounted) {
+        setState(() => _loadingMore = false);
+      }
+    }
   }
 
   Future<void> _scrollToReply() async {
@@ -372,6 +468,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           : _ThreadDetailContent(
               detail: detail,
               loading: _loading,
+              loadingMore: _loadingMore,
               onlyOriginalPoster: _onlyOriginalPoster,
               authorFilterName: _authorFilterName,
               favorite: detail.favorite == null
@@ -429,6 +526,7 @@ class _ThreadDetailContent extends StatelessWidget {
   const _ThreadDetailContent({
     required this.detail,
     required this.loading,
+    required this.loadingMore,
     required this.onlyOriginalPoster,
     required this.authorFilterName,
     required this.favorite,
@@ -455,6 +553,7 @@ class _ThreadDetailContent extends StatelessWidget {
 
   final ThreadDetail detail;
   final bool loading;
+  final bool loadingMore;
   final bool onlyOriginalPoster;
   final String? authorFilterName;
   final ThreadFavorite? favorite;
@@ -652,6 +751,11 @@ class _ThreadDetailContent extends StatelessWidget {
                   ),
                 ),
               ),
+              if (loadingMore)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: _ThreadLoadingMoreIndicator(),
+                ),
               _ThreadPaginationBar(
                 pagination: detail.pagination,
                 onPageSelected: loading ? null : onPageSelected,
@@ -674,6 +778,24 @@ class _ThreadDetailContent extends StatelessWidget {
             child: LinearProgressIndicator(minHeight: 2),
           ),
       ],
+    );
+  }
+}
+
+class _ThreadLoadingMoreIndicator extends StatelessWidget {
+  const _ThreadLoadingMoreIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 36,
+      child: Center(
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
     );
   }
 }

@@ -452,6 +452,24 @@ class _PaginationBar extends StatelessWidget {
   }
 }
 
+class _LoadingMoreIndicator extends StatelessWidget {
+  const _LoadingMoreIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 32,
+      child: Center(
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
+  }
+}
+
 class _PageNumberButton extends StatelessWidget {
   const _PageNumberButton({
     required this.label,

@@ -36,13 +36,36 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   final Set<String> _warmedPreviewPageKeys = <String>{};
   late ForumCategory _category = widget.category;
   late List<ForumBoard> _knownSubBoards = List.of(widget.initialSubBoards);
+  ForumThreadPage? _visiblePage;
   int _page = 1;
   int _fetchGeneration = 0;
+  bool _loadingMore = false;
+  DateTime? _loadMoreFailedAt;
+  double? _lastAutoLoadOffset;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleScroll);
     _future = _fetchPage(_page);
+  }
+
+  void _handleScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.extentAfter > 700) return;
+    final current = _future;
+    if (_loadingMore) return;
+    final lastOffset = _lastAutoLoadOffset;
+    if (lastOffset != null && (position.pixels - lastOffset).abs() < 80) {
+      return;
+    }
+    final failedAt = _loadMoreFailedAt;
+    if (failedAt != null &&
+        DateTime.now().difference(failedAt) < const Duration(seconds: 3)) {
+      return;
+    }
+    unawaited(_loadNextPageIfNeeded(current));
   }
 
   Future<ForumThreadPage> _fetchPage(int page) async {
@@ -58,6 +81,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     if (threadPage.subBoards.isNotEmpty) {
       _knownSubBoards = List.of(threadPage.subBoards);
     }
+    _visiblePage = threadPage;
     _warmThreadImagePreviews(category, threadPage);
     return threadPage;
   }
@@ -66,36 +90,56 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     ForumCategory category,
     ForumThreadPage threadPage,
   ) {
-    final threadKeys = threadPage.threads
-        .take(6)
+    final warmupThreads = threadPage.threads.take(12).toList();
+    final threadKeys = warmupThreads
         .map((thread) => thread.url)
         .join('|');
     final cacheKey = '${category.url}#${threadPage.currentPage}#$threadKeys';
     if (!_warmedPreviewPageKeys.add(cacheKey)) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || category != _category) return;
-      unawaited(_delayedPreviewWarmup(threadPage.threads.take(6)));
+      unawaited(_delayedPreviewWarmup(warmupThreads));
     });
   }
 
-  Future<void> _delayedPreviewWarmup(Iterable<ForumThread> threads) async {
+  Future<void> _delayedPreviewWarmup(List<ForumThread> threads) async {
     await Future<void>.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
     await _fetchPreviewWarmup(threads);
   }
 
-  Future<void> _fetchPreviewWarmup(Iterable<ForumThread> threads) async {
-    for (final thread in threads) {
-      try {
-        await widget.repository.fetchThreadImagePreview(thread);
-      } catch (_) {
-        // Preview warmup is best-effort; visible rows still handle failures.
+  Future<void> _fetchPreviewWarmup(List<ForumThread> threads) async {
+    const concurrency = 3;
+    var nextIndex = 0;
+
+    Future<void> worker() async {
+      while (mounted) {
+        final index = nextIndex++;
+        if (index >= threads.length) return;
+        try {
+          await widget.repository.fetchThreadImagePreview(
+            threads[index],
+            maxDetailPages: 2,
+            targetMediaCount: 8,
+          );
+        } catch (_) {
+          // Preview warmup is best-effort; visible rows still handle failures.
+        }
       }
     }
+
+    await Future.wait(
+      List<Future<void>>.generate(
+        math.min(concurrency, threads.length),
+        (_) => worker(),
+      ),
+    );
   }
 
   Future<void> _refresh() async {
     setState(() {
+      _lastAutoLoadOffset = null;
+      _visiblePage = null;
       _future = _fetchPage(_page);
     });
     await _future;
@@ -105,6 +149,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     if (page == _page || page < 1) return;
     setState(() {
       _page = page;
+      _loadingMore = false;
+      _loadMoreFailedAt = null;
+      _lastAutoLoadOffset = null;
+      _visiblePage = null;
       _future = _fetchPage(page);
     });
     await _future;
@@ -140,6 +188,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       );
       _knownSubBoards = List.of(board.children);
       _page = 1;
+      _loadingMore = false;
+      _loadMoreFailedAt = null;
+      _lastAutoLoadOffset = null;
+      _visiblePage = null;
       _future = _fetchPage(_page);
     });
     await _future;
@@ -153,8 +205,59 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_handleScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadNextPageIfNeeded(Future<ForumThreadPage> current) async {
+    if (mounted) {
+      setState(() {
+        _loadingMore = true;
+        _lastAutoLoadOffset = _scrollController.hasClients
+            ? _scrollController.position.pixels
+            : null;
+      });
+    } else {
+      _loadingMore = true;
+    }
+    try {
+      final page = await current;
+      if (!mounted || current != _future || !page.hasNext) return;
+      final category = _category;
+      final nextPage = await widget.repository.fetchBoardThreadPage(
+        category,
+        page: page.currentPage + 1,
+      );
+      if (!mounted || current != _future || category != _category) return;
+      if (nextPage.subBoards.isNotEmpty) {
+        _knownSubBoards = List.of(nextPage.subBoards);
+      }
+      final merged = ForumThreadPage(
+        threads: [...page.threads, ...nextPage.threads],
+        currentPage: nextPage.currentPage,
+        totalPages: nextPage.totalPages,
+        ads: page.ads,
+        subBoards:
+            nextPage.subBoards.isNotEmpty ? nextPage.subBoards : page.subBoards,
+      );
+      setState(() {
+        _page = merged.currentPage;
+        _loadMoreFailedAt = null;
+                _visiblePage = merged;
+        _future = Future<ForumThreadPage>.value(merged);
+      });
+      _warmThreadImagePreviews(category, nextPage);
+    } catch (_) {
+      _loadMoreFailedAt = DateTime.now();
+      // Existing page remains visible; manual pagination can retry.
+    } finally {
+      if (mounted) {
+        setState(() => _loadingMore = false);
+      } else {
+        _loadingMore = false;
+      }
+    }
   }
 
   @override
@@ -181,10 +284,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                         onRetry: _refresh,
                       );
                     }
-                    if (!snapshot.hasData) {
+                    final page = snapshot.data ?? _visiblePage;
+                    if (page == null) {
                       return const _BoardThreadListSkeleton();
                     }
-                    final page = snapshot.data!;
                     final subBoards = page.subBoards.isNotEmpty
                         ? page.subBoards
                         : _knownSubBoards;
@@ -215,9 +318,19 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 
                           final itemIndex = index - (hasSubBoards ? 1 : 0);
                           if (itemIndex == items.length) {
-                            return _PaginationBar(
-                              page: page,
-                              onPageSelected: _goToPage,
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_loadingMore)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 14),
+                                    child: _LoadingMoreIndicator(),
+                                  ),
+                                _PaginationBar(
+                                  page: page,
+                                  onPageSelected: _goToPage,
+                                ),
+                              ],
                             );
                           }
                           final item = items[itemIndex];

@@ -19,11 +19,15 @@ class ThreadImagePreviewStrip extends StatefulWidget {
     required this.thread,
     required this.repository,
     this.topPadding = 8,
+    this.maxDetailPages = 2,
+    this.targetMediaCount = 8,
   });
 
   final ForumThread thread;
   final ForumRepository repository;
   final double topPadding;
+  final int maxDetailPages;
+  final int targetMediaCount;
 
   @override
   State<ThreadImagePreviewStrip> createState() =>
@@ -32,22 +36,47 @@ class ThreadImagePreviewStrip extends StatefulWidget {
 
 class _ThreadImagePreviewStripState extends State<ThreadImagePreviewStrip> {
   late Future<ThreadImagePreview> _previewFuture;
+  ThreadImagePreview? _preview;
+  int _loadGeneration = 0;
   final Set<String> _failedMediaUrls = <String>{};
 
   @override
   void initState() {
     super.initState();
-    _previewFuture = widget.repository.fetchThreadImagePreview(widget.thread);
+    _loadPreview();
   }
 
   @override
   void didUpdateWidget(covariant ThreadImagePreviewStrip oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.thread.url != widget.thread.url ||
-        oldWidget.repository != widget.repository) {
+        oldWidget.repository != widget.repository ||
+        oldWidget.maxDetailPages != widget.maxDetailPages ||
+        oldWidget.targetMediaCount != widget.targetMediaCount) {
       _failedMediaUrls.clear();
-      _previewFuture = widget.repository.fetchThreadImagePreview(widget.thread);
+      _preview = null;
+      _loadPreview();
     }
+  }
+
+  void _loadPreview() {
+    final generation = ++_loadGeneration;
+    _preview = widget.repository.cachedThreadImagePreview(
+      widget.thread,
+      maxDetailPages: widget.maxDetailPages,
+      targetMediaCount: widget.targetMediaCount,
+    );
+    _previewFuture = widget.repository.fetchThreadImagePreview(
+      widget.thread,
+      maxDetailPages: widget.maxDetailPages,
+      targetMediaCount: widget.targetMediaCount,
+    );
+    _previewFuture.then((preview) {
+      if (!mounted || generation != _loadGeneration || _preview == preview) {
+        return;
+      }
+      setState(() => _preview = preview);
+    }).catchError((_) {});
   }
 
   void _hideFailedMedia(String url) {
@@ -59,61 +88,66 @@ class _ThreadImagePreviewStripState extends State<ThreadImagePreviewStrip> {
 
   @override
   Widget build(BuildContext context) {
+    final cachedPreview = _preview;
+    if (cachedPreview != null) {
+      return _buildPreview(cachedPreview);
+    }
+
     return FutureBuilder<ThreadImagePreview>(
       future: _previewFuture,
       builder: (context, snapshot) {
         final preview = snapshot.data;
-        final media = preview?.media
-                .where((item) => !_failedMediaUrls.contains(item.displayUrl))
-                .toList() ??
-            const <ThreadPreviewMedia>[];
-        if (preview == null || media.isEmpty) {
-          return const SizedBox.shrink();
-        }
+        if (preview == null) return const SizedBox.shrink();
+        return _buildPreview(preview);
+      },
+    );
+  }
 
-        return Padding(
-          padding: EdgeInsets.only(top: widget.topPadding),
+  Widget _buildPreview(ThreadImagePreview preview) {
+    final media = preview.media
+        .where((item) => !_failedMediaUrls.contains(item.displayUrl))
+        .toList();
+    if (media.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: EdgeInsets.only(top: widget.topPadding),
+      child: SizedBox(
+        width: double.infinity,
+        child: ClipRect(
           child: SizedBox(
-            width: double.infinity,
-            child: ClipRect(
-              child: SizedBox(
-                height: _previewThumbHeight,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: media.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(width: _previewThumbSpacing),
-                  itemBuilder: (context, index) {
-                    final item = media[index];
-                    return _ThreadPreviewThumb(
-                      media: item,
-                      onMediaError: () => _hideFailedMedia(item.displayUrl),
-                      onTap: () {
-                        if (item.type == ThreadPreviewMediaType.video) {
-                          _showVideoDialog(context, item);
-                          return;
-                        }
-                        _showPreviewDialog(
-                          context,
-                          media: media
-                              .where(
-                                (item) =>
-                                    item.type ==
-                                    ThreadPreviewMediaType.image,
-                              )
-                              .toList(),
-                          initialMedia: item,
-                        );
-                      },
+            height: _previewThumbHeight,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: media.length,
+              separatorBuilder: (_, __) =>
+                  const SizedBox(width: _previewThumbSpacing),
+              itemBuilder: (context, index) {
+                final item = media[index];
+                return _ThreadPreviewThumb(
+                  media: item,
+                  onMediaError: () => _hideFailedMedia(item.displayUrl),
+                  onTap: () {
+                    if (item.type == ThreadPreviewMediaType.video) {
+                      _showVideoDialog(context, item);
+                      return;
+                    }
+                    _showPreviewDialog(
+                      context,
+                      media: media
+                          .where(
+                            (item) => item.type == ThreadPreviewMediaType.image,
+                          )
+                          .toList(),
+                      initialMedia: item,
                     );
                   },
-                ),
-              ),
+                );
+              },
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
