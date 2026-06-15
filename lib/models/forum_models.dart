@@ -258,6 +258,81 @@ class ThreadImage {
   final String? alt;
 }
 
+enum ThreadPreviewMediaType {
+  image,
+  video,
+}
+
+class ThreadPreviewMedia {
+  const ThreadPreviewMedia({
+    required this.type,
+    required this.url,
+    this.source,
+    this.poster,
+    this.videoUrl,
+    this.videoHeaders = const {},
+    this.name,
+  });
+
+  ThreadPreviewMedia.image({
+    required String url,
+    String? source,
+    String? name,
+  }) : this(
+          type: ThreadPreviewMediaType.image,
+          url: url,
+          source: source,
+          name: name,
+        );
+
+  ThreadPreviewMedia.video({
+    required String url,
+    required String videoUrl,
+    String? poster,
+    String? source,
+    Map<String, String> videoHeaders = const {},
+    String? name,
+  }) : this(
+          type: ThreadPreviewMediaType.video,
+          url: url,
+          videoUrl: videoUrl,
+          poster: poster,
+          source: source,
+          videoHeaders: videoHeaders,
+          name: name,
+        );
+
+  final ThreadPreviewMediaType type;
+  final String url;
+  final String? source;
+  final String? poster;
+  final String? videoUrl;
+  final Map<String, String> videoHeaders;
+  final String? name;
+
+  String get displayUrl => poster?.isNotEmpty == true ? poster! : url;
+  String get openUrl => source?.isNotEmpty == true ? source! : url;
+}
+
+class ThreadImagePreview {
+  const ThreadImagePreview({
+    required this.images,
+    this.media = const [],
+    this.hostPages = const [],
+    this.hasBuyBlock = false,
+    this.note,
+  });
+
+  final List<ThreadImage> images;
+  final List<ThreadPreviewMedia> media;
+  final List<String> hostPages;
+  final bool hasBuyBlock;
+  final String? note;
+
+  bool get hasPreview =>
+      images.isNotEmpty || media.isNotEmpty || hostPages.isNotEmpty;
+}
+
 class ThreadLink {
   const ThreadLink({
     required this.url,

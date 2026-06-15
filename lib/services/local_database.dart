@@ -111,7 +111,7 @@ class LocalDatabase {
       _db.execute('ROLLBACK;');
       rethrow;
     } finally {
-      statement.close();
+      statement.dispose();
     }
   }
 
@@ -189,7 +189,7 @@ class LocalDatabase {
       _db.execute('ROLLBACK;');
       rethrow;
     } finally {
-      statement.close();
+      statement.dispose();
     }
   }
 
@@ -198,7 +198,7 @@ class LocalDatabase {
   }
 
   void close() {
-    _db.close();
+    _db.dispose();
   }
 }
 

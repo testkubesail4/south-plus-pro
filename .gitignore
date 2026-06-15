@@ -48,3 +48,4 @@ app.*.map.json
 /android/key.properties
 /android/app/upload-keystore.jks
 /.release-secrets.json
+android/build/

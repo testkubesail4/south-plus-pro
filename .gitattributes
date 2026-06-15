@@ -1,0 +1,22 @@
+* text=auto
+
+*.dart text
+*.yaml text
+*.md text
+*.xml text
+*.gradle text
+*.kts text
+*.properties text
+*.kt text
+*.cpp text
+*.h text
+*.rc text
+*.ps1 text
+*.json text
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.exe binary

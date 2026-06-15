@@ -452,6 +452,24 @@ class _PaginationBar extends StatelessWidget {
   }
 }
 
+class _LoadingMoreIndicator extends StatelessWidget {
+  const _LoadingMoreIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 32,
+      child: Center(
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
+  }
+}
+
 class _PageNumberButton extends StatelessWidget {
   const _PageNumberButton({
     required this.label,
@@ -657,117 +675,116 @@ class _ThreadRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: _ListLine(
-          minHeight: 72,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          minHeight: 84,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      thread.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: thread.isSticky
-                            ? AppColors.brandDark
-                            : AppColors.text,
-                        fontSize: 15.5,
-                        height: 1.35,
-                        fontWeight:
-                            thread.isSticky ? FontWeight.w800 : FontWeight.w600,
-                      ),
-                    ),
-                    if (thread.bodyPreview != null) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        thread.bodyPreview!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 12,
-                          height: 1.2,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 7),
-                    Row(
-                      children: [
-                        if (thread.author != null)
-                          InkWell(
-                            onTap: thread.authorUrl == null
-                                ? null
-                                : () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => UserProfileScreen(
-                                          userUrl: thread.authorUrl!,
-                                          repository: repository,
-                                        ),
-                                      ),
-                                    ),
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 120),
-                              child: Text(
-                                thread.author!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.textMuted,
-                                  fontSize: 12,
-                                  height: 1.2,
-                                ),
-                              ),
-                            ),
-                          )
-                        else
-                          const Text(
-                            '匿名',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 12,
-                              height: 1.2,
-                            ),
-                          ),
-                        Expanded(
-                          child: Text(
-                            thread.lastPost == null
-                                ? ''
-                                : ' - 发布于 ${thread.lastPost}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 12,
-                              height: 1.2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+              Text(
+                thread.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: thread.isSticky ? AppColors.brandDark : AppColors.text,
+                  fontSize: 15.5,
+                  height: 1.35,
+                  fontWeight:
+                      thread.isSticky ? FontWeight.w800 : FontWeight.w600,
                 ),
               ),
-              const SizedBox(width: 12),
-              Container(
-                constraints: const BoxConstraints(minWidth: 50),
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.inkSoft,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '${thread.replies} 回',
-                  textAlign: TextAlign.center,
+              if (thread.bodyPreview != null) ...[
+                const SizedBox(height: 5),
+                Text(
+                  thread.bodyPreview!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 12,
                     height: 1.2,
-                    fontWeight: FontWeight.w700,
                   ),
                 ),
+              ],
+              ThreadImagePreviewStrip(
+                thread: thread,
+                repository: repository,
+                topPadding: 7,
+              ),
+              const SizedBox(height: 7),
+              Row(
+                children: [
+                  if (thread.author != null)
+                    InkWell(
+                      onTap: thread.authorUrl == null
+                          ? null
+                          : () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => UserProfileScreen(
+                                    userUrl: thread.authorUrl!,
+                                    repository: repository,
+                                  ),
+                                ),
+                              ),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 120),
+                        child: Text(
+                          thread.author!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 12,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    const Text(
+                      '匿名',
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12,
+                        height: 1.2,
+                      ),
+                    ),
+                  Expanded(
+                    child: Text(
+                      thread.lastPost == null
+                          ? ''
+                          : ' - 发布于 ${thread.lastPost}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 50),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.inkSoft,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${thread.replies} 回',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12,
+                        height: 1.2,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

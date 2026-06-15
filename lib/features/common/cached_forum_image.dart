@@ -31,6 +31,9 @@ class CachedForumImage extends StatelessWidget {
     this.alignment = Alignment.center,
     this.placeholder,
     this.errorWidget,
+    this.onError,
+    this.memCacheWidth,
+    this.memCacheHeight,
   });
 
   final String url;
@@ -40,6 +43,9 @@ class CachedForumImage extends StatelessWidget {
   final Alignment alignment;
   final WidgetBuilder? placeholder;
   final WidgetBuilder? errorWidget;
+  final ValueChanged<Object>? onError;
+  final int? memCacheWidth;
+  final int? memCacheHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +57,9 @@ class CachedForumImage extends StatelessWidget {
       alignment: alignment,
       placeholder: placeholder,
       errorWidget: errorWidget,
+      onError: onError,
+      memCacheWidth: memCacheWidth,
+      memCacheHeight: memCacheHeight,
     );
   }
 }
@@ -64,6 +73,9 @@ class _PolicyAwareCachedImage extends StatefulWidget {
     required this.alignment,
     this.placeholder,
     this.errorWidget,
+    this.onError,
+    this.memCacheWidth,
+    this.memCacheHeight,
   });
 
   final String url;
@@ -73,6 +85,9 @@ class _PolicyAwareCachedImage extends StatefulWidget {
   final Alignment alignment;
   final WidgetBuilder? placeholder;
   final WidgetBuilder? errorWidget;
+  final ValueChanged<Object>? onError;
+  final int? memCacheWidth;
+  final int? memCacheHeight;
 
   @override
   State<_PolicyAwareCachedImage> createState() =>
@@ -134,9 +149,12 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
       height: widget.height,
       fit: widget.fit,
       alignment: widget.alignment,
+      memCacheWidth: widget.memCacheWidth,
+      memCacheHeight: widget.memCacheHeight,
       placeholder: widget.placeholder == null
           ? null
           : (context, url) => widget.placeholder!(context),
+      errorListener: widget.onError,
       errorWidget: widget.errorWidget == null
           ? (context, url, error) => _ImageErrorPlaceholder(
                 width: widget.width,
