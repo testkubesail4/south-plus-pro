@@ -809,23 +809,23 @@ class _ThreadPreviewImage extends StatelessWidget {
           constraints.maxWidth,
         );
 
-        return _ThreadPreviewFrame(
-          layout: fallbackLayout,
-          child: CachedForumImage(
-            url: url,
+        return CachedForumImage(
+          url: url,
+          width: fallbackLayout.size.width,
+          height: fallbackLayout.size.height,
+          fit: fallbackLayout.fit,
+          placeholder: (context) => _ThreadPreviewPlaceholder(
+            layout: fallbackLayout,
+          ),
+          imageBuilder: (context, provider) {
+            return _ResolvedThreadPreviewImage(
+              provider: provider,
+              maxWidth: constraints.maxWidth,
+            );
+          },
+          errorWidget: (context) => _ThreadPreviewError(
             width: fallbackLayout.size.width,
             height: fallbackLayout.size.height,
-            fit: fallbackLayout.fit,
-            imageBuilder: (context, provider) {
-              return _ResolvedThreadPreviewImage(
-                provider: provider,
-                maxWidth: constraints.maxWidth,
-              );
-            },
-            errorWidget: (context) => _ThreadPreviewError(
-              width: fallbackLayout.size.width,
-              height: fallbackLayout.size.height,
-            ),
           ),
         );
       },
@@ -956,6 +956,20 @@ class _ThreadPreviewFrame extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ThreadPreviewPlaceholder extends StatelessWidget {
+  const _ThreadPreviewPlaceholder({required this.layout});
+
+  final ThreadPreviewImageLayout layout;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ThreadPreviewFrame(
+      layout: layout,
+      child: const SizedBox.expand(),
     );
   }
 }
