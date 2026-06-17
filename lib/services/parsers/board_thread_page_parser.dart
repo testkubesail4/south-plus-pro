@@ -9,44 +9,120 @@ class BoardThreadPageParser {
 
   final ForumUrlResolver urls;
 
-  List<ForumThread> parseDesktopThreads(
+  List<ForumThread> parseWallThreads(
     dom.Document document,
     ForumCategory category,
   ) {
     final threads = <ForumThread>[];
     final seen = <String>{};
-    for (final row in document.querySelectorAll('tr.tr3')) {
-      final threadLink = _desktopThreadLink(row);
+
+    for (final item in document.querySelectorAll('ul.stream > li.dcsns-li')) {
+      final threadLink =
+          item.querySelector('.section-title a[href*="read.php?tid-"]');
       if (threadLink == null) continue;
       final href = threadLink.attributes['href'] ?? '';
       final title = _cleanText(threadLink.text);
       if (href.isEmpty || title.isEmpty || !seen.add(href)) continue;
 
-      final authorLink = row.querySelector('a.bl[href*="uid"]') ??
-          row.querySelector('a[href*="action-show-uid"]');
+      final authorLink = item.querySelector(
+        '.section-intro a.bl[href*="uid"], .section-intro a[href*="action-show-uid"]',
+      );
       final authorHref = authorLink?.attributes['href'] ?? '';
-      final text = _cleanText(row.text);
-      final metrics = RegExp(r'(\d+)\s*/\s*(\d+)').firstMatch(text);
-      if (metrics == null) continue;
-      final date =
-          RegExp(r'\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?').firstMatch(text);
+      final metrics = RegExp(r'回复\s*/\s*人气\s*[:：]\s*(\d+)\s*/\s*(\d+)')
+          .firstMatch(_cleanText(item.text));
+      final date = RegExp(r'\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?').firstMatch(
+        _cleanText(item.querySelector('.section-intro')?.text ?? item.text),
+      );
+
       threads.add(
         ForumThread(
           title: title,
           url: urls.absoluteUrl(href),
-          replies: int.tryParse(metrics.group(1)!) ?? 0,
+          replies: int.tryParse(metrics?.group(1) ?? '') ?? 0,
           section: category.name,
           author: _cleanText(authorLink?.text ?? '').isEmpty
               ? null
               : _cleanText(authorLink?.text ?? ''),
           authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
           lastPost: date?.group(0),
-          isSticky: _isDesktopStickyThread(row, threadLink),
+          previewImageUrl: _wallPreviewImageUrl(item),
         ),
       );
+      if (threads.length >= 80) break;
+    }
+    return threads;
+  }
+
+  // Full desktop table parsing is still kept for older call sites and tests,
+  // but board pages now prefer parseWallThreads() plus board-level sticky rows.
+  List<ForumThread> parseDesktopThreads(
+    dom.Document document,
+    ForumCategory category,
+  ) {
+    final threads = <ForumThread>[];
+    final seen = <String>{};
+    for (final row in document.querySelectorAll('#ajaxtable tr.tr3')) {
+      final threadLink = _desktopThreadLink(row);
+      if (threadLink == null) continue;
+      final href = threadLink.attributes['href'] ?? '';
+      final title = _cleanText(threadLink.text);
+      if (href.isEmpty || title.isEmpty || !seen.add(href)) continue;
+
+      final thread = _desktopThreadFromRow(row, threadLink, category);
+      if (thread == null) continue;
+      threads.add(thread.copyWith(
+        isSticky: _isDesktopStickyThread(row, threadLink),
+      ));
       if (threads.length >= 60) break;
     }
     return threads;
+  }
+
+  List<ForumThread> parseDesktopStickyThreads(
+    dom.Document document,
+    ForumCategory category,
+  ) {
+    final threads = <ForumThread>[];
+    final seen = <String>{};
+    for (final row in document.querySelectorAll('#ajaxtable tr.tr3')) {
+      final threadLink = _desktopThreadLink(row);
+      if (threadLink == null || !_isDesktopStickyThread(row, threadLink)) {
+        continue;
+      }
+      final thread = _desktopThreadFromRow(row, threadLink, category);
+      if (thread == null || !seen.add(thread.url)) continue;
+      threads.add(thread);
+      if (threads.length >= 20) break;
+    }
+    return threads;
+  }
+
+  List<ForumBoardAd> parseDesktopAds(dom.Document document) {
+    final ads = <ForumBoardAd>[];
+    final seen = <String>{};
+    // thread_new.php renders the simple-page top external ad inside the same
+    // #ajaxtable block as pinned topics. External h3 links are ads, not
+    // ForumThread rows, or they pollute the list before real board stickies.
+    for (final row in document.querySelectorAll('#ajaxtable tr.tr3')) {
+      final link = row.querySelector('h3 a[href^="http"]');
+      if (link == null) continue;
+      final href = link.attributes['href'] ?? '';
+      final title = _cleanText(link.text);
+      if (href.isEmpty || title.isEmpty) continue;
+      final absolute = urls.absoluteUrl(href);
+      if (!seen.add(absolute)) continue;
+      ads.add(
+        ForumBoardAd(
+          title: title,
+          url: absolute,
+          subtitle: _cleanText(row.querySelector('a.bl')?.text ?? '').isEmpty
+              ? '广告'
+              : _cleanText(row.querySelector('a.bl')?.text ?? ''),
+        ),
+      );
+      if (ads.length >= 2) break;
+    }
+    return ads;
   }
 
   List<ForumThread> parseSimpleThreads(
@@ -182,6 +258,33 @@ class BoardThreadPageParser {
     return (current: current, total: total);
   }
 
+  ({int current, int total})? wallPages(dom.Document document) {
+    final containers = document.querySelectorAll('.pages');
+    final root = containers.isEmpty ? document : containers.first;
+    final pageText = _cleanText(root.text ?? '');
+    final desktopMatch =
+        RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)').firstMatch(pageText);
+    var current = int.tryParse(desktopMatch?.group(1) ?? '');
+    var total = int.tryParse(desktopMatch?.group(2) ?? '') ?? current ?? 1;
+
+    final selectedText = _cleanText(
+      root.querySelector('b, .current')?.text ?? '',
+    );
+    current ??= int.tryParse(selectedText);
+
+    for (final link in root.querySelectorAll('a[href*="thread_new.php"]')) {
+      final href = link.attributes['href'] ?? '';
+      final page = _threadNewPageFromHref(href);
+      if (page != null && page > total) total = page;
+      final textPage = int.tryParse(_cleanText(link.text));
+      if (textPage != null && textPage > 0) {
+        current ??= 1;
+      }
+    }
+
+    return current == null ? null : (current: current, total: total);
+  }
+
   (int, int)? _desktopPages(dom.Document document) {
     final text = _cleanText(document.body?.text ?? '');
     final match = RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)').firstMatch(text);
@@ -190,6 +293,38 @@ class BoardThreadPageParser {
     final total = int.tryParse(match.group(2)!);
     if (current == null || total == null || total < 1) return null;
     return (current, total);
+  }
+
+  ForumThread? _desktopThreadFromRow(
+    dom.Element row,
+    dom.Element threadLink,
+    ForumCategory category,
+  ) {
+    final href = threadLink.attributes['href'] ?? '';
+    final title = _cleanText(threadLink.text);
+    if (href.isEmpty || title.isEmpty) return null;
+
+    final authorLink = row.querySelector('a.bl[href*="uid"]') ??
+        row.querySelector('a[href*="action-show-uid"]');
+    final authorHref = authorLink?.attributes['href'] ?? '';
+    final text = _cleanText(row.text);
+    final metrics = RegExp(r'(\d+)\s*/\s*(\d+)').firstMatch(text);
+    if (metrics == null) return null;
+    final date =
+        RegExp(r'\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?').firstMatch(text);
+
+    return ForumThread(
+      title: title,
+      url: urls.absoluteUrl(href),
+      replies: int.tryParse(metrics.group(1)!) ?? 0,
+      section: category.name,
+      author: _cleanText(authorLink?.text ?? '').isEmpty
+          ? null
+          : _cleanText(authorLink?.text ?? ''),
+      authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
+      lastPost: date?.group(0),
+      isSticky: true,
+    );
   }
 
   dom.Element? _closestLink(dom.Element element) {
@@ -201,10 +336,41 @@ class BoardThreadPageParser {
     return null;
   }
 
+  String? _wallPreviewImageUrl(dom.Element item) {
+    final image =
+        item.querySelector('.section-text a[href*="read.php?tid-"] img[src]') ??
+            item.querySelector('.section-text img[src]');
+    final src = image?.attributes['src'] ?? '';
+    if (src.isEmpty) return null;
+    if (src.contains('/images/noimageavailble_icon.png')) return null;
+    return urls.absoluteUrl(src);
+  }
+
+  int? _threadNewPageFromHref(String href) {
+    for (final pattern in [
+      RegExp(r'thread_new\.php\?fid-\d+-page-(\d+)\.html'),
+      RegExp(r'thread_new\.php\?fid=\d+&page=(\d+)'),
+    ]) {
+      final match = pattern.firstMatch(href);
+      if (match != null) return int.tryParse(match.group(1)!);
+    }
+    return null;
+  }
+
   dom.Element? _desktopThreadLink(dom.Element row) {
+    for (final link in row.querySelectorAll(
+      'a[id^="a_ajax_"][href*="read.php?tid-"], h3 a[href*="read.php?tid-"]',
+    )) {
+      final title = _cleanText(link.text);
+      if (title.isNotEmpty && !RegExp(r'^\d+$').hasMatch(title)) return link;
+    }
     for (final link in row.querySelectorAll('a[href*="read.php?tid-"]')) {
       final title = _cleanText(link.text);
-      if (title.isEmpty || RegExp(r'^\d+$').hasMatch(title)) continue;
+      if (title.isEmpty ||
+          title == '打开新窗口' ||
+          RegExp(r'^\d+$').hasMatch(title)) {
+        continue;
+      }
       return link;
     }
     return null;
@@ -270,21 +436,21 @@ class BoardThreadPageParser {
 
   bool _isDesktopStickyThread(dom.Element row, dom.Element threadLink) {
     if (row.querySelector('a[href*="notice.php"]') != null) return false;
-    if (threadLink.querySelector('b, font') != null) return true;
-    final text = _cleanText(row.text);
-    if (text.contains('置顶') || text.contains('总置顶') || text.contains('区置顶')) {
-      return true;
-    }
-    final titleCell = threadLink.parent;
-    if (titleCell?.querySelector('img[src*="topic"][src*="top"]') != null) {
-      return true;
-    }
+    if (row.querySelector('h3 a[href^="http"]') != null) return false;
+
+    // south-plus has three desktop sticky levels in thread_new.php:
+    // headtopic_3 = global/top-site rows, headtopic_2 = section-level rows,
+    // headtopic_1 = current-board sticky rows. The simple page only exposes the
+    // board-level sticky for this board list, so only headtopic_1 is merged into
+    // the wall stream. Broad sticky rows would otherwise make desktop show many
+    // extra pinned topics that simple mode hides.
+    if (row.querySelector('img[src*="headtopic_1"]') != null) return true;
     final iconAlt = row
-        .querySelectorAll('img[alt], img[title]')
+        .querySelectorAll('img[alt], img[title], img[src]')
         .map((image) =>
-            '${image.attributes['alt'] ?? ''} ${image.attributes['title'] ?? ''}')
+            '${image.attributes['alt'] ?? ''} ${image.attributes['title'] ?? ''} ${image.attributes['src'] ?? ''}')
         .join(' ');
-    return iconAlt.contains('置顶') || iconAlt.toLowerCase().contains('top');
+    return iconAlt.contains('置顶') && iconAlt.contains('headtopic_1');
   }
 
   String _threadTitleFromBoardLink(dom.Element link, String meta) {

@@ -79,4 +79,154 @@ void main() {
     expect(boards.first.postCount, 26246);
     expect(boards.first.subtitle, contains('Re:(C103)'));
   });
+
+  test('BoardThreadPageParser extracts wall threads with preview images', () {
+    final document = html_parser.parse('''
+      <html>
+        <body>
+          <table id="ajaxtable">
+            <tr class="tr3 t_one">
+              <td>
+                <a href="read.php?tid-100.html" target="_blank">
+                  <img src="images/colorImagination/thread/topichot.gif">
+                </a>
+              </td>
+              <td id="td_100">
+                <h3>
+                  <a href="read.php?tid-100.html" id="a_ajax_100">
+                    <b>置顶帖</b>
+                  </a>
+                </h3>
+                <img src="images/colorImagination/file/headtopic_3.gif"
+                     title="置顶帖标志">
+              </td>
+              <td><a class="bl" href="u.php?action-show-uid-1.html">admin</a>
+                <div>2026-06-01</div>
+              </td>
+              <td>8 / 100</td>
+              <td><a href="read.php?tid-100-page-e-fpage-1.html#a">
+                2026-06-02 12:00
+              </a></td>
+            </tr>
+            <tr class="tr3 t_one">
+              <td><img src="images/colorImagination/thread/topichot.gif"></td>
+              <td id="td_101">
+                <h3><a href="read.php?tid-101.html" id="a_ajax_101">普通表格帖</a></h3>
+              </td>
+              <td><a class="bl" href="u.php?action-show-uid-2.html">bob</a>
+                <div>2026-06-03</div>
+              </td>
+              <td>3 / 80</td>
+              <td></td>
+            </tr>
+            <tr class="tr3 t_one">
+              <td><img src="images/colorImagination/thread/topichot.gif"></td>
+              <td id="td_ad">
+                <h3>
+                  <a href="https://example.com/ad">
+                    <b><font color="#43BFFF">外链广告</font></b>
+                  </a>
+                </h3>
+                <img src="images/colorImagination/file/headtopic_3.gif"
+                     title="置顶帖标志">
+              </td>
+              <td><a class="bl" href="u.php?action-show-uid-1.html">admin</a></td>
+              <td>0 / 1</td>
+              <td></td>
+            </tr>
+            <tr class="tr3 t_one">
+              <td><img src="images/colorImagination/thread/topiclock.gif"></td>
+              <td id="td_102">
+                <h3><a href="read.php?tid-102.html" id="a_ajax_102">
+                  <b><font color="#FF0000">版块置顶帖</font></b>
+                </a></h3>
+                <img src="images/colorImagination/file/headtopic_1.gif"
+                     title="置顶帖标志">
+              </td>
+              <td><a class="bl" href="u.php?action-show-uid-5.html">mod</a>
+                <div>2026-06-04</div>
+              </td>
+              <td>2 / 30</td>
+              <td></td>
+            </tr>
+          </table>
+          <ul class="stream">
+            <li class="dcsns-li dcsns-rss dcsns-feed-0">
+              <div class="inner">
+                <span class="section-title">
+                  <a href="./read.php?tid-200.html">有图帖</a>
+                </span>
+                <span class="section-text">
+                  <span style="float:right">回复/人气：12/&nbsp;345</span>
+                  <div>
+                    <a href="./read.php?tid-200.html">
+                      <img src="/attachment/Mon_2606/9_pic.png">
+                    </a>
+                  </div>
+                </span>
+                <span class="section-intro">
+                  <table><tr>
+                    <td>作者：<a class="bl" href="u.php?action-show-uid-3.html">alice</a></td>
+                    <td>2026-06-17</td>
+                  </tr></table>
+                </span>
+              </div>
+            </li>
+            <li class="dcsns-li dcsns-rss dcsns-feed-0">
+              <div class="inner">
+                <span class="section-title">
+                  <a href="./read.php?tid-201.html">无图帖</a>
+                </span>
+                <span class="section-text">
+                  <span style="float:right">回复/人气：5/&nbsp;20</span>
+                  <div>
+                    <a href="./read.php?tid-201.html">
+                      <img src="/images/noimageavailble_icon.png">
+                    </a>
+                  </div>
+                </span>
+                <span class="section-intro">
+                  <table><tr>
+                    <td>作者：<a class="bl" href="u.php?action-show-uid-4.html">eve</a></td>
+                    <td>2026-06-16</td>
+                  </tr></table>
+                </span>
+              </div>
+            </li>
+          </ul>
+          <div class="pages">
+            <a href="thread_new.php?fid-9-page-1.html">1</a>
+            <a href="thread_new.php?fid-9-page-2.html">2</a>
+            <a href="thread_new.php?fid-9-page-12.html">»</a>
+          </div>
+        </body>
+      </html>
+    ''');
+
+    final parser = BoardThreadPageParser();
+    const category = ForumCategory(name: '茶馆', slug: 'fid-9');
+    final sticky = parser.parseDesktopStickyThreads(document, category);
+    final ads = parser.parseDesktopAds(document);
+    final wall = parser.parseWallThreads(document, category);
+    final pages = parser.wallPages(document);
+
+    expect(sticky, hasLength(1));
+    expect(sticky.single.title, '版块置顶帖');
+    expect(sticky.single.isSticky, isTrue);
+    expect(ads, hasLength(1));
+    expect(ads.single.title, '外链广告');
+    expect(ads.single.url, 'https://example.com/ad');
+    expect(wall.map((thread) => thread.title), ['有图帖', '无图帖']);
+    expect(wall.first.previewImageUrl,
+        'https://south-plus.net/attachment/Mon_2606/9_pic.png');
+    expect(wall.last.previewImageUrl, isNull);
+    expect(wall.first.replies, 12);
+    expect(wall.first.author, 'alice');
+    expect(wall.first.authorUrl,
+        'https://south-plus.net/u.php?action-show-uid-3.html');
+    expect(wall.first.lastPost, '2026-06-17');
+    expect(pages, isNotNull);
+    expect(pages!.current, 1);
+    expect(pages.total, 12);
+  });
 }

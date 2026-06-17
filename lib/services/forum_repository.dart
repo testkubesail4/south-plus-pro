@@ -752,57 +752,48 @@ class ForumRepository {
     int page = 1,
   }) async {
     final normalizedPage = page < 1 ? 1 : page;
-    final simpleHtml = await _client.get(
-      _urls.relativePath(_urls.boardSimplePath(category, page: normalizedPage)),
-    );
-    final simpleDocument = html_parser.parse(simpleHtml);
-    final simpleThreads =
-        _boardThreadPageParser.parseSimpleThreads(simpleDocument, category);
     final desktopPath = _urls.boardDesktopPath(category, page: normalizedPage);
-    var desktopSubBoards = const <ForumBoard>[];
-    if (desktopPath != null) {
-      try {
-        final desktopHtml = await _client.get(desktopPath);
-        final desktopDocument = html_parser.parse(desktopHtml);
-        desktopSubBoards = _boardThreadPageParser.parseDesktopSubBoards(
-            desktopDocument, category);
-      } catch (_) {
-        // The simple/mobile thread list should still render if desktop fails.
-      }
+    if (desktopPath == null) {
+      throw ForumRepositoryException('没有解析到${category.name}帖子列表');
     }
-    if (simpleThreads.isNotEmpty) {
-      final pages = _boardThreadPageParser.simplePages(simpleDocument) ??
+    final desktopHtml = await _client.get(desktopPath);
+    final desktopDocument = html_parser.parse(desktopHtml);
+    // thread_new.php uses the wall stream for ordinary topics, while the table
+    // above it still carries board-level sticky topics and ads. Do not parse the
+    // whole table as threads, because it also contains broader sticky levels
+    // that simple mode intentionally hides.
+    final threads = _mergeThreadNewThreads(
+      _boardThreadPageParser.parseDesktopStickyThreads(
+        desktopDocument,
+        category,
+      ),
+      _boardThreadPageParser.parseWallThreads(desktopDocument, category),
+    );
+    if (threads.isNotEmpty) {
+      final pages = _boardThreadPageParser.wallPages(desktopDocument) ??
           (current: normalizedPage, total: normalizedPage);
       return ForumThreadPage(
-        threads: simpleThreads,
+        threads: threads,
         currentPage: pages.current,
         totalPages: pages.total,
-        ads: _boardThreadPageParser.parseSimpleAds(simpleDocument),
-        subBoards: desktopSubBoards,
+        ads: _boardThreadPageParser.parseDesktopAds(desktopDocument),
+        subBoards: _boardThreadPageParser.parseDesktopSubBoards(
+            desktopDocument, category),
       );
     }
 
-    if (desktopPath != null) {
-      final desktopHtml = await _client.get(desktopPath);
-      final desktopDocument = html_parser.parse(desktopHtml);
-      final desktopThreads =
-          _boardThreadPageParser.parseDesktopThreads(desktopDocument, category);
-      if (desktopThreads.isNotEmpty) {
-        return ForumThreadPage(
-          threads: desktopThreads,
-          currentPage:
-              _boardThreadPageParser.desktopCurrentPage(desktopDocument) ??
-                  normalizedPage,
-          totalPages:
-              _boardThreadPageParser.desktopTotalPages(desktopDocument) ??
-                  normalizedPage,
-          subBoards: _boardThreadPageParser.parseDesktopSubBoards(
-              desktopDocument, category),
-        );
-      }
-    }
-
     throw ForumRepositoryException('没有解析到${category.name}帖子列表');
+  }
+
+  List<ForumThread> _mergeThreadNewThreads(
+    List<ForumThread> stickyThreads,
+    List<ForumThread> wallThreads,
+  ) {
+    final seen = <String>{};
+    return [
+      for (final thread in [...stickyThreads, ...wallThreads])
+        if (seen.add(thread.url)) thread,
+    ];
   }
 
   Future<ReplyResult> submitThread({

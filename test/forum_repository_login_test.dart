@@ -64,23 +64,10 @@ void main() {
     expect(client.bytesPath, startsWith('ck.php?nowtime='));
   });
 
-  test('fetchBoardThreadPage carries desktop sub boards with simple threads',
+  test('fetchBoardThreadPage uses thread_new only and keeps sticky threads',
       () async {
     final client = _PathForumClient({
-      'simple/index.php?f218.html': '''
-        <html>
-          <body>
-            <ul class="threadlist">
-              <li>
-                <a href="?t1.html">父版公告<span class="by">论坛公告</span></a>
-                <span class="num">0</span>
-              </li>
-            </ul>
-            <ul class="pagination"><li class="active"><b>1</b></li></ul>
-          </body>
-        </html>
-      ''',
-      'thread.php?fid-218.html': '''
+      'thread_new.php?fid-218-page-1.html': '''
         <html>
           <body>
             <table>
@@ -101,6 +88,78 @@ void main() {
                 <td></td><td>26246</td><th></th>
               </tr>
             </table>
+            <table id="ajaxtable">
+              <tr class="tr3 t_one">
+                <td><img src="images/colorImagination/thread/topichot.gif"></td>
+                <td id="td_1">
+                  <h3><a href="read.php?tid-1.html" id="a_ajax_1">
+                    <b>总置顶主题</b>
+                  </a></h3>
+                  <img src="images/colorImagination/file/headtopic_3.gif"
+                       title="置顶帖标志">
+                </td>
+                <td><a class="bl" href="u.php?action-show-uid-1.html">admin</a>
+                  <div>2026-06-01</div>
+                </td>
+                <td>8 / 100</td>
+                <td></td>
+              </tr>
+              <tr class="tr3 t_one">
+                <td><img src="images/colorImagination/thread/topichot.gif"></td>
+                <td id="td_ad">
+                  <h3><a href="https://example.com/ad">
+                    <b>外链广告</b>
+                  </a></h3>
+                  <img src="images/colorImagination/file/headtopic_3.gif"
+                       title="置顶帖标志">
+                </td>
+                <td><a class="bl" href="u.php?action-show-uid-1.html">admin</a></td>
+                <td>0 / 1</td>
+                <td></td>
+              </tr>
+              <tr class="tr3 t_one">
+                <td><img src="images/colorImagination/thread/topiclock.gif"></td>
+                <td id="td_3">
+                  <h3><a href="read.php?tid-3.html" id="a_ajax_3">
+                    <b>版块置顶主题</b>
+                  </a></h3>
+                  <img src="images/colorImagination/file/headtopic_1.gif"
+                       title="置顶帖标志">
+                </td>
+                <td><a class="bl" href="u.php?action-show-uid-3.html">mod</a>
+                  <div>2026-06-04</div>
+                </td>
+                <td>2 / 30</td>
+                <td></td>
+              </tr>
+            </table>
+            <ul class="stream">
+              <li class="dcsns-li dcsns-rss dcsns-feed-0">
+                <div class="inner">
+                  <span class="section-title">
+                    <a href="./read.php?tid-2.html">图墙主题</a>
+                  </span>
+                  <span class="section-text">
+                    <span style="float:right">回复/人气：12/&nbsp;345</span>
+                    <div>
+                      <a href="./read.php?tid-2.html">
+                        <img src="/attachment/Mon_2606/preview.jpg">
+                      </a>
+                    </div>
+                  </span>
+                  <span class="section-intro">
+                    <table><tr>
+                      <td>作者：<a class="bl" href="u.php?action-show-uid-2.html">alice</a></td>
+                      <td>2026-06-17</td>
+                    </tr></table>
+                  </span>
+                </div>
+              </li>
+            </ul>
+            <div class="pages">
+              <a href="thread_new.php?fid-218-page-1.html">1</a>
+              <a href="thread_new.php?fid-218-page-2.html">2</a>
+            </div>
           </body>
         </html>
       ''',
@@ -115,11 +174,19 @@ void main() {
       ),
     );
 
-    expect(client.paths, [
-      'simple/index.php?f218.html',
-      'thread.php?fid-218.html',
-    ]);
+    expect(client.paths, ['thread_new.php?fid-218-page-1.html']);
     expect(page.subBoards.map((board) => board.name), ['同人志&CG']);
+    expect(page.currentPage, 1);
+    expect(page.totalPages, 2);
+    expect(page.threads.map((thread) => thread.title), [
+      '版块置顶主题',
+      '图墙主题',
+    ]);
+    expect(page.ads.map((ad) => ad.title), ['外链广告']);
+    expect(page.ads.single.url, 'https://example.com/ad');
+    expect(page.threads.first.isSticky, isTrue);
+    expect(page.threads.last.previewImageUrl,
+        'https://south-plus.net/attachment/Mon_2606/preview.jpg');
   });
 
   test('claimForumTaskRewards applies tasks before claiming rewards', () async {

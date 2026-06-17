@@ -31,6 +31,7 @@ class CachedForumImage extends StatelessWidget {
     this.alignment = Alignment.center,
     this.placeholder,
     this.errorWidget,
+    this.imageBuilder,
   });
 
   final String url;
@@ -40,6 +41,7 @@ class CachedForumImage extends StatelessWidget {
   final Alignment alignment;
   final WidgetBuilder? placeholder;
   final WidgetBuilder? errorWidget;
+  final ImageWidgetBuilder? imageBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +53,7 @@ class CachedForumImage extends StatelessWidget {
       alignment: alignment,
       placeholder: placeholder,
       errorWidget: errorWidget,
+      imageBuilder: imageBuilder,
     );
   }
 }
@@ -64,6 +67,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
     required this.alignment,
     this.placeholder,
     this.errorWidget,
+    this.imageBuilder,
   });
 
   final String url;
@@ -73,6 +77,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
   final Alignment alignment;
   final WidgetBuilder? placeholder;
   final WidgetBuilder? errorWidget;
+  final ImageWidgetBuilder? imageBuilder;
 
   @override
   State<_PolicyAwareCachedImage> createState() =>
@@ -134,6 +139,7 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
       height: widget.height,
       fit: widget.fit,
       alignment: widget.alignment,
+      imageBuilder: widget.imageBuilder,
       placeholder: widget.placeholder == null
           ? null
           : (context, url) => widget.placeholder!(context),

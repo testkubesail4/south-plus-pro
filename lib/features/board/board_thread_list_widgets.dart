@@ -83,9 +83,13 @@ class _BoardThreadListSkeleton extends StatelessWidget {
 }
 
 class _BoardAdBanner extends StatelessWidget {
-  const _BoardAdBanner({required this.ad});
+  const _BoardAdBanner({
+    required this.ad,
+    required this.onTap,
+  });
 
   final ForumBoardAd ad;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -99,31 +103,36 @@ class _BoardAdBanner extends StatelessWidget {
                 constraints.maxWidth.isFinite ? constraints.maxWidth : 0.0;
             final height = math.max(width / 4.65, 56.0);
 
-            return ClipRRect(
+            return Material(
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(10),
-              child: DecoratedBox(
-                decoration: BoxDecoration(color: AppColors.surface),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: height,
-                  child: CachedForumImage(
-                    url: imageUrl,
-                    fit: BoxFit.cover,
-                    errorWidget: (context) {
-                      return Container(
-                        alignment: Alignment.center,
-                        color: AppColors.surfaceTint,
-                        child: Text(
-                          ad.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.textMuted,
-                            fontWeight: FontWeight.w700,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: onTap,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: height,
+                    child: CachedForumImage(
+                      url: imageUrl,
+                      fit: BoxFit.cover,
+                      errorWidget: (context) {
+                        return Container(
+                          alignment: Alignment.center,
+                          color: AppColors.surfaceTint,
+                          child: Text(
+                            ad.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -133,62 +142,68 @@ class _BoardAdBanner extends StatelessWidget {
       );
     }
 
-    return _ListLine(
-      minHeight: 76,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  ad.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.link,
-                    fontSize: 15,
-                    height: 1.35,
-                    fontWeight: FontWeight.w800,
-                  ),
+    return Material(
+      color: AppColors.surface,
+      child: InkWell(
+        onTap: onTap,
+        child: _ListLine(
+          minHeight: 76,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ad.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.link,
+                        fontSize: 15,
+                        height: 1.35,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      ad.subtitle == null || ad.subtitle!.isEmpty
+                          ? '广告'
+                          : ad.subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 7),
-                Text(
-                  ad.subtitle == null || ad.subtitle!.isEmpty
-                      ? '广告'
-                      : ad.subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 12,
-                    height: 1.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Text(
-              '广告',
-              style: TextStyle(
-                color: AppColors.textFaint,
-                fontSize: 11,
-                height: 1.2,
-                fontWeight: FontWeight.w700,
               ),
-            ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(
+                  '广告',
+                  style: TextStyle(
+                    color: AppColors.textFaint,
+                    fontSize: 11,
+                    height: 1.2,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -651,6 +666,7 @@ class _ThreadRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final previewImageUrl = thread.previewImageUrl;
     return Material(
       color: AppColors.surface,
       child: InkWell(
@@ -691,6 +707,10 @@ class _ThreadRow extends StatelessWidget {
                           height: 1.2,
                         ),
                       ),
+                    ],
+                    if (previewImageUrl != null) ...[
+                      const SizedBox(height: 10),
+                      _ThreadPreviewImage(url: previewImageUrl),
                     ],
                     const SizedBox(height: 7),
                     Row(
@@ -770,6 +790,197 @@ class _ThreadRow extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ThreadPreviewImage extends StatelessWidget {
+  const _ThreadPreviewImage({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fallbackLayout = ThreadPreviewImageLayout.fallback(
+          constraints.maxWidth,
+        );
+
+        return _ThreadPreviewFrame(
+          layout: fallbackLayout,
+          child: CachedForumImage(
+            url: url,
+            width: fallbackLayout.size.width,
+            height: fallbackLayout.size.height,
+            fit: fallbackLayout.fit,
+            imageBuilder: (context, provider) {
+              return _ResolvedThreadPreviewImage(
+                provider: provider,
+                maxWidth: constraints.maxWidth,
+              );
+            },
+            errorWidget: (context) => _ThreadPreviewError(
+              width: fallbackLayout.size.width,
+              height: fallbackLayout.size.height,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ResolvedThreadPreviewImage extends StatefulWidget {
+  const _ResolvedThreadPreviewImage({
+    required this.provider,
+    required this.maxWidth,
+  });
+
+  final ImageProvider provider;
+  final double maxWidth;
+
+  @override
+  State<_ResolvedThreadPreviewImage> createState() =>
+      _ResolvedThreadPreviewImageState();
+}
+
+class _ResolvedThreadPreviewImageState
+    extends State<_ResolvedThreadPreviewImage> {
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+  Size? _imageSize;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolveImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ResolvedThreadPreviewImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.provider != widget.provider ||
+        oldWidget.maxWidth != widget.maxWidth) {
+      _resolveImage();
+    }
+  }
+
+  @override
+  void dispose() {
+    _removeListener();
+    super.dispose();
+  }
+
+  void _resolveImage() {
+    _removeListener();
+    _imageSize = null;
+    final stream = widget.provider.resolve(
+      createLocalImageConfiguration(context),
+    );
+    final listener = ImageStreamListener((info, synchronousCall) {
+      final image = info.image;
+      final nextSize = Size(
+        image.width.toDouble(),
+        image.height.toDouble(),
+      );
+      if (_imageSize == nextSize) return;
+      if (synchronousCall) {
+        _imageSize = nextSize;
+      } else if (mounted) {
+        setState(() {
+          _imageSize = nextSize;
+        });
+      }
+    });
+    _stream = stream;
+    _listener = listener;
+    stream.addListener(listener);
+  }
+
+  void _removeListener() {
+    final stream = _stream;
+    final listener = _listener;
+    if (stream != null && listener != null) {
+      stream.removeListener(listener);
+    }
+    _stream = null;
+    _listener = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imageSize = _imageSize;
+    final layout = imageSize == null
+        ? ThreadPreviewImageLayout.fallback(widget.maxWidth)
+        : ThreadPreviewImageLayout.resolve(
+            imageSize: imageSize,
+            maxWidth: widget.maxWidth,
+          );
+
+    return _ThreadPreviewFrame(
+      layout: layout,
+      child: Image(
+        image: widget.provider,
+        width: layout.size.width,
+        height: layout.size.height,
+        fit: layout.fit,
+      ),
+    );
+  }
+}
+
+class _ThreadPreviewFrame extends StatelessWidget {
+  const _ThreadPreviewFrame({
+    required this.layout,
+    required this.child,
+  });
+
+  final ThreadPreviewImageLayout layout;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(7),
+        child: SizedBox(
+          width: layout.size.width,
+          height: layout.size.height,
+          child: DecoratedBox(
+            decoration: BoxDecoration(color: AppColors.surfaceTint),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ThreadPreviewError extends StatelessWidget {
+  const _ThreadPreviewError({
+    required this.width,
+    required this.height,
+  });
+
+  final double width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Container(
+        color: AppColors.surfaceTint,
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.image_not_supported_outlined,
+          size: 20,
+          color: AppColors.textMuted,
         ),
       ),
     );

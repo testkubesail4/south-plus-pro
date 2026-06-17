@@ -71,7 +71,7 @@ void main() {
           url: 'https://south-plus.net/thread.php?fid-218.html',
         ),
       ),
-      'thread.php?fid-218.html',
+      'thread_new.php?fid-218-page-1.html',
     );
     expect(
       resolver.boardDesktopPath(
@@ -82,7 +82,7 @@ void main() {
         ),
         page: 2,
       ),
-      'thread_new.php?fid=218&page=2',
+      'thread_new.php?fid-218-page-2.html',
     );
   });
 

@@ -2,11 +2,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
+import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../profile/user_profile_screen.dart';
+import 'thread_preview_image_layout.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_compose_screen.dart';
 
@@ -108,6 +110,17 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     );
   }
 
+  Future<void> _openAd(ForumBoardAd ad) async {
+    try {
+      await ExternalLinkLauncher.open(ad.url);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _scrollController.dispose();
@@ -178,7 +191,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                           }
                           final item = items[itemIndex];
                           return switch (item) {
-                            _BoardAdItem(:final ad) => _BoardAdBanner(ad: ad),
+                            _BoardAdItem(:final ad) => _BoardAdBanner(
+                                ad: ad,
+                                onTap: () => _openAd(ad),
+                              ),
                             _BoardThreadItem(:final thread) => _ThreadRow(
                                 thread: thread,
                                 repository: widget.repository,

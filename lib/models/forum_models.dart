@@ -12,6 +12,7 @@ class ForumThread {
     this.authorUrl,
     this.authorAvatarUrl,
     this.authorPostsUrl,
+    this.previewImageUrl,
     this.isSticky = false,
   });
 
@@ -25,6 +26,7 @@ class ForumThread {
   final String? authorUrl;
   final String? authorAvatarUrl;
   final String? authorPostsUrl;
+  final String? previewImageUrl;
   final bool isSticky;
 
   ForumThread copyWith({
@@ -38,6 +40,7 @@ class ForumThread {
     String? authorUrl,
     String? authorAvatarUrl,
     String? authorPostsUrl,
+    String? previewImageUrl,
     bool? isSticky,
   }) {
     return ForumThread(
@@ -51,6 +54,7 @@ class ForumThread {
       authorUrl: authorUrl ?? this.authorUrl,
       authorAvatarUrl: authorAvatarUrl ?? this.authorAvatarUrl,
       authorPostsUrl: authorPostsUrl ?? this.authorPostsUrl,
+      previewImageUrl: previewImageUrl ?? this.previewImageUrl,
       isSticky: isSticky ?? this.isSticky,
     );
   }

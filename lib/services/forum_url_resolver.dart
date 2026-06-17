@@ -21,6 +21,7 @@ class ForumUrlResolver {
       return href;
     }
     if (href.startsWith('//')) return absoluteUrl('https:$href');
+    if (href.startsWith('./')) return '$_origin/${href.substring(2)}';
     if (href.startsWith('/')) return '$_origin$href';
     return '$_origin/$href';
   }
@@ -78,26 +79,24 @@ class ForumUrlResolver {
   }
 
   String? boardDesktopPath(ForumCategory category, {int page = 1}) {
-    final href = category.url;
-    if (href != null && href.contains('thread_new.php')) {
-      final fid = fidFromCategory(category);
-      if (fid != null) {
-        final pagePart = page <= 1 ? '' : '&page=$page';
-        return 'thread_new.php?fid=$fid$pagePart';
-      }
-    }
     final fid = fidFromCategory(category);
     if (fid != null) {
-      final pagePart = page <= 1 ? '' : '-page-$page';
-      return 'thread.php?fid-$fid$pagePart.html';
+      final normalizedPage = page < 1 ? 1 : page;
+      return 'thread_new.php?fid-$fid-page-$normalizedPage.html';
     }
     final slug = category.slug;
-    if (slug.startsWith('fid-')) return 'thread.php?$slug.html';
+    final slugFid = RegExp(r'^fid-(\d+)$').firstMatch(slug)?.group(1);
+    if (slugFid != null) {
+      final normalizedPage = page < 1 ? 1 : page;
+      return 'thread_new.php?fid-$slugFid-page-$normalizedPage.html';
+    }
+    final href = category.url;
     if (href == null) return null;
-    final hrefFid = RegExp(r'fid-\d+').firstMatch(href)?.group(0);
-    if (hrefFid != null) return 'thread.php?$hrefFid.html';
-    final queryFid = RegExp(r'[?&]fid=(\d+)').firstMatch(href)?.group(1);
-    return queryFid == null ? null : 'thread.php?fid-$queryFid.html';
+    final hrefFid = RegExp(r'fid-(\d+)').firstMatch(href)?.group(1) ??
+        RegExp(r'[?&]fid=(\d+)').firstMatch(href)?.group(1);
+    if (hrefFid == null) return null;
+    final normalizedPage = page < 1 ? 1 : page;
+    return 'thread_new.php?fid-$hrefFid-page-$normalizedPage.html';
   }
 
   String boardSimplePath(ForumCategory category, {int page = 1}) {
