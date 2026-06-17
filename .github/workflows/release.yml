@@ -5,9 +5,26 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish. Leave empty for a manual build tag."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub release as a prerelease."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref_type == 'tag' && github.ref_name || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  APP_SLUG: south_plus_rewrite
 
 jobs:
   android:
@@ -35,10 +52,13 @@ jobs:
       - name: Restore Android signing key
         shell: bash
         run: |
+          set -euo pipefail
+
           if [[ -z "${ANDROID_KEYSTORE_BASE64}" ]]; then
             echo "ANDROID_KEYSTORE_BASE64 is not configured."
             exit 1
           fi
+
           echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > android/app/upload-keystore.jks
           cat > android/key.properties <<EOF
           storeFile=upload-keystore.jks
@@ -52,8 +72,11 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
-      - name: Build APK
+      - name: Build universal APK
         run: flutter build apk --release
+
+      - name: Build split APKs
+        run: flutter build apk --release --split-per-abi
 
       - name: Build app bundle
         run: flutter build appbundle --release
@@ -61,15 +84,21 @@ jobs:
       - name: Collect Android artifacts
         shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p release
-          cp build/app/outputs/flutter-apk/app-release.apk release/south_plus_rewrite-android.apk
-          cp build/app/outputs/bundle/release/app-release.aab release/south_plus_rewrite-android.aab
+          cp build/app/outputs/flutter-apk/app-release.apk "release/${APP_SLUG}-android-universal.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release/${APP_SLUG}-android-arm64-v8a.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release/${APP_SLUG}-android-armeabi-v7a.apk"
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk "release/${APP_SLUG}-android-x86_64.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "release/${APP_SLUG}-android.aab"
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android
           path: release/*
+          if-no-files-found: error
 
   windows:
     name: Windows
@@ -94,13 +123,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath release/south_plus_rewrite-windows-x64.zip -Force
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath "release/${env:APP_SLUG}-windows-x64.zip" -Force
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows
           path: release/*
+          if-no-files-found: error
 
   release:
     name: GitHub Release
@@ -109,15 +139,123 @@ jobs:
       - android
       - windows
     steps:
+      - name: Checkout release metadata
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event.inputs.tag || '' }}
+          REQUESTED_PRERELEASE: ${{ github.event.inputs.prerelease || false }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME}"
+          elif [[ -n "${REQUESTED_TAG}" ]]; then
+            tag="${REQUESTED_TAG}"
+          else
+            tag="manual-${GITHUB_RUN_NUMBER}"
+          fi
+
+          version="${tag#v}"
+          title="South Plus Pro ${tag}"
+          notes_file="docs/releases/${tag}.md"
+
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "title=${title}"
+            echo "notes_file=${notes_file}"
+            echo "prerelease=${REQUESTED_PRERELEASE}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Build release notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.meta.outputs.title }}
+          RELEASE_NOTES_FILE: ${{ steps.meta.outputs.notes_file }}
+        run: |
+          set -euo pipefail
+
+          previous_tag="$(git tag --sort=-version:refname | grep -E '^v[0-9]+' | grep -v "^${RELEASE_TAG}$" | head -n 1 || true)"
+          compare_range=""
+          if [[ -n "${previous_tag}" ]] && git rev-parse -q --verify "${RELEASE_TAG}^{commit}" >/dev/null; then
+            compare_range="${previous_tag}..${RELEASE_TAG}"
+          fi
+
+          {
+            echo "# ${RELEASE_TITLE}"
+            echo
+            if [[ -f "${RELEASE_NOTES_FILE}" ]]; then
+              sed '1{/^# /d;}' "${RELEASE_NOTES_FILE}"
+              echo
+            else
+              echo "## Highlights"
+              echo
+              echo "- Release notes for ${RELEASE_TAG} have not been written yet."
+              echo "- Add them in \`${RELEASE_NOTES_FILE}\` before tagging to make this section richer."
+              echo
+            fi
+
+            echo "## Downloads"
+            echo
+            echo "| Platform | Asset | Best for |"
+            echo "| --- | --- | --- |"
+            echo "| Android | \`${APP_SLUG}-android-arm64-v8a.apk\` | Most modern phones and tablets. Smaller than the universal APK. |"
+            echo "| Android | \`${APP_SLUG}-android-armeabi-v7a.apk\` | Older 32-bit Android devices. |"
+            echo "| Android | \`${APP_SLUG}-android-x86_64.apk\` | Emulators and uncommon x86_64 Android devices. |"
+            echo "| Android | \`${APP_SLUG}-android-universal.apk\` | Safest manual install when you are unsure which CPU your device uses. |"
+            echo "| Android | \`${APP_SLUG}-android.aab\` | Store upload bundle, not intended for direct installation. |"
+            echo "| Windows | \`${APP_SLUG}-windows-x64.zip\` | Windows 10/11 x64 desktop. |"
+            echo
+            echo "## Integrity"
+            echo
+            echo "Download \`SHA256SUMS.txt\` from this release to verify files after download."
+            echo
+            echo "## Commits"
+            echo
+            if [[ -n "${compare_range}" ]]; then
+              git log --no-merges --pretty='- %s (%h)' "${compare_range}"
+            else
+              git log --no-merges --pretty='- %s (%h)' -n 20
+            fi
+          } > release-notes.md
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-          name: ${{ github.ref_type == 'tag' && github.ref_name || format('Manual build {0}', github.run_number) }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.title }}
+          body_path: release-notes.md
+          prerelease: ${{ steps.meta.outputs.prerelease }}
           files: artifacts/*
+
+      - name: Write release summary
+        shell: bash
+        run: |
+          {
+            echo "## Release"
+            echo
+            echo "- Tag: \`${{ steps.meta.outputs.tag }}\`"
+            echo "- Android APKs: universal, arm64-v8a, armeabi-v7a, x86_64"
+            echo "- Windows: x64 zip"
+            echo "- Checksums: \`SHA256SUMS.txt\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
