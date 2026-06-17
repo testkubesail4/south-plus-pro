@@ -7,13 +7,13 @@
 
 <p>
   <a href="https://github.com/testkubesail4/south-plus-pro/releases/latest">
-    <img alt="最新版本" src="https://img.shields.io/github/v/release/testkubesail4/south-plus-pro?include_prereleases&label=最新版本&style=for-the-badge&color=2563eb">
+    <img alt="最新版本" src="https://img.shields.io/github/v/release/testkubesail4/south-plus-pro?include_prereleases&amp;label=version&amp;style=for-the-badge&amp;color=2563eb">
   </a>
   <a href="https://github.com/testkubesail4/south-plus-pro/releases">
-    <img alt="总下载量" src="https://img.shields.io/github/downloads/testkubesail4/south-plus-pro/total?label=总下载量&style=for-the-badge&color=16a34a">
+    <img alt="总下载量" src="https://img.shields.io/github/downloads/testkubesail4/south-plus-pro/total?label=downloads&amp;style=for-the-badge&amp;color=16a34a">
   </a>
   <a href="https://github.com/testkubesail4/south-plus-pro/actions/workflows/release.yml">
-    <img alt="发布构建" src="https://img.shields.io/github/actions/workflow/status/testkubesail4/south-plus-pro/release.yml?branch=master&label=发布构建&style=for-the-badge">
+    <img alt="发布构建" src="https://img.shields.io/github/actions/workflow/status/testkubesail4/south-plus-pro/release.yml?branch=master&amp;label=release&amp;style=for-the-badge">
   </a>
 </p>
 
