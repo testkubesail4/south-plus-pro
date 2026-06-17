@@ -595,8 +595,8 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('South Plus Pro'), findsOneWidget);
-    expect(find.text('v0.1.7+7'), findsOneWidget);
+    expect(find.text('南+'), findsOneWidget);
+    expect(find.text('v0.1.8+8'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
   });
 
@@ -1176,10 +1176,10 @@ void main() {
 
 Future<PackageInfo> _fakePackageInfo() async {
   return PackageInfo(
-    appName: 'South Plus Pro',
+    appName: '南+',
     packageName: 'com.example.south_plus_rewrite',
-    version: '0.1.7',
-    buildNumber: '7',
+    version: '0.1.8',
+    buildNumber: '8',
   );
 }
 
