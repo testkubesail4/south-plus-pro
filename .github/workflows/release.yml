@@ -162,7 +162,7 @@ jobs:
           fi
 
           version="${tag#v}"
-          title="South Plus Pro ${tag}"
+          title="南+ ${tag}"
           notes_file="docs/releases/${tag}.md"
 
           {
@@ -195,11 +195,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          previous_tag="$(git tag --sort=-version:refname | grep -E '^v[0-9]+' | grep -v "^${RELEASE_TAG}$" | head -n 1 || true)"
-          compare_range=""
-          if [[ -n "${previous_tag}" ]] && git rev-parse -q --verify "${RELEASE_TAG}^{commit}" >/dev/null; then
-            compare_range="${previous_tag}..${RELEASE_TAG}"
-          fi
+          release_base_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
 
           {
             echo "# ${RELEASE_TITLE}"
@@ -215,28 +211,20 @@ jobs:
               echo
             fi
 
-            echo "## Downloads"
+            echo "## 下载"
             echo
-            echo "| Platform | Asset | Best for |"
+            echo "| 平台 | 下载 | 适合谁 |"
             echo "| --- | --- | --- |"
-            echo "| Android | \`${APP_SLUG}-android-arm64-v8a.apk\` | Most modern phones and tablets. Smaller than the universal APK. |"
-            echo "| Android | \`${APP_SLUG}-android-armeabi-v7a.apk\` | Older 32-bit Android devices. |"
-            echo "| Android | \`${APP_SLUG}-android-x86_64.apk\` | Emulators and uncommon x86_64 Android devices. |"
-            echo "| Android | \`${APP_SLUG}-android-universal.apk\` | Safest manual install when you are unsure which CPU your device uses. |"
-            echo "| Android | \`${APP_SLUG}-android.aab\` | Store upload bundle, not intended for direct installation. |"
-            echo "| Windows | \`${APP_SLUG}-windows-x64.zip\` | Windows 10/11 x64 desktop. |"
+            echo "| Android | [ARM64 APK](${release_base_url}/${APP_SLUG}-android-arm64-v8a.apk) | 大多数近几年 Android 手机和平板，体积更小。 |"
+            echo "| Android | [32 位 ARM APK](${release_base_url}/${APP_SLUG}-android-armeabi-v7a.apk) | 较老的 32 位 Android 设备。 |"
+            echo "| Android | [x86_64 APK](${release_base_url}/${APP_SLUG}-android-x86_64.apk) | Android 模拟器或少见的 x86_64 设备。 |"
+            echo "| Android | [Universal APK](${release_base_url}/${APP_SLUG}-android-universal.apk) | 不确定设备架构时下载这个，体积会更大。 |"
+            echo "| Android | [AAB](${release_base_url}/${APP_SLUG}-android.aab) | 应用商店上传包，不适合直接安装。 |"
+            echo "| Windows | [Windows x64 压缩包](${release_base_url}/${APP_SLUG}-windows-x64.zip) | Windows 10/11 x64 电脑，解压后运行。 |"
             echo
-            echo "## Integrity"
+            echo "## 文件校验"
             echo
-            echo "Download \`SHA256SUMS.txt\` from this release to verify files after download."
-            echo
-            echo "## Commits"
-            echo
-            if [[ -n "${compare_range}" ]]; then
-              git log --no-merges --pretty='- %s (%h)' "${compare_range}"
-            else
-              git log --no-merges --pretty='- %s (%h)' -n 20
-            fi
+            echo "需要校验安装包完整性时，下载 [SHA256SUMS.txt](${release_base_url}/SHA256SUMS.txt)。"
           } > release-notes.md
 
       - name: Publish release
@@ -252,10 +240,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Release"
+            echo "## 发布"
             echo
             echo "- Tag: \`${{ steps.meta.outputs.tag }}\`"
-            echo "- Android APKs: universal, arm64-v8a, armeabi-v7a, x86_64"
-            echo "- Windows: x64 zip"
-            echo "- Checksums: \`SHA256SUMS.txt\`"
+            echo "- Android APK：universal、arm64-v8a、armeabi-v7a、x86_64"
+            echo "- Windows：x64 压缩包"
+            echo "- 校验文件：\`SHA256SUMS.txt\`"
           } >> "${GITHUB_STEP_SUMMARY}"
