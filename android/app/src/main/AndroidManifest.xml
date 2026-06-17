@@ -6,7 +6,7 @@
         android:maxSdkVersion="28"/>
 
     <application
-        android:label="south_plus_rewrite"
+        android:label="南+"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

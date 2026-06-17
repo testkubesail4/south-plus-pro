@@ -184,9 +184,8 @@ class _AccountScreenState extends State<AccountScreen> {
         children: [
           _AccountHeader(
             title: username ?? '未登录',
-            subtitle: widget.repository.isLoggedIn
-                ? 'South Plus 账号已连接'
-                : '登录后可查看个人内容和收藏',
+            subtitle:
+                widget.repository.isLoggedIn ? '南+账号已连接' : '登录后可查看个人内容和收藏',
             loggedIn: widget.repository.isLoggedIn,
           ),
           const SizedBox(height: 12),
@@ -219,9 +218,8 @@ class _AccountScreenState extends State<AccountScreen> {
               _AccountTile(
                 icon: Icons.person_outline,
                 title: widget.repository.isLoggedIn ? '个人中心' : '登录',
-                subtitle: widget.repository.isLoggedIn
-                    ? '资料、主题、回复、收藏'
-                    : '登录 South Plus 账号',
+                subtitle:
+                    widget.repository.isLoggedIn ? '资料、主题、回复、收藏' : '登录南+账号',
                 accent: widget.repository.isLoggedIn,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
@@ -357,7 +355,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   final info = snapshot.data;
                   return _StaticInfoTile(
                     icon: Icons.info_outline,
-                    title: 'South Plus Pro',
+                    title: '南+',
                     subtitle: info == null
                         ? '正在读取版本信息'
                         : 'v${info.version}+${info.buildNumber}',

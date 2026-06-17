@@ -27,7 +27,7 @@ class _SouthPlusAppState extends State<SouthPlusApp> {
       builder: (context, themeMode, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'South Plus',
+          title: '南+',
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: themeMode,
@@ -167,7 +167,7 @@ class _SessionSplash extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                'South Plus',
+                '南+',
                 style: TextStyle(
                   color: AppColors.text,
                   fontSize: 22,
