@@ -209,6 +209,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('board thread list keeps multi-child empty parents selectable',
+      (tester) async {
+    final repository = _FakeBoardRepository();
+
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardThreadListScreen(
+          category: _FakeBoardRepository.multiChildParentCategory,
+          repository: repository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('网赚资源区'), findsWidgets);
+    expect(find.text('CG资源'), findsOneWidget);
+    expect(find.text('实用动画'), findsOneWidget);
+    expect(find.text('这个板块的主题在子版块中'), findsOneWidget);
+    expect(repository.requestedCategoryUrls, [
+      'https://south-plus.net/thread.php?fid-170.html',
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('board thread list keeps known sub boards when fetch lacks them',
       (tester) async {
     final repository = _FakeBoardRepository();
@@ -1250,6 +1277,11 @@ class _FakeBoardRepository extends ForumRepository {
     slug: 'fid-226',
     url: 'https://south-plus.net/thread.php?fid-226.html',
   );
+  static const multiChildParentCategory = ForumCategory(
+    name: '网赚资源区',
+    slug: 'fid-170',
+    url: 'https://south-plus.net/thread.php?fid-170.html',
+  );
 
   final requestedCategoryUrls = <String>[];
 
@@ -1302,6 +1334,25 @@ class _FakeBoardRepository extends ForumRepository {
             name: '同人志&CG (图墙模式)',
             url: 'https://south-plus.net/thread.php?fid-228.html',
             section: 'Comic Market 107',
+          ),
+        ],
+      );
+    }
+    if (category.url?.contains('fid-170') == true) {
+      return const ForumThreadPage(
+        currentPage: 1,
+        totalPages: 1,
+        threads: [],
+        subBoards: [
+          ForumBoard(
+            name: 'CG资源',
+            url: 'https://south-plus.net/thread.php?fid-171.html',
+            section: '网赚资源区',
+          ),
+          ForumBoard(
+            name: '实用动画',
+            url: 'https://south-plus.net/thread.php?fid-172.html',
+            section: '网赚资源区',
           ),
         ],
       );

@@ -320,6 +320,34 @@ class _SubBoardChip extends StatelessWidget {
   }
 }
 
+class _SubBoardOnlyHint extends StatelessWidget {
+  const _SubBoardOnlyHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return _ListLine(
+      minHeight: 74,
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: AppColors.textMuted, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '这个板块的主题在子版块中',
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ListLine extends StatelessWidget {
   const _ListLine({
     required this.child,

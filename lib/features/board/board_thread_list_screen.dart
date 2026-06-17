@@ -206,8 +206,12 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                       _page = page.currentPage;
                     }
                     final hasSubBoards = subBoards.isNotEmpty;
-                    final listItemCount =
-                        items.length + 1 + (hasSubBoards ? 1 : 0);
+                    final showSubBoardOnlyHint =
+                        items.isEmpty && hasSubBoards;
+                    final listItemCount = items.length +
+                        1 +
+                        (hasSubBoards ? 1 : 0) +
+                        (showSubBoardOnlyHint ? 1 : 0);
                     return RefreshIndicator(
                       color: AppColors.brand,
                       onRefresh: _refresh,
@@ -226,13 +230,18 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                           }
 
                           final itemIndex = index - (hasSubBoards ? 1 : 0);
-                          if (itemIndex == items.length) {
+                          if (showSubBoardOnlyHint && itemIndex == 0) {
+                            return const _SubBoardOnlyHint();
+                          }
+                          final adjustedItemIndex =
+                              itemIndex - (showSubBoardOnlyHint ? 1 : 0);
+                          if (adjustedItemIndex == items.length) {
                             return _PaginationBar(
                               page: page,
                               onPageSelected: _goToPage,
                             );
                           }
-                          final item = items[itemIndex];
+                          final item = items[adjustedItemIndex];
                           return switch (item) {
                             _BoardAdItem(:final ad) => _BoardAdBanner(
                                 ad: ad,
