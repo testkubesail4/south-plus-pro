@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/auth/login_screen.dart';
@@ -446,6 +447,7 @@ void main() {
         home: AccountScreen(
           repository: repository,
           onLoggedOut: () {},
+          packageInfoLoader: _fakePackageInfo,
         ),
       ),
     );
@@ -479,6 +481,7 @@ void main() {
         home: AccountScreen(
           repository: repository,
           onLoggedOut: () {},
+          packageInfoLoader: _fakePackageInfo,
         ),
       ),
     );
@@ -515,6 +518,32 @@ void main() {
 
     await AppThemeController.setMode(ThemeMode.system);
     expect(AppThemeController.themeMode, ThemeMode.system);
+  });
+
+  testWidgets('account screen exposes app version and update check',
+      (tester) async {
+    final repository = _FakeTasksRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountScreen(
+          repository: repository,
+          onLoggedOut: () {},
+          packageInfoLoader: _fakePackageInfo,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('应用'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('South Plus Pro'), findsOneWidget);
+    expect(find.text('v0.1.7+7'), findsOneWidget);
+    expect(find.text('检查更新'), findsOneWidget);
   });
 
   testWidgets('forum tasks page exposes quick claim fallback', (tester) async {
@@ -1089,6 +1118,15 @@ void main() {
     expect(contentField.controller?.text,
         '[quote]server quote from Bob[/quote]\n');
   });
+}
+
+Future<PackageInfo> _fakePackageInfo() async {
+  return PackageInfo(
+    appName: 'South Plus Pro',
+    packageName: 'com.example.south_plus_rewrite',
+    version: '0.1.7',
+    buildNumber: '7',
+  );
 }
 
 class _FakeProfileRepository extends ForumRepository {
