@@ -76,6 +76,10 @@ class SouthPlusEmojiPicker extends StatelessWidget {
                                     child: CachedForumImage(
                                       url: emoji.urlFromBase(_emojiBaseUrl),
                                       fit: BoxFit.contain,
+                                      memCacheWidth: 72,
+                                      memCacheHeight: 72,
+                                      maxWidthDiskCache: 96,
+                                      maxHeightDiskCache: 96,
                                       errorWidget: (context) {
                                         return Center(
                                           child: Text(

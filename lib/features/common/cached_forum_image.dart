@@ -32,6 +32,10 @@ class CachedForumImage extends StatelessWidget {
     this.placeholder,
     this.errorWidget,
     this.imageBuilder,
+    this.memCacheWidth,
+    this.memCacheHeight,
+    this.maxWidthDiskCache,
+    this.maxHeightDiskCache,
   });
 
   final String url;
@@ -42,6 +46,10 @@ class CachedForumImage extends StatelessWidget {
   final WidgetBuilder? placeholder;
   final WidgetBuilder? errorWidget;
   final ImageWidgetBuilder? imageBuilder;
+  final int? memCacheWidth;
+  final int? memCacheHeight;
+  final int? maxWidthDiskCache;
+  final int? maxHeightDiskCache;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +62,10 @@ class CachedForumImage extends StatelessWidget {
       placeholder: placeholder,
       errorWidget: errorWidget,
       imageBuilder: imageBuilder,
+      memCacheWidth: memCacheWidth,
+      memCacheHeight: memCacheHeight,
+      maxWidthDiskCache: maxWidthDiskCache,
+      maxHeightDiskCache: maxHeightDiskCache,
     );
   }
 }
@@ -68,6 +80,10 @@ class _PolicyAwareCachedImage extends StatefulWidget {
     this.placeholder,
     this.errorWidget,
     this.imageBuilder,
+    this.memCacheWidth,
+    this.memCacheHeight,
+    this.maxWidthDiskCache,
+    this.maxHeightDiskCache,
   });
 
   final String url;
@@ -78,6 +94,10 @@ class _PolicyAwareCachedImage extends StatefulWidget {
   final WidgetBuilder? placeholder;
   final WidgetBuilder? errorWidget;
   final ImageWidgetBuilder? imageBuilder;
+  final int? memCacheWidth;
+  final int? memCacheHeight;
+  final int? maxWidthDiskCache;
+  final int? maxHeightDiskCache;
 
   @override
   State<_PolicyAwareCachedImage> createState() =>
@@ -140,6 +160,10 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
       fit: widget.fit,
       alignment: widget.alignment,
       imageBuilder: widget.imageBuilder,
+      memCacheWidth: widget.memCacheWidth,
+      memCacheHeight: widget.memCacheHeight,
+      maxWidthDiskCache: widget.maxWidthDiskCache,
+      maxHeightDiskCache: widget.maxHeightDiskCache,
       placeholder: widget.placeholder == null
           ? null
           : (context, url) => widget.placeholder!(context),

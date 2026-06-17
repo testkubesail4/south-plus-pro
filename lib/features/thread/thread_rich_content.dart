@@ -215,6 +215,10 @@ class ThreadRichContent extends StatelessWidget {
           url: segment.url!,
           width: 26,
           height: 26,
+          memCacheWidth: 52,
+          memCacheHeight: 52,
+          maxWidthDiskCache: 96,
+          maxHeightDiskCache: 96,
           fit: BoxFit.contain,
           errorWidget: (context) => const SizedBox(width: 0, height: 0),
         ),
@@ -542,6 +546,8 @@ class _PreviewScreenshotStrip extends StatelessWidget {
                     imageUrl: urls[index],
                     cacheManager: ForumImageCache.manager,
                     fit: BoxFit.cover,
+                    memCacheWidth: 480,
+                    memCacheHeight: 270,
                     placeholder: (context, url) => ColoredBox(
                       color: AppColors.surfaceTint,
                       child: Center(
@@ -630,6 +636,8 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
                       imageUrl: widget.urls[index],
                       cacheManager: ForumImageCache.manager,
                       fit: BoxFit.contain,
+                      memCacheWidth: 1600,
+                      memCacheHeight: 1200,
                       placeholder: (context, url) => const Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
@@ -872,6 +880,8 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                     child: CachedForumImage(
                       url: widget.image.url,
                       fit: BoxFit.contain,
+                      memCacheWidth: 1600,
+                      memCacheHeight: 1600,
                     ),
                   ),
                 ),
@@ -910,6 +920,8 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
           child: CachedForumImage(
             url: widget.image.url,
             fit: BoxFit.contain,
+            memCacheWidth: 720,
+            memCacheHeight: 720,
             placeholder: (context) {
               return const SizedBox(
                 height: 160,

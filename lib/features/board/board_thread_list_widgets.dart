@@ -117,6 +117,8 @@ class _BoardAdBanner extends StatelessWidget {
                     child: CachedForumImage(
                       url: imageUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: width.ceil(),
+                      memCacheHeight: height.ceil(),
                       errorWidget: (context) {
                         return Container(
                           alignment: Alignment.center,
@@ -814,6 +816,8 @@ class _ThreadPreviewImage extends StatelessWidget {
           width: fallbackLayout.size.width,
           height: fallbackLayout.size.height,
           fit: fallbackLayout.fit,
+          memCacheWidth: constraints.maxWidth.ceil(),
+          memCacheHeight: ThreadPreviewImageLayout.maxHeight.ceil(),
           placeholder: (context) => _ThreadPreviewPlaceholder(
             layout: fallbackLayout,
           ),

@@ -1010,6 +1010,10 @@ class _AuthorAvatar extends StatelessWidget {
                       cacheManager: ForumImageCache.manager,
                       width: 44,
                       height: 44,
+                      memCacheWidth: 88,
+                      memCacheHeight: 88,
+                      maxWidthDiskCache: 160,
+                      maxHeightDiskCache: 160,
                       fit: BoxFit.cover,
                       errorWidget: (context, url, error) =>
                           _AvatarFallback(author: author),
