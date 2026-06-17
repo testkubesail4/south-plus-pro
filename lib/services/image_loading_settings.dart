@@ -13,22 +13,43 @@ class ImageLoadingSettings {
   static const _modeKey = 'settings.imageLoadMode';
   static const _networkChannel =
       MethodChannel('south_plus_rewrite/network_state');
+  static ImageLoadMode? _cachedMode;
+  static Future<ImageLoadMode>? _modeFuture;
+  static Future<bool>? _canAutoLoadImagesFuture;
 
   static Future<ImageLoadMode> loadMode() async {
+    final cached = _cachedMode;
+    if (cached != null) return cached;
+    final inFlight = _modeFuture;
+    if (inFlight != null) return inFlight;
+    return _modeFuture = _loadMode();
+  }
+
+  static Future<ImageLoadMode> _loadMode() async {
     final prefs = await SharedPreferences.getInstance();
     final value = prefs.getString(_modeKey);
-    return ImageLoadMode.values.firstWhere(
+    final mode = ImageLoadMode.values.firstWhere(
       (mode) => mode.name == value,
       orElse: () => ImageLoadMode.automatic,
     );
+    _cachedMode = mode;
+    _modeFuture = null;
+    return mode;
   }
 
   static Future<void> saveMode(ImageLoadMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_modeKey, mode.name);
+    _cachedMode = mode;
+    _modeFuture = Future<ImageLoadMode>.value(mode);
+    _canAutoLoadImagesFuture = null;
   }
 
   static Future<bool> canAutoLoadImages() async {
+    return _canAutoLoadImagesFuture ??= _resolveCanAutoLoadImages();
+  }
+
+  static Future<bool> _resolveCanAutoLoadImages() async {
     final mode = await loadMode();
     return switch (mode) {
       ImageLoadMode.automatic => true,

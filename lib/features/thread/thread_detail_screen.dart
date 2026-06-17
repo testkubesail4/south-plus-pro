@@ -497,173 +497,174 @@ class _ThreadDetailContent extends StatelessWidget {
         detail.bodyLinks.isNotEmpty ||
         detail.bodySaleBoxes.isNotEmpty;
     final visibleFloorCount = replies.length + (hasOpeningPost ? 1 : 0);
+    final itemBuilders = <WidgetBuilder>[
+      (_) => const SizedBox(height: 12),
+      (_) => _ThreadPaginationBar(
+            pagination: detail.pagination,
+            onPageSelected: loading ? null : onPageSelected,
+          ),
+      (_) => const SizedBox(height: 12),
+      (_) => hasOpeningPost
+          ? _FloorCard(
+              title: detail.thread.title,
+              author: detail.thread.author ?? '楼主',
+              avatarUrl: detail.thread.authorAvatarUrl,
+              onAuthorTap: detail.thread.authorUrl == null
+                  ? null
+                  : () => onAuthorTap(detail.thread.authorUrl!),
+              postedAt: detail.thread.lastPost,
+              floor: '楼主',
+              onQuote: null,
+              headerActions: _ThreadHeaderActions(
+                favorite: favorite,
+                favoriteBusy: favoriteBusy,
+                onFavorite:
+                    favorite == null ? null : () => onFavorite(favorite!),
+                onlyOriginalPoster: onlyOriginalPosterActive,
+                originalAuthor: originalAuthor,
+                onOnlyOriginalPosterChanged: originalAuthor == null
+                    ? null
+                    : (selected) {
+                        if (selected) {
+                          onShowOriginalPosterPosts(detail.thread);
+                        } else if (authorFilterName != null) {
+                          onClearAuthorFilter();
+                        } else {
+                          onOnlyOriginalPosterChanged(false);
+                        }
+                      },
+                previousThread: detail.previousThread,
+                nextThread: detail.nextThread,
+                rssFeed: detail.rssFeed,
+                onThreadLink: onThreadLink,
+                onExternalLink: onExternalLink,
+              ),
+              child: ThreadPostBody(
+                content: detail.body,
+                segments: detail.bodySegments,
+                quote: null,
+                images: detail.bodyImages,
+                links: detail.bodyLinks,
+                saleBoxes: detail.bodySaleBoxes,
+                saleBoxesFirst: detail.bodySaleBoxesFirst,
+                buyingSaleBoxes: buyingSaleBoxes,
+                onBuySaleBox: onBuySaleBox,
+              ),
+            )
+          : _ThreadHeaderCard(
+              title: detail.thread.title,
+              author: detail.thread.author,
+              avatarUrl: detail.thread.authorAvatarUrl,
+              onAuthorTap: detail.thread.authorUrl == null
+                  ? null
+                  : () => onAuthorTap(detail.thread.authorUrl!),
+              pagination: detail.pagination,
+              actions: _ThreadHeaderActions(
+                favorite: favorite,
+                favoriteBusy: favoriteBusy,
+                onFavorite:
+                    favorite == null ? null : () => onFavorite(favorite!),
+                onlyOriginalPoster: onlyOriginalPosterActive,
+                originalAuthor: originalAuthor,
+                onOnlyOriginalPosterChanged: originalAuthor == null
+                    ? null
+                    : (selected) {
+                        if (selected) {
+                          onShowOriginalPosterPosts(detail.thread);
+                        } else if (authorFilterName != null) {
+                          onClearAuthorFilter();
+                        } else {
+                          onOnlyOriginalPosterChanged(false);
+                        }
+                      },
+                previousThread: detail.previousThread,
+                nextThread: detail.nextThread,
+                rssFeed: detail.rssFeed,
+                onThreadLink: onThreadLink,
+                onExternalLink: onExternalLink,
+              ),
+            ),
+      if (authorFilterName != null)
+        (_) => Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: _ActiveAuthorFilterChip(
+                author: authorFilterName!,
+                loading: loading,
+                pagination: detail.pagination,
+                visibleFloorCount: visibleFloorCount,
+                onClear: onClearAuthorFilter,
+              ),
+            ),
+      (_) => const SizedBox(height: 16),
+      if (onlyOriginalPoster && replies.isEmpty)
+        (_) => const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: EmptyStateView(
+                title: '没有楼主回复',
+                message: '当前页只包含其他用户回复。',
+              ),
+            ),
+      if (authorFilterName != null && visibleFloorCount == 0)
+        (_) => const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: EmptyStateView(
+                title: '没有该作者内容',
+                message: '当前筛选结果没有可展示的楼层。',
+              ),
+            ),
+      for (final reply in replies)
+        (_) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _FloorCard(
+                author: reply.author,
+                avatarUrl: reply.authorAvatarUrl,
+                onAuthorTap: reply.authorUrl == null
+                    ? null
+                    : () => onAuthorTap(reply.authorUrl!),
+                postedAt: reply.postedAt,
+                floor: reply.floor,
+                onShowAuthorPosts: reply.authorPostsUrl == null
+                    ? null
+                    : () => onShowAuthorPosts(reply),
+                quoteLoading: reply.quoteUrl != null &&
+                    loadingQuoteDrafts.contains(reply.quoteUrl),
+                onQuote: () => onQuoteReply(reply),
+                child: ThreadPostBody(
+                  content: reply.content,
+                  segments: reply.segments,
+                  quote: reply.quote,
+                  images: reply.images,
+                  links: reply.links,
+                  saleBoxes: reply.saleBoxes,
+                  saleBoxesFirst: reply.saleBoxesFirst,
+                  buyingSaleBoxes: buyingSaleBoxes,
+                  onBuySaleBox: onBuySaleBox,
+                ),
+              ),
+            ),
+      (_) => _ThreadPaginationBar(
+            pagination: detail.pagination,
+            onPageSelected: loading ? null : onPageSelected,
+          ),
+      (_) => const SizedBox(height: 12),
+      (_) => ReplyComposer(
+            key: replyKey,
+            thread: detail.thread,
+            repository: repository,
+            onSubmitted: onReplySubmitted,
+          ),
+    ];
 
     return Stack(
       children: [
         RefreshIndicator(
           color: AppColors.brand,
           onRefresh: onRefresh,
-          child: ListView(
+          child: ListView.builder(
             controller: scrollController,
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-            children: [
-              const SizedBox(height: 12),
-              _ThreadPaginationBar(
-                pagination: detail.pagination,
-                onPageSelected: loading ? null : onPageSelected,
-              ),
-              const SizedBox(height: 12),
-              if (hasOpeningPost)
-                _FloorCard(
-                  title: detail.thread.title,
-                  author: detail.thread.author ?? '楼主',
-                  avatarUrl: detail.thread.authorAvatarUrl,
-                  onAuthorTap: detail.thread.authorUrl == null
-                      ? null
-                      : () => onAuthorTap(detail.thread.authorUrl!),
-                  postedAt: detail.thread.lastPost,
-                  floor: '楼主',
-                  onQuote: null,
-                  headerActions: _ThreadHeaderActions(
-                    favorite: favorite,
-                    favoriteBusy: favoriteBusy,
-                    onFavorite:
-                        favorite == null ? null : () => onFavorite(favorite!),
-                    onlyOriginalPoster: onlyOriginalPosterActive,
-                    originalAuthor: originalAuthor,
-                    onOnlyOriginalPosterChanged: originalAuthor == null
-                        ? null
-                        : (selected) {
-                            if (selected) {
-                              onShowOriginalPosterPosts(detail.thread);
-                            } else if (authorFilterName != null) {
-                              onClearAuthorFilter();
-                            } else {
-                              onOnlyOriginalPosterChanged(false);
-                            }
-                          },
-                    previousThread: detail.previousThread,
-                    nextThread: detail.nextThread,
-                    rssFeed: detail.rssFeed,
-                    onThreadLink: onThreadLink,
-                    onExternalLink: onExternalLink,
-                  ),
-                  child: ThreadPostBody(
-                    content: detail.body,
-                    segments: detail.bodySegments,
-                    quote: null,
-                    images: detail.bodyImages,
-                    links: detail.bodyLinks,
-                    saleBoxes: detail.bodySaleBoxes,
-                    saleBoxesFirst: detail.bodySaleBoxesFirst,
-                    buyingSaleBoxes: buyingSaleBoxes,
-                    onBuySaleBox: onBuySaleBox,
-                  ),
-                )
-              else
-                _ThreadHeaderCard(
-                  title: detail.thread.title,
-                  author: detail.thread.author,
-                  avatarUrl: detail.thread.authorAvatarUrl,
-                  onAuthorTap: detail.thread.authorUrl == null
-                      ? null
-                      : () => onAuthorTap(detail.thread.authorUrl!),
-                  pagination: detail.pagination,
-                  actions: _ThreadHeaderActions(
-                    favorite: favorite,
-                    favoriteBusy: favoriteBusy,
-                    onFavorite:
-                        favorite == null ? null : () => onFavorite(favorite!),
-                    onlyOriginalPoster: onlyOriginalPosterActive,
-                    originalAuthor: originalAuthor,
-                    onOnlyOriginalPosterChanged: originalAuthor == null
-                        ? null
-                        : (selected) {
-                            if (selected) {
-                              onShowOriginalPosterPosts(detail.thread);
-                            } else if (authorFilterName != null) {
-                              onClearAuthorFilter();
-                            } else {
-                              onOnlyOriginalPosterChanged(false);
-                            }
-                          },
-                    previousThread: detail.previousThread,
-                    nextThread: detail.nextThread,
-                    rssFeed: detail.rssFeed,
-                    onThreadLink: onThreadLink,
-                    onExternalLink: onExternalLink,
-                  ),
-                ),
-              if (authorFilterName != null) ...[
-                const SizedBox(height: 10),
-                _ActiveAuthorFilterChip(
-                  author: authorFilterName!,
-                  loading: loading,
-                  pagination: detail.pagination,
-                  visibleFloorCount: visibleFloorCount,
-                  onClear: onClearAuthorFilter,
-                ),
-              ],
-              const SizedBox(height: 16),
-              if (onlyOriginalPoster && replies.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: EmptyStateView(
-                    title: '没有楼主回复',
-                    message: '当前页只包含其他用户回复。',
-                  ),
-                ),
-              if (authorFilterName != null && visibleFloorCount == 0)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: EmptyStateView(
-                    title: '没有该作者内容',
-                    message: '当前筛选结果没有可展示的楼层。',
-                  ),
-                ),
-              ...replies.map(
-                (reply) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _FloorCard(
-                    author: reply.author,
-                    avatarUrl: reply.authorAvatarUrl,
-                    onAuthorTap: reply.authorUrl == null
-                        ? null
-                        : () => onAuthorTap(reply.authorUrl!),
-                    postedAt: reply.postedAt,
-                    floor: reply.floor,
-                    onShowAuthorPosts: reply.authorPostsUrl == null
-                        ? null
-                        : () => onShowAuthorPosts(reply),
-                    quoteLoading: reply.quoteUrl != null &&
-                        loadingQuoteDrafts.contains(reply.quoteUrl),
-                    onQuote: () => onQuoteReply(reply),
-                    child: ThreadPostBody(
-                      content: reply.content,
-                      segments: reply.segments,
-                      quote: reply.quote,
-                      images: reply.images,
-                      links: reply.links,
-                      saleBoxes: reply.saleBoxes,
-                      saleBoxesFirst: reply.saleBoxesFirst,
-                      buyingSaleBoxes: buyingSaleBoxes,
-                      onBuySaleBox: onBuySaleBox,
-                    ),
-                  ),
-                ),
-              ),
-              _ThreadPaginationBar(
-                pagination: detail.pagination,
-                onPageSelected: loading ? null : onPageSelected,
-              ),
-              const SizedBox(height: 12),
-              ReplyComposer(
-                key: replyKey,
-                thread: detail.thread,
-                repository: repository,
-                onSubmitted: onReplySubmitted,
-              ),
-            ],
+            itemCount: itemBuilders.length,
+            itemBuilder: (context, index) => itemBuilders[index](context),
           ),
         ),
         if (loading)
