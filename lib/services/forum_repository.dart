@@ -5,6 +5,7 @@ import '../models/forum_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
 import 'forum_network_config.dart';
+import 'forum_task_state_store.dart';
 import 'forum_url_resolver.dart';
 import 'user_profile_cache.dart';
 import 'parsers/board_thread_page_parser.dart';
@@ -23,6 +24,7 @@ class ForumRepository {
     ForumNetworkConfig? config,
     UserProfileCache? profileCache,
     BrowsingHistoryStore? historyStore,
+    ForumTaskStateStore? taskStateStore,
   })  : _client = client ??
             ForumClient(
               config: config ??
@@ -50,7 +52,8 @@ class ForumRepository {
                     ForumNetworkConfig.defaultSite.baseUri,
               ),
             ),
-        _historyStore = historyStore ?? BrowsingHistoryStore();
+        _historyStore = historyStore ?? BrowsingHistoryStore(),
+        _taskStateStore = taskStateStore ?? const ForumTaskStateStore();
 
   ForumClient _client;
   ForumNetworkConfig _config;
@@ -69,6 +72,7 @@ class ForumRepository {
   late UserProfileParser _userProfileParser = UserProfileParser(urls: _urls);
   UserProfileCache _profileCache;
   final BrowsingHistoryStore _historyStore;
+  final ForumTaskStateStore _taskStateStore;
   String? _currentUsername;
 
   bool get isLoggedIn => _client.isLoggedIn;
@@ -252,7 +256,9 @@ class ForumRepository {
         'plugin.php?H_name-tasks-actions-errotasks.html.html',
     };
     final html = await _client.get(path);
-    return _tasksParser.parse(html_parser.parse(html), status);
+    final tasks = _tasksParser.parse(html_parser.parse(html), status);
+    await _updateTaskSnapshot(tasks);
+    return tasks;
   }
 
   Future<ForumTaskActionResult> runForumTask(ForumTask task) async {
@@ -281,6 +287,403 @@ class ForumRepository {
               : '任务操作失败'
           : message,
     );
+  }
+
+  Future<ForumTaskQuickClaimResult> claimForumTaskRewards() async {
+    final failures = <String>[];
+    final skipped = <String>[];
+    final inProgressNames = <String>{};
+    final actionHandledNames = <String>{};
+    var appliedCount = 0;
+    final claimedRewards = <ForumTaskClaimItem>[];
+
+    final completedTasks = await fetchForumTasks(ForumTaskStatus.completed);
+    final availableTasks = await fetchForumTasks(ForumTaskStatus.available);
+    final completedNames = completedTasks.map((task) => task.name).toSet();
+    final targetNames = _targetTaskNames([
+      ...completedTasks,
+      ...availableTasks,
+    ]);
+    final pendingNames = targetNames.where((name) {
+      final availableForName =
+          availableTasks.where((task) => task.name == name).toList();
+      final hasFreshStartAction = availableForName.any(_isStartableForumTask);
+      return hasFreshStartAction || !completedNames.contains(name);
+    }).toSet();
+    final runnableAvailableTasks = availableTasks.where((task) {
+      return pendingNames.contains(task.name) && _isStartableForumTask(task);
+    }).toList();
+    var actionChangedState = false;
+
+    for (final task in runnableAvailableTasks) {
+      final result = await runForumTask(task);
+      final decision = _classifyTaskAction(
+        result,
+        expectation: _ForumTaskActionExpectation.start,
+      );
+      switch (decision.kind) {
+        case _ForumTaskActionKind.started:
+          appliedCount += 1;
+          actionChangedState = true;
+          break;
+        case _ForumTaskActionKind.rewardClaimed:
+          actionHandledNames.add(task.name);
+          claimedRewards.add(_claimItemFromTask(task, result.message));
+          actionChangedState = true;
+          break;
+        case _ForumTaskActionKind.alreadyStarted:
+          appliedCount += 1;
+          actionChangedState = true;
+          break;
+        case _ForumTaskActionKind.alreadyCompleted:
+        case _ForumTaskActionKind.coolingDown:
+          actionHandledNames.add(task.name);
+          actionChangedState = true;
+          break;
+        case _ForumTaskActionKind.loginRequired:
+        case _ForumTaskActionKind.failure:
+          failures.add('${task.name}：${decision.message}');
+          break;
+      }
+    }
+
+    final shouldCheckInProgress = runnableAvailableTasks.isNotEmpty ||
+        pendingNames.any((name) {
+          final task = availableTasks.where((task) => task.name == name);
+          return task.isEmpty ||
+              task.any((task) =>
+                  !_isStartableForumTask(task) ||
+                  task.cooldownRemaining != null);
+        });
+    final latestInProgressTasks = shouldCheckInProgress
+        ? await fetchForumTasks(ForumTaskStatus.inProgress)
+        : const <ForumTask>[];
+    final rewardsChangedState = await _claimRewardsFromTasks(
+      latestInProgressTasks,
+      targetNames: targetNames,
+      claimedRewards: claimedRewards,
+      failures: failures,
+      skipped: skipped,
+      handledNames: actionHandledNames,
+    );
+    inProgressNames.addAll(
+      latestInProgressTasks
+          .where((task) =>
+              targetNames.contains(task.name) && !_isClaimableForumTask(task))
+          .map((task) => task.name),
+    );
+
+    final shouldRefreshAfterActions =
+        actionChangedState || rewardsChangedState || claimedRewards.isNotEmpty;
+    final refreshedCompletedTasks = shouldRefreshAfterActions
+        ? await fetchForumTasks(ForumTaskStatus.completed)
+        : completedTasks;
+    final refreshedAvailableTasks = shouldRefreshAfterActions
+        ? await fetchForumTasks(ForumTaskStatus.available)
+        : availableTasks;
+    final snapshot = await _saveTaskSnapshotFromPages(
+      inProgress: latestInProgressTasks,
+      available: refreshedAvailableTasks,
+      completed: refreshedCompletedTasks,
+    );
+    final handledNames = snapshot.tasks
+        .where((task) =>
+            task.availability == ForumTaskAvailability.completed ||
+            task.availability == ForumTaskAvailability.coolingDown)
+        .map((task) => task.name)
+        .toSet()
+      ..addAll(actionHandledNames);
+    final alreadyHandled = claimedRewards.isEmpty &&
+        appliedCount == 0 &&
+        failures.isEmpty &&
+        inProgressNames.isEmpty &&
+        targetNames.isNotEmpty &&
+        targetNames.every(handledNames.contains);
+
+    return ForumTaskQuickClaimResult(
+      appliedCount: appliedCount,
+      claimedRewards: claimedRewards,
+      failures: failures,
+      skipped: skipped,
+      inProgress: inProgressNames.toList(),
+      alreadyHandled: alreadyHandled,
+    );
+  }
+
+  Future<bool> _claimRewardsFromTasks(
+    List<ForumTask> tasks, {
+    required Set<String> targetNames,
+    required List<ForumTaskClaimItem> claimedRewards,
+    required List<String> failures,
+    required List<String> skipped,
+    required Set<String> handledNames,
+  }) async {
+    var changedState = false;
+    final claimedNames = claimedRewards.map((item) => item.name).toSet();
+    final claimableTasks = tasks.where((task) {
+      return targetNames.contains(task.name) && _isClaimableForumTask(task);
+    });
+
+    for (final task in claimableTasks) {
+      if (claimedNames.contains(task.name)) continue;
+      final result = await runForumTask(task);
+      final decision = _classifyTaskAction(
+        result,
+        expectation: _ForumTaskActionExpectation.claimReward,
+      );
+      if (decision.kind == _ForumTaskActionKind.rewardClaimed) {
+        claimedNames.add(task.name);
+        handledNames.add(task.name);
+        claimedRewards.add(_claimItemFromTask(task, result.message));
+        changedState = true;
+        await _updateTaskSnapshot([
+          ForumTask(
+            id: task.id,
+            name: task.name,
+            status: ForumTaskStatus.completed,
+            reward: task.reward,
+            progressPercent: 100,
+          ),
+        ]);
+      } else {
+        switch (decision.kind) {
+          case _ForumTaskActionKind.alreadyCompleted:
+          case _ForumTaskActionKind.coolingDown:
+            handledNames.add(task.name);
+            changedState = true;
+            break;
+          case _ForumTaskActionKind.started:
+          case _ForumTaskActionKind.alreadyStarted:
+            changedState = true;
+            break;
+          case _ForumTaskActionKind.loginRequired:
+          case _ForumTaskActionKind.failure:
+            failures.add('${task.name}：${decision.message}');
+            break;
+          case _ForumTaskActionKind.rewardClaimed:
+            break;
+        }
+      }
+    }
+    return changedState;
+  }
+
+  ForumTaskClaimItem _claimItemFromTask(ForumTask task, String message) {
+    return ForumTaskClaimItem(
+      name: task.name,
+      reward: task.reward,
+      spAmount: _spAmount(task.reward),
+      message: message,
+    );
+  }
+
+  bool _isClaimableForumTask(ForumTask task) {
+    if (!task.canRun) return false;
+    final label = task.actionLabel ?? '';
+    if (label.contains('领取')) return true;
+    return task.progressPercent != null && task.progressPercent! >= 100;
+  }
+
+  bool _isStartableForumTask(ForumTask task) {
+    if (!task.canRun) return false;
+    final label = task.actionLabel ?? '';
+    return label.contains('申请');
+  }
+
+  _ForumTaskActionDecision _classifyTaskAction(
+    ForumTaskActionResult result, {
+    required _ForumTaskActionExpectation expectation,
+  }) {
+    final message = _cleanText(result.message);
+    final text = message.replaceAll(RegExp(r'\s+'), '');
+    if (_looksLikeLoginRequired(message)) {
+      return _ForumTaskActionDecision(
+        _ForumTaskActionKind.loginRequired,
+        message.isEmpty ? '登录状态已失效' : message,
+      );
+    }
+    if (_alreadyCompletedTask(message)) {
+      return _ForumTaskActionDecision(
+        _ForumTaskActionKind.alreadyCompleted,
+        message.isEmpty ? '奖励已领取' : message,
+      );
+    }
+    if (_taskCooldownMessage(message)) {
+      return _ForumTaskActionDecision(
+        _ForumTaskActionKind.coolingDown,
+        message.isEmpty ? '任务处于冷却中' : message,
+      );
+    }
+    if (_alreadyStartedTask(message)) {
+      return _ForumTaskActionDecision(
+        _ForumTaskActionKind.alreadyStarted,
+        message.isEmpty ? '任务已领取，等待完成' : message,
+      );
+    }
+    if (result.success) {
+      if (text.contains('奖励')) {
+        return _ForumTaskActionDecision(
+          _ForumTaskActionKind.rewardClaimed,
+          message.isEmpty ? '任务奖励领取完成' : message,
+        );
+      }
+      if (text.contains('任务') && text.contains('领取')) {
+        return _ForumTaskActionDecision(
+          _ForumTaskActionKind.started,
+          message.isEmpty ? '任务领取完成' : message,
+        );
+      }
+      return _ForumTaskActionDecision(
+        expectation == _ForumTaskActionExpectation.claimReward
+            ? _ForumTaskActionKind.rewardClaimed
+            : _ForumTaskActionKind.started,
+        message.isEmpty ? '任务操作完成' : message,
+      );
+    }
+    return _ForumTaskActionDecision(
+      _ForumTaskActionKind.failure,
+      message.isEmpty ? '任务操作失败' : message,
+    );
+  }
+
+  int? _spAmount(String? reward) {
+    final text = reward ?? '';
+    final match =
+        RegExp(r'SP\s*币?\s*(\d+)', caseSensitive: false).firstMatch(text);
+    return int.tryParse(match?.group(1) ?? '');
+  }
+
+  bool _alreadyStartedTask(String message) {
+    final text = message.replaceAll(RegExp(r'\s+'), '');
+    return text.contains('任务已领取') ||
+        text.contains('已经领取任务') ||
+        text.contains('已申领') ||
+        text.contains('已经申领');
+  }
+
+  bool _alreadyCompletedTask(String message) {
+    final text = message.replaceAll(RegExp(r'\s+'), '');
+    return text.contains('奖励已领取') ||
+        text.contains('已经领取奖励') ||
+        text.contains('已经完成') ||
+        text.contains('已完成任务');
+  }
+
+  bool _taskCooldownMessage(String message) {
+    final text = message.replaceAll(RegExp(r'\s+'), '');
+    return text.contains('距离上次') ||
+        text.contains('上次领取未超过') ||
+        text.contains('没超过') ||
+        text.contains('冷却');
+  }
+
+  bool _looksLikeLoginRequired(String message) {
+    final text = message.replaceAll(RegExp(r'\s+'), '');
+    return text.contains('登录') ||
+        text.contains('登陆') ||
+        text.contains('请先登录') ||
+        text.contains('login.php');
+  }
+
+  Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() {
+    return _taskStateStore.load();
+  }
+
+  Future<ForumTaskSnapshot> refreshForumTaskSnapshot() async {
+    final inProgress = await fetchForumTasks(ForumTaskStatus.inProgress);
+    final completed = await fetchForumTasks(ForumTaskStatus.completed);
+    final available = await fetchForumTasks(ForumTaskStatus.available);
+    return _saveTaskSnapshotFromPages(
+      inProgress: inProgress,
+      completed: completed,
+      available: available,
+    );
+  }
+
+  Future<ForumTaskSnapshot> _saveTaskSnapshotFromPages({
+    required List<ForumTask> inProgress,
+    required List<ForumTask> completed,
+    required List<ForumTask> available,
+  }) async {
+    final now = _nowUtc();
+    final cooldownsByName = {
+      for (final task in available)
+        if (task.cooldownRemaining != null) task.name: task.cooldownRemaining!,
+    };
+    final snapshot = ForumTaskSnapshot(tasks: const [], updatedAt: now).merge([
+      ...inProgress.map((task) => _taskStateFromTask(task, now: now)),
+      ...completed.map(
+        (task) => _taskStateFromTask(
+          task,
+          now: now,
+          cooldownRemaining: cooldownsByName[task.name],
+        ),
+      ),
+      ...available.map((task) => _taskStateFromTask(task, now: now)),
+    ]);
+    await _taskStateStore.save(snapshot);
+    return snapshot;
+  }
+
+  Future<void> _updateTaskSnapshot(List<ForumTask> tasks) async {
+    if (tasks.isEmpty) return;
+    final current = await _taskStateStore.load();
+    final base = current ??
+        ForumTaskSnapshot(
+          tasks: const [],
+          updatedAt: _nowUtc(),
+        );
+    final now = _nowUtc();
+    await _taskStateStore.save(
+        base.merge(tasks.map((task) => _taskStateFromTask(task, now: now))));
+  }
+
+  ForumTaskState _taskStateFromTask(
+    ForumTask task, {
+    required DateTime now,
+    Duration? cooldownRemaining,
+  }) {
+    final cooldown = cooldownRemaining ?? task.cooldownRemaining;
+    return ForumTaskState(
+      id: task.id,
+      name: task.name,
+      availability: _availabilityFromTask(task),
+      reward: task.reward,
+      spAmount: _spAmount(task.reward),
+      progressPercent: task.progressPercent,
+      completedAt: task.completedAt,
+      cooldownRemaining: cooldown,
+      nextAvailableAt:
+          cooldown == null ? null : now.toUtc().add(cooldown).toUtc(),
+    );
+  }
+
+  ForumTaskAvailability _availabilityFromTask(ForumTask task) {
+    if (task.status == ForumTaskStatus.completed) {
+      return ForumTaskAvailability.completed;
+    }
+    if (task.status == ForumTaskStatus.inProgress) {
+      return _isClaimableForumTask(task)
+          ? ForumTaskAvailability.claimable
+          : ForumTaskAvailability.inProgress;
+    }
+    if (task.cooldownRemaining != null) {
+      return ForumTaskAvailability.coolingDown;
+    }
+    if (task.canRun) return ForumTaskAvailability.available;
+    return ForumTaskAvailability.unknown;
+  }
+
+  DateTime _nowUtc() => DateTime.now().toUtc();
+
+  Set<String> _targetTaskNames(Iterable<ForumTask> tasks) {
+    final names = <String>{'日常', '周常'};
+    for (final task in tasks) {
+      if (task.name.contains('日常') || task.name.contains('周常')) {
+        names.add(task.name);
+      }
+    }
+    return names;
   }
 
   Future<List<BrowsingHistoryEntry>> browsingHistory({int limit = 100}) {
@@ -770,4 +1173,26 @@ class ForumRepositoryException implements Exception {
 
   @override
   String toString() => message;
+}
+
+enum _ForumTaskActionExpectation {
+  start,
+  claimReward,
+}
+
+enum _ForumTaskActionKind {
+  started,
+  rewardClaimed,
+  alreadyStarted,
+  alreadyCompleted,
+  coolingDown,
+  loginRequired,
+  failure,
+}
+
+class _ForumTaskActionDecision {
+  const _ForumTaskActionDecision(this.kind, this.message);
+
+  final _ForumTaskActionKind kind;
+  final String message;
 }

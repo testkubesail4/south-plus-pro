@@ -9,6 +9,7 @@ import '../common/async_state_view.dart';
 import '../history/browsing_history_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';
+import '../profile/forum_tasks_screen.dart';
 import '../profile/user_profile_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
@@ -187,11 +188,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
                   else if (data == null)
                     const HomeSkeleton()
                   else ...[
-                    _ForumCrumbs(
-                      items: const ['南+', 'South Plus', '茶馆'],
-                      current: '移动端首页',
-                    ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
                     _LatestThreads(
                       threads: data.latest,
                       repository: widget.repository,

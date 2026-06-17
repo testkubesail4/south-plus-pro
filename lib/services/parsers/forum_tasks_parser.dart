@@ -23,20 +23,24 @@ class ForumTasksParser {
 
       final detailRow = index + 1 < rows.length ? rows[index + 1] : null;
       final detailText = _cleanText(detailRow?.text ?? '');
+      final reward = _matchText(
+          text,
+          RegExp(
+              r'奖励\s*:\s*(.*?)(?:\s*(?:上次领取未超过|按这申请此任务|领取此奖励|正在领取中|\s{2,})|$)'));
       tasks.add(
         ForumTask(
           id: id,
           name: name,
           status: status,
           description: _description(detailText),
-          reward: _matchText(text,
-              RegExp(r'奖励\s*:\s*(.*?)(?:\s*(?:按这申请此任务|领取此奖励|正在领取中|\s{2,})|$)')),
+          reward: reward,
           popularity: _intMatch(text, RegExp(r'人气\s*:\s*(\d+)')),
           startedAt: _matchText(text, RegExp(r'任务时效\s*(\d{4}-\d{2}-\d{2})')),
           endsAt: _matchText(text, RegExp(r'~\s*(\d{4}-\d{2}-\d{2})')),
           progressPercent: _intMatch(detailText, RegExp(r'已完成\s*(\d+)\s*%')),
           completedAt: _matchText(detailText, RegExp(r'完成时间\s*(.+)$')),
           actionLabel: _actionLabel(row),
+          cooldownRemaining: _cooldownRemaining(text),
         ),
       );
     }
@@ -80,6 +84,12 @@ class ForumTasksParser {
   int? _intMatch(String text, RegExp pattern) {
     final value = _matchText(text, pattern);
     return value == null ? null : int.tryParse(value);
+  }
+
+  Duration? _cooldownRemaining(String text) {
+    final match = RegExp(r'上次领取未超过\s*(\d+)\s*小时').firstMatch(text);
+    final hours = int.tryParse(match?.group(1) ?? '');
+    return hours == null ? null : Duration(hours: hours);
   }
 
   String? _matchText(String text, RegExp pattern) {

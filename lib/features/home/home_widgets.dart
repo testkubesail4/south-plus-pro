@@ -176,51 +176,6 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _ForumCrumbs extends StatelessWidget {
-  const _ForumCrumbs({required this.items, required this.current});
-
-  final List<String> items;
-  final String current;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
-      child: Wrap(
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 4,
-        runSpacing: 4,
-        children: [
-          for (final item in items) ...[
-            Text(
-              item,
-              style: TextStyle(
-                color: AppColors.brand,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Icon(Icons.chevron_right, size: 18, color: AppColors.textFaint),
-          ],
-          Text(
-            current,
-            style: TextStyle(
-              color: AppColors.link,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _LatestThreads extends StatelessWidget {
   const _LatestThreads({
     required this.threads,
@@ -235,6 +190,7 @@ class _LatestThreads extends StatelessWidget {
     return _SimpleSection(
       title: '最新讨论',
       icon: Icons.subject_outlined,
+      trailing: _TaskShortcut(repository: repository),
       child: Column(
         children: threads.take(8).map((thread) {
           return Padding(
@@ -319,6 +275,130 @@ class _LatestThreads extends StatelessWidget {
         }).toList(),
       ),
     );
+  }
+}
+
+class _TaskShortcut extends StatefulWidget {
+  const _TaskShortcut({required this.repository});
+
+  final ForumRepository repository;
+
+  @override
+  State<_TaskShortcut> createState() => _TaskShortcutState();
+}
+
+class _TaskShortcutState extends State<_TaskShortcut> {
+  var _running = false;
+  ForumTaskSnapshot? _snapshot;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSnapshot();
+  }
+
+  Future<void> _loadSnapshot() async {
+    final snapshot = await widget.repository.loadCachedForumTaskSnapshot();
+    if (!mounted) return;
+    setState(() => _snapshot = snapshot);
+  }
+
+  Future<void> _claimRewards() async {
+    if (!widget.repository.isLoggedIn) {
+      _openTasks();
+      return;
+    }
+
+    setState(() => _running = true);
+    try {
+      final result = await widget.repository.claimForumTaskRewards();
+      if (!mounted) return;
+      await _loadSnapshot();
+      _showClaimResult(result);
+    } catch (error) {
+      if (!mounted) return;
+      _showClaimError(error);
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  void _openTasks() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ForumTasksScreen(repository: widget.repository),
+      ),
+    );
+  }
+
+  void _showClaimResult(ForumTaskQuickClaimResult result) {
+    showForumTaskClaimSnackBar(context, result);
+  }
+
+  void _showClaimError(Object error) {
+    showForumTaskClaimErrorSnackBar(context, error);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = _snapshot;
+    final done = snapshot?.tasks.where((task) => task.isDoneToday).length ?? 0;
+    final hasClaimable = snapshot?.hasClaimableReward == true;
+    final cooldownLabel = _cooldownLabel(snapshot);
+    final success = done > 0 && !hasClaimable;
+    final label = _running
+        ? '领取中'
+        : hasClaimable
+            ? '可领取'
+            : done > 0
+                ? '已领 $done'
+                : cooldownLabel ?? '任务奖励';
+    final foreground = success ? AppColors.success : AppColors.brand;
+    final border = success ? AppColors.successBorder : AppColors.brandSoft;
+    final icon = success ? Icons.check_circle_outline : Icons.redeem_outlined;
+
+    return OutlinedButton.icon(
+      onPressed: _running ? null : _claimRewards,
+      icon: _running
+          ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.textFaint,
+              ),
+            )
+          : Icon(icon, size: 18),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 40),
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        foregroundColor: foreground,
+        side: BorderSide(color: border),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  String? _cooldownLabel(ForumTaskSnapshot? snapshot) {
+    if (snapshot == null) return null;
+    final now = DateTime.now().toUtc();
+    final cooldowns = snapshot.tasks
+        .map((task) => task.cooldownRemainingFrom(now))
+        .whereType<Duration>()
+        .toList();
+    if (cooldowns.isEmpty) return null;
+    cooldowns.sort((a, b) => a.compareTo(b));
+    final hours = cooldowns.first.inHours;
+    if (hours <= 0) return '待刷新';
+    return '${hours}h 后';
   }
 }
 
@@ -487,11 +567,17 @@ class _ForumBoardLink extends StatelessWidget {
 }
 
 class _SimpleSection extends StatelessWidget {
-  const _SimpleSection({required this.title, required this.child, this.icon});
+  const _SimpleSection({
+    required this.title,
+    required this.child,
+    this.icon,
+    this.trailing,
+  });
 
   final String title;
   final Widget child;
   final IconData? icon;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -516,6 +602,10 @@ class _SimpleSection extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+                if (trailing != null) ...[
+                  const Spacer(),
+                  trailing!,
+                ],
               ],
             ),
           ),

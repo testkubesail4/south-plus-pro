@@ -19,6 +19,7 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
   ForumTaskStatus _status = ForumTaskStatus.inProgress;
   late Future<List<ForumTask>> _future = _load();
   final Set<String> _runningIds = {};
+  var _quickClaiming = false;
 
   Future<List<ForumTask>> _load() {
     return widget.repository.fetchForumTasks(_status);
@@ -57,6 +58,24 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
     });
   }
 
+  Future<void> _quickClaimRewards() async {
+    setState(() => _quickClaiming = true);
+    try {
+      final result = await widget.repository.claimForumTaskRewards();
+      if (!mounted) return;
+      showForumTaskClaimSnackBar(context, result);
+      setState(() {
+        _status = result.hasClaims ? ForumTaskStatus.completed : _status;
+        _future = _load();
+      });
+    } catch (error) {
+      if (!mounted) return;
+      showForumTaskClaimErrorSnackBar(context, error);
+    } finally {
+      if (mounted) setState(() => _quickClaiming = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.repository.isLoggedIn) {
@@ -77,6 +96,8 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
               child: _TaskHeader(
                 status: _status,
                 onStatusChanged: _setStatus,
+                quickClaiming: _quickClaiming,
+                onQuickClaim: _quickClaimRewards,
               ),
             ),
             Expanded(
@@ -140,10 +161,14 @@ class _TaskHeader extends StatelessWidget {
   const _TaskHeader({
     required this.status,
     required this.onStatusChanged,
+    required this.quickClaiming,
+    required this.onQuickClaim,
   });
 
   final ForumTaskStatus status;
   final ValueChanged<ForumTaskStatus> onStatusChanged;
+  final bool quickClaiming;
+  final VoidCallback onQuickClaim;
 
   @override
   Widget build(BuildContext context) {
@@ -186,6 +211,21 @@ class _TaskHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: quickClaiming ? null : onQuickClaim,
+              icon: quickClaiming
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.redeem_outlined),
+              label: Text(quickClaiming ? '领取中...' : '一键领取任务奖励'),
+            ),
+          ),
+          const SizedBox(height: 12),
           SegmentedButton<ForumTaskStatus>(
             segments: const [
               ButtonSegment(
@@ -427,6 +467,134 @@ class _TasksLoginPrompt extends StatelessWidget {
       ],
     );
   }
+}
+
+void showForumTaskClaimSnackBar(
+  BuildContext context,
+  ForumTaskQuickClaimResult result,
+) {
+  final lines = <String>[
+    for (final reward in result.claimedRewards) reward.completionMessage,
+    if (!result.hasClaims && result.appliedCount > 0)
+      '已申请 ${result.appliedCount} 个任务，完成后可领取奖励',
+    if (result.alreadyHandled) '本周期任务奖励已领取',
+    if (!result.hasClaims && result.inProgress.isNotEmpty)
+      '${result.inProgress.join('、')}任务进行中，完成后可领取奖励',
+    if (!result.hasClaims &&
+        result.appliedCount == 0 &&
+        !result.hasFailures &&
+        result.skipped.isEmpty &&
+        result.inProgress.isEmpty &&
+        !result.alreadyHandled)
+      '暂无可领取任务奖励',
+    if (result.skipped.isNotEmpty) result.skipped.first,
+    if (result.hasFailures) '部分任务失败：${result.failures.first}',
+  ];
+
+  final title = result.hasClaims
+      ? '任务奖励领取完成'
+      : result.hasFailures
+          ? '任务奖励领取异常'
+          : result.alreadyHandled
+              ? '任务奖励已领取'
+              : '任务奖励暂无更新';
+
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      forumTaskSnackBar(
+        context: context,
+        title: title,
+        lines: lines,
+        success: result.hasClaims && !result.hasFailures,
+      ),
+    );
+}
+
+void showForumTaskClaimErrorSnackBar(BuildContext context, Object error) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      forumTaskSnackBar(
+        context: context,
+        title: '任务奖励领取失败',
+        lines: ['请稍后重试：$error'],
+        success: false,
+      ),
+    );
+}
+
+SnackBar forumTaskSnackBar({
+  required BuildContext context,
+  required String title,
+  required List<String> lines,
+  required bool success,
+}) {
+  final color = success ? AppColors.success : AppColors.brand;
+  final softColor = success ? AppColors.successSoft : AppColors.brandSoft;
+  final borderColor = success ? AppColors.successBorder : AppColors.brandSoft;
+
+  return SnackBar(
+    behavior: SnackBarBehavior.floating,
+    duration: const Duration(seconds: 4),
+    margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+    padding: EdgeInsets.zero,
+    elevation: 8,
+    backgroundColor: AppColors.surface,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+      side: BorderSide(color: borderColor),
+    ),
+    content: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: softColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              success ? Icons.check_circle_outline : Icons.info_outline_rounded,
+              color: color,
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AppColors.text,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                for (final line in lines)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      line,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.textMuted,
+                            height: 1.35,
+                          ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 String _actionLabel(ForumTask task) {

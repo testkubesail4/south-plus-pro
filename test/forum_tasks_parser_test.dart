@@ -65,4 +65,35 @@ void main() {
     expect(tasks.single.progressPercent, 100);
     expect(tasks.single.completedAt, '2026-06-17 AM:11:37:46');
   });
+
+  test('parses cooldown rows without treating them as runnable tasks', () {
+    final document = html_parser.parse('''
+      <table>
+        <tr>
+          <td><b>周常</b> (人气 : 24966409) 任务时效2011-12-03~2028-12-31</td>
+          <td>奖励 : SP币 7 G 上次领取未超过 158 小时</td>
+          <td></td>
+        </tr>
+        <tr><td>无所事事的周常</td></tr>
+        <tr>
+          <td><b>日常</b> (人气 : 84282953) 任务时效2011-12-03~2028-12-31</td>
+          <td>奖励 : SP币 2 G 上次领取未超过 18 小时</td>
+          <td></td>
+        </tr>
+        <tr><td>每日SP+2的日常。</td></tr>
+      </table>
+    ''');
+
+    final tasks = parser.parse(document, ForumTaskStatus.available);
+
+    expect(tasks, hasLength(2));
+    expect(tasks.first.name, '周常');
+    expect(tasks.first.reward, 'SP币 7 G');
+    expect(tasks.first.cooldownRemaining, const Duration(hours: 158));
+    expect(tasks.first.canRun, isFalse);
+    expect(tasks.last.name, '日常');
+    expect(tasks.last.reward, 'SP币 2 G');
+    expect(tasks.last.cooldownRemaining, const Duration(hours: 18));
+    expect(tasks.last.canRun, isFalse);
+  });
 }

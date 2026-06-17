@@ -578,6 +578,7 @@ class ForumTask {
     this.progressPercent,
     this.completedAt,
     this.actionLabel,
+    this.cooldownRemaining,
   });
 
   final String? id;
@@ -591,6 +592,7 @@ class ForumTask {
   final int? progressPercent;
   final String? completedAt;
   final String? actionLabel;
+  final Duration? cooldownRemaining;
 
   bool get canRun => id != null && actionLabel != null;
 }
@@ -603,4 +605,263 @@ class ForumTaskActionResult {
 
   final bool success;
   final String message;
+}
+
+class ForumTaskClaimItem {
+  const ForumTaskClaimItem({
+    required this.name,
+    required this.message,
+    this.reward,
+    this.spAmount,
+  });
+
+  final String name;
+  final String message;
+  final String? reward;
+  final int? spAmount;
+
+  String get completionMessage {
+    final amount = spAmount;
+    if (amount != null) return '$name奖励领取完成SP+$amount';
+    final fallback = reward?.trim();
+    if (fallback != null && fallback.isNotEmpty) {
+      return '$name奖励领取完成$fallback';
+    }
+    return '$name奖励领取完成';
+  }
+}
+
+class ForumTaskQuickClaimResult {
+  const ForumTaskQuickClaimResult({
+    required this.appliedCount,
+    required this.claimedRewards,
+    required this.failures,
+    this.skipped = const [],
+    this.cooldowns = const [],
+    this.inProgress = const [],
+    this.alreadyHandled = false,
+  });
+
+  final int appliedCount;
+  final List<ForumTaskClaimItem> claimedRewards;
+  final List<String> failures;
+  final List<String> skipped;
+  final List<String> cooldowns;
+  final List<String> inProgress;
+  final bool alreadyHandled;
+
+  bool get hasClaims => claimedRewards.isNotEmpty;
+  bool get hasFailures => failures.isNotEmpty;
+}
+
+enum ForumTaskAvailability {
+  unknown,
+  available,
+  inProgress,
+  claimable,
+  coolingDown,
+  completed,
+}
+
+class ForumTaskState {
+  const ForumTaskState({
+    required this.name,
+    required this.availability,
+    this.id,
+    this.reward,
+    this.spAmount,
+    this.progressPercent,
+    this.completedAt,
+    this.cooldownRemaining,
+    this.nextAvailableAt,
+  });
+
+  final String name;
+  final String? id;
+  final ForumTaskAvailability availability;
+  final String? reward;
+  final int? spAmount;
+  final int? progressPercent;
+  final String? completedAt;
+  final Duration? cooldownRemaining;
+  final DateTime? nextAvailableAt;
+
+  bool get isDoneToday =>
+      availability == ForumTaskAvailability.completed ||
+      availability == ForumTaskAvailability.coolingDown;
+  bool get canClaim => availability == ForumTaskAvailability.claimable;
+
+  Duration? cooldownRemainingFrom(DateTime now) {
+    final next = nextAvailableAt;
+    if (next == null) return cooldownRemaining;
+    final remaining = next.difference(now.toUtc());
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  ForumTaskState merge(ForumTaskState other) {
+    final preferred = _preferredTaskState(this, other);
+    final fallback = identical(preferred, other) ? this : other;
+    final cooldownRemaining = this.cooldownRemaining ?? other.cooldownRemaining;
+    final nextAvailableAt = this.nextAvailableAt ?? other.nextAvailableAt;
+    return ForumTaskState(
+      name: preferred.name,
+      id: preferred.id ?? fallback.id,
+      availability: preferred.availability,
+      reward: preferred.reward ?? fallback.reward,
+      spAmount: preferred.spAmount ?? fallback.spAmount,
+      progressPercent: preferred.progressPercent ?? fallback.progressPercent,
+      completedAt: preferred.completedAt ?? fallback.completedAt,
+      cooldownRemaining: cooldownRemaining,
+      nextAvailableAt: nextAvailableAt,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'name': name,
+      'id': id,
+      'availability': availability.name,
+      'reward': reward,
+      'spAmount': spAmount,
+      'progressPercent': progressPercent,
+      'completedAt': completedAt,
+      'cooldownRemainingMinutes': cooldownRemaining?.inMinutes,
+      'nextAvailableAt': nextAvailableAt?.toIso8601String(),
+    };
+  }
+
+  static ForumTaskState? fromJson(Map<String, dynamic> json) {
+    final name = json['name'];
+    if (name is! String || name.isEmpty) return null;
+    final availabilityName = json['availability'];
+    final availability = ForumTaskAvailability.values.firstWhere(
+      (value) => value.name == availabilityName,
+      orElse: () => ForumTaskAvailability.unknown,
+    );
+    final cooldownMinutes = json['cooldownRemainingMinutes'];
+    final nextAvailableAtValue = json['nextAvailableAt'];
+    return ForumTaskState(
+      name: name,
+      id: json['id'] is String ? json['id'] as String : null,
+      availability: availability,
+      reward: json['reward'] is String ? json['reward'] as String : null,
+      spAmount: json['spAmount'] is int ? json['spAmount'] as int : null,
+      progressPercent: json['progressPercent'] is int
+          ? json['progressPercent'] as int
+          : null,
+      completedAt:
+          json['completedAt'] is String ? json['completedAt'] as String : null,
+      cooldownRemaining:
+          cooldownMinutes is int ? Duration(minutes: cooldownMinutes) : null,
+      nextAvailableAt: nextAvailableAtValue is String
+          ? DateTime.tryParse(nextAvailableAtValue)?.toUtc()
+          : null,
+    );
+  }
+}
+
+class ForumTaskSnapshot {
+  const ForumTaskSnapshot({
+    required this.tasks,
+    required this.updatedAt,
+  });
+
+  final List<ForumTaskState> tasks;
+  final DateTime updatedAt;
+
+  bool get hasCompletedReward => tasks.any((task) => task.isDoneToday);
+  bool get hasClaimableReward =>
+      tasks.any((task) => task.availability == ForumTaskAvailability.claimable);
+
+  ForumTaskState? taskNamed(String name) {
+    for (final task in tasks) {
+      if (task.name == name) return task;
+    }
+    return null;
+  }
+
+  ForumTaskSnapshot merge(Iterable<ForumTaskState> updates) {
+    final byName = {for (final task in tasks) task.name: task};
+    for (final update in updates) {
+      byName[update.name] = byName[update.name]?.merge(update) ?? update;
+    }
+    return ForumTaskSnapshot(
+      tasks: byName.values.toList()
+        ..sort((a, b) => _taskSort(a.name).compareTo(_taskSort(b.name))),
+      updatedAt: DateTime.now().toUtc(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'updatedAt': updatedAt.toIso8601String(),
+      'tasks': tasks.map((task) => task.toJson()).toList(),
+    };
+  }
+
+  static ForumTaskSnapshot? fromJson(Map<String, dynamic> json) {
+    final updatedAtValue = json['updatedAt'];
+    final updatedAt = updatedAtValue is String
+        ? DateTime.tryParse(updatedAtValue)?.toUtc()
+        : null;
+    final taskValues = json['tasks'];
+    if (updatedAt == null || taskValues is! List) return null;
+    final tasks = <ForumTaskState>[];
+    for (final value in taskValues) {
+      if (value is! Map<String, dynamic>) continue;
+      final task = ForumTaskState.fromJson(value);
+      if (task != null) tasks.add(task);
+    }
+    return ForumTaskSnapshot(tasks: tasks, updatedAt: updatedAt);
+  }
+}
+
+int _taskSort(String name) {
+  if (name.contains('日常')) return 0;
+  if (name.contains('周常')) return 1;
+  return 2;
+}
+
+int _availabilityRank(ForumTaskAvailability availability) {
+  return switch (availability) {
+    ForumTaskAvailability.unknown => 0,
+    ForumTaskAvailability.coolingDown => 1,
+    ForumTaskAvailability.completed => 2,
+    ForumTaskAvailability.inProgress => 3,
+    ForumTaskAvailability.available => 4,
+    ForumTaskAvailability.claimable => 5,
+  };
+}
+
+ForumTaskState _preferredTaskState(
+    ForumTaskState current, ForumTaskState next) {
+  final currentAvailability = current.availability;
+  final nextAvailability = next.availability;
+
+  if (nextAvailability == ForumTaskAvailability.available &&
+      (currentAvailability == ForumTaskAvailability.completed ||
+          currentAvailability == ForumTaskAvailability.coolingDown)) {
+    return next;
+  }
+
+  if (nextAvailability == ForumTaskAvailability.completed &&
+      currentAvailability == ForumTaskAvailability.claimable) {
+    return next;
+  }
+
+  if (nextAvailability == ForumTaskAvailability.coolingDown &&
+      (currentAvailability == ForumTaskAvailability.completed ||
+          currentAvailability == ForumTaskAvailability.claimable)) {
+    return current;
+  }
+
+  if (currentAvailability == ForumTaskAvailability.coolingDown &&
+      nextAvailability == ForumTaskAvailability.completed) {
+    return next;
+  }
+
+  return _availabilityRank(nextAvailability) >=
+          _availabilityRank(currentAvailability)
+      ? next
+      : current;
 }
