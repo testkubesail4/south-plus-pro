@@ -182,6 +182,33 @@ void main() {
     ]);
   });
 
+  testWidgets('board thread list enters doujin sub board for empty parents',
+      (tester) async {
+    final repository = _FakeBoardRepository();
+
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardThreadListScreen(
+          category: _FakeBoardRepository.emptyParentCategory,
+          repository: repository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('同人志&CG'), findsWidgets);
+    expect(find.text('同人志&CG (图墙模式)'), findsNothing);
+    expect(find.text('子版主题'), findsOneWidget);
+    expect(repository.requestedCategoryUrls, [
+      'https://south-plus.net/thread.php?fid-226.html',
+      'https://south-plus.net/thread.php?fid-227.html',
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('board thread list keeps known sub boards when fetch lacks them',
       (tester) async {
     final repository = _FakeBoardRepository();
@@ -1218,6 +1245,11 @@ class _FakeBoardRepository extends ForumRepository {
     slug: 'fid-218',
     url: 'https://south-plus.net/thread.php?fid-218.html',
   );
+  static const emptyParentCategory = ForumCategory(
+    name: 'Comic Market 107',
+    slug: 'fid-226',
+    url: 'https://south-plus.net/thread.php?fid-226.html',
+  );
 
   final requestedCategoryUrls = <String>[];
 
@@ -1252,6 +1284,25 @@ class _FakeBoardRepository extends ForumRepository {
               replies: index,
               section: 'C103',
             ),
+        ],
+      );
+    }
+    if (category.url?.contains('fid-226') == true) {
+      return const ForumThreadPage(
+        currentPage: 1,
+        totalPages: 1,
+        threads: [],
+        subBoards: [
+          ForumBoard(
+            name: '同人志&CG',
+            url: 'https://south-plus.net/thread.php?fid-227.html',
+            section: 'Comic Market 107',
+          ),
+          ForumBoard(
+            name: '同人志&CG (图墙模式)',
+            url: 'https://south-plus.net/thread.php?fid-228.html',
+            section: 'Comic Market 107',
+          ),
         ],
       );
     }

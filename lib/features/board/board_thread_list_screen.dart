@@ -14,6 +14,8 @@ import '../thread/thread_compose_screen.dart';
 
 part 'board_thread_list_widgets.dart';
 
+const _doujinContentBoardName = '同人志&CG';
+
 class BoardThreadListScreen extends StatefulWidget {
   const BoardThreadListScreen({
     super.key,
@@ -48,10 +50,51 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       _category,
       page: page,
     );
-    if (mounted && threadPage.subBoards.isNotEmpty) {
-      _knownSubBoards = List.of(threadPage.subBoards);
+    _rememberSubBoards(threadPage);
+    final defaultSubBoard = _defaultContentSubBoard(threadPage);
+    if (defaultSubBoard != null) {
+      final nextCategory = ForumCategory(
+        name: defaultSubBoard.name,
+        slug: defaultSubBoard.slug,
+        url: defaultSubBoard.url,
+      );
+      if (mounted) {
+        setState(() {
+          _category = nextCategory;
+          _knownSubBoards = List.of(defaultSubBoard.children);
+          _page = 1;
+        });
+      } else {
+        _category = nextCategory;
+        _knownSubBoards = List.of(defaultSubBoard.children);
+        _page = 1;
+      }
+      final nextPage =
+          await widget.repository.fetchBoardThreadPage(nextCategory, page: 1);
+      _rememberSubBoards(nextPage);
+      return nextPage;
     }
     return threadPage;
+  }
+
+  void _rememberSubBoards(ForumThreadPage page) {
+    if (mounted && page.subBoards.isNotEmpty) {
+      _knownSubBoards = List.of(page.subBoards);
+    }
+  }
+
+  ForumBoard? _defaultContentSubBoard(ForumThreadPage page) {
+    if (page.threads.isNotEmpty || page.subBoards.isEmpty) return null;
+    // Some parent event boards only render global notices/stickies in the
+    // desktop table and keep the actual topics in a regular child board. The
+    // similarly named wall-mode child can be empty, so choose only the exact
+    // content board users would otherwise have to enter manually.
+    for (final board in page.subBoards) {
+      if (board.name == _doujinContentBoardName && board.url != _category.url) {
+        return board;
+      }
+    }
+    return null;
   }
 
   Future<void> _refresh() async {

@@ -758,6 +758,10 @@ class ForumRepository {
     }
     final desktopHtml = await _client.get(desktopPath);
     final desktopDocument = html_parser.parse(desktopHtml);
+    final subBoards = _boardThreadPageParser.parseDesktopSubBoards(
+      desktopDocument,
+      category,
+    );
     // thread_new.php uses the wall stream for ordinary topics, while the table
     // above it still carries board-level sticky topics and ads. Do not parse the
     // whole table as threads, because it also contains broader sticky levels
@@ -777,8 +781,17 @@ class ForumRepository {
         currentPage: pages.current,
         totalPages: pages.total,
         ads: _boardThreadPageParser.parseDesktopAds(desktopDocument),
-        subBoards: _boardThreadPageParser.parseDesktopSubBoards(
-            desktopDocument, category),
+        subBoards: subBoards,
+      );
+    }
+
+    if (subBoards.isNotEmpty) {
+      return ForumThreadPage(
+        threads: const [],
+        currentPage: normalizedPage,
+        totalPages: normalizedPage,
+        ads: _boardThreadPageParser.parseDesktopAds(desktopDocument),
+        subBoards: subBoards,
       );
     }
 

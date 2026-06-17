@@ -189,6 +189,85 @@ void main() {
         'https://south-plus.net/attachment/Mon_2606/preview.jpg');
   });
 
+  test('fetchBoardThreadPage returns sub boards for empty parent boards',
+      () async {
+    final client = _PathForumClient({
+      'thread_new.php?fid-226-page-1.html': '''
+        <html>
+          <body>
+            <table>
+              <tr><td class="h" colspan="5"><b>子版块</b></td></tr>
+              <tr class="tr2">
+                <td></td><td>论坛</td><td>版主</td><td>文章</td><td>最后发表</td>
+              </tr>
+              <tr class="f_one tr3">
+                <td><a href="thread.php?fid-227.html"><img src="new.gif"></a></td>
+                <th>
+                  <a class="bklogo" href="thread.php?fid-227.html"></a>
+                  <h2>
+                    <a href="thread.php?fid-227.html" class="fnamecolor a1">
+                      <b>同人志&amp;CG</b>
+                    </a>
+                  </h2>
+                </th>
+                <td></td><td>3774</td><th>Re:(C107)</th>
+              </tr>
+              <tr class="f_one tr3">
+                <td><a href="thread.php?fid-228.html"><img src="old.gif"></a></td>
+                <th>
+                  <a class="bklogo" href="thread.php?fid-228.html"></a>
+                  <h2>
+                    <a href="thread.php?fid-228.html" class="fnamecolor a1">
+                      <b>同人志&amp;CG (图墙模式)</b>
+                    </a>
+                  </h2>
+                </th>
+                <td></td><td>0</td><th></th>
+              </tr>
+            </table>
+            <table id="ajaxtable">
+              <tr class="tr3 t_one">
+                <td><img src="images/colorImagination/thread/anc.gif"></td>
+                <td><h3><a href="notice.php?fid-.html#72">Contact / DMCA</a></h3></td>
+                <td>论坛公告</td><td>0 / 1</td><td></td>
+              </tr>
+              <tr class="tr3 t_one">
+                <td><img src="images/colorImagination/thread/topiclock.gif"></td>
+                <td id="td_1">
+                  <h3><a href="read.php?tid-3373.html" id="a_ajax_3373">
+                    <b>新人报道帖子（回帖已修复）</b>
+                  </a></h3>
+                  <img src="images/colorImagination/file/headtopic_3.gif"
+                       title="置顶帖标志">
+                </td>
+                <td><a class="bl" href="u.php?action-show-uid-1.html">admin</a></td>
+                <td>64007 / 2018411</td><td></td>
+              </tr>
+            </table>
+          </body>
+        </html>
+      ''',
+    });
+    final repository = ForumRepository(client: client);
+
+    final page = await repository.fetchBoardThreadPage(
+      const ForumCategory(
+        name: 'Comic Market 107',
+        slug: 'fid-226',
+        url: 'https://south-plus.net/thread.php?fid-226.html',
+      ),
+    );
+
+    expect(client.paths, ['thread_new.php?fid-226-page-1.html']);
+    expect(page.threads, isEmpty);
+    expect(page.subBoards.map((board) => board.name), [
+      '同人志&CG',
+      '同人志&CG (图墙模式)',
+    ]);
+    expect(page.currentPage, 1);
+    expect(page.totalPages, 1);
+  });
+
   test('claimForumTaskRewards applies tasks before claiming rewards', () async {
     final client = _PathForumClient({
       'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14': [
