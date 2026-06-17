@@ -98,4 +98,46 @@ void main() {
     expect(freeStorage.children.last.url,
         'https://south-plus.net/thread_new.php?fid=109');
   });
+
+  test('HomePageParser keeps empty parent boards with multiple children', () {
+    final document = html_parser.parse('''
+      <html>
+        <body>
+          <table>
+            <tr>
+              <th><h2><a href="index.php?cateid-39.html">漫区特设</a></h2></th>
+            </tr>
+            <tr><td>版块</td><td>主题/文章</td><td>最后发表</td></tr>
+            <tr>
+              <td></td>
+              <th>
+                <h3><a href="thread.php?fid-170.html">网赚资源区</a></h3>
+                (0) 所有网赚盘的资源请发在这里~
+                子版：
+                <h3>
+                  <a href="thread.php?fid-171.html">CG资源</a> |
+                  <a href="thread.php?fid-172.html">实用动画</a> |
+                  <a href="thread.php?fid-173.html">实用漫画</a> |
+                  <a href="thread.php?fid-174.html">游戏资源</a>
+                </h3>
+              </th>
+              <td>0 / 0</td>
+              <th>latest</th>
+            </tr>
+          </table>
+        </body>
+      </html>
+    ''');
+
+    final sections = HomePageParser().parseDesktopForumSections(document);
+    final resourceBoard = sections.first.items.single;
+
+    expect(resourceBoard.name, '网赚资源区');
+    expect(resourceBoard.children.map((board) => board.name), [
+      'CG资源',
+      '实用动画',
+      '实用漫画',
+      '游戏资源',
+    ]);
+  });
 }

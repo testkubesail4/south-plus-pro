@@ -80,6 +80,116 @@ void main() {
     expect(boards.first.subtitle, contains('Re:(C103)'));
   });
 
+  test('BoardThreadPageParser handles parent boards that only list children',
+      () {
+    final document = html_parser.parse('''
+      <html>
+        <body>
+          <table>
+            <tr><td class="h" colspan="5"><b>子版块</b></td></tr>
+            <tr><td></td><td>论坛</td><td>版主</td><td>文章</td><td>最后发表</td></tr>
+            <tr class="f_one tr3">
+              <td><a href="thread.php?fid-171.html"><img src="new.gif"></a></td>
+              <th>
+                <a class="bklogo" href="thread.php?fid-171.html"></a>
+                <h2><a href="thread.php?fid-171.html" class="fnamecolor a1">CG资源</a></h2>
+              </th>
+              <td></td><td>190481</td><th>[AI绘画]小舞-斗 ..d06f7a3a</th>
+            </tr>
+            <tr class="f_one tr3">
+              <td><a href="thread.php?fid-172.html"><img src="new.gif"></a></td>
+              <th>
+                <a class="bklogo" href="thread.php?fid-172.html"></a>
+                <h2><a href="thread.php?fid-172.html" class="fnamecolor a1">实用动画</a></h2>
+              </th>
+              <td></td><td>392656</td><th>Re:[2D动画/无修/ ..31fa71c2</th>
+            </tr>
+          </table>
+          <table id="ajaxtable">
+            <tr class="tr3 t_one">
+              <td><img src="images/colorImagination/thread/anc.gif"></td>
+              <td><h3><a href="notice.php?fid-.html#72">Contact / DMCA</a></h3></td>
+              <td>论坛公告</td><td>0 / 1</td><td></td>
+            </tr>
+            <tr class="tr3 t_one">
+              <td><img src="images/colorImagination/thread/topiclock.gif"></td>
+              <td>
+                <h3><a href="read.php?tid-3373.html">新人报道帖子（回帖已修复）</a></h3>
+                <img src="images/colorImagination/file/headtopic_3.gif"
+                     title="置顶帖标志">
+              </td>
+              <td>admin</td><td>64007 / 2018417</td><td></td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    ''');
+    const category = ForumCategory(
+      name: '网赚资源区',
+      slug: 'fid-170',
+      url: 'https://south-plus.net/thread.php?fid-170.html',
+    );
+    final parser = BoardThreadPageParser();
+
+    final boards = parser.parseDesktopSubBoards(document, category);
+    final stickyThreads = parser.parseDesktopStickyThreads(document, category);
+    final wallThreads = parser.parseWallThreads(document, category);
+
+    expect(boards.map((board) => board.name), ['CG资源', '实用动画']);
+    expect(boards.first.postCount, 190481);
+    expect(stickyThreads, isEmpty);
+    expect(wallThreads, isEmpty);
+  });
+
+  test('BoardThreadPageParser keeps current-board stickies only', () {
+    final document = html_parser.parse('''
+      <html>
+        <body>
+          <table id="ajaxtable">
+            <tr class="tr3 t_one">
+              <td><img src="images/colorImagination/thread/topiclock.gif"></td>
+              <td>
+                <h3><a href="read.php?tid-1.html">全局置顶</a></h3>
+                <img src="images/colorImagination/file/headtopic_3.gif"
+                     title="置顶帖标志">
+              </td>
+              <td><a class="bl" href="u.php?action-show-uid-1.html">admin</a></td>
+              <td>1 / 10</td><td></td>
+            </tr>
+            <tr class="tr3 t_one">
+              <td><img src="images/colorImagination/thread/topiclock.gif"></td>
+              <td>
+                <h3><a href="read.php?tid-2.html">分区置顶</a></h3>
+                <img src="images/colorImagination/file/headtopic_2.gif"
+                     title="置顶帖标志">
+              </td>
+              <td><a class="bl" href="u.php?action-show-uid-1.html">admin</a></td>
+              <td>1 / 10</td><td></td>
+            </tr>
+            <tr class="tr3 t_one">
+              <td><img src="images/colorImagination/thread/topiclock.gif"></td>
+              <td>
+                <h3><a href="read.php?tid-3.html">板块置顶</a></h3>
+                <img src="images/colorImagination/file/headtopic_1.gif"
+                     title="置顶帖标志">
+              </td>
+              <td><a class="bl" href="u.php?action-show-uid-1.html">admin</a></td>
+              <td>1 / 10</td><td></td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    ''');
+
+    final threads = BoardThreadPageParser().parseDesktopStickyThreads(
+      document,
+      const ForumCategory(name: '免空资源区', slug: 'fid-13'),
+    );
+
+    expect(threads.map((thread) => thread.title), ['板块置顶']);
+    expect(threads.single.isSticky, isTrue);
+  });
+
   test('BoardThreadPageParser extracts wall threads with preview images', () {
     final document = html_parser.parse('''
       <html>
