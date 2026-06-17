@@ -325,7 +325,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('任务奖励'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
 
     expect(repository.claimRequests, 1);
     expect(find.text('任务奖励领取完成'), findsOneWidget);
@@ -342,8 +343,23 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('已领 1'), findsOneWidget);
+    expect(find.text('已签到'), findsOneWidget);
     expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
+  });
+
+  testWidgets('home task shortcut shows automatic sign-in success',
+      (tester) async {
+    final repository = _FakeAutoClaimHomeRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: ForumHomePage(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.autoClaimRequests, 1);
+    expect(find.text('已自动签到'), findsOneWidget);
+    expect(find.text('自动签到完成'), findsOneWidget);
+    expect(find.text('日常奖励领取完成SP+2'), findsOneWidget);
   });
 
   testWidgets('browsing history opens a viewed thread', (tester) async {
@@ -1285,6 +1301,14 @@ class _FakeHomeRepository extends ForumRepository {
       ],
     );
   }
+
+  @override
+  Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() async => null;
+
+  @override
+  Future<ForumTaskQuickClaimResult?> autoClaimForumTaskRewardsIfDue() async {
+    return null;
+  }
 }
 
 class _FakeQuickClaimHomeRepository extends _FakeHomeRepository {
@@ -1333,6 +1357,50 @@ class _FakeCompletedTaskHomeRepository extends _FakeHomeRepository {
           spAmount: 2,
           completedAt: '2026-06-17 AM:11:37:46',
           cooldownRemaining: Duration(hours: 18),
+        ),
+      ],
+    );
+  }
+}
+
+class _FakeAutoClaimHomeRepository extends _FakeHomeRepository {
+  var autoClaimRequests = 0;
+  var _autoClaimed = false;
+
+  @override
+  bool get isLoggedIn => true;
+
+  @override
+  Future<ForumTaskQuickClaimResult?> autoClaimForumTaskRewardsIfDue() async {
+    autoClaimRequests += 1;
+    _autoClaimed = true;
+    return const ForumTaskQuickClaimResult(
+      appliedCount: 1,
+      claimedRewards: [
+        ForumTaskClaimItem(
+          name: '日常',
+          reward: 'SP币 2 G',
+          spAmount: 2,
+          message: 'success',
+        ),
+      ],
+      failures: [],
+    );
+  }
+
+  @override
+  Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() async {
+    if (!_autoClaimed) return null;
+    final now = DateTime.now().toUtc();
+    return ForumTaskSnapshot(
+      updatedAt: now,
+      tasks: [
+        ForumTaskState(
+          name: '日常',
+          availability: ForumTaskAvailability.completed,
+          reward: 'SP币 2 G',
+          spAmount: 2,
+          nextAvailableAt: now.add(const Duration(hours: 23)),
         ),
       ],
     );

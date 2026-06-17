@@ -511,6 +511,27 @@ void showForumTaskClaimSnackBar(
     );
 }
 
+void showForumTaskAutoClaimSnackBar(
+  BuildContext context,
+  ForumTaskQuickClaimResult result,
+) {
+  final lines = <String>[
+    for (final reward in result.claimedRewards) reward.completionMessage,
+  ];
+  if (lines.isEmpty) return;
+
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      forumTaskSnackBar(
+        context: context,
+        title: '自动签到完成',
+        lines: lines,
+        success: !result.hasFailures,
+      ),
+    );
+}
+
 void showForumTaskClaimErrorSnackBar(BuildContext context, Object error) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()

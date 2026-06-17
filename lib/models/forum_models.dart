@@ -690,12 +690,42 @@ class ForumTaskState {
       availability == ForumTaskAvailability.completed ||
       availability == ForumTaskAvailability.coolingDown;
   bool get canClaim => availability == ForumTaskAvailability.claimable;
+  bool get isDailyReward => name.contains('日常');
+  bool get isWeeklyReward => name.contains('周常');
+  bool get isAutoReward => isDailyReward || isWeeklyReward;
+
+  Duration? get autoRewardCycle {
+    if (isDailyReward) return const Duration(hours: 24);
+    if (isWeeklyReward) return const Duration(hours: 168);
+    return null;
+  }
 
   Duration? cooldownRemainingFrom(DateTime now) {
     final next = nextAvailableAt;
     if (next == null) return cooldownRemaining;
     final remaining = next.difference(now.toUtc());
     return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  DateTime? nextAutoClaimAt() {
+    final next = nextAvailableAt;
+    if (next != null) return next.toUtc();
+    final cycle = autoRewardCycle;
+    final completed = _parseForumTaskCompletedAt(completedAt);
+    if (cycle == null || completed == null) return null;
+    return completed.add(cycle).toUtc();
+  }
+
+  bool shouldAutoClaimAt(DateTime now) {
+    if (!isAutoReward) return false;
+    if (availability == ForumTaskAvailability.available ||
+        availability == ForumTaskAvailability.claimable ||
+        availability == ForumTaskAvailability.inProgress) {
+      return true;
+    }
+    final next = nextAutoClaimAt();
+    if (next == null) return true;
+    return !next.isAfter(now.toUtc());
   }
 
   ForumTaskState merge(ForumTaskState other) {
@@ -772,12 +802,32 @@ class ForumTaskSnapshot {
   bool get hasCompletedReward => tasks.any((task) => task.isDoneToday);
   bool get hasClaimableReward =>
       tasks.any((task) => task.availability == ForumTaskAvailability.claimable);
+  bool get hasAutoRewardState => tasks.any((task) => task.isAutoReward);
 
   ForumTaskState? taskNamed(String name) {
     for (final task in tasks) {
       if (task.name == name) return task;
     }
     return null;
+  }
+
+  bool shouldAutoClaimAt(DateTime now) {
+    final autoTasks = tasks.where((task) => task.isAutoReward).toList();
+    if (autoTasks.length < 2) return true;
+    return autoTasks.any((task) => task.shouldAutoClaimAt(now));
+  }
+
+  DateTime? nextAutoClaimAt(DateTime now) {
+    final autoTasks = tasks.where((task) => task.isAutoReward).toList();
+    if (autoTasks.length < 2) return now.toUtc();
+    DateTime? next;
+    for (final task in autoTasks) {
+      if (task.shouldAutoClaimAt(now)) return now.toUtc();
+      final candidate = task.nextAutoClaimAt();
+      if (candidate == null) continue;
+      if (next == null || candidate.isBefore(next)) next = candidate;
+    }
+    return next;
   }
 
   ForumTaskSnapshot merge(Iterable<ForumTaskState> updates) {
@@ -820,6 +870,34 @@ int _taskSort(String name) {
   if (name.contains('日常')) return 0;
   if (name.contains('周常')) return 1;
   return 2;
+}
+
+DateTime? _parseForumTaskCompletedAt(String? value) {
+  final text = value?.trim();
+  if (text == null || text.isEmpty) return null;
+  final match = RegExp(
+    r'(\d{4})-(\d{2})-(\d{2})\s+(AM|PM):(\d{1,2}):(\d{2}):(\d{2})',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (match == null) return DateTime.tryParse(text)?.toUtc();
+  final year = int.tryParse(match.group(1) ?? '');
+  final month = int.tryParse(match.group(2) ?? '');
+  final day = int.tryParse(match.group(3) ?? '');
+  var hour = int.tryParse(match.group(5) ?? '');
+  final minute = int.tryParse(match.group(6) ?? '');
+  final second = int.tryParse(match.group(7) ?? '');
+  if (year == null ||
+      month == null ||
+      day == null ||
+      hour == null ||
+      minute == null ||
+      second == null) {
+    return null;
+  }
+  final marker = (match.group(4) ?? '').toUpperCase();
+  if (marker == 'PM' && hour < 12) hour += 12;
+  if (marker == 'AM' && hour == 12) hour = 0;
+  return DateTime(year, month, day, hour, minute, second).toUtc();
 }
 
 int _availabilityRank(ForumTaskAvailability availability) {

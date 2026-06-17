@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/forum_task_state_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -643,6 +644,129 @@ void main() {
     expect(daily?.nextAvailableAt, isNotNull);
     expect(daily?.completedAt, '2026-06-17 AM:11:37:46');
   });
+
+  test('autoClaimForumTaskRewardsIfDue skips requests while cache is fresh',
+      () async {
+    final now = DateTime.now().toUtc();
+    final snapshot = ForumTaskSnapshot(
+      updatedAt: now,
+      tasks: [
+        ForumTaskState(
+          name: '日常',
+          availability: ForumTaskAvailability.completed,
+          reward: 'SP币 2 G',
+          spAmount: 2,
+          nextAvailableAt: now.add(const Duration(hours: 2)),
+        ),
+        ForumTaskState(
+          name: '周常',
+          availability: ForumTaskAvailability.completed,
+          reward: 'SP币 7 G',
+          spAmount: 7,
+          nextAvailableAt: now.add(const Duration(days: 2)),
+        ),
+      ],
+    );
+    const store = ForumTaskStateStore();
+    await store.save(snapshot);
+    final client = _PathForumClient({}, loggedIn: true);
+    final repository = ForumRepository(client: client, taskStateStore: store);
+
+    final result = await repository.autoClaimForumTaskRewardsIfDue();
+
+    expect(result, isNull);
+    expect(client.paths, isEmpty);
+  });
+
+  test('autoClaimForumTaskRewardsIfDue runs one-click flow when cache is due',
+      () async {
+    final now = DateTime.now().toUtc();
+    final snapshot = ForumTaskSnapshot(
+      updatedAt: now.subtract(const Duration(days: 1)),
+      tasks: [
+        ForumTaskState(
+          name: '日常',
+          availability: ForumTaskAvailability.completed,
+          reward: 'SP币 2 G',
+          spAmount: 2,
+          nextAvailableAt: now.subtract(const Duration(minutes: 1)),
+        ),
+        ForumTaskState(
+          name: '周常',
+          availability: ForumTaskAvailability.completed,
+          reward: 'SP币 7 G',
+          spAmount: 7,
+          nextAvailableAt: now.add(const Duration(days: 2)),
+        ),
+      ],
+    );
+    const store = ForumTaskStateStore();
+    await store.save(snapshot);
+    final client = _PathForumClient({
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': [
+        'success\t任务领取完成',
+        'success\t任务奖励领取完成',
+      ],
+      'plugin.php?H_name-tasks-actions-endtasks.html.html': [
+        '<html></html>',
+        '''
+          <table>
+            <tr>
+              <td><b>日常</b> (人气 : 84287884) 任务时效2011-12-03~2028-12-31</td>
+              <td>奖励 : SP币 2 G</td>
+              <td></td>
+            </tr>
+            <tr><td>每日SP+2的日常。 已完成 100 % 完成时间 2026-06-17 AM:10:00:00</td></tr>
+          </table>
+        ''',
+      ],
+      'plugin.php?H_name-tasks.html': [
+        '''
+          <table>
+            <tr>
+              <td><b>日常</b> (人气 : 84287884) 任务时效2011-12-03~2028-12-31</td>
+              <td>奖励 : SP币 2 G</td>
+              <td><span id="p_15"><a onclick="startjob('15');" title="按这申请此任务"></a></span></td>
+            </tr>
+            <tr><td>每日SP+2的日常。</td></tr>
+          </table>
+        ''',
+        '''
+          <table>
+            <tr>
+              <td><b>日常</b> (人气 : 84287884) 任务时效2011-12-03~2028-12-31</td>
+              <td>奖励 : SP币 2 G 上次领取未超过 23 小时</td>
+              <td></td>
+            </tr>
+            <tr><td>每日SP+2的日常。</td></tr>
+          </table>
+        ''',
+      ],
+      'plugin.php?H_name-tasks-actions-newtasks.html.html': [
+        '''
+          <table>
+            <tr>
+              <td><b>日常</b> (人气 : 84287884) 任务时效2011-12-03~2028-12-31</td>
+              <td>奖励 : SP币 2 G</td>
+              <td><span id="p_15"><a onclick="startjob('15');" title="领取此奖励"></a></span></td>
+            </tr>
+            <tr><td>每日SP+2的日常。 已完成 100 %</td></tr>
+          </table>
+        ''',
+        '<html></html>',
+      ],
+    }, loggedIn: true);
+    final repository = ForumRepository(client: client, taskStateStore: store);
+
+    final result = await repository.autoClaimForumTaskRewardsIfDue();
+
+    expect(result?.claimedRewards.single.completionMessage, '日常奖励领取完成SP+2');
+    expect(client.paths, contains('plugin.php?H_name-tasks.html'));
+    expect(
+      client.paths,
+      contains('plugin.php?H_name=tasks&action=ajax&actions=job&cid=15'),
+    );
+  });
 }
 
 class _FakeForumClient extends ForumClient {
@@ -662,10 +786,14 @@ class _FakeForumClient extends ForumClient {
 }
 
 class _PathForumClient extends ForumClient {
-  _PathForumClient(this.htmlByPath);
+  _PathForumClient(this.htmlByPath, {this.loggedIn = false});
 
   final Map<String, Object> htmlByPath;
+  final bool loggedIn;
   final paths = <String>[];
+
+  @override
+  bool get isLoggedIn => loggedIn;
 
   @override
   Future<String> get(String path) async {

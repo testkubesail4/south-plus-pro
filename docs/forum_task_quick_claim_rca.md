@@ -5,7 +5,7 @@ Date: 2026-06-17
 ## Observed Facts
 
 - The forum task pages have three relevant states:
-  - `plugin.php?H_name-tasks.html.html`: new/available tasks.
+  - `plugin.php?H_name-tasks.html` / `plugin.php?H_name-tasks.html.html`: new/available tasks.
   - `plugin.php?H_name-tasks-actions-newtasks.html.html`: in-progress tasks.
   - `plugin.php?H_name-tasks-actions-endtasks.html.html`: completed rewards.
 - On the available page, daily and weekly tasks can show cooldown text such as:
@@ -138,6 +138,23 @@ Production flow:
 7. Claim only in-progress tasks that have `领取此奖励` or `已完成 100 %`.
 8. Re-fetch completed and available pages after any action that may have changed server state.
 9. Treat available-page cooldowns and action-endpoint cooldown replies as handled state, not user-facing failures.
+
+## Expected Automatic Sign-In Flow
+
+Automatic sign-in is a passive home-page convenience. It must reduce requests, but it must not weaken manual one-click behavior.
+
+Rules:
+
+- Automatic sign-in runs only for logged-in users.
+- Manual one-click always calls the production one-click flow. Do not block manual clicks with cache.
+- Automatic sign-in may skip all forum requests when local state says both auto rewards are not due.
+- The local next time is derived in this order:
+  - `nextAvailableAt` from the available-page cooldown, when present.
+  - Completed time plus the known cycle: daily `24h`, weekly `168h`.
+- If the local cache is missing either daily or weekly state, automatic sign-in may run one one-click attempt to initialize state.
+- If the cache says a task is available, claimable, or in progress, automatic sign-in should run one one-click attempt.
+- Automatic success is visible on the home shortcut as `已自动签到` and may show a floating snackbar with reward lines such as `日常奖励领取完成SP+2`.
+- Automatic no-op or transient failure should not interrupt browsing. The manual button remains the visible recovery path.
 
 ## Production State Matrix
 

@@ -410,6 +410,17 @@ class ForumRepository {
     );
   }
 
+  Future<ForumTaskQuickClaimResult?> autoClaimForumTaskRewardsIfDue() async {
+    if (!isLoggedIn) return null;
+
+    final cached = await loadCachedForumTaskSnapshot();
+    if (cached != null && !cached.shouldAutoClaimAt(_nowUtc())) {
+      return null;
+    }
+
+    return claimForumTaskRewards();
+  }
+
   Future<bool> _claimRewardsFromTasks(
     List<ForumTask> tasks, {
     required Set<String> targetNames,

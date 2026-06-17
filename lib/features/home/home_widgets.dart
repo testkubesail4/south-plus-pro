@@ -289,6 +289,8 @@ class _TaskShortcut extends StatefulWidget {
 
 class _TaskShortcutState extends State<_TaskShortcut> {
   var _running = false;
+  var _autoClaimAttempted = false;
+  var _autoClaimed = false;
   ForumTaskSnapshot? _snapshot;
 
   @override
@@ -298,6 +300,39 @@ class _TaskShortcutState extends State<_TaskShortcut> {
   }
 
   Future<void> _loadSnapshot() async {
+    final snapshot = await widget.repository.loadCachedForumTaskSnapshot();
+    if (!mounted) return;
+    setState(() => _snapshot = snapshot);
+    unawaited(_autoClaimRewards());
+  }
+
+  Future<void> _autoClaimRewards() async {
+    if (_autoClaimAttempted ||
+        _running ||
+        !mounted ||
+        !widget.repository.isLoggedIn) {
+      return;
+    }
+
+    _autoClaimAttempted = true;
+    setState(() => _running = true);
+    try {
+      final result = await widget.repository.autoClaimForumTaskRewardsIfDue();
+      if (!mounted) return;
+      await _loadSnapshotOnly();
+      if (!mounted || result == null) return;
+      if (result.hasClaims) {
+        setState(() => _autoClaimed = true);
+        _showAutoClaimResult(result);
+      }
+    } catch (_) {
+      // Keep passive auto sign-in quiet; the manual button still reports errors.
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  Future<void> _loadSnapshotOnly() async {
     final snapshot = await widget.repository.loadCachedForumTaskSnapshot();
     if (!mounted) return;
     setState(() => _snapshot = snapshot);
@@ -313,7 +348,10 @@ class _TaskShortcutState extends State<_TaskShortcut> {
     try {
       final result = await widget.repository.claimForumTaskRewards();
       if (!mounted) return;
-      await _loadSnapshot();
+      await _loadSnapshotOnly();
+      if (result.hasClaims) {
+        setState(() => _autoClaimed = false);
+      }
       _showClaimResult(result);
     } catch (error) {
       if (!mounted) return;
@@ -335,6 +373,10 @@ class _TaskShortcutState extends State<_TaskShortcut> {
     showForumTaskClaimSnackBar(context, result);
   }
 
+  void _showAutoClaimResult(ForumTaskQuickClaimResult result) {
+    showForumTaskAutoClaimSnackBar(context, result);
+  }
+
   void _showClaimError(Object error) {
     showForumTaskClaimErrorSnackBar(context, error);
   }
@@ -351,7 +393,9 @@ class _TaskShortcutState extends State<_TaskShortcut> {
         : hasClaimable
             ? '可领取'
             : done > 0
-                ? '已领 $done'
+                ? _autoClaimed
+                    ? '已自动签到'
+                    : '已签到'
                 : cooldownLabel ?? '任务奖励';
     final foreground = success ? AppColors.success : AppColors.brand;
     final border = success ? AppColors.successBorder : AppColors.brandSoft;
