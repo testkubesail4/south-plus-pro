@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AppPalette {
   const AppPalette({
@@ -124,9 +125,18 @@ class AppColors {
   );
 
   static AppPalette get current {
-    final dispatcher =
-        WidgetsBinding.instance.platformDispatcher.platformBrightness;
-    return dispatcher == Brightness.dark ? darkPalette : lightPalette;
+    return effectiveBrightness(AppThemeController.themeMode) == Brightness.dark
+        ? darkPalette
+        : lightPalette;
+  }
+
+  static Brightness effectiveBrightness(ThemeMode mode) {
+    return switch (mode) {
+      ThemeMode.dark => Brightness.dark,
+      ThemeMode.light => Brightness.light,
+      ThemeMode.system =>
+        WidgetsBinding.instance.platformDispatcher.platformBrightness,
+    };
   }
 
   static Color get brand => current.brand;
@@ -146,6 +156,41 @@ class AppColors {
   static Color get success => current.success;
   static Color get successSoft => current.successSoft;
   static Color get successBorder => current.successBorder;
+}
+
+class AppThemeController {
+  AppThemeController._();
+
+  static const _prefKey = 'app.themeMode';
+
+  static final ValueNotifier<ThemeMode> notifier =
+      ValueNotifier<ThemeMode>(ThemeMode.system);
+
+  static ThemeMode get themeMode => notifier.value;
+
+  static Brightness get effectiveBrightness =>
+      AppColors.effectiveBrightness(themeMode);
+
+  static bool get isDark => effectiveBrightness == Brightness.dark;
+
+  static void toggle() {
+    setMode(isDark ? ThemeMode.light : ThemeMode.dark);
+  }
+
+  static Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString(_prefKey);
+    notifier.value = ThemeMode.values.firstWhere(
+      (mode) => mode.name == name,
+      orElse: () => ThemeMode.system,
+    );
+  }
+
+  static Future<void> setMode(ThemeMode mode) async {
+    notifier.value = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefKey, mode.name);
+  }
 }
 
 class AppTheme {

@@ -1,13 +1,19 @@
 part of 'home_shell.dart';
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.repository, this.onHistoryTap});
+  const _TopBar({
+    required this.repository,
+    this.onHistoryTap,
+    this.onToggleTheme,
+  });
 
   final ForumRepository repository;
   final VoidCallback? onHistoryTap;
+  final VoidCallback? onToggleTheme;
 
   @override
   Widget build(BuildContext context) {
+    final nextThemeLabel = AppThemeController.isDark ? '切换为白天模式' : '切换为暗黑模式';
     return Container(
       height: 58,
       padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
@@ -88,6 +94,17 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
+          if (onToggleTheme != null)
+            IconButton(
+              tooltip: nextThemeLabel,
+              onPressed: onToggleTheme,
+              icon: Icon(
+                AppThemeController.isDark
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
+                color: AppColors.text,
+              ),
+            ),
           IconButton(
             tooltip: '搜索',
             onPressed: () => Navigator.of(context).push(

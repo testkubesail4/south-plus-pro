@@ -20,6 +20,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
 import 'package:south_plus_rewrite/services/image_loading_settings.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 void main() {
   testWidgets('app boots to simple home screen', (tester) async {
@@ -33,6 +34,28 @@ void main() {
 
     expect(find.text('southplus'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
+  });
+
+  testWidgets('home exposes a light and dark mode toggle', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ForumNetworkSetupStore.completedKey: true,
+    });
+
+    await tester.pumpWidget(const SouthPlusApp());
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byTooltip('切换为暗黑模式'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('切换为暗黑模式'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('切换为白天模式'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('切换为白天模式'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('切换为暗黑模式'), findsOneWidget);
   });
 
   testWidgets('skeleton card fits compact three-line layouts', (tester) async {
@@ -377,6 +400,57 @@ void main() {
     expect(repository.ranTaskIds, ['15']);
     expect(find.text('奖励领取完成'), findsOneWidget);
     expect(find.text('完成时间 2026-06-17 AM:11:37:46'), findsOneWidget);
+  });
+
+  testWidgets('account screen exposes theme mode settings', (tester) async {
+    final repository = _FakeTasksRepository();
+    SharedPreferences.setMockInitialValues({});
+    await AppThemeController.setMode(ThemeMode.system);
+    addTearDown(() async {
+      await AppThemeController.setMode(ThemeMode.system);
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountScreen(
+          repository: repository,
+          onLoggedOut: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('界面设置'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('界面设置'), findsOneWidget);
+    expect(find.text('跟随系统'), findsOneWidget);
+    expect(find.text('白天模式'), findsOneWidget);
+    expect(find.text('暗黑模式'), findsOneWidget);
+
+    await tester.drag(find.byType(ListView), const Offset(0, -220));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.ancestor(
+        of: find.text('暗黑模式'),
+        matching: find.byType(InkWell),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(AppThemeController.themeMode, ThemeMode.dark);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('app.themeMode'), 'dark');
+
+    await AppThemeController.setMode(ThemeMode.light);
+    expect(AppThemeController.themeMode, ThemeMode.light);
+
+    await AppThemeController.setMode(ThemeMode.system);
+    expect(AppThemeController.themeMode, ThemeMode.system);
   });
 
   testWidgets('profile uses cached overview while refreshing fresh data',

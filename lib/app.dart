@@ -7,27 +7,46 @@ import 'services/forum_network_setup_store.dart';
 import 'services/forum_repository.dart';
 import 'theme/app_theme.dart';
 
-class SouthPlusApp extends StatelessWidget {
+class SouthPlusApp extends StatefulWidget {
   const SouthPlusApp({super.key});
 
   @override
+  State<SouthPlusApp> createState() => _SouthPlusAppState();
+}
+
+class _SouthPlusAppState extends State<SouthPlusApp> {
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'South Plus',
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
-      home: const SessionGate(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: AppThemeController.notifier,
+      builder: (context, themeMode, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'South Plus',
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: themeMode,
+          home: SessionGate(onToggleTheme: AppThemeController.toggle),
+        );
+      },
     );
   }
 }
 
 class SessionGate extends StatefulWidget {
-  const SessionGate({super.key, ForumRepository? repository})
-      : repository = repository;
+  const SessionGate({
+    super.key,
+    ForumRepository? repository,
+    this.onToggleTheme,
+  }) : repository = repository;
 
   final ForumRepository? repository;
+  final VoidCallback? onToggleTheme;
 
   @override
   State<SessionGate> createState() => _SessionGateState();
@@ -109,7 +128,10 @@ class _SessionGateState extends State<SessionGate> {
           );
         }
 
-        return HomeShell(repository: result.repository);
+        return HomeShell(
+          repository: result.repository,
+          onToggleTheme: widget.onToggleTheme,
+        );
       },
     );
   }

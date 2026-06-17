@@ -16,10 +16,14 @@ import '../thread/thread_detail_screen.dart';
 part 'home_widgets.dart';
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, ForumRepository? repository})
-      : repository = repository;
+  const HomeShell({
+    super.key,
+    ForumRepository? repository,
+    this.onToggleTheme,
+  }) : repository = repository;
 
   final ForumRepository? repository;
+  final VoidCallback? onToggleTheme;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -47,6 +51,7 @@ class _HomeShellState extends State<HomeShell> {
           ForumHomePage(
             repository: _repository,
             onHistoryTap: _showHistory,
+            onToggleTheme: widget.onToggleTheme,
           ),
           FavoriteThreadsPage(
             repository: _repository,
@@ -101,10 +106,12 @@ class ForumHomePage extends StatefulWidget {
     super.key,
     required this.repository,
     this.onHistoryTap,
+    this.onToggleTheme,
   });
 
   final ForumRepository repository;
   final VoidCallback? onHistoryTap;
+  final VoidCallback? onToggleTheme;
 
   @override
   State<ForumHomePage> createState() => _ForumHomePageState();
@@ -169,6 +176,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
                   _TopBar(
                     repository: widget.repository,
                     onHistoryTap: widget.onHistoryTap,
+                    onToggleTheme: widget.onToggleTheme,
                   ),
                   if (snapshot.hasError)
                     AsyncErrorView(

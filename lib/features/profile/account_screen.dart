@@ -196,6 +196,29 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
           const SizedBox(height: 14),
           _AccountSection(
+            title: '界面设置',
+            subtitle: '选择应用配色偏好',
+            children: [
+              ValueListenableBuilder<ThemeMode>(
+                valueListenable: AppThemeController.notifier,
+                builder: (context, themeMode, _) {
+                  return Column(
+                    children: ThemeMode.values.map((mode) {
+                      return _SelectableAccountTile(
+                        icon: _iconForThemeMode(mode),
+                        onTap: () => AppThemeController.setMode(mode),
+                        title: Text(_labelForThemeMode(mode)),
+                        subtitle: Text(_descriptionForThemeMode(mode)),
+                        selected: themeMode == mode,
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _AccountSection(
             title: '图片与流量',
             subtitle: '控制帖子图片的加载策略和本地缓存',
             children: [
@@ -659,5 +682,29 @@ IconData _iconForImageMode(ImageLoadMode mode) {
     ImageLoadMode.automatic => Icons.image_outlined,
     ImageLoadMode.wifiOnly => Icons.wifi_outlined,
     ImageLoadMode.manual => Icons.touch_app_outlined,
+  };
+}
+
+IconData _iconForThemeMode(ThemeMode mode) {
+  return switch (mode) {
+    ThemeMode.system => Icons.settings_suggest_outlined,
+    ThemeMode.light => Icons.light_mode_outlined,
+    ThemeMode.dark => Icons.dark_mode_outlined,
+  };
+}
+
+String _labelForThemeMode(ThemeMode mode) {
+  return switch (mode) {
+    ThemeMode.system => '跟随系统',
+    ThemeMode.light => '白天模式',
+    ThemeMode.dark => '暗黑模式',
+  };
+}
+
+String _descriptionForThemeMode(ThemeMode mode) {
+  return switch (mode) {
+    ThemeMode.system => '自动使用系统外观设置',
+    ThemeMode.light => '始终使用浅色界面',
+    ThemeMode.dark => '始终使用深色界面',
   };
 }

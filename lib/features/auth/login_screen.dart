@@ -110,7 +110,12 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBar(content: Text(result.message)),
     );
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => HomeShell(repository: _repo)),
+      MaterialPageRoute(
+        builder: (_) => HomeShell(
+          repository: _repo,
+          onToggleTheme: AppThemeController.toggle,
+        ),
+      ),
     );
   }
 
@@ -269,7 +274,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           : () {
                               Navigator.of(context).pushReplacement(
                                 MaterialPageRoute(
-                                  builder: (_) => HomeShell(repository: _repo),
+                                  builder: (_) => HomeShell(
+                                    repository: _repo,
+                                    onToggleTheme: AppThemeController.toggle,
+                                  ),
                                 ),
                               );
                             },
