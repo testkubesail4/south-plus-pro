@@ -7,6 +7,7 @@ import '../../services/image_loading_settings.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/cached_forum_image.dart';
+import 'forum_tasks_screen.dart';
 import 'network_setup_flow_screen.dart';
 import 'network_settings_screen.dart';
 import 'user_profile_screen.dart';
@@ -134,6 +135,21 @@ class _AccountScreenState extends State<AccountScreen> {
                         : LoginScreen(
                             repository: widget.repository,
                           ),
+                  ),
+                ),
+              ),
+              _AccountTile(
+                icon: Icons.fact_check_outlined,
+                title: '论坛任务',
+                subtitle: widget.repository.isLoggedIn
+                    ? '申请日常、周常并领取奖励'
+                    : '登录后领取 SP 币任务奖励',
+                accent: widget.repository.isLoggedIn,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ForumTasksScreen(
+                      repository: widget.repository,
+                    ),
                   ),
                 ),
               ),

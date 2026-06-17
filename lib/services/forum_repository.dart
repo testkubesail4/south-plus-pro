@@ -10,6 +10,7 @@ import 'user_profile_cache.dart';
 import 'parsers/board_thread_page_parser.dart';
 import 'parsers/forum_form_parser.dart';
 import 'parsers/forum_response_parser.dart';
+import 'parsers/forum_tasks_parser.dart';
 import 'parsers/home_page_parser.dart';
 import 'parsers/search_result_parser.dart';
 import 'parsers/thread_content_parser.dart';
@@ -58,6 +59,7 @@ class ForumRepository {
       BoardThreadPageParser(urls: _urls);
   final ForumFormParser _formParser = const ForumFormParser();
   final ForumResponseParser _responseParser = const ForumResponseParser();
+  final ForumTasksParser _tasksParser = const ForumTasksParser();
   late HomePageParser _homePageParser = HomePageParser(urls: _urls);
   late SearchResultParser _searchResultParser = SearchResultParser(urls: _urls);
   late ThreadDetailParser _threadDetailParser = ThreadDetailParser(
@@ -237,6 +239,48 @@ class ForumRepository {
   Future<List<ForumThread>> fetchLatestThreads() async {
     final home = await fetchHome();
     return home.latest;
+  }
+
+  Future<List<ForumTask>> fetchForumTasks(ForumTaskStatus status) async {
+    final path = switch (status) {
+      ForumTaskStatus.available => 'plugin.php?H_name-tasks.html',
+      ForumTaskStatus.inProgress =>
+        'plugin.php?H_name-tasks-actions-newtasks.html.html',
+      ForumTaskStatus.completed =>
+        'plugin.php?H_name-tasks-actions-endtasks.html.html',
+      ForumTaskStatus.failed =>
+        'plugin.php?H_name-tasks-actions-errotasks.html.html',
+    };
+    final html = await _client.get(path);
+    return _tasksParser.parse(html_parser.parse(html), status);
+  }
+
+  Future<ForumTaskActionResult> runForumTask(ForumTask task) async {
+    final id = task.id;
+    if (id == null || id.isEmpty) {
+      return const ForumTaskActionResult(
+        success: false,
+        message: '没有找到任务 ID',
+      );
+    }
+
+    final response = await _client.get(
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=$id',
+    );
+    final parts = response.split('\t');
+    final status = parts.first.trim().toLowerCase();
+    final message = parts.length > 1
+        ? _cleanText(parts.skip(1).join(' '))
+        : _responseParser.ajaxMessage(response);
+    final success = status == 'success';
+    return ForumTaskActionResult(
+      success: success,
+      message: message.isEmpty
+          ? success
+              ? '任务奖励领取完成'
+              : '任务操作失败'
+          : message,
+    );
   }
 
   Future<List<BrowsingHistoryEntry>> browsingHistory({int limit = 100}) {

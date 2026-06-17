@@ -557,3 +557,50 @@ class ReplyResult {
   final bool success;
   final String message;
 }
+
+enum ForumTaskStatus {
+  available,
+  inProgress,
+  completed,
+  failed,
+}
+
+class ForumTask {
+  const ForumTask({
+    required this.name,
+    required this.status,
+    this.id,
+    this.description,
+    this.reward,
+    this.popularity,
+    this.startedAt,
+    this.endsAt,
+    this.progressPercent,
+    this.completedAt,
+    this.actionLabel,
+  });
+
+  final String? id;
+  final String name;
+  final ForumTaskStatus status;
+  final String? description;
+  final String? reward;
+  final int? popularity;
+  final String? startedAt;
+  final String? endsAt;
+  final int? progressPercent;
+  final String? completedAt;
+  final String? actionLabel;
+
+  bool get canRun => id != null && actionLabel != null;
+}
+
+class ForumTaskActionResult {
+  const ForumTaskActionResult({
+    required this.success,
+    required this.message,
+  });
+
+  final bool success;
+  final String message;
+}

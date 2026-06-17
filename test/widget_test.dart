@@ -10,6 +10,7 @@ import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart'
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/history/browsing_history_screen.dart';
+import 'package:south_plus_rewrite/features/profile/account_screen.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
@@ -348,6 +349,34 @@ void main() {
 
     expect(find.text('个人动态'), findsOneWidget);
     expect(find.text('发表了主题'), findsOneWidget);
+  });
+
+  testWidgets('forum tasks can claim an in-progress reward', (tester) async {
+    final repository = _FakeTasksRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountScreen(
+          repository: repository,
+          onLoggedOut: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('论坛任务'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('日常'), findsOneWidget);
+    expect(find.text('SP币 2 G'), findsOneWidget);
+    expect(find.text('领取奖励'), findsOneWidget);
+
+    await tester.tap(find.text('领取奖励'));
+    await tester.pumpAndSettle();
+
+    expect(repository.ranTaskIds, ['15']);
+    expect(find.text('奖励领取完成'), findsOneWidget);
+    expect(find.text('完成时间 2026-06-17 AM:11:37:46'), findsOneWidget);
   });
 
   testWidgets('profile uses cached overview while refreshing fresh data',
@@ -1161,6 +1190,57 @@ class _FakeHistoryRepository extends ForumRepository {
       bodySegments: const [ThreadContentSegment.text('history body')],
       replies: const [],
       pagination: const ThreadPagination(currentPage: 1, totalPages: 1),
+    );
+  }
+}
+
+class _FakeTasksRepository extends ForumRepository {
+  final ranTaskIds = <String>[];
+  var _claimed = false;
+
+  @override
+  bool get isLoggedIn => true;
+
+  @override
+  String? get currentUsername => 'alice';
+
+  @override
+  Future<List<ForumTask>> fetchForumTasks(ForumTaskStatus status) async {
+    if (status == ForumTaskStatus.inProgress && !_claimed) {
+      return const [
+        ForumTask(
+          id: '15',
+          name: '日常',
+          status: ForumTaskStatus.inProgress,
+          description: '每日SP+2的日常。',
+          reward: 'SP币 2 G',
+          progressPercent: 100,
+          actionLabel: '领取此奖励',
+        ),
+      ];
+    }
+    if (status == ForumTaskStatus.completed && _claimed) {
+      return const [
+        ForumTask(
+          name: '日常',
+          status: ForumTaskStatus.completed,
+          description: '每日SP+2的日常。',
+          reward: 'SP币 2 G',
+          progressPercent: 100,
+          completedAt: '2026-06-17 AM:11:37:46',
+        ),
+      ];
+    }
+    return const [];
+  }
+
+  @override
+  Future<ForumTaskActionResult> runForumTask(ForumTask task) async {
+    ranTaskIds.add(task.id ?? '');
+    _claimed = true;
+    return const ForumTaskActionResult(
+      success: true,
+      message: '奖励领取完成',
     );
   }
 }
