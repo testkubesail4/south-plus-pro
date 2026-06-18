@@ -13,7 +13,7 @@
     <img alt="总下载量" src="https://img.shields.io/github/downloads/testkubesail4/south-plus-pro/total?label=downloads&amp;style=for-the-badge&amp;color=16a34a">
   </a>
   <a href="https://github.com/testkubesail4/south-plus-pro/actions/workflows/release.yml">
-    <img alt="发布构建" src="https://img.shields.io/github/actions/workflow/status/testkubesail4/south-plus-pro/release.yml?branch=master&amp;label=release&amp;style=for-the-badge">
+    <img alt="发布构建" src="https://img.shields.io/github/actions/workflow/status/testkubesail4/south-plus-pro/release.yml?event=push&amp;label=release&amp;style=for-the-badge">
   </a>
 </p>
 

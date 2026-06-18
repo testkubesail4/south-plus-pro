@@ -239,7 +239,7 @@ jobs:
           {
             echo "# ${RELEASE_TITLE}"
             echo
-            echo "[![最新版本](https://img.shields.io/github/v/release/${GITHUB_REPOSITORY}?include_prereleases&label=version&color=2563eb)](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/latest) [![总下载量](https://img.shields.io/github/downloads/${GITHUB_REPOSITORY}/total?label=downloads&color=16a34a)](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases) [![发布构建](https://img.shields.io/github/actions/workflow/status/${GITHUB_REPOSITORY}/release.yml?branch=master&label=release)](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/workflows/release.yml)"
+            echo "[![最新版本](https://img.shields.io/github/v/release/${GITHUB_REPOSITORY}?include_prereleases&label=version&color=2563eb)](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/latest) [![总下载量](https://img.shields.io/github/downloads/${GITHUB_REPOSITORY}/total?label=downloads&color=16a34a)](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases) [![发布构建](https://img.shields.io/github/actions/workflow/status/${GITHUB_REPOSITORY}/release.yml?event=push&label=release)](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/workflows/release.yml)"
             echo
             if [[ -f "${RELEASE_NOTES_FILE}" ]]; then
               sed '1{/^# /d;}' "${RELEASE_NOTES_FILE}"
