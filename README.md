@@ -119,7 +119,7 @@
 | Android 老设备 | [32 位 ARM APK](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-android-armeabi-v7a.apk) | 适合较老的 32 位 ARM 设备。 |
 | Android 模拟器 | [x86_64 APK](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-android-x86_64.apk) | 适合 x86_64 Android 模拟器或少见设备。 |
 | Android 通用包 | [Universal APK](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-android-universal.apk) | 不确定设备架构时使用，体积会更大。 |
-| iPhone / iPad | [iOS IPA](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-ios.ipa) | 签名 IPA，适合 App Store Connect 或 TestFlight 发布流程。 |
+| iPhone / iPad | [iOS IPA](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-ios.ipa) | IPA 构建产物，适合后续签名或测试分发。 |
 | Windows | [Windows x64 压缩包](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-windows-x64.zip) | 解压后运行 `south_plus_rewrite.exe`。 |
 | 校验文件 | [下载 SHA256SUMS](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/SHA256SUMS.txt) | 用来校验安装包是否完整。 |
 | 所有版本 | [打开 Releases 页面](https://github.com/testkubesail4/south-plus-pro/releases/latest) | 查看每个版本的变更说明、全部下载文件和历史版本。 |
