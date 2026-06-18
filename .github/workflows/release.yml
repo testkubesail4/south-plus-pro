@@ -26,7 +26,6 @@ concurrency:
 env:
   APP_SLUG: south_plus_rewrite
   IOS_BUNDLE_ID: com.example.southPlusRewrite
-  IOS_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
 
 jobs:
   android:
@@ -142,14 +141,14 @@ jobs:
           build_name="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1 | cut -d+ -f1)"
           build_number="${GITHUB_RUN_NUMBER}"
           profile_name="$(python - <<'PY'
-import json, os
+          import json, os
 
-profiles = json.loads(os.environ["PROFILES_JSON"])
-if not profiles:
-    raise SystemExit("No provisioning profiles were downloaded")
-print(profiles[0]["name"])
-PY
-)"
+          profiles = json.loads(os.environ["PROFILES_JSON"])
+          if not profiles:
+              raise SystemExit("No provisioning profiles were downloaded")
+          print(profiles[0]["name"])
+          PY
+          )"
 
           cat > ios/ExportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -161,7 +160,7 @@ PY
             <key>signingStyle</key>
             <string>manual</string>
             <key>teamID</key>
-            <string>${IOS_TEAM_ID}</string>
+            <string>${APPLE_TEAM_ID}</string>
             <key>provisioningProfiles</key>
             <dict>
               <key>${IOS_BUNDLE_ID}</key>
@@ -173,6 +172,7 @@ PY
 
           flutter build ipa --release --build-name "${build_name}" --build-number "${build_number}" --export-options-plist=ios/ExportOptions.plist
         env:
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           PROFILES_JSON: ${{ steps.provisioning.outputs.profiles }}
 
       - name: Collect iOS artifacts
@@ -341,4 +341,4 @@ PY
             echo "- iOS：IPA"
             echo "- Windows：x64 压缩包"
             echo "- 校验文件：\`SHA256SUMS.txt\`"
-        } >> "${GITHUB_STEP_SUMMARY}"
+          } >> "${GITHUB_STEP_SUMMARY}"
