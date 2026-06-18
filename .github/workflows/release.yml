@@ -25,6 +25,8 @@ concurrency:
 
 env:
   APP_SLUG: south_plus_rewrite
+  IOS_BUNDLE_ID: com.example.southPlusRewrite
+  IOS_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
 
 jobs:
   android:
@@ -100,6 +102,94 @@ jobs:
           path: release/*
           if-no-files-found: error
 
+  ios:
+    name: iOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Import iOS signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_DISTRIBUTION_CERT_BASE64 }}
+          p12-password: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+
+      - name: Download iOS provisioning profile
+        id: provisioning
+        uses: apple-actions/download-provisioning-profiles@v4
+        with:
+          bundle-id: ${{ env.IOS_BUNDLE_ID }}
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ vars.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ vars.APPSTORE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+
+      - name: Build iOS IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          build_name="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1 | cut -d+ -f1)"
+          build_number="${GITHUB_RUN_NUMBER}"
+          profile_name="$(python - <<'PY'
+import json, os
+
+profiles = json.loads(os.environ["PROFILES_JSON"])
+if not profiles:
+    raise SystemExit("No provisioning profiles were downloaded")
+print(profiles[0]["name"])
+PY
+)"
+
+          cat > ios/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>${IOS_TEAM_ID}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${IOS_BUNDLE_ID}</key>
+              <string>${profile_name}</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
+          flutter build ipa --release --build-name "${build_name}" --build-number "${build_number}" --export-options-plist=ios/ExportOptions.plist
+        env:
+          PROFILES_JSON: ${{ steps.provisioning.outputs.profiles }}
+
+      - name: Collect iOS artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p release
+          cp build/ios/ipa/*.ipa "release/${APP_SLUG}-ios.ipa"
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: release/*
+          if-no-files-found: error
+
   windows:
     name: Windows
     runs-on: windows-latest
@@ -137,6 +227,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - android
+      - ios
       - windows
     steps:
       - name: Checkout release metadata
@@ -222,6 +313,7 @@ jobs:
             echo "| Android | [x86_64 APK](${release_base_url}/${APP_SLUG}-android-x86_64.apk) | Android 模拟器或少见的 x86_64 设备。 |"
             echo "| Android | [Universal APK](${release_base_url}/${APP_SLUG}-android-universal.apk) | 不确定设备架构时下载这个，体积会更大。 |"
             echo "| Android | [AAB](${release_base_url}/${APP_SLUG}-android.aab) | 应用商店上传包，不适合直接安装。 |"
+            echo "| iOS | [IPA](${release_base_url}/${APP_SLUG}-ios.ipa) | iPhone / iPad 的签名 IPA，适合 App Store Connect 或 TestFlight 流程。 |"
             echo "| Windows | [Windows x64 压缩包](${release_base_url}/${APP_SLUG}-windows-x64.zip) | Windows 10/11 x64 电脑，解压后运行。 |"
             echo
             echo "## 文件校验"
@@ -246,6 +338,7 @@ jobs:
             echo
             echo "- Tag: \`${{ steps.meta.outputs.tag }}\`"
             echo "- Android APK：universal、arm64-v8a、armeabi-v7a、x86_64"
+            echo "- iOS：IPA"
             echo "- Windows：x64 压缩包"
             echo "- 校验文件：\`SHA256SUMS.txt\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
+        } >> "${GITHUB_STEP_SUMMARY}"

@@ -20,13 +20,17 @@
 <p>
   <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white&style=flat-square">
   <img alt="Android" src="https://img.shields.io/badge/Android-APK%20%2F%20AAB-3DDC84?logo=android&logoColor=white&style=flat-square">
+  <img alt="iOS" src="https://img.shields.io/badge/iOS-IPA-111827?logo=apple&logoColor=white&style=flat-square">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?logo=windows&logoColor=white&style=flat-square">
-  <img alt="Release assets" src="https://img.shields.io/badge/架构包-arm64%20%7C%20armv7%20%7C%20x86__64-64748b?style=flat-square">
+  <img alt="Release assets" src="https://img.shields.io/badge/架构包-Android%20%7C%20iOS%20%7C%20Windows-64748b?style=flat-square">
 </p>
 
 <p>
   <a href="https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-android-arm64-v8a.apk">
     <img alt="下载 Android ARM64" src="https://img.shields.io/badge/下载-Android%20ARM64%20APK-16a34a?style=for-the-badge&logo=android&logoColor=white">
+  </a>
+  <a href="https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-ios.ipa">
+    <img alt="下载 iOS IPA" src="https://img.shields.io/badge/下载-iOS%20IPA-111827?style=for-the-badge&logo=apple&logoColor=white">
   </a>
   <a href="https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-android-universal.apk">
     <img alt="下载通用 Android 包" src="https://img.shields.io/badge/下载-Universal%20APK-15803d?style=for-the-badge&logo=android&logoColor=white">
@@ -102,7 +106,7 @@
     </td>
     <td width="50%">
       <h3>版本更新更清楚</h3>
-      <p>应用内可检查新版本，发布页提供分架构 Android 包、Windows 包和校验文件，下载更放心。</p>
+      <p>应用内可检查新版本，发布页提供分架构 Android 包、iOS IPA、Windows 包和校验文件，下载更放心。</p>
     </td>
   </tr>
 </table>
@@ -115,6 +119,7 @@
 | Android 老设备 | [32 位 ARM APK](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-android-armeabi-v7a.apk) | 适合较老的 32 位 ARM 设备。 |
 | Android 模拟器 | [x86_64 APK](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-android-x86_64.apk) | 适合 x86_64 Android 模拟器或少见设备。 |
 | Android 通用包 | [Universal APK](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-android-universal.apk) | 不确定设备架构时使用，体积会更大。 |
+| iPhone / iPad | [iOS IPA](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-ios.ipa) | 签名 IPA，适合 App Store Connect 或 TestFlight 发布流程。 |
 | Windows | [Windows x64 压缩包](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/south_plus_rewrite-windows-x64.zip) | 解压后运行 `south_plus_rewrite.exe`。 |
 | 校验文件 | [下载 SHA256SUMS](https://github.com/testkubesail4/south-plus-pro/releases/latest/download/SHA256SUMS.txt) | 用来校验安装包是否完整。 |
 | 所有版本 | [打开 Releases 页面](https://github.com/testkubesail4/south-plus-pro/releases/latest) | 查看每个版本的变更说明、全部下载文件和历史版本。 |
@@ -139,7 +144,7 @@
 
 ## 开发者信息
 
-本项目使用 Flutter 开发，当前主要面向 Android 和 Windows。<br>
+本项目使用 Flutter 开发，当前主要面向 Android、iOS 和 Windows。<br>
 实现计划与技术记录见 [docs/south_plus_plan.md](docs/south_plus_plan.md)。
 
 ## 开发指引
