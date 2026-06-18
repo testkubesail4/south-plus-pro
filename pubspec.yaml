@@ -2,7 +2,7 @@ name: south_plus_rewrite
 description: South Plus mobile-first forum client rewrite.
 publish_to: "none"
 
-version: 0.1.9+9
+version: 0.1.10+10
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

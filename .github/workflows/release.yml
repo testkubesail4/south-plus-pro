@@ -116,8 +116,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS IPA
-        run: flutter build ipa --release --no-codesign
+      - name: Build iOS app
+        run: flutter build ios --release --no-codesign -t lib/main.dart
+
+      - name: Package iOS sideload IPA
+        shell: bash
+        run: bash scripts/ios/package_sideload_ipa.sh
 
       - name: Collect iOS artifacts
         shell: bash
@@ -257,7 +261,7 @@ jobs:
             echo "| Android | [x86_64 APK](${release_base_url}/${APP_SLUG}-android-x86_64.apk) | Android 模拟器或少见的 x86_64 设备。 |"
             echo "| Android | [Universal APK](${release_base_url}/${APP_SLUG}-android-universal.apk) | 不确定设备架构时下载这个，体积会更大。 |"
             echo "| Android | [AAB](${release_base_url}/${APP_SLUG}-android.aab) | 应用商店上传包，不适合直接安装。 |"
-            echo "| iOS | [IPA](${release_base_url}/${APP_SLUG}-ios.ipa) | iPhone / iPad 的 IPA 构建产物，适合后续签名或测试分发。 |"
+            echo "| iOS | [IPA](${release_base_url}/${APP_SLUG}-ios.ipa) | iPhone / iPad 的 sideload IPA，适合 AltStore / SideStore / 爱思助手自签安装。 |"
             echo "| Windows | [Windows x64 压缩包](${release_base_url}/${APP_SLUG}-windows-x64.zip) | Windows 10/11 x64 电脑，解压后运行。 |"
             echo
             echo "## 文件校验"
@@ -282,7 +286,7 @@ jobs:
             echo
             echo "- Tag: \`${{ steps.meta.outputs.tag }}\`"
             echo "- Android APK：universal、arm64-v8a、armeabi-v7a、x86_64"
-            echo "- iOS：IPA"
+            echo "- iOS：sideload IPA"
             echo "- Windows：x64 压缩包"
             echo "- 校验文件：\`SHA256SUMS.txt\`"
           } >> "${GITHUB_STEP_SUMMARY}"

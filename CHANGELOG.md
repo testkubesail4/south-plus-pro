@@ -5,6 +5,7 @@ South Plus Pro keeps release notes in `docs/releases/`. The release workflow use
 ## Releases
 
 - [v0.1.9](docs/releases/v0.1.9.md)
+- [v0.1.10](docs/releases/v0.1.10.md)
 - [v0.1.8](docs/releases/v0.1.8.md)
 - [v0.1.7](docs/releases/v0.1.7.md)
 - [v0.1.6](docs/releases/v0.1.6.md)
@@ -33,5 +34,5 @@ Create `docs/releases/vX.Y.Z.md` before pushing tag `vX.Y.Z`:
 
 ## Release
 
-- Android ARM64, ARMv7, x86_64, universal APK, AAB, iOS IPA, Windows x64, and SHA256 checksums are built by the release workflow.
+- Android ARM64, ARMv7, x86_64, universal APK, AAB, iOS sideload IPA, Windows x64, and SHA256 checksums are built by the release workflow.
 ```
