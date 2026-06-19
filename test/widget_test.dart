@@ -403,6 +403,35 @@ void main() {
     expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
   });
 
+  testWidgets(
+      'home task shortcut shows claimable when in-progress reward exists',
+      (tester) async {
+    final repository = _FakeClaimableTaskHomeRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: ForumHomePage(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('可领取'), findsOneWidget);
+    expect(find.text('已签到'), findsNothing);
+    expect(find.byIcon(Icons.redeem_outlined), findsOneWidget);
+  });
+
+  testWidgets('home task shortcut matches current live daily-claimable state',
+      (tester) async {
+    final repository = _FakeClaimableTaskHomeRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: ForumHomePage(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('可领取'), findsOneWidget);
+    expect(find.text('已签到'), findsNothing);
+    expect(find.text('已自动签到'), findsNothing);
+  });
+
   testWidgets('home task shortcut shows automatic sign-in success',
       (tester) async {
     final repository = _FakeAutoClaimHomeRepository();
@@ -1550,6 +1579,44 @@ class _FakeCompletedTaskHomeRepository extends _FakeHomeRepository {
           completedAt: '2026-06-17 AM:11:37:46',
           cooldownRemaining: Duration(hours: 18),
         ),
+        ForumTaskState(
+          name: '周常',
+          availability: ForumTaskAvailability.completed,
+          reward: 'SP币 7 G',
+          spAmount: 7,
+          completedAt: '2026-06-17 PM:13:28:02',
+          cooldownRemaining: Duration(hours: 158),
+        ),
+      ],
+    );
+  }
+}
+
+class _FakeClaimableTaskHomeRepository extends _FakeHomeRepository {
+  @override
+  bool get isLoggedIn => true;
+
+  @override
+  Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() async {
+    return ForumTaskSnapshot(
+      updatedAt: DateTime.utc(2026, 6, 19),
+      tasks: const [
+        ForumTaskState(
+          name: '日常',
+          availability: ForumTaskAvailability.claimable,
+          reward: 'SP币 2 G',
+          spAmount: 2,
+          progressPercent: 100,
+          completedAt: '2026-06-17 AM:11:37:46',
+        ),
+        ForumTaskState(
+          name: '周常',
+          availability: ForumTaskAvailability.completed,
+          reward: 'SP币 7 G',
+          spAmount: 7,
+          completedAt: '2026-06-17 PM:13:28:02',
+          cooldownRemaining: Duration(hours: 158),
+        ),
       ],
     );
   }
@@ -1593,6 +1660,13 @@ class _FakeAutoClaimHomeRepository extends _FakeHomeRepository {
           reward: 'SP币 2 G',
           spAmount: 2,
           nextAvailableAt: now.add(const Duration(hours: 23)),
+        ),
+        ForumTaskState(
+          name: '周常',
+          availability: ForumTaskAvailability.completed,
+          reward: 'SP币 7 G',
+          spAmount: 7,
+          nextAvailableAt: now.add(const Duration(days: 6)),
         ),
       ],
     );
@@ -1708,7 +1782,10 @@ class _FakeTasksRepository extends ForumRepository {
   }
 
   @override
-  Future<ForumTaskActionResult> runForumTask(ForumTask task) async {
+  Future<ForumTaskActionResult> runForumTask(
+    ForumTask task, {
+    bool claimReward = false,
+  }) async {
     ranTaskIds.add(task.id ?? '');
     _claimed = true;
     return const ForumTaskActionResult(

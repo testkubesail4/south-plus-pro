@@ -43,7 +43,10 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
     final id = task.id;
     if (id == null) return;
     setState(() => _runningIds.add(id));
-    final result = await widget.repository.runForumTask(task);
+    final result = await widget.repository.runForumTask(
+      task,
+      claimReward: task.status == ForumTaskStatus.inProgress,
+    );
     if (!mounted) return;
     setState(() => _runningIds.remove(id));
     ScaffoldMessenger.of(context).showSnackBar(

@@ -307,16 +307,22 @@ class _TaskShortcutState extends State<_TaskShortcut> {
   }
 
   Future<void> _autoClaimRewards() async {
+    ForumTraceLogger.log('UI', 'auto claim trigger requested');
     if (_autoClaimAttempted ||
         _running ||
         !mounted ||
         !widget.repository.isLoggedIn) {
+      ForumTraceLogger.log(
+        'UI',
+        'auto claim skipped attempted=$_autoClaimAttempted running=$_running mounted=$mounted isLoggedIn=${widget.repository.isLoggedIn}',
+      );
       return;
     }
 
     _autoClaimAttempted = true;
     setState(() => _running = true);
     try {
+      ForumTraceLogger.log('UI', 'auto claim invoking repository');
       final result = await widget.repository.autoClaimForumTaskRewardsIfDue();
       if (!mounted) return;
       await _loadSnapshotOnly();
@@ -339,13 +345,19 @@ class _TaskShortcutState extends State<_TaskShortcut> {
   }
 
   Future<void> _claimRewards() async {
+    ForumTraceLogger.log('UI', 'manual claim button tapped');
     if (!widget.repository.isLoggedIn) {
+      ForumTraceLogger.log(
+        'UI',
+        'manual claim redirected to task page because not logged in',
+      );
       _openTasks();
       return;
     }
 
     setState(() => _running = true);
     try {
+      ForumTraceLogger.log('UI', 'manual claim invoking repository');
       final result = await widget.repository.claimForumTaskRewards();
       if (!mounted) return;
       await _loadSnapshotOnly();
@@ -384,15 +396,16 @@ class _TaskShortcutState extends State<_TaskShortcut> {
   @override
   Widget build(BuildContext context) {
     final snapshot = _snapshot;
-    final done = snapshot?.tasks.where((task) => task.isDoneToday).length ?? 0;
-    final hasClaimable = snapshot?.hasClaimableReward == true;
+    final summary = snapshot?.autoTaskSummary;
+    final hasClaimable = summary?.hasClaimable == true;
+    final isHandled = summary?.isFullyHandled == true;
     final cooldownLabel = _cooldownLabel(snapshot);
-    final success = done > 0 && !hasClaimable;
+    final success = isHandled;
     final label = _running
         ? '领取中'
         : hasClaimable
             ? '可领取'
-            : done > 0
+            : isHandled
                 ? _autoClaimed
                     ? '已自动签到'
                     : '已签到'
@@ -434,8 +447,8 @@ class _TaskShortcutState extends State<_TaskShortcut> {
   String? _cooldownLabel(ForumTaskSnapshot? snapshot) {
     if (snapshot == null) return null;
     final now = DateTime.now().toUtc();
-    final cooldowns = snapshot.tasks
-        .map((task) => task.cooldownRemainingFrom(now))
+    final cooldowns = snapshot.autoTaskSummary
+        .cooldownsFrom(now)
         .whereType<Duration>()
         .toList();
     if (cooldowns.isEmpty) return null;

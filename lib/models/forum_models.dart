@@ -794,6 +794,69 @@ class ForumTaskState {
   }
 }
 
+class ForumAutoTaskSummary {
+  const ForumAutoTaskSummary({
+    this.daily,
+    this.weekly,
+  });
+
+  factory ForumAutoTaskSummary.fromTasks(Iterable<ForumTaskState> tasks) {
+    ForumTaskState? daily;
+    ForumTaskState? weekly;
+    for (final task in tasks) {
+      if (daily == null && task.isDailyReward) {
+        daily = task;
+      } else if (weekly == null && task.isWeeklyReward) {
+        weekly = task;
+      }
+    }
+    return ForumAutoTaskSummary(daily: daily, weekly: weekly);
+  }
+
+  final ForumTaskState? daily;
+  final ForumTaskState? weekly;
+
+  Iterable<ForumTaskState> get tasks sync* {
+    if (daily != null) yield daily!;
+    if (weekly != null) yield weekly!;
+  }
+
+  bool get hasAnyTask => daily != null || weekly != null;
+  bool get hasAllTasks => daily != null && weekly != null;
+  bool get hasClaimable => tasks.any((task) => task.canClaim);
+  bool get hasInProgress => tasks
+      .any((task) => task.availability == ForumTaskAvailability.inProgress);
+  bool get hasAvailable =>
+      tasks.any((task) => task.availability == ForumTaskAvailability.available);
+  bool get hasPending => hasClaimable || hasInProgress || hasAvailable;
+  bool get isFullyHandled =>
+      hasAllTasks && tasks.every((task) => task.isDoneToday);
+
+  Iterable<Duration> cooldownsFrom(DateTime now) sync* {
+    for (final task in tasks) {
+      final remaining = task.cooldownRemainingFrom(now);
+      if (remaining != null) yield remaining;
+    }
+  }
+
+  bool shouldAutoClaimAt(DateTime now) {
+    if (!hasAllTasks) return true;
+    return tasks.any((task) => task.shouldAutoClaimAt(now));
+  }
+
+  DateTime? nextAutoClaimAt(DateTime now) {
+    if (!hasAllTasks) return now.toUtc();
+    DateTime? next;
+    for (final task in tasks) {
+      if (task.shouldAutoClaimAt(now)) return now.toUtc();
+      final candidate = task.nextAutoClaimAt();
+      if (candidate == null) continue;
+      if (next == null || candidate.isBefore(next)) next = candidate;
+    }
+    return next;
+  }
+}
+
 class ForumTaskSnapshot {
   const ForumTaskSnapshot({
     required this.tasks,
@@ -803,10 +866,8 @@ class ForumTaskSnapshot {
   final List<ForumTaskState> tasks;
   final DateTime updatedAt;
 
-  bool get hasCompletedReward => tasks.any((task) => task.isDoneToday);
-  bool get hasClaimableReward =>
-      tasks.any((task) => task.availability == ForumTaskAvailability.claimable);
-  bool get hasAutoRewardState => tasks.any((task) => task.isAutoReward);
+  ForumAutoTaskSummary get autoTaskSummary =>
+      ForumAutoTaskSummary.fromTasks(tasks);
 
   ForumTaskState? taskNamed(String name) {
     for (final task in tasks) {
@@ -816,22 +877,11 @@ class ForumTaskSnapshot {
   }
 
   bool shouldAutoClaimAt(DateTime now) {
-    final autoTasks = tasks.where((task) => task.isAutoReward).toList();
-    if (autoTasks.length < 2) return true;
-    return autoTasks.any((task) => task.shouldAutoClaimAt(now));
+    return autoTaskSummary.shouldAutoClaimAt(now);
   }
 
   DateTime? nextAutoClaimAt(DateTime now) {
-    final autoTasks = tasks.where((task) => task.isAutoReward).toList();
-    if (autoTasks.length < 2) return now.toUtc();
-    DateTime? next;
-    for (final task in autoTasks) {
-      if (task.shouldAutoClaimAt(now)) return now.toUtc();
-      final candidate = task.nextAutoClaimAt();
-      if (candidate == null) continue;
-      if (next == null || candidate.isBefore(next)) next = candidate;
-    }
-    return next;
+    return autoTaskSummary.nextAutoClaimAt(now);
   }
 
   ForumTaskSnapshot merge(Iterable<ForumTaskState> updates) {
@@ -928,7 +978,7 @@ ForumTaskState _preferredTaskState(
 
   if (nextAvailability == ForumTaskAvailability.completed &&
       currentAvailability == ForumTaskAvailability.claimable) {
-    return next;
+    return current;
   }
 
   if (nextAvailability == ForumTaskAvailability.coolingDown &&

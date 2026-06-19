@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'forum_network_config.dart';
 import 'forum_session_store.dart';
+import 'forum_trace_logger.dart';
 
 class ForumClient {
   ForumClient({
@@ -43,12 +44,24 @@ class ForumClient {
   Future<String> get(String path) async {
     await restoreCookies();
     final uri = baseUri.resolve(path);
+    final requestStartedAt = DateTime.now();
+    ForumTraceLogger.log('HTTP', 'GET $uri');
     final request = await _httpClient.getUrl(uri);
     _applyCookies(request);
     final response = await request.close();
     await _storeCookies(response, uri);
-    return utf8.decode(
-        await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d)));
+    final bodyBytes =
+        await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d));
+    final body = utf8.decode(bodyBytes);
+    final elapsed = DateTime.now().difference(requestStartedAt).inMilliseconds;
+    ForumTraceLogger.log(
+      'HTTP',
+      'GET $uri -> status=${response.statusCode} bytes=${bodyBytes.length} elapsedMs=$elapsed',
+    );
+    if (ForumTraceLogger.shouldLogFullBody(uri)) {
+      ForumTraceLogger.logBlock('HTTP', 'GET $uri response', body);
+    }
+    return body;
   }
 
   Future<Uint8List> getBytes(String path) async {
@@ -66,6 +79,11 @@ class ForumClient {
   Future<String> post(String path, Map<String, String> form) async {
     await restoreCookies();
     final uri = baseUri.resolve(path);
+    final requestStartedAt = DateTime.now();
+    ForumTraceLogger.log(
+      'HTTP',
+      'POST $uri form=${ForumTraceLogger.sanitizeForm(form)}',
+    );
     final request = await _httpClient.postUrl(uri);
     request.headers.contentType = ContentType(
       'application',
@@ -76,8 +94,18 @@ class ForumClient {
     request.write(Uri(queryParameters: form).query);
     final response = await request.close();
     await _storeCookies(response, uri);
-    return utf8.decode(
-        await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d)));
+    final bodyBytes =
+        await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d));
+    final body = utf8.decode(bodyBytes);
+    final elapsed = DateTime.now().difference(requestStartedAt).inMilliseconds;
+    ForumTraceLogger.log(
+      'HTTP',
+      'POST $uri -> status=${response.statusCode} bytes=${bodyBytes.length} elapsedMs=$elapsed',
+    );
+    if (ForumTraceLogger.shouldLogFullBody(uri)) {
+      ForumTraceLogger.logBlock('HTTP', 'POST $uri response', body);
+    }
+    return body;
   }
 
   Future<void> clearSession() async {

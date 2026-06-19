@@ -270,14 +270,10 @@ void main() {
 
   test('claimForumTaskRewards applies tasks before claiming rewards', () async {
     final client = _PathForumClient({
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14': [
-        'success\t任务领取完成',
-        'success\t任务奖励领取完成',
-      ],
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': [
-        'success\t任务领取完成',
-        'success\t任务奖励领取完成',
-      ],
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14': 'success\t任务领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14': 'success\t任务奖励领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': 'success\t任务领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15': 'success\t任务奖励领取完成',
       'plugin.php?H_name-tasks-actions-newtasks.html.html': [
         '''
           <table>
@@ -361,10 +357,11 @@ void main() {
       'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14',
       'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15',
       'plugin.php?H_name-tasks-actions-newtasks.html.html',
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14',
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15',
       'plugin.php?H_name-tasks-actions-endtasks.html.html',
       'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
     ]);
     expect(result.appliedCount, 2);
     expect(result.claimedRewards.map((item) => item.completionMessage), [
@@ -377,10 +374,8 @@ void main() {
   test('claimForumTaskRewards continues when available task is already started',
       () async {
     final client = _PathForumClient({
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14': [
-        'error\t领取失败：任务已领取，快去完成任务吧。',
-        'success\t任务奖励领取完成',
-      ],
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14': 'error\t领取失败：任务已领取，快去完成任务吧。',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14': 'success\t任务奖励领取完成',
       'plugin.php?H_name-tasks-actions-newtasks.html.html': [
         '''
           <table>
@@ -439,9 +434,10 @@ void main() {
       'plugin.php?H_name-tasks.html',
       'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14',
       'plugin.php?H_name-tasks-actions-newtasks.html.html',
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14',
       'plugin.php?H_name-tasks-actions-endtasks.html.html',
       'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
     ]);
     expect(result.claimedRewards.single.completionMessage, '周常奖励领取完成SP+7');
     expect(result.failures, isEmpty);
@@ -537,10 +533,8 @@ void main() {
   test('claimForumTaskRewards starts next-cycle tasks despite old completion',
       () async {
     final client = _PathForumClient({
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': [
-        'success\t任务领取完成',
-        'success\t任务奖励领取完成',
-      ],
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': 'success\t任务领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15': 'success\t任务奖励领取完成',
       'plugin.php?H_name-tasks-actions-newtasks.html.html': [
         '''
           <table>
@@ -608,9 +602,10 @@ void main() {
       'plugin.php?H_name-tasks.html',
       'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15',
       'plugin.php?H_name-tasks-actions-newtasks.html.html',
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15',
       'plugin.php?H_name-tasks-actions-endtasks.html.html',
       'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
     ]);
     expect(result.appliedCount, 1);
     expect(result.claimedRewards.single.completionMessage, '日常奖励领取完成SP+2');
@@ -648,6 +643,68 @@ void main() {
     expect(result.hasClaims, isFalse);
     expect(result.hasFailures, isFalse);
     expect(result.alreadyHandled, isTrue);
+  });
+
+  test(
+      'claimForumTaskRewards does not mark claimable in-progress reward as handled when reward request is rejected',
+      () async {
+    final client = _PathForumClient({
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15':
+          'confirm\t拒离上次申请[日常]还没超过 18 小时',
+      'plugin.php?H_name-tasks-actions-endtasks.html.html': '''
+        <table>
+          <tr>
+            <td><b>周常</b> (人气 : 24999632) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 7 G</td>
+            <td></td>
+          </tr>
+          <tr><td>无所事事的周常 已完成 100 % 完成时间 2026-06-17 PM:13:28:02</td></tr>
+        </table>
+      ''',
+      'plugin.php?H_name-tasks.html': '''
+        <table>
+          <tr>
+            <td><b>周常</b> (人气 : 24999631) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 7 G 上次领取未超过 158 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>无所事事的周常</td></tr>
+          <tr>
+            <td><b>日常</b> (人气 : 84502767) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G 上次领取未超过 18 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。</td></tr>
+        </table>
+      ''',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html': '''
+        <table>
+          <tr>
+            <td><b>日常</b> (人气 : 84502768) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G</td>
+            <td><span id="both_15"><a onclick="startjob('15');" title="领取此奖励"><img src="hack/tasks/image/god.png"></a></span></td>
+          </tr>
+          <tr><td>每日SP+2的日常。 <span>已完成 100 %</span></td></tr>
+        </table>
+      ''',
+    });
+    final repository = ForumRepository(client: client);
+
+    final result = await repository.claimForumTaskRewards();
+
+    expect(client.paths, [
+      'plugin.php?H_name-tasks-actions-endtasks.html.html',
+      'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15',
+      'plugin.php?H_name-tasks-actions-endtasks.html.html',
+      'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
+    ]);
+    expect(result.hasClaims, isFalse);
+    expect(result.hasFailures, isFalse);
+    expect(result.alreadyHandled, isFalse);
+    expect(result.inProgress, ['日常']);
   });
 
   test('claimForumTaskRewards reports nonclaimable in-progress tasks',
@@ -736,7 +793,7 @@ void main() {
           <tr><td>每日SP+2的日常。</td></tr>
         </table>
       ''',
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14':
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14':
           'success\t任务奖励领取完成',
     });
     final repository = ForumRepository(client: client);
@@ -747,9 +804,10 @@ void main() {
       'plugin.php?H_name-tasks-actions-endtasks.html.html',
       'plugin.php?H_name-tasks.html',
       'plugin.php?H_name-tasks-actions-newtasks.html.html',
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14',
       'plugin.php?H_name-tasks-actions-endtasks.html.html',
       'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
     ]);
     expect(result.claimedRewards.single.completionMessage, '周常奖励领取完成SP+7');
     expect(result.cooldowns, isEmpty);
@@ -841,7 +899,7 @@ void main() {
         </table>
       ''',
       ],
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14':
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14':
           'success\t任务奖励领取完成',
     });
     final repository = ForumRepository(client: client);
@@ -852,9 +910,10 @@ void main() {
       'plugin.php?H_name-tasks-actions-endtasks.html.html',
       'plugin.php?H_name-tasks.html',
       'plugin.php?H_name-tasks-actions-newtasks.html.html',
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14',
       'plugin.php?H_name-tasks-actions-endtasks.html.html',
       'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
     ]);
     expect(result.claimedRewards.single.completionMessage, '周常奖励领取完成SP+7');
     expect(result.failures, isEmpty);
@@ -894,6 +953,150 @@ void main() {
     expect(daily?.cooldownRemaining, const Duration(hours: 18));
     expect(daily?.nextAvailableAt, isNotNull);
     expect(daily?.completedAt, '2026-06-17 AM:11:37:46');
+  });
+
+  test(
+      'refreshForumTaskSnapshot keeps claimable in-progress state over completed history',
+      () async {
+    final client = _PathForumClient({
+      'plugin.php?H_name-tasks-actions-newtasks.html.html': '''
+        <table>
+          <tr>
+            <td><b>日常</b> (人气 : 84282957) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G</td>
+            <td><span id="both_15"><a onclick="startjob('15');" title="领取此奖励"></a></span></td>
+          </tr>
+          <tr><td>每日SP+2的日常。 <span>已完成 100 %</span></td></tr>
+        </table>
+      ''',
+      'plugin.php?H_name-tasks-actions-endtasks.html.html': '''
+        <table>
+          <tr>
+            <td><b>日常</b> (人气 : 84282957) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。 已完成 100 % 完成时间 2026-06-17 AM:11:37:46</td></tr>
+        </table>
+      ''',
+      'plugin.php?H_name-tasks.html': '''
+        <table>
+          <tr>
+            <td><b>日常</b> (人气 : 84282953) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G 上次领取未超过 18 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。</td></tr>
+        </table>
+      ''',
+    });
+    final repository = ForumRepository(client: client);
+
+    final snapshot = await repository.refreshForumTaskSnapshot();
+    final daily = snapshot.taskNamed('日常');
+
+    expect(daily?.availability, ForumTaskAvailability.claimable);
+    expect(daily?.completedAt, '2026-06-17 AM:11:37:46');
+    expect(daily?.cooldownRemaining, const Duration(hours: 18));
+  });
+
+  test(
+      'refreshForumTaskSnapshot prefers current-cycle completion over stale in-progress claimable state',
+      () async {
+    final client = _PathForumClient({
+      'plugin.php?H_name-tasks-actions-newtasks.html.html': '''
+        <table>
+          <tr>
+            <td><b>日常</b> (人气 : 84282957) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G</td>
+            <td><span id="both_15"><a onclick="startjob('15');" title="领取此奖励"></a></span></td>
+          </tr>
+          <tr><td>每日SP+2的日常。 <span>已完成 100 %</span></td></tr>
+        </table>
+      ''',
+      'plugin.php?H_name-tasks-actions-endtasks.html.html': '''
+        <table>
+          <tr>
+            <td><b>日常</b> (人气 : 84282957) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。 已完成 100 % 完成时间 2099-06-19 AM:11:37:46</td></tr>
+        </table>
+      ''',
+      'plugin.php?H_name-tasks.html': '''
+        <table>
+          <tr>
+            <td><b>日常</b> (人气 : 84282953) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G 上次领取未超过 18 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。</td></tr>
+        </table>
+      ''',
+    });
+    final repository = ForumRepository(client: client);
+
+    final snapshot = await repository.refreshForumTaskSnapshot();
+    final daily = snapshot.taskNamed('日常');
+
+    expect(daily?.availability, ForumTaskAvailability.completed);
+    expect(daily?.completedAt, '2099-06-19 AM:11:37:46');
+    expect(daily?.cooldownRemaining, const Duration(hours: 18));
+  });
+
+  test('refreshForumTaskSnapshot matches current live daily-claimable state',
+      () async {
+    final client = _PathForumClient({
+      'plugin.php?H_name-tasks-actions-newtasks.html.html': '''
+        <table>
+          <tr>
+            <td><b>日常</b> (人气 : 84499737) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G</td>
+            <td><span id="both_15"><a onclick="startjob('15');" title="领取此奖励"></a></span></td>
+          </tr>
+          <tr><td>每日SP+2的日常。 已完成 100 %</td></tr>
+        </table>
+      ''',
+      'plugin.php?H_name-tasks-actions-endtasks.html.html': '''
+        <table>
+          <tr>
+            <td><b>周常</b> (人气 : 24999120) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 7 G</td>
+            <td></td>
+          </tr>
+          <tr><td>无所事事的周常 已完成 100 % 完成时间 2026-06-17 PM:13:28:02</td></tr>
+        </table>
+      ''',
+      'plugin.php?H_name-tasks.html': '''
+        <table>
+          <tr>
+            <td><b>周常</b> (人气 : 24999120) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 7 G 上次领取未超过 158 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>无所事事的周常</td></tr>
+          <tr>
+            <td><b>日常</b> (人气 : 84499734) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G 上次领取未超过 18 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。</td></tr>
+        </table>
+      ''',
+    });
+    final repository = ForumRepository(client: client);
+
+    final snapshot = await repository.refreshForumTaskSnapshot();
+    final daily = snapshot.taskNamed('日常');
+    final weekly = snapshot.taskNamed('周常');
+
+    expect(daily?.availability, ForumTaskAvailability.claimable);
+    expect(daily?.cooldownRemaining, const Duration(hours: 18));
+    expect(weekly?.availability, ForumTaskAvailability.completed);
+    expect(weekly?.cooldownRemaining, const Duration(hours: 158));
+    expect(snapshot.autoTaskSummary.hasClaimable, isTrue);
+    expect(snapshot.autoTaskSummary.isFullyHandled, isFalse);
   });
 
   test('autoClaimForumTaskRewardsIfDue skips requests while cache is fresh',
@@ -954,10 +1157,8 @@ void main() {
     const store = ForumTaskStateStore();
     await store.save(snapshot);
     final client = _PathForumClient({
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': [
-        'success\t任务领取完成',
-        'success\t任务奖励领取完成',
-      ],
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': 'success\t任务领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15': 'success\t任务奖励领取完成',
       'plugin.php?H_name-tasks-actions-endtasks.html.html': [
         '<html></html>',
         '''
@@ -1015,7 +1216,7 @@ void main() {
     expect(client.paths, contains('plugin.php?H_name-tasks.html'));
     expect(
       client.paths,
-      contains('plugin.php?H_name=tasks&action=ajax&actions=job&cid=15'),
+      contains('plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15'),
     );
   });
 }
