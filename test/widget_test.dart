@@ -909,6 +909,34 @@ void main() {
     );
   });
 
+  testWidgets('ThreadRichContent renders emoji without manual-load placeholder',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await ImageLoadingSettings.saveMode(ImageLoadMode.manual);
+    addTearDown(() async {
+      await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ThreadRichContent(
+            segments: [
+              ThreadContentSegment.image(
+                url: 'https://example.com/emoji-wide.png',
+                isEmoji: true,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('点击加载图片'), findsNothing);
+    expect(find.byType(Image), findsWidgets);
+  });
+
   testWidgets('thread detail shows avatar fallback and page controls',
       (tester) async {
     final repository = _FakeThreadRepository();

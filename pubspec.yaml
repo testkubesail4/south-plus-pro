@@ -29,3 +29,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/forum_emoji/images/post/smile/smallface/
+    - assets/forum_emoji/images/post/smile/miao/
+    - assets/forum_emoji/images/post/smile/kaoani/
+    - assets/forum_emoji/images/post/smile/kaomoji/

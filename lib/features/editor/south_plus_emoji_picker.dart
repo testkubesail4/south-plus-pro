@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../common/cached_forum_image.dart';
+import '../common/forum_emoji_assets.dart';
 import '../../theme/app_theme.dart';
 
 class SouthPlusEmojiPicker extends StatelessWidget {
@@ -75,7 +76,11 @@ class SouthPlusEmojiPicker extends StatelessWidget {
                                     padding: const EdgeInsets.all(5),
                                     child: CachedForumImage(
                                       url: emoji.urlFromBase(_emojiBaseUrl),
+                                      assetName: forumEmojiAssetNameFromPath(
+                                        emoji.path,
+                                      ),
                                       fit: BoxFit.contain,
+                                      bypassLoadPolicy: true,
                                       errorWidget: (context) {
                                         return Center(
                                           child: Text(

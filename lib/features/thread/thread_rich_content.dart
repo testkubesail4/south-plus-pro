@@ -8,6 +8,7 @@ import '../../services/image_saver.dart';
 import '../../services/whats_link_preview_service.dart';
 import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
+import '../common/forum_emoji_assets.dart';
 
 class ThreadRichContent extends StatelessWidget {
   const ThreadRichContent({
@@ -207,16 +208,26 @@ class ThreadRichContent extends StatelessWidget {
   }
 
   InlineSpan _emojiSpan(ThreadContentSegment segment) {
+    const emojiMaxHeight = 70.0;
+    const emojiMaxWidth = 191.0;
     return WidgetSpan(
       alignment: PlaceholderAlignment.middle,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 1),
-        child: CachedForumImage(
-          url: segment.url!,
-          width: 26,
-          height: 26,
-          fit: BoxFit.contain,
-          errorWidget: (context) => const SizedBox(width: 0, height: 0),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: emojiMaxWidth,
+            maxHeight: emojiMaxHeight,
+          ),
+          child: CachedForumImage(
+            url: segment.url!,
+            assetName: forumEmojiAssetNameForUrl(segment.url!),
+            fit: BoxFit.scaleDown,
+            maxHeightDiskCache: emojiMaxHeight.toInt(),
+            maxWidthDiskCache: emojiMaxWidth.toInt(),
+            bypassLoadPolicy: true,
+            errorWidget: (context) => const SizedBox(width: 0, height: 0),
+          ),
         ),
       ),
     );

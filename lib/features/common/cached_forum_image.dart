@@ -25,6 +25,7 @@ class CachedForumImage extends StatelessWidget {
   const CachedForumImage({
     super.key,
     required this.url,
+    this.assetName,
     this.width,
     this.height,
     this.fit,
@@ -36,9 +37,11 @@ class CachedForumImage extends StatelessWidget {
     this.memCacheHeight,
     this.maxWidthDiskCache,
     this.maxHeightDiskCache,
+    this.bypassLoadPolicy = false,
   });
 
   final String url;
+  final String? assetName;
   final double? width;
   final double? height;
   final BoxFit? fit;
@@ -50,11 +53,13 @@ class CachedForumImage extends StatelessWidget {
   final int? memCacheHeight;
   final int? maxWidthDiskCache;
   final int? maxHeightDiskCache;
+  final bool bypassLoadPolicy;
 
   @override
   Widget build(BuildContext context) {
     return _PolicyAwareCachedImage(
       url: url,
+      assetName: assetName,
       width: width,
       height: height,
       fit: fit,
@@ -66,6 +71,7 @@ class CachedForumImage extends StatelessWidget {
       memCacheHeight: memCacheHeight,
       maxWidthDiskCache: maxWidthDiskCache,
       maxHeightDiskCache: maxHeightDiskCache,
+      bypassLoadPolicy: bypassLoadPolicy,
     );
   }
 }
@@ -73,6 +79,7 @@ class CachedForumImage extends StatelessWidget {
 class _PolicyAwareCachedImage extends StatefulWidget {
   const _PolicyAwareCachedImage({
     required this.url,
+    this.assetName,
     this.width,
     this.height,
     this.fit,
@@ -84,9 +91,11 @@ class _PolicyAwareCachedImage extends StatefulWidget {
     this.memCacheHeight,
     this.maxWidthDiskCache,
     this.maxHeightDiskCache,
+    required this.bypassLoadPolicy,
   });
 
   final String url;
+  final String? assetName;
   final double? width;
   final double? height;
   final BoxFit? fit;
@@ -98,6 +107,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
   final int? memCacheHeight;
   final int? maxWidthDiskCache;
   final int? maxHeightDiskCache;
+  final bool bypassLoadPolicy;
 
   @override
   State<_PolicyAwareCachedImage> createState() =>
@@ -128,6 +138,7 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.bypassLoadPolicy) return _image();
     if (_forcedLoad) return _image();
     if (_isTinyInlineImage) return _image();
 
@@ -151,6 +162,30 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   }
 
   Widget _image() {
+    final assetName = widget.assetName;
+    if (assetName != null) {
+      return Image.asset(
+        assetName,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        alignment: widget.alignment,
+        errorBuilder: (context, error, stackTrace) {
+          assert(() {
+            debugPrint(
+              'CachedForumImage asset load failed for $assetName, '
+              'falling back to network: ${widget.url}',
+            );
+            return true;
+          }());
+          return _networkImage();
+        },
+      );
+    }
+    return _networkImage();
+  }
+
+  Widget _networkImage() {
     return CachedNetworkImage(
       key: ValueKey('${widget.url}.$_retry'),
       imageUrl: widget.url,
