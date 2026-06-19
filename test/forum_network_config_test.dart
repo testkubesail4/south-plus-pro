@@ -55,6 +55,25 @@ void main() {
       ),
       'read.php?tid-123-uid-456-fpage-0-toread--page-3.html',
     );
+    expect(
+      resolver.threadDetailPath(
+        'https://south-plus.net/read.php?tid=2876434&page=e#a',
+      ),
+      'read.php?tid=2876434&page=e#a',
+    );
+    expect(
+      resolver.threadDetailPath(
+        'https://south-plus.net/read.php?tid-2876434-fpage-0-toread--page-7.html',
+      ),
+      'read.php?tid-2876434-fpage-0-toread--page-7.html',
+    );
+    expect(
+      resolver.threadDetailPath(
+        'https://south-plus.net/read.php?tid=2876434&page=e#a',
+        page: 4,
+      ),
+      'read.php?tid-2876434-fpage-0-toread--page-4.html',
+    );
   });
 
   test('ForumUrlResolver builds desktop board paths for list and wall modes',
@@ -83,6 +102,56 @@ void main() {
         page: 2,
       ),
       'thread_new.php?fid-218-page-2.html',
+    );
+    expect(
+      resolver.boardDesktopPath(
+        const ForumCategory(
+          name: '汉化本发布',
+          slug: 'p36',
+          url: 'https://south-plus.net/simple/index.php?p36.html',
+        ),
+      ),
+      'thread_new.php?fid-36-page-1.html',
+    );
+    expect(
+      resolver.boardDesktopPath(
+        const ForumCategory(
+          name: '茶馆',
+          slug: 'f9',
+          url: 'https://south-plus.net/simple/index.php?f9.html',
+        ),
+        page: 3,
+      ),
+      'thread_new.php?fid-9-page-3.html',
+    );
+  });
+
+  test('ForumUrlResolver preserves simple board mode tokens when paging', () {
+    final resolver = ForumUrlResolver(
+      baseUri: Uri.https('east-plus.net', '/'),
+    );
+
+    expect(
+      resolver.boardSimplePath(
+        const ForumCategory(
+          name: '汉化本发布',
+          slug: 'p36',
+          url: 'https://south-plus.net/simple/index.php?p36.html',
+        ),
+        page: 2,
+      ),
+      'https://east-plus.net/simple/index.php?p36_2.html',
+    );
+    expect(
+      resolver.boardSimplePath(
+        const ForumCategory(
+          name: '茶馆',
+          slug: 'f9',
+          url: 'https://south-plus.net/simple/index.php?f9.html',
+        ),
+        page: 2,
+      ),
+      'https://east-plus.net/simple/index.php?f9_2.html',
     );
   });
 

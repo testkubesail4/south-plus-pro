@@ -170,12 +170,14 @@ class ThreadDetailParser {
       ...document.querySelectorAll('a[href*="thread.php?fid-"]'),
       ...document.querySelectorAll('a[href*="thread.php?fid="]'),
       ...document.querySelectorAll('a[href*="simple/index.php?f"]'),
+      ...document.querySelectorAll('a[href*="simple/index.php?p"]'),
       ...document.querySelectorAll('a[href*="?f"]'),
+      ...document.querySelectorAll('a[href*="?p"]'),
     ];
 
     for (final link in breadcrumbLinks.reversed) {
       final href = link.attributes['href'] ?? '';
-      if (!_isBoardHref(href)) continue;
+      if (!urls.isBoardHref(href)) continue;
       final title = _cleanText(link.text);
       if (title.isEmpty || _isGenericCrumbTitle(title)) continue;
       return title;
@@ -207,12 +209,6 @@ class ThreadDetailParser {
       label: label.isEmpty ? fallbackLabel : label,
       url: urls.absoluteUrl(href),
     );
-  }
-
-  bool _isBoardHref(String href) {
-    return href.contains('thread.php?fid-') ||
-        href.contains('thread.php?fid=') ||
-        RegExp(r'(?:^|[?&])f\d+(?:[_\-.]|$)').hasMatch(href);
   }
 
   bool _isGenericCrumbTitle(String title) {

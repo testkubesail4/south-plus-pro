@@ -6,6 +6,12 @@ class ForumUrlResolver {
     Uri? baseUri,
   }) : baseUri = baseUri ?? ForumNetworkConfig.defaultSite.baseUri;
 
+  static final RegExp _simpleBoardTokenPattern =
+      RegExp(r'(?:^|[?&])([fp]\d+)(?:_\d+)?(?:\.html)?(?:$|[&#])');
+  static final RegExp _slugSimpleBoardTokenPattern =
+      RegExp(r'^([fp]\d+)(?:_\d+)?$');
+  static final RegExp _fidPattern = RegExp(r'fid[-=](\d+)');
+
   final Uri baseUri;
 
   String get _origin => '${baseUri.scheme}://${baseUri.host}';
@@ -71,47 +77,35 @@ class ForumUrlResolver {
 
   String? fidFromCategory(ForumCategory category) {
     for (final value in [category.slug, category.url ?? '']) {
-      final match =
-          RegExp(r'(?:^f|fid-|[?&]fid=?|[?&]f)(\d+)').firstMatch(value);
-      if (match != null) return match.group(1);
+      final fid = _fidFromValue(value);
+      if (fid != null) return fid;
     }
     return null;
   }
 
   String? boardDesktopPath(ForumCategory category, {int page = 1}) {
     final fid = fidFromCategory(category);
-    if (fid != null) {
-      final normalizedPage = page < 1 ? 1 : page;
-      return 'thread_new.php?fid-$fid-page-$normalizedPage.html';
-    }
-    final slug = category.slug;
-    final slugFid = RegExp(r'^fid-(\d+)$').firstMatch(slug)?.group(1);
-    if (slugFid != null) {
-      final normalizedPage = page < 1 ? 1 : page;
-      return 'thread_new.php?fid-$slugFid-page-$normalizedPage.html';
-    }
-    final href = category.url;
-    if (href == null) return null;
-    final hrefFid = RegExp(r'fid-(\d+)').firstMatch(href)?.group(1) ??
-        RegExp(r'[?&]fid=(\d+)').firstMatch(href)?.group(1);
-    if (hrefFid == null) return null;
-    final normalizedPage = page < 1 ? 1 : page;
-    return 'thread_new.php?fid-$hrefFid-page-$normalizedPage.html';
+    if (fid == null) return null;
+    final normalizedPage = _normalizedPage(page);
+    return 'thread_new.php?fid-$fid-page-$normalizedPage.html';
   }
 
   String boardSimplePath(ForumCategory category, {int page = 1}) {
+    final normalizedPage = _normalizedPage(page);
     final href = category.url;
     if (href != null && href.contains('/simple/')) {
-      if (page <= 1) return href;
-      final fidMatch = RegExp(r'\?f(\d+)(?:_\d+)?\.html').firstMatch(href);
-      if (fidMatch != null) {
-        return '$_origin/simple/index.php?f${fidMatch.group(1)}_$page.html';
+      if (normalizedPage == 1) return href;
+      final token = _simpleBoardTokenFromValue(href) ??
+          _simpleBoardTokenFromCategory(category);
+      if (token != null) {
+        return '$_origin/simple/index.php?${token}_$normalizedPage.html';
       }
     }
     final fid = fidFromCategory(category);
     if (fid != null) {
-      final pagePart = page <= 1 ? '' : '_$page';
-      return '$_origin/simple/index.php?f$fid$pagePart.html';
+      final token = _simpleBoardTokenFromCategory(category) ?? 'f$fid';
+      final pagePart = normalizedPage == 1 ? '' : '_$normalizedPage';
+      return '$_origin/simple/index.php?$token$pagePart.html';
     }
     return '$_origin/simple/index.php?${category.slug}.html';
   }
@@ -123,7 +117,10 @@ class ForumUrlResolver {
     if (isForum && tid != null) {
       final uid = uidFromUrl(url);
       final uidPart = uid == null ? '' : '-uid-$uid';
-      if (page <= 1) return 'read.php?tid-$tid$uidPart.html';
+      if (page <= 1) {
+        if (_hasExplicitThreadLocation(uri, url)) return relativePath(url);
+        return 'read.php?tid-$tid$uidPart.html';
+      }
       return 'read.php?tid-$tid$uidPart-fpage-0-toread--page-$page.html';
     }
     return relativePath(url);
@@ -144,11 +141,49 @@ class ForumUrlResolver {
     return query.startsWith('t') && query.endsWith('.html');
   }
 
+  bool isReadThreadHref(String href) {
+    return href.contains('read.php') && tidFromUrl(href) != null;
+  }
+
+  bool isBoardHref(String href) {
+    return _fidFromValue(href) != null;
+  }
+
   String slugFromHref(String href) {
     final query = Uri.tryParse(href)?.query ?? href;
     return query.endsWith('.html')
         ? query.substring(0, query.length - '.html'.length)
         : query;
+  }
+
+  int _normalizedPage(int page) => page < 1 ? 1 : page;
+
+  String? _fidFromValue(String value) {
+    final token = _simpleBoardTokenFromValue(value);
+    if (token != null) {
+      return RegExp(r'\d+').firstMatch(token)?.group(0);
+    }
+    return _fidPattern.firstMatch(value)?.group(1);
+  }
+
+  String? _simpleBoardTokenFromCategory(ForumCategory category) {
+    for (final value in [category.slug, category.url ?? '']) {
+      final token = _simpleBoardTokenFromValue(value);
+      if (token != null) return token;
+    }
+    return null;
+  }
+
+  String? _simpleBoardTokenFromValue(String value) {
+    if (value.isEmpty) return null;
+    return _simpleBoardTokenPattern.firstMatch(value)?.group(1) ??
+        _slugSimpleBoardTokenPattern.firstMatch(value)?.group(1);
+  }
+
+  bool _hasExplicitThreadLocation(Uri? uri, String url) {
+    if (uri?.hasFragment ?? false) return true;
+    if (uri?.queryParameters.containsKey('page') ?? false) return true;
+    return RegExp(r'page-(?:\d+|e)\b').hasMatch(url);
   }
 
   bool _isForumHost(String host) {

@@ -177,6 +177,21 @@ void main() {
     expect(section, '技术交流');
   });
 
+  test('ThreadDetailParser extracts section title from p-style breadcrumbs',
+      () {
+    final document = html_parser.parse('''
+      <nav class="breadcrumb">
+        <a href="index.php">南+ South Plus</a>
+        <a href="simple/index.php?p36.html">汉化本发布</a>
+        <span>帖子标题</span>
+      </nav>
+    ''');
+
+    final section = ThreadDetailParser().sectionTitle(document);
+
+    expect(section, '汉化本发布');
+  });
+
   test('ThreadDetailParser prefers desktop document title for section title',
       () {
     final document = html_parser.parse('''
