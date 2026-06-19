@@ -526,6 +526,7 @@ void main() {
     expect(client.paths, [
       'plugin.php?H_name-tasks-actions-endtasks.html.html',
       'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
     ]);
     expect(client.paths.any((path) => path.contains('actions=job')), isFalse);
     expect(result.hasClaims, isFalse);
@@ -752,6 +753,110 @@ void main() {
     ]);
     expect(result.claimedRewards.single.completionMessage, '周常奖励领取完成SP+7');
     expect(result.cooldowns, isEmpty);
+    expect(result.failures, isEmpty);
+  });
+
+  test(
+      'claimForumTaskRewards still checks in-progress rewards when completed history is stale',
+      () async {
+    final client = _PathForumClient({
+      'plugin.php?H_name-tasks-actions-newtasks.html.html': [
+        '''
+          <table>
+            <tr>
+              <td><b>周常</b> (人气 : 24966842) 任务时效2011-12-03~2028-12-31</td>
+              <td>奖励 : SP币 7 G</td>
+              <td><span id="both_14"><a onclick="startjob('14');" title="领取此奖励"></a></span></td>
+            </tr>
+            <tr><td>无所事事的周常 <span>已完成 100 %</span></td></tr>
+          </table>
+        ''',
+        '<html></html>',
+      ],
+      'plugin.php?H_name-tasks-actions-endtasks.html.html': [
+        '''
+        <table>
+          <tr>
+            <td><b>周常</b> (人气 : 24966842) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 7 G</td>
+            <td></td>
+          </tr>
+          <tr><td>无所事事的周常 <span>已完成 100 %</span> 完成时间 2020-01-01 PM:01:02:03</td></tr>
+          <tr>
+            <td><b>日常</b> (人气 : 84285089) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。 <span>已完成 100 %</span> 完成时间 2026-06-17 AM:11:37:46</td></tr>
+        </table>
+      ''',
+        '''
+        <table>
+          <tr>
+            <td><b>周常</b> (人气 : 24966842) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 7 G</td>
+            <td></td>
+          </tr>
+          <tr><td>无所事事的周常 <span>已完成 100 %</span> 完成时间 2026-06-17 PM:01:02:03</td></tr>
+          <tr>
+            <td><b>日常</b> (人气 : 84285089) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。 <span>已完成 100 %</span> 完成时间 2026-06-17 AM:11:37:46</td></tr>
+        </table>
+      ''',
+      ],
+      'plugin.php?H_name-tasks.html': [
+        '''
+        <table>
+          <tr>
+            <td><b>周常</b> (人气 : 24966842) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 7 G 上次领取未超过 158 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>无所事事的周常</td></tr>
+          <tr>
+            <td><b>日常</b> (人气 : 84285089) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G 上次领取未超过 18 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。</td></tr>
+        </table>
+      ''',
+        '''
+        <table>
+          <tr>
+            <td><b>周常</b> (人气 : 24966842) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 7 G 上次领取未超过 158 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>无所事事的周常</td></tr>
+          <tr>
+            <td><b>日常</b> (人气 : 84285089) 任务时效2011-12-03~2028-12-31</td>
+            <td>奖励 : SP币 2 G 上次领取未超过 18 小时</td>
+            <td></td>
+          </tr>
+          <tr><td>每日SP+2的日常。</td></tr>
+        </table>
+      ''',
+      ],
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14':
+          'success\t任务奖励领取完成',
+    });
+    final repository = ForumRepository(client: client);
+
+    final result = await repository.claimForumTaskRewards();
+
+    expect(client.paths, [
+      'plugin.php?H_name-tasks-actions-endtasks.html.html',
+      'plugin.php?H_name-tasks.html',
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14',
+      'plugin.php?H_name-tasks-actions-endtasks.html.html',
+      'plugin.php?H_name-tasks.html',
+    ]);
+    expect(result.claimedRewards.single.completionMessage, '周常奖励领取完成SP+7');
     expect(result.failures, isEmpty);
   });
 

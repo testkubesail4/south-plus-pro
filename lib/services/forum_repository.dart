@@ -290,6 +290,7 @@ class ForumRepository {
   }
 
   Future<ForumTaskQuickClaimResult> claimForumTaskRewards() async {
+    final now = _nowUtc();
     final failures = <String>[];
     final skipped = <String>[];
     final inProgressNames = <String>{};
@@ -299,16 +300,17 @@ class ForumRepository {
 
     final completedTasks = await fetchForumTasks(ForumTaskStatus.completed);
     final availableTasks = await fetchForumTasks(ForumTaskStatus.available);
-    final completedNames = completedTasks.map((task) => task.name).toSet();
-    final targetNames = _targetTaskNames([
+    final currentCycleCompletedNames =
+        _currentCycleCompletedNames(completedTasks, now: now);
+    final initialTargetNames = _targetTaskNames([
       ...completedTasks,
       ...availableTasks,
     ]);
-    final pendingNames = targetNames.where((name) {
+    final pendingNames = initialTargetNames.where((name) {
       final availableForName =
           availableTasks.where((task) => task.name == name).toList();
       final hasFreshStartAction = availableForName.any(_isStartableForumTask);
-      return hasFreshStartAction || !completedNames.contains(name);
+      return hasFreshStartAction || !currentCycleCompletedNames.contains(name);
     }).toSet();
     final runnableAvailableTasks = availableTasks.where((task) {
       return pendingNames.contains(task.name) && _isStartableForumTask(task);
@@ -358,6 +360,11 @@ class ForumRepository {
     final latestInProgressTasks = shouldCheckInProgress
         ? await fetchForumTasks(ForumTaskStatus.inProgress)
         : const <ForumTask>[];
+    final targetNames = _targetTaskNames([
+      ...completedTasks,
+      ...availableTasks,
+      ...latestInProgressTasks,
+    ]);
     final rewardsChangedState = await _claimRewardsFromTasks(
       latestInProgressTasks,
       targetNames: targetNames,
@@ -686,6 +693,27 @@ class ForumRepository {
   }
 
   DateTime _nowUtc() => DateTime.now().toUtc();
+
+  Set<String> _currentCycleCompletedNames(
+    Iterable<ForumTask> tasks, {
+    required DateTime now,
+  }) {
+    final names = <String>{};
+    for (final task in tasks) {
+      if (_isCurrentCycleCompletion(task, now: now)) names.add(task.name);
+    }
+    return names;
+  }
+
+  bool _isCurrentCycleCompletion(
+    ForumTask task, {
+    required DateTime now,
+  }) {
+    final cycle = _taskCycle(task.name);
+    final completedAt = _parseForumTaskCompletedAt(task.completedAt);
+    if (cycle == null || completedAt == null) return true;
+    return completedAt.add(cycle).isAfter(now.toUtc());
+  }
 
   Set<String> _targetTaskNames(Iterable<ForumTask> tasks) {
     final names = <String>{'日常', '周常'};
@@ -1145,6 +1173,40 @@ class ForumRepository {
 
   String _cleanText(String input) {
     return input.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  Duration? _taskCycle(String name) {
+    if (name.contains('日常')) return const Duration(hours: 24);
+    if (name.contains('周常')) return const Duration(hours: 168);
+    return null;
+  }
+
+  DateTime? _parseForumTaskCompletedAt(String? value) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty) return null;
+    final match = RegExp(
+      r'(\d{4})-(\d{2})-(\d{2})\s+(AM|PM):(\d{1,2}):(\d{2}):(\d{2})',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match == null) return DateTime.tryParse(text)?.toUtc();
+    final year = int.tryParse(match.group(1) ?? '');
+    final month = int.tryParse(match.group(2) ?? '');
+    final day = int.tryParse(match.group(3) ?? '');
+    var hour = int.tryParse(match.group(5) ?? '');
+    final minute = int.tryParse(match.group(6) ?? '');
+    final second = int.tryParse(match.group(7) ?? '');
+    if (year == null ||
+        month == null ||
+        day == null ||
+        hour == null ||
+        minute == null ||
+        second == null) {
+      return null;
+    }
+    final marker = (match.group(4) ?? '').toUpperCase();
+    if (marker == 'PM' && hour < 12) hour += 12;
+    if (marker == 'AM' && hour == 12) hour = 0;
+    return DateTime(year, month, day, hour, minute, second).toUtc();
   }
 
   String _canonicalThreadUrl({
