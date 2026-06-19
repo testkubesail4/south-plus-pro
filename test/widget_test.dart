@@ -9,6 +9,7 @@ import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
+import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/history/browsing_history_screen.dart';
 import 'package:south_plus_rewrite/features/profile/account_screen.dart';
@@ -667,8 +668,16 @@ void main() {
         find.byKey(const ValueKey('thread-inline-image-container'));
     final inlineImageContainer =
         tester.widget<Container>(inlineImageContainerFinder);
+    final forumImage = tester.widget<CachedForumImage>(
+      find.descendant(
+        of: inlineImageContainerFinder,
+        matching: find.byType(CachedForumImage),
+      ),
+    );
 
     expect(inlineImageContainer.color, isNull);
+    expect(forumImage.memCacheWidth, 720);
+    expect(forumImage.memCacheHeight, isNull);
     expect(tester.getSize(find.byType(ThreadInlineImage)).height, 160);
     expect(find.byIcon(Icons.download_outlined), findsNothing);
 

@@ -644,7 +644,6 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
                       cacheManager: ForumImageCache.manager,
                       fit: BoxFit.contain,
                       memCacheWidth: 1600,
-                      memCacheHeight: 1200,
                       placeholder: (context, url) => const Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
@@ -888,7 +887,6 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                       url: widget.image.url,
                       fit: BoxFit.contain,
                       memCacheWidth: 1600,
-                      memCacheHeight: 1600,
                     ),
                   ),
                 ),
@@ -927,8 +925,9 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
           child: CachedForumImage(
             url: widget.image.url,
             fit: BoxFit.contain,
+            // Providing both cache dimensions makes Flutter decode to that
+            // exact size, which squashes non-square post images.
             memCacheWidth: 720,
-            memCacheHeight: 720,
             placeholder: (context) {
               return const SizedBox(
                 height: 160,
