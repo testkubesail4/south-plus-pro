@@ -887,6 +887,9 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                       url: widget.image.url,
                       fit: BoxFit.contain,
                       memCacheWidth: 1600,
+                      // Opening the viewer is already an explicit load intent,
+                      // so the zoomed image should not require a second tap.
+                      bypassLoadPolicy: true,
                     ),
                   ),
                 ),

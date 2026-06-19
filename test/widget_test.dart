@@ -691,6 +691,21 @@ void main() {
 
     expect(find.text('保存图片'), findsOneWidget);
     expect(find.byIcon(Icons.download_outlined), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text('点击加载图片'),
+      ),
+      findsNothing,
+    );
+
+    final viewerImage = tester.widget<CachedForumImage>(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(CachedForumImage),
+      ),
+    );
+    expect(viewerImage.bypassLoadPolicy, isTrue);
   });
 
   testWidgets('post body does not duplicate inline links as buttons',

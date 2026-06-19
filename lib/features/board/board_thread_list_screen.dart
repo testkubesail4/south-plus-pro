@@ -206,8 +206,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                       _page = page.currentPage;
                     }
                     final hasSubBoards = subBoards.isNotEmpty;
-                    final showSubBoardOnlyHint =
-                        items.isEmpty && hasSubBoards;
+                    final showSubBoardOnlyHint = items.isEmpty && hasSubBoards;
                     final listItemCount = items.length +
                         1 +
                         (hasSubBoards ? 1 : 0) +
