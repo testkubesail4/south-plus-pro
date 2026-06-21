@@ -573,14 +573,10 @@ class _PreviewScreenshotStrip extends StatelessWidget {
                         ),
                       ),
                     ),
-                    errorWidget: (context, url, error) => ColoredBox(
-                      color: AppColors.surfaceTint,
-                      child: Center(
-                        child: Icon(
-                          Icons.broken_image_outlined,
-                          color: AppColors.textMuted,
-                        ),
-                      ),
+                    errorWidget: (context, url, error) => ThreadImageFailurePlaceholder(
+                      url: urls[index],
+                      onOpen: () => _openDownloadLink(context, urls[index]),
+                      onCopy: () => _copyDownloadLink(context, urls[index]),
                     ),
                   ),
                 ),
@@ -656,12 +652,15 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
                       placeholder: (context, url) => const Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                      errorWidget: (context, url, error) => const Center(
-                        child: Icon(
-                          Icons.broken_image_outlined,
-                          color: Colors.white70,
-                          size: 36,
-                        ),
+                      errorWidget: (context, url, error) =>
+                          ThreadImageFailurePlaceholder(
+                        url: widget.urls[index],
+                        onOpen: () =>
+                            _openDownloadLink(context, widget.urls[index]),
+                        onCopy: () =>
+                            _copyDownloadLink(context, widget.urls[index]),
+                        backgroundColor: Colors.black87,
+                        foregroundColor: Colors.white70,
                       ),
                     ),
                   ),
@@ -899,6 +898,13 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                       // Opening the viewer is already an explicit load intent,
                       // so the zoomed image should not require a second tap.
                       bypassLoadPolicy: true,
+                      errorWidget: (context) => ThreadImageFailurePlaceholder(
+                        url: widget.image.url,
+                        onOpen: () => _openDownloadLink(context, widget.image.url),
+                        onCopy: () => _copyDownloadLink(context, widget.image.url),
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white70,
+                      ),
                     ),
                   ),
                 ),
@@ -947,6 +953,81 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                   child: Center(child: CircularProgressIndicator()),
                 );
               },
+              errorWidget: (context) => ThreadImageFailurePlaceholder(
+                url: widget.image.url,
+                onOpen: () => _openDownloadLink(context, widget.image.url),
+                onCopy: () => _copyDownloadLink(context, widget.image.url),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ThreadImageFailurePlaceholder extends StatelessWidget {
+  const ThreadImageFailurePlaceholder({
+    super.key,
+    required this.url,
+    required this.onOpen,
+    required this.onCopy,
+    this.backgroundColor,
+    this.foregroundColor,
+  });
+
+  final String url;
+  final VoidCallback onOpen;
+  final VoidCallback onCopy;
+  final Color? backgroundColor;
+  final Color? foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textColor = foregroundColor ?? AppColors.textMuted;
+    final bgColor = backgroundColor ?? AppColors.surfaceTint;
+
+    return Semantics(
+      button: true,
+      label: '图片加载失败',
+      hint: '点按浏览器打开，长按复制链接',
+      child: Material(
+        color: bgColor,
+        child: InkWell(
+          onTap: onOpen,
+          onLongPress: onCopy,
+          child: SizedBox(
+            width: double.infinity,
+            height: double.infinity,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.broken_image_outlined, color: textColor),
+                    const SizedBox(height: 8),
+                    Text(
+                      '图片加载失败',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: textColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '点按浏览器打开\n长按复制链接',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: textColor.withValues(alpha: 0.88),
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

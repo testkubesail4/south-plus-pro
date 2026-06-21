@@ -709,32 +709,40 @@ void main() {
     expect(forumImage.memCacheHeight, isNull);
     expect(tester.getSize(find.byType(ThreadInlineImage)).height, 160);
     expect(find.byIcon(Icons.download_outlined), findsNothing);
+  });
 
-    final inlineImageTapTarget = tester.widget<InkWell>(
-      find.byWidgetPredicate(
-        (widget) => widget is InkWell && widget.onLongPress != null,
+  testWidgets('thread image failure exposes open and copy actions',
+      (tester) async {
+    var openCount = 0;
+    var copyCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            child: ThreadImageFailurePlaceholder(
+              url: 'https://example.com/image.jpg',
+              onOpen: () => openCount++,
+              onCopy: () => copyCount++,
+            ),
+          ),
+        ),
       ),
     );
-    inlineImageTapTarget.onTap!();
-    await tester.pumpAndSettle();
+    await tester.pump();
 
-    expect(find.text('保存图片'), findsOneWidget);
-    expect(find.byIcon(Icons.download_outlined), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byType(Dialog),
-        matching: find.text('点击加载图片'),
-      ),
-      findsNothing,
-    );
+    expect(find.text('图片加载失败'), findsOneWidget);
+    expect(find.text('点按浏览器打开\n长按复制链接'), findsOneWidget);
 
-    final viewerImage = tester.widget<CachedForumImage>(
-      find.descendant(
-        of: find.byType(Dialog),
-        matching: find.byType(CachedForumImage),
-      ),
-    );
-    expect(viewerImage.bypassLoadPolicy, isTrue);
+    await tester.tap(find.byType(ThreadImageFailurePlaceholder));
+    await tester.pump();
+    expect(openCount, 1);
+
+    await tester.longPress(find.byType(ThreadImageFailurePlaceholder));
+    await tester.pump();
+
+    expect(copyCount, 1);
   });
 
   testWidgets('post body does not duplicate inline links as buttons',
