@@ -43,33 +43,35 @@ class ThreadPostBody extends StatelessWidget {
         )
         .toList();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (saleBoxesFirst) ...saleBoxWidgets,
-        if (quote != null && segments.isEmpty) ...[
-          _QuoteView(text: quote!),
-          if (content.isNotEmpty) const SizedBox(height: 12),
-        ],
-        if (segments.isNotEmpty)
-          ThreadRichContent(segments: segments)
-        else if (content.isNotEmpty)
-          Text(content, style: Theme.of(context).textTheme.bodyMedium),
-        if (images.isNotEmpty) ...[
-          if (content.isNotEmpty || quote != null) const SizedBox(height: 12),
-          ...images.map(
-            (image) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: ThreadInlineImage(image: image),
+    return SelectionArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (saleBoxesFirst) ...saleBoxWidgets,
+          if (quote != null && segments.isEmpty) ...[
+            _QuoteView(text: quote!),
+            if (content.isNotEmpty) const SizedBox(height: 12),
+          ],
+          if (segments.isNotEmpty)
+            ThreadRichContent(segments: segments)
+          else if (content.isNotEmpty)
+            Text(content, style: Theme.of(context).textTheme.bodyMedium),
+          if (images.isNotEmpty) ...[
+            if (content.isNotEmpty || quote != null) const SizedBox(height: 12),
+            ...images.map(
+              (image) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: ThreadInlineImage(image: image),
+              ),
             ),
-          ),
+          ],
+          if (!saleBoxesFirst && saleBoxes.isNotEmpty) ...[
+            if (content.isNotEmpty || images.isNotEmpty)
+              const SizedBox(height: 12),
+            ...saleBoxWidgets,
+          ],
         ],
-        if (!saleBoxesFirst && saleBoxes.isNotEmpty) ...[
-          if (content.isNotEmpty || images.isNotEmpty)
-            const SizedBox(height: 12),
-          ...saleBoxWidgets,
-        ],
-      ],
+      ),
     );
   }
 }
@@ -193,26 +195,28 @@ class _SaleBoxView extends StatelessWidget {
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
-                child: FilledButton(
-                  onPressed: isBuying ? null : onBuy,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.brand,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 11),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                child: SelectionContainer.disabled(
+                  child: FilledButton(
+                    onPressed: isBuying ? null : onBuy,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.brand,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
+                    child: isBuying
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('购买查看'),
                   ),
-                  child: isBuying
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text('购买查看'),
                 ),
               ),
             ],

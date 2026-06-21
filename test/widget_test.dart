@@ -799,6 +799,41 @@ void main() {
     expect(find.text('链接已复制'), findsOneWidget);
   });
 
+  testWidgets('post body rich text participates in system selection',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ThreadPostBody(
+            content: '',
+            segments: const [
+              ThreadContentSegment.text('第一段正文'),
+              ThreadContentSegment.quote([
+                ThreadContentSegment.text('引用内容'),
+              ]),
+              ThreadContentSegment.text('第二段正文'),
+            ],
+            quote: null,
+            images: const [],
+            links: const [],
+            saleBoxes: const [],
+            saleBoxesFirst: false,
+            buyingSaleBoxes: const {},
+            onBuySaleBox: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(SelectionArea), findsOneWidget);
+    final richTexts = tester.widgetList<RichText>(find.byType(RichText));
+    expect(richTexts, isNotEmpty);
+    for (final richText in richTexts) {
+      expect(richText.selectionRegistrar, isNotNull);
+      expect(richText.selectionColor, isNotNull);
+    }
+  });
+
   testWidgets('paid content sale box renders clear metadata and action',
       (tester) async {
     final purchases = <ThreadSaleBox>[];

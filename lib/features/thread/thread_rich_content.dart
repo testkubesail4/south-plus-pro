@@ -1,6 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart'
+    show DefaultSelectionStyle, SelectionContainer;
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
@@ -21,6 +23,9 @@ class ThreadRichContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final baseStyle = Theme.of(context).textTheme.bodyMedium;
+    final selectionRegistrar = SelectionContainer.maybeOf(context);
+    final selectionColor = DefaultSelectionStyle.of(context).selectionColor ??
+        DefaultSelectionStyle.defaultColor;
     final children = <Widget>[];
     final inlineSpans = <InlineSpan>[];
 
@@ -28,6 +33,8 @@ class ThreadRichContent extends StatelessWidget {
       if (inlineSpans.isEmpty) return;
       children.add(
         RichText(
+          selectionRegistrar: selectionRegistrar,
+          selectionColor: selectionColor,
           text: TextSpan(style: baseStyle, children: List.of(inlineSpans)),
         ),
       );
@@ -137,10 +144,12 @@ class ThreadRichContent extends StatelessWidget {
     return WidgetSpan(
       alignment: PlaceholderAlignment.baseline,
       baseline: TextBaseline.alphabetic,
-      child: GestureDetector(
-        onTap: () => _openInlineLink(context, href),
-        onLongPress: () => _copyInlineLink(context, href),
-        child: Text(segment.text ?? href, style: style),
+      child: SelectionContainer.disabled(
+        child: GestureDetector(
+          onTap: () => _openInlineLink(context, href),
+          onLongPress: () => _copyInlineLink(context, href),
+          child: Text(segment.text ?? href, style: style),
+        ),
       ),
     );
   }
@@ -295,27 +304,29 @@ class _DownloadLinkPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _DownloadActionButton(
-                onPressed: () => _copyDownloadLink(context, url),
-                icon: Icon(Icons.copy_outlined),
-                label: '复制',
-              ),
-              _DownloadActionButton(
-                onPressed: () => _showWhatsLinkPreview(context, url),
-                icon: Icon(Icons.visibility_outlined),
-                label: '预览',
-              ),
-              _DownloadActionButton(
-                filled: true,
-                onPressed: () => _openDownloadLink(context, url),
-                icon: Icon(Icons.download_outlined),
-                label: '下载',
-              ),
-            ],
+          SelectionContainer.disabled(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _DownloadActionButton(
+                  onPressed: () => _copyDownloadLink(context, url),
+                  icon: Icon(Icons.copy_outlined),
+                  label: '复制',
+                ),
+                _DownloadActionButton(
+                  onPressed: () => _showWhatsLinkPreview(context, url),
+                  icon: Icon(Icons.visibility_outlined),
+                  label: '预览',
+                ),
+                _DownloadActionButton(
+                  filled: true,
+                  onPressed: () => _openDownloadLink(context, url),
+                  icon: Icon(Icons.download_outlined),
+                  label: '下载',
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -915,28 +926,30 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: _openImageViewer,
-      onLongPress: _saveImage,
-      child: ClipRRect(
+    return SelectionContainer.disabled(
+      child: InkWell(
         borderRadius: BorderRadius.circular(8),
-        child: Container(
-          key: const ValueKey('thread-inline-image-container'),
-          width: double.infinity,
-          constraints: const BoxConstraints(maxHeight: 360),
-          child: CachedForumImage(
-            url: widget.image.url,
-            fit: BoxFit.contain,
-            // Providing both cache dimensions makes Flutter decode to that
-            // exact size, which squashes non-square post images.
-            memCacheWidth: 720,
-            placeholder: (context) {
-              return const SizedBox(
-                height: 160,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            },
+        onTap: _openImageViewer,
+        onLongPress: _saveImage,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            key: const ValueKey('thread-inline-image-container'),
+            width: double.infinity,
+            constraints: const BoxConstraints(maxHeight: 360),
+            child: CachedForumImage(
+              url: widget.image.url,
+              fit: BoxFit.contain,
+              // Providing both cache dimensions makes Flutter decode to that
+              // exact size, which squashes non-square post images.
+              memCacheWidth: 720,
+              placeholder: (context) {
+                return const SizedBox(
+                  height: 160,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              },
+            ),
           ),
         ),
       ),
