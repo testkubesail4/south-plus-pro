@@ -26,6 +26,7 @@ class ThreadDetailParser {
 
       final contentClone = content.clone(true);
       _removeIgnoredContent(contentClone);
+      _moveAttachmentBlocksBelowReadContent(contentClone);
       final saleBoxesFirst = _startsWithSaleBox(contentClone);
       final saleBoxes = _extractSaleBoxes(contentClone);
       final quote = contentParser.extractQuote(contentClone);
@@ -245,9 +246,48 @@ class ThreadDetailParser {
 
   dom.Element? _desktopContentElement(dom.Element? contentCell) {
     if (contentCell == null) return null;
-    return contentCell.querySelector('[id^="read_"]') ??
-        contentCell.querySelector('.tpc_content .f14') ??
-        contentCell.querySelector('.tpc_content');
+    return contentCell.querySelector('.tpc_content') ??
+        contentCell.querySelector('[id^="read_"]') ??
+        contentCell.querySelector('.tpc_content .f14');
+  }
+
+  void _moveAttachmentBlocksBelowReadContent(dom.Element content) {
+    final readContent = content.querySelector('[id^="read_"]');
+    final parent = readContent?.parent;
+    if (readContent == null || parent == null) return;
+
+    final attachments = <dom.Element>[];
+    for (final node in List<dom.Node>.from(parent.nodes)) {
+      if (identical(node, readContent)) break;
+      if (node is dom.Element && _isTopAttachmentBlock(node)) {
+        attachments.add(node);
+      }
+    }
+    if (attachments.isEmpty) return;
+
+    for (final attachment in attachments) {
+      attachment.remove();
+    }
+
+    if (_cleanText(readContent.text).isNotEmpty && !_endsWithLineBreak(readContent)) {
+      readContent.append(dom.Element.tag('br'));
+    }
+    for (final attachment in attachments) {
+      readContent.append(attachment);
+    }
+  }
+
+  bool _isTopAttachmentBlock(dom.Element element) {
+    return element.id.startsWith('att_') &&
+        element.querySelector('img[src]') != null;
+  }
+
+  bool _endsWithLineBreak(dom.Element element) {
+    for (final node in element.nodes.reversed) {
+      if (node is dom.Text && _cleanText(node.text).isEmpty) continue;
+      return node is dom.Element && node.localName == 'br';
+    }
+    return false;
   }
 
   void _removeIgnoredContent(dom.Element content) {

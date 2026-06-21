@@ -224,6 +224,65 @@ void main() {
     expect(url, 'https://south-plus.net/read.php?tid-741222.html');
   });
 
+  test(
+      'ThreadDetailParser moves top attachments below read_tpc content',
+      () {
+    final document = html_parser.parse('''
+      <html>
+        <body>
+          <table class="js-post">
+            <tr class="tr1">
+              <th class="r_two" rowspan="2">
+                <a href="u.php?action-show-uid-2583629.html">
+                  <strong>200a2fc2</strong>
+                </a>
+              </th>
+              <th class="r_one" id="td_tpc">
+                <div class="tiptop">
+                  <span class="fl"><a class="s3">GF</a></span>
+                  <span class="fl gray" title="发表于: 2026-06-19 18:59">
+                    2026-06-19 18:59
+                  </span>
+                </div>
+                <div class="tpc_content">
+                  <div id="p_tpc" class="c"></div>
+                  <div style="margin:5px" id="att_467407">
+                    图片：
+                    <br>
+                    <img
+                      src="//south-plus.net/attachment/Mon_2606/9_2583629_bd631ac289fc42b.jpg"
+                      loading="lazy"
+                      referrerpolicy="no-referrer"
+                      border="0"
+                      onclick="if(this.width&gt;=680) window.open('//south-plus.net/attachment/Mon_2606/9_2583629_bd631ac289fc42b.jpg');"
+                      onload="if(this.width&gt;'680')this.width='680';"
+                      width="680">
+                  </div>
+                  <div class="f14" id="read_tpc">
+                    正文内容
+                  </div>
+                </div>
+              </th>
+            </tr>
+          </table>
+        </body>
+      </html>
+    ''');
+
+    final replies = ThreadDetailParser().desktopThreadCards(document);
+
+    expect(replies, hasLength(1));
+    expect(replies.single.segments, hasLength(2));
+    expect(replies.single.segments[0].text?.trim(), '正文内容\n 图片：');
+    expect(
+      replies.single.segments[1].url,
+      'https://south-plus.net/attachment/Mon_2606/9_2583629_bd631ac289fc42b.jpg',
+    );
+    expect(replies.single.content, contains('正文内容'));
+    expect(replies.single.content.indexOf('正文内容'),
+        lessThan(replies.single.content.indexOf('图片：')));
+  });
+
   test('UserProfileParser strips honor scripts and extracts online status', () {
     final profileDocument = html_parser.parse('''
       <div id="u-sidebar">
