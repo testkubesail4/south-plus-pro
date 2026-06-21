@@ -1,8 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart'
-    show DefaultSelectionStyle, SelectionContainer;
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
