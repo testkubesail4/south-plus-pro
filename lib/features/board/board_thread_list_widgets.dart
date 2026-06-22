@@ -697,70 +697,99 @@ class _ThreadRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final previewImageUrl = thread.previewImageUrl;
-    return Material(
-      color: AppColors.surface,
-      child: InkWell(
-        onTap: onTap,
-        child: _ListLine(
-          minHeight: 72,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      thread.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: thread.isSticky
-                            ? AppColors.brandDark
-                            : AppColors.text,
-                        fontSize: 15.5,
-                        height: 1.35,
-                        fontWeight:
-                            thread.isSticky ? FontWeight.w800 : FontWeight.w600,
-                      ),
-                    ),
-                    if (thread.bodyPreview != null) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        thread.bodyPreview!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 12,
-                          height: 1.2,
-                        ),
-                      ),
-                    ],
-                    if (previewImageUrl != null) ...[
-                      const SizedBox(height: 10),
-                      _ThreadPreviewImage(url: previewImageUrl),
-                    ],
-                    const SizedBox(height: 7),
-                    Row(
+    return PerfTrace.span(
+      'BoardThreadRow.build',
+      () {
+        return Material(
+          color: AppColors.surface,
+          child: InkWell(
+            onTap: onTap,
+            child: _ListLine(
+              minHeight: 72,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (thread.author != null)
-                          InkWell(
-                            onTap: thread.authorUrl == null
-                                ? null
-                                : () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => UserProfileScreen(
-                                          userUrl: thread.authorUrl!,
-                                          repository: repository,
+                        Text(
+                          thread.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: thread.isSticky
+                                ? AppColors.brandDark
+                                : AppColors.text,
+                            fontSize: 15.5,
+                            height: 1.35,
+                            fontWeight: thread.isSticky
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                          ),
+                        ),
+                        if (thread.bodyPreview != null) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            thread.bodyPreview!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 12,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
+                        if (previewImageUrl != null) ...[
+                          const SizedBox(height: 10),
+                          _ThreadPreviewImage(url: previewImageUrl),
+                        ],
+                        const SizedBox(height: 7),
+                        Row(
+                          children: [
+                            if (thread.author != null)
+                              InkWell(
+                                onTap: thread.authorUrl == null
+                                    ? null
+                                    : () => Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => UserProfileScreen(
+                                              userUrl: thread.authorUrl!,
+                                              repository: repository,
+                                            ),
+                                          ),
                                         ),
-                                      ),
+                                child: ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 120),
+                                  child: Text(
+                                    thread.author!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontSize: 12,
+                                      height: 1.2,
                                     ),
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 120),
+                                  ),
+                                ),
+                              )
+                            else
+                              Text(
+                                '匿名',
+                                style: TextStyle(
+                                  color: AppColors.textMuted,
+                                  fontSize: 12,
+                                  height: 1.2,
+                                ),
+                              ),
+                            Expanded(
                               child: Text(
-                                thread.author!,
+                                thread.lastPost == null
+                                    ? ''
+                                    : ' - 发布于 ${thread.lastPost}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -770,196 +799,142 @@ class _ThreadRow extends StatelessWidget {
                                 ),
                               ),
                             ),
-                          )
-                        else
-                          Text(
-                            '匿名',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 12,
-                              height: 1.2,
-                            ),
-                          ),
-                        Expanded(
-                          child: Text(
-                            thread.lastPost == null
-                                ? ''
-                                : ' - 发布于 ${thread.lastPost}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 12,
-                              height: 1.2,
-                            ),
-                          ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                constraints: const BoxConstraints(minWidth: 50),
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.inkSoft,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '${thread.replies} 回',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 12,
-                    height: 1.2,
-                    fontWeight: FontWeight.w700,
                   ),
-                ),
+                  const SizedBox(width: 12),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 50),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.inkSoft,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${thread.replies} 回',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12,
+                        height: 1.2,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
+      arguments: {'hasPreview': previewImageUrl != null},
     );
   }
 }
 
-class _ThreadPreviewImage extends StatelessWidget {
+class _ThreadPreviewImage extends StatefulWidget {
   const _ThreadPreviewImage({required this.url});
 
   final String url;
 
   @override
+  State<_ThreadPreviewImage> createState() => _ThreadPreviewImageState();
+}
+
+class _ThreadPreviewImageState extends State<_ThreadPreviewImage> {
+  Size? _imageSize;
+  String? _metadataRequestUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageSize = ForumImageMetadataCache.instance.peek(widget.url);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ThreadPreviewImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url == widget.url) return;
+    _imageSize = ForumImageMetadataCache.instance.peek(widget.url);
+    _metadataRequestUrl = null;
+  }
+
+  void _ensureMetadata(ImageProvider provider) {
+    if (_imageSize != null || _metadataRequestUrl == widget.url) return;
+    final url = widget.url;
+    _metadataRequestUrl = url;
+    ForumImageMetadataCache.instance.get(url, provider).then((size) {
+      if (!mounted || widget.url != url) return;
+      if (size == null) {
+        _metadataRequestUrl = null;
+        return;
+      }
+      if (size == _imageSize) {
+        return;
+      }
+      setState(() {
+        _imageSize = size;
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final fallbackLayout = ThreadPreviewImageLayout.fallback(
-          constraints.maxWidth,
+        final layout = _imageSize == null
+            ? ThreadPreviewImageLayout.fallback(constraints.maxWidth)
+            : ThreadPreviewImageLayout.resolve(
+                imageSize: _imageSize!,
+                maxWidth: constraints.maxWidth,
+              );
+        final spec = ForumImageDecodeSpec.forDisplay(
+          logicalSize: layout.size,
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+          maxLongEdge: 960,
         );
 
-        return CachedForumImage(
-          url: url,
-          width: fallbackLayout.size.width,
-          height: fallbackLayout.size.height,
-          fit: fallbackLayout.fit,
-          memCacheWidth: constraints.maxWidth.ceil(),
-          memCacheHeight: ThreadPreviewImageLayout.maxHeight.ceil(),
-          placeholder: (context) => _ThreadPreviewPlaceholder(
-            layout: fallbackLayout,
-          ),
-          imageBuilder: (context, provider) {
-            return _ResolvedThreadPreviewImage(
-              provider: provider,
-              maxWidth: constraints.maxWidth,
-            );
-          },
-          errorWidget: (context) => _ThreadPreviewError(
-            width: fallbackLayout.size.width,
-            height: fallbackLayout.size.height,
+        return RepaintBoundary(
+          child: CachedForumImage(
+            url: widget.url,
+            width: layout.size.width,
+            height: layout.size.height,
+            fit: layout.fit,
+            memCacheWidth: spec.memCacheWidth,
+            memCacheHeight: spec.memCacheHeight,
+            maxWidthDiskCache: spec.maxWidthDiskCache,
+            maxHeightDiskCache: spec.maxHeightDiskCache,
+            placeholder: (context) => _ThreadPreviewPlaceholder(
+              layout: layout,
+            ),
+            imageBuilder: (context, provider) {
+              _ensureMetadata(provider);
+              return PerfTrace.span(
+                'BoardThreadPreviewImage.build',
+                () {
+                  return _ThreadPreviewFrame(
+                    layout: layout,
+                    child: Image(
+                      image: provider,
+                      width: layout.size.width,
+                      height: layout.size.height,
+                      fit: layout.fit,
+                    ),
+                  );
+                },
+                arguments: {'resolved': _imageSize != null},
+              );
+            },
+            errorWidget: (context) => _ThreadPreviewError(
+              width: layout.size.width,
+              height: layout.size.height,
+            ),
           ),
         );
       },
-    );
-  }
-}
-
-class _ResolvedThreadPreviewImage extends StatefulWidget {
-  const _ResolvedThreadPreviewImage({
-    required this.provider,
-    required this.maxWidth,
-  });
-
-  final ImageProvider provider;
-  final double maxWidth;
-
-  @override
-  State<_ResolvedThreadPreviewImage> createState() =>
-      _ResolvedThreadPreviewImageState();
-}
-
-class _ResolvedThreadPreviewImageState
-    extends State<_ResolvedThreadPreviewImage> {
-  ImageStream? _stream;
-  ImageStreamListener? _listener;
-  Size? _imageSize;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _resolveImage();
-  }
-
-  @override
-  void didUpdateWidget(covariant _ResolvedThreadPreviewImage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.provider != widget.provider ||
-        oldWidget.maxWidth != widget.maxWidth) {
-      _resolveImage();
-    }
-  }
-
-  @override
-  void dispose() {
-    _removeListener();
-    super.dispose();
-  }
-
-  void _resolveImage() {
-    _removeListener();
-    _imageSize = null;
-    final stream = widget.provider.resolve(
-      createLocalImageConfiguration(context),
-    );
-    final listener = ImageStreamListener((info, synchronousCall) {
-      final image = info.image;
-      final nextSize = Size(
-        image.width.toDouble(),
-        image.height.toDouble(),
-      );
-      if (_imageSize == nextSize) return;
-      if (synchronousCall) {
-        _imageSize = nextSize;
-      } else if (mounted) {
-        setState(() {
-          _imageSize = nextSize;
-        });
-      }
-    });
-    _stream = stream;
-    _listener = listener;
-    stream.addListener(listener);
-  }
-
-  void _removeListener() {
-    final stream = _stream;
-    final listener = _listener;
-    if (stream != null && listener != null) {
-      stream.removeListener(listener);
-    }
-    _stream = null;
-    _listener = null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final imageSize = _imageSize;
-    final layout = imageSize == null
-        ? ThreadPreviewImageLayout.fallback(widget.maxWidth)
-        : ThreadPreviewImageLayout.resolve(
-            imageSize: imageSize,
-            maxWidth: widget.maxWidth,
-          );
-
-    return _ThreadPreviewFrame(
-      layout: layout,
-      child: Image(
-        image: widget.provider,
-        width: layout.size.width,
-        height: layout.size.height,
-        fit: layout.fit,
-      ),
     );
   }
 }

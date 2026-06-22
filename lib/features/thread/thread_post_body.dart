@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
+import '../../services/perf_trace.dart';
 import '../../theme/app_theme.dart';
 import 'thread_rich_content.dart';
+import 'thread_render_models.dart';
 
 class ThreadPostBody extends StatelessWidget {
-  const ThreadPostBody({
+  ThreadPostBody({
     super.key,
     required this.content,
-    required this.segments,
     required this.quote,
     required this.images,
     required this.links,
@@ -16,10 +17,15 @@ class ThreadPostBody extends StatelessWidget {
     required this.saleBoxesFirst,
     required this.buyingSaleBoxes,
     required this.onBuySaleBox,
-  });
+    List<ThreadContentSegment> segments = const [],
+    ThreadPostRenderModel? renderModel,
+  })  : segments = segments,
+        renderModel =
+            renderModel ?? ThreadPostRenderModel.fromSegments(segments);
 
   final String content;
   final List<ThreadContentSegment> segments;
+  final ThreadPostRenderModel renderModel;
   final String? quote;
   final List<ThreadImage> images;
   final List<ThreadLink> links;
@@ -30,48 +36,59 @@ class ThreadPostBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final saleBoxWidgets = saleBoxes
-        .map(
-          (saleBox) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _SaleBoxView(
-              saleBox: saleBox,
-              isBuying: buyingSaleBoxes.contains(saleBox.buyPath),
-              onBuy: () => onBuySaleBox(saleBox),
-            ),
-          ),
-        )
-        .toList();
-
-    return SelectionArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (saleBoxesFirst) ...saleBoxWidgets,
-          if (quote != null && segments.isEmpty) ...[
-            _QuoteView(text: quote!),
-            if (content.isNotEmpty) const SizedBox(height: 12),
-          ],
-          if (segments.isNotEmpty)
-            ThreadRichContent(segments: segments)
-          else if (content.isNotEmpty)
-            Text(content, style: Theme.of(context).textTheme.bodyMedium),
-          if (images.isNotEmpty) ...[
-            if (content.isNotEmpty || quote != null) const SizedBox(height: 12),
-            ...images.map(
-              (image) => Padding(
+    return PerfTrace.span(
+      'ThreadPostBody.build',
+      () {
+        final saleBoxWidgets = saleBoxes
+            .map(
+              (saleBox) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: ThreadInlineImage(image: image),
+                child: _SaleBoxView(
+                  saleBox: saleBox,
+                  isBuying: buyingSaleBoxes.contains(saleBox.buyPath),
+                  onBuy: () => onBuySaleBox(saleBox),
+                ),
               ),
-            ),
-          ],
-          if (!saleBoxesFirst && saleBoxes.isNotEmpty) ...[
-            if (content.isNotEmpty || images.isNotEmpty)
-              const SizedBox(height: 12),
-            ...saleBoxWidgets,
-          ],
-        ],
-      ),
+            )
+            .toList();
+
+        return SelectionArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (saleBoxesFirst) ...saleBoxWidgets,
+              if (quote != null && segments.isEmpty) ...[
+                _QuoteView(text: quote!),
+                if (content.isNotEmpty) const SizedBox(height: 12),
+              ],
+              if (!renderModel.isEmpty)
+                ThreadRichContent.renderModel(renderModel: renderModel)
+              else if (content.isNotEmpty)
+                Text(content, style: Theme.of(context).textTheme.bodyMedium),
+              if (images.isNotEmpty) ...[
+                if (content.isNotEmpty || quote != null)
+                  const SizedBox(height: 12),
+                ...images.map(
+                  (image) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: ThreadInlineImage(image: image),
+                  ),
+                ),
+              ],
+              if (!saleBoxesFirst && saleBoxes.isNotEmpty) ...[
+                if (content.isNotEmpty || images.isNotEmpty)
+                  const SizedBox(height: 12),
+                ...saleBoxWidgets,
+              ],
+            ],
+          ),
+        );
+      },
+      arguments: {
+        'segments': renderModel.blocks.length,
+        'images': images.length,
+        'saleBoxes': saleBoxes.length,
+      },
     );
   }
 }

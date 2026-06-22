@@ -19,6 +19,7 @@ import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_post_body.dart';
 import 'package:south_plus_rewrite/features/thread/thread_rich_content.dart';
+import 'package:south_plus_rewrite/features/thread/thread_render_models.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
@@ -705,7 +706,7 @@ void main() {
     );
 
     expect(inlineImageContainer.color, isNull);
-    expect(forumImage.memCacheWidth, 720);
+    expect(forumImage.memCacheWidth, 1080);
     expect(forumImage.memCacheHeight, isNull);
     expect(tester.getSize(find.byType(ThreadInlineImage)).height, 160);
     expect(find.byIcon(Icons.download_outlined), findsNothing);
@@ -951,10 +952,10 @@ void main() {
         'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12';
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: ThreadRichContent(
-            segments: [
+            segments: const [
               ThreadContentSegment.text(magnetUrl),
             ],
           ),
@@ -981,10 +982,10 @@ void main() {
         'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12';
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: ThreadRichContent(
-            segments: [
+            segments: const [
               ThreadContentSegment.text(magnetUrl),
             ],
           ),
@@ -1014,10 +1015,10 @@ void main() {
     });
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: ThreadRichContent(
-            segments: [
+            segments: const [
               ThreadContentSegment.image(
                 url: 'https://example.com/emoji-wide.png',
                 isEmoji: true,
@@ -1031,6 +1032,34 @@ void main() {
 
     expect(find.text('点击加载图片'), findsNothing);
     expect(find.byType(Image), findsWidgets);
+  });
+
+  testWidgets('ThreadRichContent renderModel preserves quote and download UI',
+      (tester) async {
+    const magnetUrl =
+        'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12';
+    final renderModel = ThreadPostRenderModel.fromSegments(const [
+      ThreadContentSegment.text('前置文本'),
+      ThreadContentSegment.quote([
+        ThreadContentSegment.text('引用内容'),
+      ]),
+      ThreadContentSegment.text(magnetUrl),
+    ]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ThreadRichContent.renderModel(renderModel: renderModel),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('前置文本', findRichText: true), findsOneWidget);
+    expect(find.textContaining('引用内容', findRichText: true), findsOneWidget);
+    expect(find.text(magnetUrl), findsOneWidget);
+    expect(find.text('复制'), findsOneWidget);
+    expect(find.text('预览'), findsOneWidget);
+    expect(find.text('下载'), findsOneWidget);
   });
 
   testWidgets('thread detail shows avatar fallback and page controls',

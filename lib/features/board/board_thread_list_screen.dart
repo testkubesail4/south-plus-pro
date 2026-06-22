@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
+import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
@@ -172,103 +173,112 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            _BoardHeader(
-              title: _category.name,
-              slug: _category.slug,
-              onCompose: _openComposer,
-            ),
-            Expanded(
-              child: ColoredBox(
-                color: AppColors.surface,
-                child: FutureBuilder<ForumThreadPage>(
-                  future: _future,
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return AsyncErrorView(
-                        title: '板块加载失败',
-                        message: '${snapshot.error}',
-                        onRetry: _refresh,
-                      );
-                    }
-                    if (!snapshot.hasData) {
-                      return const _BoardThreadListSkeleton();
-                    }
-                    final page = snapshot.data!;
-                    final subBoards = page.subBoards.isNotEmpty
-                        ? page.subBoards
-                        : _knownSubBoards;
-                    final items = _BoardListItem.fromPage(page);
-                    if (_page != page.currentPage) {
-                      _page = page.currentPage;
-                    }
-                    final hasSubBoards = subBoards.isNotEmpty;
-                    final showSubBoardOnlyHint = items.isEmpty && hasSubBoards;
-                    final listItemCount = items.length +
-                        1 +
-                        (hasSubBoards ? 1 : 0) +
-                        (showSubBoardOnlyHint ? 1 : 0);
-                    return RefreshIndicator(
-                      color: AppColors.brand,
-                      onRefresh: _refresh,
-                      child: ListView.separated(
-                        controller: _scrollController,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
-                        itemCount: listItemCount,
-                        separatorBuilder: (_, __) => const SizedBox.shrink(),
-                        itemBuilder: (context, index) {
-                          if (hasSubBoards && index == 0) {
-                            return _SubBoardPanel(
-                              boards: subBoards,
-                              onBoardTap: _openSubBoard,
-                            );
-                          }
+    PerfTrace.markScreen('BoardThreadListScreen');
+    return PerfTrace.span(
+      'BoardThreadListScreen.build',
+      () {
+        return Scaffold(
+          body: SafeArea(
+            child: Column(
+              children: [
+                _BoardHeader(
+                  title: _category.name,
+                  slug: _category.slug,
+                  onCompose: _openComposer,
+                ),
+                Expanded(
+                  child: ColoredBox(
+                    color: AppColors.surface,
+                    child: FutureBuilder<ForumThreadPage>(
+                      future: _future,
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return AsyncErrorView(
+                            title: '板块加载失败',
+                            message: '${snapshot.error}',
+                            onRetry: _refresh,
+                          );
+                        }
+                        if (!snapshot.hasData) {
+                          return const _BoardThreadListSkeleton();
+                        }
+                        final page = snapshot.data!;
+                        final subBoards = page.subBoards.isNotEmpty
+                            ? page.subBoards
+                            : _knownSubBoards;
+                        final items = _BoardListItem.fromPage(page);
+                        if (_page != page.currentPage) {
+                          _page = page.currentPage;
+                        }
+                        final hasSubBoards = subBoards.isNotEmpty;
+                        final showSubBoardOnlyHint =
+                            items.isEmpty && hasSubBoards;
+                        final listItemCount = items.length +
+                            1 +
+                            (hasSubBoards ? 1 : 0) +
+                            (showSubBoardOnlyHint ? 1 : 0);
+                        return RefreshIndicator(
+                          color: AppColors.brand,
+                          onRefresh: _refresh,
+                          child: ListView.separated(
+                            controller: _scrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
+                            itemCount: listItemCount,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox.shrink(),
+                            itemBuilder: (context, index) {
+                              if (hasSubBoards && index == 0) {
+                                return _SubBoardPanel(
+                                  boards: subBoards,
+                                  onBoardTap: _openSubBoard,
+                                );
+                              }
 
-                          final itemIndex = index - (hasSubBoards ? 1 : 0);
-                          if (showSubBoardOnlyHint && itemIndex == 0) {
-                            return const _SubBoardOnlyHint();
-                          }
-                          final adjustedItemIndex =
-                              itemIndex - (showSubBoardOnlyHint ? 1 : 0);
-                          if (adjustedItemIndex == items.length) {
-                            return _PaginationBar(
-                              page: page,
-                              onPageSelected: _goToPage,
-                            );
-                          }
-                          final item = items[adjustedItemIndex];
-                          return switch (item) {
-                            _BoardAdItem(:final ad) => _BoardAdBanner(
-                                ad: ad,
-                                onTap: () => _openAd(ad),
-                              ),
-                            _BoardThreadItem(:final thread) => _ThreadRow(
-                                thread: thread,
-                                repository: widget.repository,
-                                onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => ThreadDetailScreen(
-                                      thread: thread,
-                                      repository: widget.repository,
+                              final itemIndex = index - (hasSubBoards ? 1 : 0);
+                              if (showSubBoardOnlyHint && itemIndex == 0) {
+                                return const _SubBoardOnlyHint();
+                              }
+                              final adjustedItemIndex =
+                                  itemIndex - (showSubBoardOnlyHint ? 1 : 0);
+                              if (adjustedItemIndex == items.length) {
+                                return _PaginationBar(
+                                  page: page,
+                                  onPageSelected: _goToPage,
+                                );
+                              }
+                              final item = items[adjustedItemIndex];
+                              return switch (item) {
+                                _BoardAdItem(:final ad) => _BoardAdBanner(
+                                    ad: ad,
+                                    onTap: () => _openAd(ad),
+                                  ),
+                                _BoardThreadItem(:final thread) => _ThreadRow(
+                                    thread: thread,
+                                    repository: widget.repository,
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => ThreadDetailScreen(
+                                          thread: thread,
+                                          repository: widget.repository,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                          };
-                        },
-                      ),
-                    );
-                  },
+                              };
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
+      arguments: {'page': _page, 'board': _category.slug},
     );
   }
 }

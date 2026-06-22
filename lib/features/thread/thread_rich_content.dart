@@ -1,257 +1,226 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show SelectionRegistrar;
 import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
 import '../../services/image_saver.dart';
+import '../../services/perf_trace.dart';
 import '../../services/whats_link_preview_service.dart';
 import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
 import '../common/forum_emoji_assets.dart';
+import 'thread_render_models.dart';
 
 class ThreadRichContent extends StatelessWidget {
-  const ThreadRichContent({
+  ThreadRichContent({
     super.key,
-    required this.segments,
+    required List<ThreadContentSegment> segments,
+  }) : renderModel = ThreadPostRenderModel.fromSegments(segments);
+
+  const ThreadRichContent.renderModel({
+    super.key,
+    required this.renderModel,
   });
 
-  final List<ThreadContentSegment> segments;
+  final ThreadPostRenderModel renderModel;
 
   @override
   Widget build(BuildContext context) {
-    final baseStyle = Theme.of(context).textTheme.bodyMedium;
-    final selectionRegistrar = SelectionContainer.maybeOf(context);
-    final selectionColor = DefaultSelectionStyle.of(context).selectionColor ??
-        DefaultSelectionStyle.defaultColor;
-    final children = <Widget>[];
-    final inlineSpans = <InlineSpan>[];
-
-    void flushInline() {
-      if (inlineSpans.isEmpty) return;
-      children.add(
-        RichText(
-          selectionRegistrar: selectionRegistrar,
-          selectionColor: selectionColor,
-          text: TextSpan(style: baseStyle, children: List.of(inlineSpans)),
-        ),
-      );
-      inlineSpans.clear();
-    }
-
-    for (final segment in segments) {
-      switch (segment.type) {
-        case ThreadContentSegmentType.text:
-          final href = segment.href;
-          if (href != null && _isPreviewableDownloadLink(href)) {
-            flushInline();
-            children.add(
-              Padding(
-                padding: EdgeInsets.only(top: children.isEmpty ? 0 : 10),
-                child: _DownloadLinkPanel(
-                  label: _downloadLinkLabel(segment.text, href),
-                  url: href,
-                ),
-              ),
-            );
-          } else if (href == null &&
-              _appendPlainDownloadLinks(
-                context,
-                segment,
-                baseStyle,
-                children,
-                inlineSpans,
-                flushInline,
-              )) {
-            break;
-          } else {
-            inlineSpans.add(_textSpan(context, segment, baseStyle));
-          }
-        case ThreadContentSegmentType.image:
-          if (segment.isEmoji) {
-            inlineSpans.add(_emojiSpan(segment));
-          } else {
-            flushInline();
-            final topPadding = children.isEmpty ? 0.0 : 10.0;
-            children.add(
-              Padding(
-                padding: EdgeInsets.only(top: topPadding),
-                child: ThreadInlineImage(
-                  image: ThreadImage(url: segment.url!, alt: segment.alt),
-                ),
-              ),
-            );
-          }
-        case ThreadContentSegmentType.quote:
-          flushInline();
-          children.add(
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: _RichQuoteBlock(segments: segment.children),
-            ),
-          );
-      }
-    }
-    flushInline();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: children,
-    );
-  }
-
-  InlineSpan _textSpan(
-    BuildContext context,
-    ThreadContentSegment segment,
-    TextStyle? baseStyle,
-  ) {
-    final href = segment.href;
-    final color =
-        segment.colorValue == null ? null : Color(segment.colorValue!);
-    final background = segment.backgroundColorValue == null
-        ? null
-        : Color(segment.backgroundColorValue!);
-    var style = baseStyle?.copyWith(
-      color: href == null ? color : AppColors.link,
-      backgroundColor: background,
-      fontWeight: segment.isBold ? FontWeight.w800 : baseStyle.fontWeight,
-      fontStyle: segment.isItalic ? FontStyle.italic : baseStyle.fontStyle,
-      decoration: _decoration(
-        underline: segment.isUnderline || href != null,
-        strike: segment.isStrike,
-      ),
-      fontSize: (baseStyle.fontSize ?? 16) * segment.fontScale,
-    );
-
-    style ??= TextStyle(
-      color: href == null ? color : AppColors.link,
-      backgroundColor: background,
-      fontWeight: segment.isBold ? FontWeight.w800 : FontWeight.normal,
-      fontStyle: segment.isItalic ? FontStyle.italic : FontStyle.normal,
-      decoration: _decoration(
-        underline: segment.isUnderline || href != null,
-        strike: segment.isStrike,
-      ),
-      fontSize: 16 * segment.fontScale,
-    );
-
-    if (href == null) {
-      return TextSpan(text: segment.text, style: style);
-    }
-
-    return WidgetSpan(
-      alignment: PlaceholderAlignment.baseline,
-      baseline: TextBaseline.alphabetic,
-      child: SelectionContainer.disabled(
-        child: GestureDetector(
-          onTap: () => _openInlineLink(context, href),
-          onLongPress: () => _copyInlineLink(context, href),
-          child: Text(segment.text ?? href, style: style),
-        ),
-      ),
-    );
-  }
-
-  bool _appendPlainDownloadLinks(
-    BuildContext context,
-    ThreadContentSegment segment,
-    TextStyle? baseStyle,
-    List<Widget> children,
-    List<InlineSpan> inlineSpans,
-    VoidCallback flushInline,
-  ) {
-    final text = segment.text ?? '';
-    final matches = _downloadLinkPattern.allMatches(text).toList();
-    if (matches.isEmpty) return false;
-
-    var cursor = 0;
-    for (final match in matches) {
-      final rawUrl = match.group(0);
-      if (rawUrl == null) continue;
-      final url = _trimDownloadUrl(rawUrl);
-      if (!_isPreviewableDownloadLink(url)) continue;
-
-      final before = text.substring(cursor, match.start);
-      if (before.isNotEmpty) {
-        inlineSpans.add(
-          _textSpan(context, _textSegmentWithText(segment, before), baseStyle),
+    return PerfTrace.span(
+      'ThreadRichContent.build',
+      () {
+        final baseStyle = Theme.of(context).textTheme.bodyMedium;
+        final selectionRegistrar = SelectionContainer.maybeOf(context);
+        final selectionColor =
+            DefaultSelectionStyle.of(context).selectionColor ??
+                DefaultSelectionStyle.defaultColor;
+        final children = _buildChildren(
+          context,
+          renderModel.blocks,
+          baseStyle,
+          selectionRegistrar,
+          selectionColor,
         );
-      }
-      flushInline();
-      children.add(
-        Padding(
-          padding: EdgeInsets.only(top: children.isEmpty ? 0 : 10),
-          child: _DownloadLinkPanel(
-              label: _downloadLinkLabel(null, url), url: url),
-        ),
-      );
-      cursor = match.start + url.length;
-    }
 
-    final after = text.substring(cursor);
-    if (after.isNotEmpty) {
-      inlineSpans.add(
-        _textSpan(context, _textSegmentWithText(segment, after), baseStyle),
-      );
-    }
-    return true;
-  }
-
-  ThreadContentSegment _textSegmentWithText(
-    ThreadContentSegment segment,
-    String text,
-  ) {
-    return ThreadContentSegment.text(
-      text,
-      colorValue: segment.colorValue,
-      backgroundColorValue: segment.backgroundColorValue,
-      isBold: segment.isBold,
-      isItalic: segment.isItalic,
-      isUnderline: segment.isUnderline,
-      isStrike: segment.isStrike,
-      fontScale: segment.fontScale,
-      href: segment.href,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
+        );
+      },
+      arguments: {'blocks': renderModel.blocks.length},
     );
   }
+}
 
-  InlineSpan _emojiSpan(ThreadContentSegment segment) {
-    const emojiMaxHeight = 70.0;
-    const emojiMaxWidth = 191.0;
-    return WidgetSpan(
-      alignment: PlaceholderAlignment.middle,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 1),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: emojiMaxWidth,
-            maxHeight: emojiMaxHeight,
-          ),
-          child: CachedForumImage(
-            url: segment.url!,
-            assetName: forumEmojiAssetNameForUrl(segment.url!),
-            fit: BoxFit.scaleDown,
-            maxHeightDiskCache: emojiMaxHeight.toInt(),
-            maxWidthDiskCache: emojiMaxWidth.toInt(),
-            bypassLoadPolicy: true,
-            errorWidget: (context) => const SizedBox(width: 0, height: 0),
-          ),
-        ),
+List<Widget> _buildChildren(
+  BuildContext context,
+  List<ThreadRenderBlock> blocks,
+  TextStyle? baseStyle,
+  SelectionRegistrar? selectionRegistrar,
+  Color selectionColor,
+) {
+  final children = <Widget>[];
+  final inlineSpans = <InlineSpan>[];
+
+  void flushInline() {
+    if (inlineSpans.isEmpty) return;
+    children.add(
+      RichText(
+        selectionRegistrar: selectionRegistrar,
+        selectionColor: selectionColor,
+        text: TextSpan(style: baseStyle, children: List<InlineSpan>.of(inlineSpans)),
       ),
     );
+    inlineSpans.clear();
   }
 
-  TextDecoration _decoration({
-    required bool underline,
-    required bool strike,
-  }) {
-    final decorations = <TextDecoration>[
-      if (underline) TextDecoration.underline,
-      if (strike) TextDecoration.lineThrough,
-    ];
-    if (decorations.isEmpty) return TextDecoration.none;
-    if (decorations.length == 1) return decorations.first;
-    return TextDecoration.combine(decorations);
+  for (final block in blocks) {
+    switch (block.type) {
+      case ThreadRenderBlockType.text:
+        final textBlock = block as ThreadTextRenderBlock;
+        inlineSpans.add(
+          TextSpan(
+            text: textBlock.text,
+            style: _threadTextStyle(baseStyle, textBlock.style),
+          ),
+        );
+      case ThreadRenderBlockType.link:
+        final linkBlock = block as ThreadLinkRenderBlock;
+        inlineSpans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: SelectionContainer.disabled(
+              child: GestureDetector(
+                onTap: () => _openInlineLink(context, linkBlock.url),
+                onLongPress: () => _copyInlineLink(context, linkBlock.url),
+                child: Text(
+                  linkBlock.text,
+                  style: _threadTextStyle(
+                    baseStyle,
+                    linkBlock.style,
+                    forceLinkColor: true,
+                    forceUnderline: true,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      case ThreadRenderBlockType.downloadLink:
+        final downloadBlock = block as ThreadDownloadLinkRenderBlock;
+        flushInline();
+        children.add(
+          Padding(
+            padding: EdgeInsets.only(top: children.isEmpty ? 0 : 10),
+            child: _DownloadLinkPanel(
+              label: downloadBlock.label,
+              url: downloadBlock.url,
+            ),
+          ),
+        );
+      case ThreadRenderBlockType.image:
+        final imageBlock = block as ThreadImageRenderBlock;
+        flushInline();
+        children.add(
+          Padding(
+            padding: EdgeInsets.only(top: children.isEmpty ? 0 : 10),
+            child: ThreadInlineImage(image: imageBlock.image),
+          ),
+        );
+      case ThreadRenderBlockType.emoji:
+        final emojiBlock = block as ThreadEmojiRenderBlock;
+        inlineSpans.add(_emojiSpan(context, emojiBlock));
+      case ThreadRenderBlockType.quote:
+        final quoteBlock = block as ThreadQuoteRenderBlock;
+        flushInline();
+        children.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: _RichQuoteBlock(
+              renderModel: quoteBlock.renderModel,
+            ),
+          ),
+        );
+    }
   }
+
+  flushInline();
+  return children;
+}
+
+TextStyle _threadTextStyle(
+  TextStyle? baseStyle,
+  ThreadTextStyleData style, {
+  bool forceLinkColor = false,
+  bool forceUnderline = false,
+}) {
+  final color = style.colorValue == null ? null : Color(style.colorValue!);
+  final background = style.backgroundColorValue == null
+      ? null
+      : Color(style.backgroundColorValue!);
+  final decoration = _decoration(
+    underline: style.isUnderline || forceUnderline,
+    strike: style.isStrike,
+  );
+
+  return (baseStyle ?? const TextStyle()).copyWith(
+    color: forceLinkColor ? AppColors.link : color,
+    backgroundColor: background,
+    fontWeight: style.isBold ? FontWeight.w800 : baseStyle?.fontWeight,
+    fontStyle: style.isItalic ? FontStyle.italic : baseStyle?.fontStyle,
+    decoration: decoration,
+    fontSize: (baseStyle?.fontSize ?? 16) * style.fontScale,
+  );
+}
+
+InlineSpan _emojiSpan(BuildContext context, ThreadEmojiRenderBlock block) {
+  const emojiMaxHeight = 70.0;
+  const emojiMaxWidth = 191.0;
+  final spec = ForumImageDecodeSpec.forDisplay(
+    logicalSize: const Size(emojiMaxWidth, emojiMaxHeight),
+    devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+    maxLongEdge: 512,
+  );
+
+  return WidgetSpan(
+    alignment: PlaceholderAlignment.middle,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 1),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: emojiMaxWidth,
+          maxHeight: emojiMaxHeight,
+        ),
+        child: CachedForumImage(
+          url: block.url,
+          assetName: forumEmojiAssetNameForUrl(block.url),
+          fit: BoxFit.scaleDown,
+          memCacheWidth: spec.memCacheWidth,
+          memCacheHeight: spec.memCacheHeight,
+          maxWidthDiskCache: spec.maxWidthDiskCache,
+          maxHeightDiskCache: spec.maxHeightDiskCache,
+          bypassLoadPolicy: true,
+          errorWidget: (context) => const SizedBox(width: 0, height: 0),
+        ),
+      ),
+    ),
+  );
+}
+
+TextDecoration _decoration({
+  required bool underline,
+  required bool strike,
+}) {
+  final decorations = <TextDecoration>[
+    if (underline) TextDecoration.underline,
+    if (strike) TextDecoration.lineThrough,
+  ];
+  if (decorations.isEmpty) return TextDecoration.none;
+  if (decorations.length == 1) return decorations.first;
+  return TextDecoration.combine(decorations);
 }
 
 Future<void> _openInlineLink(BuildContext context, String url) async {
@@ -309,18 +278,18 @@ class _DownloadLinkPanel extends StatelessWidget {
               children: [
                 _DownloadActionButton(
                   onPressed: () => _copyDownloadLink(context, url),
-                  icon: Icon(Icons.copy_outlined),
+                  icon: const Icon(Icons.copy_outlined),
                   label: '复制',
                 ),
                 _DownloadActionButton(
                   onPressed: () => _showWhatsLinkPreview(context, url),
-                  icon: Icon(Icons.visibility_outlined),
+                  icon: const Icon(Icons.visibility_outlined),
                   label: '预览',
                 ),
                 _DownloadActionButton(
                   filled: true,
                   onPressed: () => _openDownloadLink(context, url),
-                  icon: Icon(Icons.download_outlined),
+                  icon: const Icon(Icons.download_outlined),
                   label: '下载',
                 ),
               ],
@@ -450,7 +419,7 @@ class _WhatsLinkPreviewDialogState extends State<_WhatsLinkPreviewDialog> {
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     onPressed: _retry,
-                    icon: Icon(Icons.refresh),
+                    icon: const Icon(Icons.refresh),
                     label: const Text('重试'),
                   ),
                 ],
@@ -469,12 +438,12 @@ class _WhatsLinkPreviewDialogState extends State<_WhatsLinkPreviewDialog> {
         ),
         TextButton.icon(
           onPressed: () => _copyDownloadLink(context, widget.url),
-          icon: Icon(Icons.copy_outlined),
+          icon: const Icon(Icons.copy_outlined),
           label: const Text('复制'),
         ),
         FilledButton.icon(
           onPressed: () => _openDownloadLink(context, widget.url),
-          icon: Icon(Icons.download_outlined),
+          icon: const Icon(Icons.download_outlined),
           label: const Text('下载'),
         ),
       ],
@@ -538,6 +507,12 @@ class _PreviewScreenshotStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final spec = ForumImageDecodeSpec.forDisplay(
+      logicalSize: const Size(132 * 16 / 9, 132),
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      maxLongEdge: 960,
+    );
+
     return SizedBox(
       height: 132,
       child: ListView.separated(
@@ -562,8 +537,10 @@ class _PreviewScreenshotStrip extends StatelessWidget {
                     imageUrl: urls[index],
                     cacheManager: ForumImageCache.manager,
                     fit: BoxFit.cover,
-                    memCacheWidth: 480,
-                    memCacheHeight: 270,
+                    memCacheWidth: spec.memCacheWidth,
+                    memCacheHeight: spec.memCacheHeight,
+                    maxWidthDiskCache: spec.maxWidthDiskCache,
+                    maxHeightDiskCache: spec.maxHeightDiskCache,
                     placeholder: (context, url) => ColoredBox(
                       color: AppColors.surfaceTint,
                       child: Center(
@@ -573,7 +550,8 @@ class _PreviewScreenshotStrip extends StatelessWidget {
                         ),
                       ),
                     ),
-                    errorWidget: (context, url, error) => ThreadImageFailurePlaceholder(
+                    errorWidget: (context, url, error) =>
+                        ThreadImageFailurePlaceholder(
                       url: urls[index],
                       onOpen: () => _openDownloadLink(context, urls[index]),
                       onCopy: () => _copyDownloadLink(context, urls[index]),
@@ -623,6 +601,14 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
+    final spec = ForumImageDecodeSpec.forDisplay(
+      logicalSize: Size(size.width * 0.96, size.height * 0.84),
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      memoryScale: 1.15,
+      diskScale: 1.15,
+      maxLongEdge: 2400,
+    );
+
     return Dialog(
       insetPadding: const EdgeInsets.all(12),
       backgroundColor: Colors.black,
@@ -648,7 +634,10 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
                       imageUrl: widget.urls[index],
                       cacheManager: ForumImageCache.manager,
                       fit: BoxFit.contain,
-                      memCacheWidth: 1600,
+                      memCacheWidth: spec.memCacheWidth,
+                      memCacheHeight: spec.memCacheHeight,
+                      maxWidthDiskCache: spec.maxWidthDiskCache,
+                      maxHeightDiskCache: spec.maxHeightDiskCache,
                       placeholder: (context, url) => const Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
@@ -680,7 +669,7 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   child: Text(
                     '${_index + 1} / ${widget.urls.length}',
-                    style: TextStyle(color: Colors.white, fontSize: 12),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
               ),
@@ -690,7 +679,7 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
               top: 4,
               child: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: Icon(Icons.close, color: Colors.white),
+                icon: const Icon(Icons.close, color: Colors.white),
                 tooltip: '关闭',
               ),
             ),
@@ -768,25 +757,6 @@ Future<void> _copyDownloadLink(BuildContext context, String url) async {
   );
 }
 
-String _downloadLinkLabel(String? label, String url) {
-  final text = label?.trim();
-  if (text != null && text.isNotEmpty && text != url) return text;
-  if (url.startsWith('magnet:?')) return url;
-  if (url.startsWith('ed2k://')) return 'Ed2k 链接';
-  return url;
-}
-
-bool _isPreviewableDownloadLink(String url) {
-  final lower = url.toLowerCase();
-  return lower.startsWith('magnet:?') ||
-      lower.startsWith('ed2k://') ||
-      _downloadFilePattern.hasMatch(lower);
-}
-
-String _trimDownloadUrl(String url) {
-  return url.replaceFirst(RegExp(r'[\]\),.，。；;]+$'), '');
-}
-
 String _formatBytes(int bytes) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   var value = bytes.toDouble();
@@ -799,20 +769,10 @@ String _formatBytes(int bytes) {
   return '${value.toStringAsFixed(precision)} ${units[unitIndex]}';
 }
 
-final _downloadFilePattern = RegExp(
-  r'\.(torrent|zip|rar|7z|iso|mkv|mp4|avi|wmv|mov|apk|exe)(?:[?#]|$)',
-  caseSensitive: false,
-);
-
-final _downloadLinkPattern = RegExp(
-  "(magnet:\\?[^\\s<>\"']+|ed2k://[^\\s<>\"']+|https?://[^\\s<>\"']+\\.(?:torrent|zip|rar|7z|iso|mkv|mp4|avi|wmv|mov|apk|exe)(?:[?#][^\\s<>\"']*)?)",
-  caseSensitive: false,
-);
-
 class _RichQuoteBlock extends StatelessWidget {
-  const _RichQuoteBlock({required this.segments});
+  const _RichQuoteBlock({required this.renderModel});
 
-  final List<ThreadContentSegment> segments;
+  final ThreadPostRenderModel renderModel;
 
   @override
   Widget build(BuildContext context) {
@@ -830,7 +790,7 @@ class _RichQuoteBlock extends StatelessWidget {
               color: AppColors.textMuted,
               height: 1.55,
             ),
-        child: ThreadRichContent(segments: segments),
+        child: ThreadRichContent.renderModel(renderModel: renderModel),
       ),
     );
   }
@@ -883,6 +843,13 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
       context: context,
       builder: (dialogContext) {
         final size = MediaQuery.sizeOf(dialogContext);
+        final spec = ForumImageDecodeSpec.forDisplay(
+          logicalSize: Size(size.width * 0.92, size.height * 0.82),
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(dialogContext),
+          memoryScale: 1.2,
+          diskScale: 1.2,
+          maxLongEdge: 2600,
+        );
         return Dialog(
           child: SizedBox(
             width: size.width * 0.92,
@@ -894,28 +861,31 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                     child: CachedForumImage(
                       url: widget.image.url,
                       fit: BoxFit.contain,
-                      memCacheWidth: 1600,
-                      // Opening the viewer is already an explicit load intent,
-                      // so the zoomed image should not require a second tap.
+                      memCacheWidth: spec.memCacheWidth,
+                      memCacheHeight: spec.memCacheHeight,
+                      maxWidthDiskCache: spec.maxWidthDiskCache,
+                      maxHeightDiskCache: spec.maxHeightDiskCache,
                       bypassLoadPolicy: true,
                       errorWidget: (context) => ThreadImageFailurePlaceholder(
                         url: widget.image.url,
-                        onOpen: () => _openDownloadLink(context, widget.image.url),
-                        onCopy: () => _copyDownloadLink(context, widget.image.url),
+                        onOpen: () =>
+                            _openDownloadLink(context, widget.image.url),
+                        onCopy: () =>
+                            _copyDownloadLink(context, widget.image.url),
                         backgroundColor: Colors.black,
                         foregroundColor: Colors.white70,
                       ),
                     ),
                   ),
                 ),
-                Divider(height: 1),
+                const Divider(height: 1),
                 Align(
                   alignment: Alignment.centerRight,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
                     child: TextButton.icon(
                       onPressed: _saveImage,
-                      icon: Icon(Icons.download_outlined),
+                      icon: const Icon(Icons.download_outlined),
                       label: const Text('保存图片'),
                     ),
                   ),
@@ -930,38 +900,61 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
 
   @override
   Widget build(BuildContext context) {
-    return SelectionContainer.disabled(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: _openImageViewer,
-        onLongPress: _saveImage,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            key: const ValueKey('thread-inline-image-container'),
-            width: double.infinity,
-            constraints: const BoxConstraints(maxHeight: 360),
-            child: CachedForumImage(
-              url: widget.image.url,
-              fit: BoxFit.contain,
-              // Providing both cache dimensions makes Flutter decode to that
-              // exact size, which squashes non-square post images.
-              memCacheWidth: 720,
-              placeholder: (context) {
-                return const SizedBox(
-                  height: 160,
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              },
-              errorWidget: (context) => ThreadImageFailurePlaceholder(
-                url: widget.image.url,
-                onOpen: () => _openDownloadLink(context, widget.image.url),
-                onCopy: () => _copyDownloadLink(context, widget.image.url),
+    return PerfTrace.span(
+      'ThreadInlineImage.build',
+      () {
+        return SelectionContainer.disabled(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: _openImageViewer,
+            onLongPress: _saveImage,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                key: const ValueKey('thread-inline-image-container'),
+                width: double.infinity,
+                constraints: const BoxConstraints(maxHeight: 360),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final logicalWidth = constraints.maxWidth.isFinite
+                        ? constraints.maxWidth
+                        : MediaQuery.sizeOf(context).width;
+                    final spec = ForumImageDecodeSpec.forDisplay(
+                      logicalSize: Size(logicalWidth, 360),
+                      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                      includeMemHeight: false,
+                      maxLongEdge: 1600,
+                    );
+
+                    return CachedForumImage(
+                      url: widget.image.url,
+                      fit: BoxFit.contain,
+                      memCacheWidth: spec.memCacheWidth,
+                      memCacheHeight: spec.memCacheHeight,
+                      maxWidthDiskCache: spec.maxWidthDiskCache,
+                      maxHeightDiskCache: spec.maxHeightDiskCache,
+                      placeholder: (context) {
+                        return const SizedBox(
+                          height: 160,
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      },
+                      errorWidget: (context) => ThreadImageFailurePlaceholder(
+                        url: widget.image.url,
+                        onOpen: () =>
+                            _openDownloadLink(context, widget.image.url),
+                        onCopy: () =>
+                            _copyDownloadLink(context, widget.image.url),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
+      arguments: {'url': widget.image.url},
     );
   }
 }

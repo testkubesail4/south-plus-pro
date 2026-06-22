@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
+import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
@@ -10,6 +11,7 @@ import '../common/cached_forum_image.dart';
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
 import 'thread_post_body.dart';
+import 'thread_render_models.dart';
 
 class ThreadDetailScreen extends StatefulWidget {
   const ThreadDetailScreen({
@@ -41,6 +43,15 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   ThreadDetail? _detail;
   int _page = 1;
   int _loadRunId = 0;
+  ThreadDetail? _compiledDetail;
+  ThreadPostRenderModel _openingPostRenderModel = ThreadPostRenderModel.empty;
+  Map<ThreadReply, String> _replyStableIds = <ThreadReply, String>{};
+  Map<String, ThreadPostRenderModel> _replyRenderModels =
+      <String, ThreadPostRenderModel>{};
+  List<ThreadDetailListEntry> _detailEntries =
+      const <ThreadDetailListEntry>[];
+  bool _onlyOriginalPosterActive = false;
+  int _visibleFloorCount = 0;
 
   @override
   void initState() {
@@ -58,6 +69,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _onlyOriginalPoster = false;
     _detail = null;
     _page = 1;
+    _resetDetailRenderState();
     _loadPage(1);
   }
 
@@ -87,6 +99,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _thread = detail.thread;
         _page = detail.pagination.currentPage;
         _loading = false;
+        _recomputeDetailRenderState();
       });
       if (scrollToTop && _scrollController.hasClients) {
         await _scrollController.animateTo(
@@ -129,7 +142,10 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   Future<void> _showOriginalPosterPosts(ForumThread thread) async {
     final authorPostsUrl = thread.authorPostsUrl;
     if (authorPostsUrl == null || authorPostsUrl.isEmpty) {
-      setState(() => _onlyOriginalPoster = true);
+      setState(() {
+        _onlyOriginalPoster = true;
+        _recomputeDetailRenderState();
+      });
       return;
     }
     await _showAuthorFilter(authorPostsUrl, thread.author ?? '楼主');
@@ -141,6 +157,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _thread = current.copyWith(url: authorPostsUrl);
       _authorFilterName = author;
       _onlyOriginalPoster = false;
+      _recomputeDetailRenderState();
     });
     await _loadPage(1, scrollToTop: true);
   }
@@ -151,8 +168,123 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _thread = widget.thread;
       _authorFilterName = null;
       _onlyOriginalPoster = false;
+      _recomputeDetailRenderState();
     });
     await _loadPage(1, scrollToTop: true);
+  }
+
+  void _resetDetailRenderState() {
+    _compiledDetail = null;
+    _openingPostRenderModel = ThreadPostRenderModel.empty;
+    _replyStableIds = <ThreadReply, String>{};
+    _replyRenderModels = <String, ThreadPostRenderModel>{};
+    _detailEntries = const <ThreadDetailListEntry>[];
+    _onlyOriginalPosterActive = false;
+    _visibleFloorCount = 0;
+  }
+
+  void _recomputeDetailRenderState() {
+    final detail = _detail;
+    if (detail == null) {
+      _resetDetailRenderState();
+      return;
+    }
+
+    if (!identical(_compiledDetail, detail)) {
+      _compiledDetail = detail;
+      _openingPostRenderModel = ThreadPostRenderModel.fromSegments(
+        detail.bodySegments,
+      );
+      final nextReplyStableIds = <ThreadReply, String>{};
+      final nextReplyRenderModels = <String, ThreadPostRenderModel>{};
+      for (var index = 0; index < detail.replies.length; index++) {
+        final reply = detail.replies[index];
+        final stableId = threadReplyStableId(reply, index: index);
+        nextReplyStableIds[reply] = stableId;
+        nextReplyRenderModels[stableId] = ThreadPostRenderModel.fromSegments(
+          reply.segments,
+        );
+      }
+      _replyStableIds = nextReplyStableIds;
+      _replyRenderModels = nextReplyRenderModels;
+    }
+
+    final originalAuthor = detail.thread.author;
+    final originalPosterFilterActive = _authorFilterName != null &&
+        originalAuthor != null &&
+        _authorFilterName == originalAuthor;
+    _onlyOriginalPosterActive =
+        _onlyOriginalPoster || originalPosterFilterActive;
+
+    final visibleReplies =
+        _onlyOriginalPosterActive && originalAuthor != null
+            ? detail.replies
+                .where((reply) => reply.author == originalAuthor)
+                .toList(growable: false)
+            : detail.replies;
+    final hasOpeningPost = detail.body.trim().isNotEmpty ||
+        detail.bodySegments.isNotEmpty ||
+        detail.bodyImages.isNotEmpty ||
+        detail.bodyLinks.isNotEmpty ||
+        detail.bodySaleBoxes.isNotEmpty;
+    _visibleFloorCount = visibleReplies.length + (hasOpeningPost ? 1 : 0);
+
+    final entries = <ThreadDetailListEntry>[
+      const ThreadDetailTopSpacingEntry(12),
+      ThreadDetailPaginationEntry(
+        key: ValueKey(
+          'thread-pagination-top-${detail.thread.url}-${detail.pagination.currentPage}',
+        ),
+      ),
+      const ThreadDetailTopSpacingEntry(12),
+      ThreadDetailOpeningPostEntry(
+        key: ValueKey(
+          'thread-opening-${detail.thread.url}-${detail.pagination.currentPage}',
+        ),
+        hasBody: hasOpeningPost,
+        renderModel: _openingPostRenderModel,
+      ),
+      if (_authorFilterName != null)
+        ThreadDetailAuthorFilterChipEntry(
+          key: const ValueKey('thread-author-filter-chip'),
+          visibleFloorCount: _visibleFloorCount,
+        ),
+      const ThreadDetailTopSpacingEntry(16),
+      if (_onlyOriginalPoster && visibleReplies.isEmpty)
+        const ThreadDetailEmptyStateEntry(
+          key: ValueKey('thread-empty-original-poster'),
+          title: '没有楼主回复',
+          message: '当前页只包含其他用户回复。',
+        ),
+      if (_authorFilterName != null && _visibleFloorCount == 0)
+        const ThreadDetailEmptyStateEntry(
+          key: ValueKey('thread-empty-author-filter'),
+          title: '没有该作者内容',
+          message: '当前筛选结果没有可展示的楼层。',
+        ),
+      for (final reply in visibleReplies)
+        ThreadDetailReplyEntry(
+          key: ValueKey(
+            'thread-reply-${_replyStableIds[reply] ?? reply.floor ?? reply.author}',
+          ),
+          reply: reply,
+          renderModel:
+              _replyRenderModels[_replyStableIds[reply]] ??
+                ThreadPostRenderModel.empty,
+        ),
+      ThreadDetailPaginationEntry(
+        key: ValueKey(
+          'thread-pagination-bottom-${detail.thread.url}-${detail.pagination.currentPage}',
+        ),
+      ),
+      const ThreadDetailTopSpacingEntry(12),
+      ThreadDetailComposerEntry(
+        key: ValueKey(
+          'thread-composer-${detail.thread.url}-${detail.pagination.currentPage}',
+        ),
+      ),
+    ];
+    _detailEntries = List<ThreadDetailListEntry>.unmodifiable(entries);
   }
 
   void _openUserProfile(String userUrl) {
@@ -341,64 +473,81 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    PerfTrace.markScreen('ThreadDetailScreen');
     final detail = _detail;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          '南+ / ${detail?.thread.section ?? widget.thread.section}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            tooltip: '回复',
-            onPressed: () => _scrollToReply(),
-            icon: Icon(Icons.reply_outlined),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.small(
-        backgroundColor: AppColors.brand,
-        foregroundColor: Colors.white,
-        onPressed: () => _scrollToReply(),
-        child: Icon(Icons.edit_outlined),
-      ),
-      body: detail == null
-          ? _InitialThreadState(
-              error: _loadError,
-              onRetry: _refresh,
-            )
-          : _ThreadDetailContent(
-              detail: detail,
-              loading: _loading,
-              onlyOriginalPoster: _onlyOriginalPoster,
-              authorFilterName: _authorFilterName,
-              favorite: detail.favorite == null
-                  ? null
-                  : _effectiveFavorite(detail.favorite!),
-              favoriteBusy: _favoriteBusy,
-              buyingSaleBoxes: _buyingSaleBoxes,
-              loadingQuoteDrafts: _loadingQuoteDrafts,
-              scrollController: _scrollController,
-              replyKey: _replyKey,
-              onRefresh: _refresh,
-              onAuthorTap: _openUserProfile,
-              onFavorite: _handleFavorite,
-              onOnlyOriginalPosterChanged: (selected) {
-                setState(() => _onlyOriginalPoster = selected);
-              },
-              onShowOriginalPosterPosts: _showOriginalPosterPosts,
-              onShowAuthorPosts: _showAuthorPosts,
-              onClearAuthorFilter: _clearAuthorFilter,
-              onQuoteReply: _quoteReply,
-              onBuySaleBox: _handleBuySaleBox,
-              onReplySubmitted: _handleReplySubmitted,
-              onPageSelected: _goToPage,
-              onThreadLink: _openThreadLink,
-              onExternalLink: _openExternalLink,
-              repository: widget.repository,
+    return PerfTrace.span(
+      'ThreadDetailScreen.build',
+      () {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              '南+ / ${detail?.thread.section ?? widget.thread.section}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
+            centerTitle: true,
+            actions: [
+              IconButton(
+                tooltip: '回复',
+                onPressed: () => _scrollToReply(),
+                icon: Icon(Icons.reply_outlined),
+              ),
+            ],
+          ),
+          floatingActionButton: FloatingActionButton.small(
+            backgroundColor: AppColors.brand,
+            foregroundColor: Colors.white,
+            onPressed: () => _scrollToReply(),
+            child: Icon(Icons.edit_outlined),
+          ),
+          body: detail == null
+              ? _InitialThreadState(
+                  error: _loadError,
+                  onRetry: _refresh,
+                )
+              : _ThreadDetailContent(
+                  detail: detail,
+                  entries: _detailEntries,
+                  loading: _loading,
+                  onlyOriginalPoster: _onlyOriginalPoster,
+                  onlyOriginalPosterActive: _onlyOriginalPosterActive,
+                  authorFilterName: _authorFilterName,
+                  visibleFloorCount: _visibleFloorCount,
+                  favorite: detail.favorite == null
+                      ? null
+                      : _effectiveFavorite(detail.favorite!),
+                  favoriteBusy: _favoriteBusy,
+                  buyingSaleBoxes: _buyingSaleBoxes,
+                  loadingQuoteDrafts: _loadingQuoteDrafts,
+                  scrollController: _scrollController,
+                  replyKey: _replyKey,
+                  onRefresh: _refresh,
+                  onAuthorTap: _openUserProfile,
+                  onFavorite: _handleFavorite,
+                  onOnlyOriginalPosterChanged: (selected) {
+                    setState(() {
+                      _onlyOriginalPoster = selected;
+                      _recomputeDetailRenderState();
+                    });
+                  },
+                  onShowOriginalPosterPosts: _showOriginalPosterPosts,
+                  onShowAuthorPosts: _showAuthorPosts,
+                  onClearAuthorFilter: _clearAuthorFilter,
+                  onQuoteReply: _quoteReply,
+                  onBuySaleBox: _handleBuySaleBox,
+                  onReplySubmitted: _handleReplySubmitted,
+                  onPageSelected: _goToPage,
+                  onThreadLink: _openThreadLink,
+                  onExternalLink: _openExternalLink,
+                  repository: widget.repository,
+                ),
+        );
+      },
+      arguments: {
+        'loading': _loading,
+        'hasDetail': detail != null,
+        'page': _page,
+      },
     );
   }
 }
@@ -428,9 +577,12 @@ class _InitialThreadState extends StatelessWidget {
 class _ThreadDetailContent extends StatelessWidget {
   const _ThreadDetailContent({
     required this.detail,
+    required this.entries,
     required this.loading,
     required this.onlyOriginalPoster,
+    required this.onlyOriginalPosterActive,
     required this.authorFilterName,
+    required this.visibleFloorCount,
     required this.favorite,
     required this.favoriteBusy,
     required this.buyingSaleBoxes,
@@ -454,9 +606,12 @@ class _ThreadDetailContent extends StatelessWidget {
   });
 
   final ThreadDetail detail;
+  final List<ThreadDetailListEntry> entries;
   final bool loading;
   final bool onlyOriginalPoster;
+  final bool onlyOriginalPosterActive;
   final String? authorFilterName;
+  final int visibleFloorCount;
   final ThreadFavorite? favorite;
   final bool favoriteBusy;
   final Set<String> buyingSaleBoxes;
@@ -480,78 +635,92 @@ class _ThreadDetailContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final originalAuthor = detail.thread.author;
-    final originalPosterFilterActive = authorFilterName != null &&
-        originalAuthor != null &&
-        authorFilterName == originalAuthor;
-    final onlyOriginalPosterActive =
-        onlyOriginalPoster || originalPosterFilterActive;
-    final replies = onlyOriginalPosterActive && originalAuthor != null
-        ? detail.replies
-            .where((reply) => reply.author == originalAuthor)
-            .toList()
-        : detail.replies;
-    final hasOpeningPost = detail.body.trim().isNotEmpty ||
-        detail.bodySegments.isNotEmpty ||
-        detail.bodyImages.isNotEmpty ||
-        detail.bodyLinks.isNotEmpty ||
-        detail.bodySaleBoxes.isNotEmpty;
-    final visibleFloorCount = replies.length + (hasOpeningPost ? 1 : 0);
-    final itemBuilders = <WidgetBuilder>[
-      (_) => const SizedBox(height: 12),
-      (_) => _ThreadPaginationBar(
+    return PerfTrace.span(
+      'ThreadDetailContent.build',
+      () {
+        final originalAuthor = detail.thread.author;
+        return Stack(
+          children: [
+            RefreshIndicator(
+              color: AppColors.brand,
+              onRefresh: onRefresh,
+              child: ListView.builder(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                itemCount: entries.length,
+                itemBuilder: (context, index) => _buildEntry(
+                  context,
+                  entries[index],
+                  originalAuthor: originalAuthor,
+                ),
+              ),
+            ),
+            if (loading)
+              const Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
+          ],
+        );
+      },
+      arguments: {
+        'page': detail.pagination.currentPage,
+        'entries': entries.length,
+        'loading': loading,
+      },
+    );
+  }
+
+  Widget _buildEntry(
+    BuildContext context,
+    ThreadDetailListEntry entry, {
+    required String? originalAuthor,
+  }) {
+    switch (entry.type) {
+      case ThreadDetailListEntryType.topSpacing:
+        return _entryWithKey(
+          key: entry.key,
+          child: SizedBox(height: (entry as ThreadDetailTopSpacingEntry).height),
+        );
+      case ThreadDetailListEntryType.pagination:
+        return _entryWithKey(
+          key: entry.key,
+          child: _ThreadPaginationBar(
             pagination: detail.pagination,
             onPageSelected: loading ? null : onPageSelected,
           ),
-      (_) => const SizedBox(height: 12),
-      (_) => hasOpeningPost
-          ? _FloorCard(
-              title: detail.thread.title,
-              author: detail.thread.author ?? '楼主',
-              avatarUrl: detail.thread.authorAvatarUrl,
-              onAuthorTap: detail.thread.authorUrl == null
-                  ? null
-                  : () => onAuthorTap(detail.thread.authorUrl!),
-              postedAt: detail.thread.lastPost,
-              floor: '楼主',
-              onQuote: null,
-              headerActions: _ThreadHeaderActions(
-                favorite: favorite,
-                favoriteBusy: favoriteBusy,
-                onFavorite:
-                    favorite == null ? null : () => onFavorite(favorite!),
-                onlyOriginalPoster: onlyOriginalPosterActive,
-                originalAuthor: originalAuthor,
-                onOnlyOriginalPosterChanged: originalAuthor == null
-                    ? null
-                    : (selected) {
-                        if (selected) {
-                          onShowOriginalPosterPosts(detail.thread);
-                        } else if (authorFilterName != null) {
-                          onClearAuthorFilter();
-                        } else {
-                          onOnlyOriginalPosterChanged(false);
-                        }
-                      },
-                previousThread: detail.previousThread,
-                nextThread: detail.nextThread,
-                rssFeed: detail.rssFeed,
-                onThreadLink: onThreadLink,
-                onExternalLink: onExternalLink,
-              ),
-              child: ThreadPostBody(
-                content: detail.body,
-                segments: detail.bodySegments,
-                quote: null,
-                images: detail.bodyImages,
-                links: detail.bodyLinks,
-                saleBoxes: detail.bodySaleBoxes,
-                saleBoxesFirst: detail.bodySaleBoxesFirst,
-                buyingSaleBoxes: buyingSaleBoxes,
-                onBuySaleBox: onBuySaleBox,
-              ),
-            )
-          : _ThreadHeaderCard(
+        );
+      case ThreadDetailListEntryType.openingPost:
+        final openingEntry = entry as ThreadDetailOpeningPostEntry;
+        final actions = _ThreadHeaderActions(
+          favorite: favorite,
+          favoriteBusy: favoriteBusy,
+          onFavorite: favorite == null ? null : () => onFavorite(favorite!),
+          onlyOriginalPoster: onlyOriginalPosterActive,
+          originalAuthor: originalAuthor,
+          onOnlyOriginalPosterChanged: originalAuthor == null
+              ? null
+              : (selected) {
+                  if (selected) {
+                    onShowOriginalPosterPosts(detail.thread);
+                  } else if (authorFilterName != null) {
+                    onClearAuthorFilter();
+                  } else {
+                    onOnlyOriginalPosterChanged(false);
+                  }
+                },
+          previousThread: detail.previousThread,
+          nextThread: detail.nextThread,
+          rssFeed: detail.rssFeed,
+          onThreadLink: onThreadLink,
+          onExternalLink: onExternalLink,
+        );
+        if (!openingEntry.hasBody) {
+          return _entryWithKey(
+            key: entry.key,
+            child: _ThreadHeaderCard(
               title: detail.thread.title,
               author: detail.thread.author,
               avatarUrl: detail.thread.authorAvatarUrl,
@@ -559,123 +728,119 @@ class _ThreadDetailContent extends StatelessWidget {
                   ? null
                   : () => onAuthorTap(detail.thread.authorUrl!),
               pagination: detail.pagination,
-              actions: _ThreadHeaderActions(
-                favorite: favorite,
-                favoriteBusy: favoriteBusy,
-                onFavorite:
-                    favorite == null ? null : () => onFavorite(favorite!),
-                onlyOriginalPoster: onlyOriginalPosterActive,
-                originalAuthor: originalAuthor,
-                onOnlyOriginalPosterChanged: originalAuthor == null
-                    ? null
-                    : (selected) {
-                        if (selected) {
-                          onShowOriginalPosterPosts(detail.thread);
-                        } else if (authorFilterName != null) {
-                          onClearAuthorFilter();
-                        } else {
-                          onOnlyOriginalPosterChanged(false);
-                        }
-                      },
-                previousThread: detail.previousThread,
-                nextThread: detail.nextThread,
-                rssFeed: detail.rssFeed,
-                onThreadLink: onThreadLink,
-                onExternalLink: onExternalLink,
-              ),
+              actions: actions,
             ),
-      if (authorFilterName != null)
-        (_) => Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: _ActiveAuthorFilterChip(
-                author: authorFilterName!,
-                loading: loading,
-                pagination: detail.pagination,
-                visibleFloorCount: visibleFloorCount,
-                onClear: onClearAuthorFilter,
-              ),
+          );
+        }
+        return _entryWithKey(
+          key: entry.key,
+          child: _FloorCard(
+            title: detail.thread.title,
+            author: detail.thread.author ?? '楼主',
+            avatarUrl: detail.thread.authorAvatarUrl,
+            onAuthorTap: detail.thread.authorUrl == null
+                ? null
+                : () => onAuthorTap(detail.thread.authorUrl!),
+            postedAt: detail.thread.lastPost,
+            floor: '楼主',
+            onQuote: null,
+            headerActions: actions,
+            child: ThreadPostBody(
+              content: detail.body,
+              segments: detail.bodySegments,
+              renderModel: openingEntry.renderModel,
+              quote: null,
+              images: detail.bodyImages,
+              links: detail.bodyLinks,
+              saleBoxes: detail.bodySaleBoxes,
+              saleBoxesFirst: detail.bodySaleBoxesFirst,
+              buyingSaleBoxes: buyingSaleBoxes,
+              onBuySaleBox: onBuySaleBox,
             ),
-      (_) => const SizedBox(height: 16),
-      if (onlyOriginalPoster && replies.isEmpty)
-        (_) => const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: EmptyStateView(
-                title: '没有楼主回复',
-                message: '当前页只包含其他用户回复。',
-              ),
-            ),
-      if (authorFilterName != null && visibleFloorCount == 0)
-        (_) => const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: EmptyStateView(
-                title: '没有该作者内容',
-                message: '当前筛选结果没有可展示的楼层。',
-              ),
-            ),
-      for (final reply in replies)
-        (_) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _FloorCard(
-                author: reply.author,
-                avatarUrl: reply.authorAvatarUrl,
-                onAuthorTap: reply.authorUrl == null
-                    ? null
-                    : () => onAuthorTap(reply.authorUrl!),
-                postedAt: reply.postedAt,
-                floor: reply.floor,
-                onShowAuthorPosts: reply.authorPostsUrl == null
-                    ? null
-                    : () => onShowAuthorPosts(reply),
-                quoteLoading: reply.quoteUrl != null &&
-                    loadingQuoteDrafts.contains(reply.quoteUrl),
-                onQuote: () => onQuoteReply(reply),
-                child: ThreadPostBody(
-                  content: reply.content,
-                  segments: reply.segments,
-                  quote: reply.quote,
-                  images: reply.images,
-                  links: reply.links,
-                  saleBoxes: reply.saleBoxes,
-                  saleBoxesFirst: reply.saleBoxesFirst,
-                  buyingSaleBoxes: buyingSaleBoxes,
-                  onBuySaleBox: onBuySaleBox,
-                ),
-              ),
-            ),
-      (_) => _ThreadPaginationBar(
-            pagination: detail.pagination,
-            onPageSelected: loading ? null : onPageSelected,
           ),
-      (_) => const SizedBox(height: 12),
-      (_) => ReplyComposer(
+        );
+      case ThreadDetailListEntryType.authorFilterChip:
+        final chipEntry = entry as ThreadDetailAuthorFilterChipEntry;
+        return _entryWithKey(
+          key: entry.key,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: _ActiveAuthorFilterChip(
+              author: authorFilterName!,
+              loading: loading,
+              pagination: detail.pagination,
+              visibleFloorCount: chipEntry.visibleFloorCount,
+              onClear: onClearAuthorFilter,
+            ),
+          ),
+        );
+      case ThreadDetailListEntryType.emptyState:
+        final emptyEntry = entry as ThreadDetailEmptyStateEntry;
+        return _entryWithKey(
+          key: entry.key,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: EmptyStateView(
+              title: emptyEntry.title,
+              message: emptyEntry.message,
+            ),
+          ),
+        );
+      case ThreadDetailListEntryType.reply:
+        final replyEntry = entry as ThreadDetailReplyEntry;
+        final reply = replyEntry.reply;
+        return _entryWithKey(
+          key: entry.key,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _FloorCard(
+              author: reply.author,
+              avatarUrl: reply.authorAvatarUrl,
+              onAuthorTap: reply.authorUrl == null
+                  ? null
+                  : () => onAuthorTap(reply.authorUrl!),
+              postedAt: reply.postedAt,
+              floor: reply.floor,
+              onShowAuthorPosts: reply.authorPostsUrl == null
+                  ? null
+                  : () => onShowAuthorPosts(reply),
+              quoteLoading: reply.quoteUrl != null &&
+                  loadingQuoteDrafts.contains(reply.quoteUrl),
+              onQuote: () => onQuoteReply(reply),
+              child: ThreadPostBody(
+                content: reply.content,
+                segments: reply.segments,
+                renderModel: replyEntry.renderModel,
+                quote: reply.quote,
+                images: reply.images,
+                links: reply.links,
+                saleBoxes: reply.saleBoxes,
+                saleBoxesFirst: reply.saleBoxesFirst,
+                buyingSaleBoxes: buyingSaleBoxes,
+                onBuySaleBox: onBuySaleBox,
+              ),
+            ),
+          ),
+        );
+      case ThreadDetailListEntryType.composer:
+        return _entryWithKey(
+          key: entry.key,
+          child: ReplyComposer(
             key: replyKey,
             thread: detail.thread,
             repository: repository,
             onSubmitted: onReplySubmitted,
           ),
-    ];
+        );
+    }
+  }
 
-    return Stack(
-      children: [
-        RefreshIndicator(
-          color: AppColors.brand,
-          onRefresh: onRefresh,
-          child: ListView.builder(
-            controller: scrollController,
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-            itemCount: itemBuilders.length,
-            itemBuilder: (context, index) => itemBuilders[index](context),
-          ),
-        ),
-        if (loading)
-          const Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: LinearProgressIndicator(minHeight: 2),
-          ),
-      ],
-    );
+  Widget _entryWithKey({
+    required Widget child,
+    Key? key,
+  }) {
+    if (key == null) return child;
+    return KeyedSubtree(key: key, child: child);
   }
 }
 
@@ -911,7 +1076,7 @@ class _FloorCard extends StatelessWidget {
               headerActions!,
             ],
             const SizedBox(height: 12),
-            child,
+            RepaintBoundary(child: child),
             if (onShowAuthorPosts != null || onQuote != null) ...[
               const SizedBox(height: 4),
               Align(

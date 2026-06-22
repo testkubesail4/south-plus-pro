@@ -1,24 +1,189 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
+import '../../services/forum_trace_logger.dart';
 import '../../services/image_loading_settings.dart';
 import '../../theme/app_theme.dart';
+
+class _ForumImageCacheManager extends CacheManager with ImageCacheManager {
+  _ForumImageCacheManager()
+      : super(
+          Config(
+            'southPlusForumImages',
+            stalePeriod: ForumImageCache.stalePeriod,
+            maxNrOfCacheObjects: 2000,
+          ),
+        );
+}
 
 class ForumImageCache {
   ForumImageCache._();
 
   static const stalePeriod = Duration(days: 180);
 
-  static final CacheManager manager = CacheManager(
-    Config(
-      'southPlusForumImages',
-      stalePeriod: stalePeriod,
-      maxNrOfCacheObjects: 2000,
-    ),
-  );
+  static final CacheManager manager = _ForumImageCacheManager();
+}
+
+class ForumImageMetadataCache {
+  ForumImageMetadataCache._();
+
+  static final ForumImageMetadataCache instance = ForumImageMetadataCache._();
+
+  final Map<String, Size> _resolved = <String, Size>{};
+  final Map<String, Future<Size?>> _inFlight = <String, Future<Size?>>{};
+
+  Future<Size?> get(String url, ImageProvider provider) {
+    final cached = _resolved[url];
+    if (cached != null) {
+      ForumTraceLogger.log(
+        'ImageMeta',
+        'cache hit url=$url size=${cached.width}x${cached.height}',
+      );
+      return Future<Size?>.value(cached);
+    }
+    final pending = _inFlight[url];
+    if (pending != null) {
+      ForumTraceLogger.log('ImageMeta', 'reuse in-flight url=$url');
+      return pending;
+    }
+
+    ForumTraceLogger.log('ImageMeta', 'resolve start url=$url');
+    final future = _resolve(url, provider);
+    _inFlight[url] = future;
+    future.whenComplete(() {
+      if (identical(_inFlight[url], future)) {
+        _inFlight.remove(url);
+      }
+    });
+    return future;
+  }
+
+  Size? peek(String url) => _resolved[url];
+
+  void clearFor(String url) {
+    _resolved.remove(url);
+    _inFlight.remove(url);
+  }
+
+  Future<Size?> _resolve(String url, ImageProvider provider) {
+    final completer = Completer<Size?>();
+    final stream = provider.resolve(ImageConfiguration.empty);
+    late final ImageStreamListener listener;
+
+    void complete(Size? size) {
+      if (size != null) {
+        _resolved[url] = size;
+        ForumTraceLogger.log(
+          'ImageMeta',
+          'resolve success url=$url size=${size.width}x${size.height}',
+        );
+      } else {
+        ForumTraceLogger.log('ImageMeta', 'resolve failed url=$url');
+      }
+      stream.removeListener(listener);
+      if (!completer.isCompleted) {
+        completer.complete(size);
+      }
+    }
+
+    listener = ImageStreamListener(
+      (info, synchronousCall) {
+        final image = info.image;
+        final width = image.width.toDouble();
+        final height = image.height.toDouble();
+        if (!width.isFinite || !height.isFinite || width <= 0 || height <= 0) {
+          complete(null);
+          return;
+        }
+        complete(Size(width, height));
+      },
+      onError: (exception, stackTrace) {
+        complete(null);
+      },
+    );
+
+    stream.addListener(listener);
+    return completer.future;
+  }
+}
+
+class ForumImageDecodeSpec {
+  const ForumImageDecodeSpec({
+    this.memCacheWidth,
+    this.memCacheHeight,
+    this.maxWidthDiskCache,
+    this.maxHeightDiskCache,
+  });
+
+  final int? memCacheWidth;
+  final int? memCacheHeight;
+  final int? maxWidthDiskCache;
+  final int? maxHeightDiskCache;
+
+  factory ForumImageDecodeSpec.forDisplay({
+    required Size logicalSize,
+    required double devicePixelRatio,
+    bool includeMemWidth = true,
+    bool includeMemHeight = true,
+    bool includeDiskWidth = true,
+    bool includeDiskHeight = true,
+    double memoryScale = 1,
+    double diskScale = 1,
+    int maxLongEdge = 2048,
+  }) {
+    return ForumImageDecodeSpec(
+      memCacheWidth: includeMemWidth
+          ? _scaledDimension(
+              logicalSize.width,
+              devicePixelRatio,
+              scale: memoryScale,
+              maxLongEdge: maxLongEdge,
+            )
+          : null,
+      memCacheHeight: includeMemHeight
+          ? _scaledDimension(
+              logicalSize.height,
+              devicePixelRatio,
+              scale: memoryScale,
+              maxLongEdge: maxLongEdge,
+            )
+          : null,
+      maxWidthDiskCache: includeDiskWidth
+          ? _scaledDimension(
+              logicalSize.width,
+              devicePixelRatio,
+              scale: diskScale,
+              maxLongEdge: maxLongEdge,
+            )
+          : null,
+      maxHeightDiskCache: includeDiskHeight
+          ? _scaledDimension(
+              logicalSize.height,
+              devicePixelRatio,
+              scale: diskScale,
+              maxLongEdge: maxLongEdge,
+            )
+          : null,
+    );
+  }
+
+  static int? _scaledDimension(
+    double logicalDimension,
+    double devicePixelRatio, {
+    required double scale,
+    required int maxLongEdge,
+  }) {
+    if (!logicalDimension.isFinite || logicalDimension <= 0) return null;
+    final ratio = !devicePixelRatio.isFinite || devicePixelRatio <= 0
+        ? 1.0
+        : devicePixelRatio;
+    final pixels = (logicalDimension * ratio * scale).ceil();
+    return pixels.clamp(1, maxLongEdge);
+  }
 }
 
 class CachedForumImage extends StatelessWidget {
@@ -118,6 +283,7 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   late Future<bool> _canLoad = ImageLoadingSettings.canAutoLoadImages();
   bool _forcedLoad = false;
   int _retry = 0;
+  String? _lastLoggedDecision;
 
   @override
   void didUpdateWidget(covariant _PolicyAwareCachedImage oldWidget) {
@@ -125,11 +291,16 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
     if (oldWidget.url != widget.url) {
       _forcedLoad = false;
       _retry = 0;
+      _lastLoggedDecision = null;
       _canLoad = ImageLoadingSettings.canAutoLoadImages();
     }
   }
 
   void _loadNow() {
+    ForumTraceLogger.log(
+      'ImageLoad',
+      'manual load requested url=${widget.url} nextRetry=${_retry + 1}',
+    );
     setState(() {
       _forcedLoad = true;
       _retry++;
@@ -138,14 +309,31 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.bypassLoadPolicy) return _image();
-    if (_forcedLoad) return _image();
-    if (_isTinyInlineImage) return _image();
+    if (widget.bypassLoadPolicy) {
+      _logDecision('bypass');
+      return _image();
+    }
+    if (_forcedLoad) {
+      _logDecision('forced');
+      return _image();
+    }
+    if (_isTinyInlineImage) {
+      _logDecision('tiny-inline');
+      return _image();
+    }
 
     return FutureBuilder<bool>(
       future: _canLoad,
       builder: (context, snapshot) {
-        if (snapshot.data ?? false) return _image();
+        if (snapshot.data ?? false) {
+          _logDecision('auto');
+          return _image();
+        }
+        _logDecision(
+          snapshot.connectionState == ConnectionState.waiting
+              ? 'await-policy'
+              : 'deferred',
+        );
         return _DeferredImagePlaceholder(
           width: widget.width,
           height: widget.height,
@@ -186,6 +374,13 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   }
 
   Widget _networkImage() {
+    ForumTraceLogger.log(
+      'ImageLoad',
+      'request url=${widget.url} '
+          'mem=${widget.memCacheWidth}x${widget.memCacheHeight} '
+          'disk=${widget.maxWidthDiskCache}x${widget.maxHeightDiskCache} '
+          'retry=$_retry cacheManager=${ForumImageCache.manager.runtimeType}',
+    );
     return CachedNetworkImage(
       key: ValueKey('${widget.url}.$_retry'),
       imageUrl: widget.url,
@@ -201,14 +396,42 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
       maxHeightDiskCache: widget.maxHeightDiskCache,
       placeholder: widget.placeholder == null
           ? null
-          : (context, url) => widget.placeholder!(context),
+          : (context, url) {
+              ForumTraceLogger.log('ImageLoad', 'placeholder url=$url');
+              return widget.placeholder!(context);
+            },
       errorWidget: widget.errorWidget == null
-          ? (context, url, error) => _ImageErrorPlaceholder(
+          ? (context, url, error) {
+              ForumTraceLogger.log(
+                'ImageLoad',
+                'error url=$url error=${error.runtimeType}: $error',
+              );
+              return _ImageErrorPlaceholder(
                 width: widget.width,
                 height: widget.height,
                 onRetry: _loadNow,
-              )
-          : (context, url, error) => widget.errorWidget!(context),
+              );
+            }
+          : (context, url, error) {
+              ForumTraceLogger.log(
+                'ImageLoad',
+                'error url=$url error=${error.runtimeType}: $error',
+              );
+              return widget.errorWidget!(context);
+            },
+    );
+  }
+
+  void _logDecision(String decision) {
+    if (_lastLoggedDecision == decision) return;
+    _lastLoggedDecision = decision;
+    ForumTraceLogger.log(
+      'ImageLoad',
+      'decision=$decision url=${widget.url} '
+          'view=${widget.width}x${widget.height} fit=${widget.fit} '
+          'mem=${widget.memCacheWidth}x${widget.memCacheHeight} '
+          'disk=${widget.maxWidthDiskCache}x${widget.maxHeightDiskCache} '
+          'retry=$_retry',
     );
   }
 }
