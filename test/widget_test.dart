@@ -883,6 +883,61 @@ void main() {
     expect(purchases, hasLength(1));
   });
 
+  testWidgets('post body keeps sale box in content flow without duplication',
+      (tester) async {
+    final purchases = <ThreadSaleBox>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ThreadPostBody(
+            content: '',
+            segments: const [
+              ThreadContentSegment.text('前置说明'),
+              ThreadContentSegment.saleBox(
+                ThreadSaleBox(
+                  summary: '此帖售价 5 SP币,已有 8 人购买',
+                  buyPath: 'job.php?action=buytopic&tid=1&pid=1',
+                  warning: '购买风险提示',
+                  price: 5,
+                  buyers: 8,
+                ),
+              ),
+              ThreadContentSegment.image(url: 'https://example.com/1.webp'),
+            ],
+            quote: null,
+            images: const [],
+            links: const [],
+            saleBoxes: const [
+              ThreadSaleBox(
+                summary: '此帖售价 5 SP币,已有 8 人购买',
+                buyPath: 'job.php?action=buytopic&tid=1&pid=1',
+                warning: '购买风险提示',
+                price: 5,
+                buyers: 8,
+              ),
+            ],
+            saleBoxesFirst: false,
+            buyingSaleBoxes: const {},
+            onBuySaleBox: purchases.add,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('付费内容'), findsOneWidget);
+    expect(find.text('购买风险提示'), findsOneWidget);
+    expect(find.text('购买查看'), findsOneWidget);
+    expect(find.byType(ThreadInlineImage), findsOneWidget);
+
+    final saleTopLeft = tester.getTopLeft(find.text('付费内容'));
+    final imageTopLeft = tester.getTopLeft(find.byType(ThreadInlineImage));
+    expect(saleTopLeft.dy, lessThan(imageTopLeft.dy));
+
+    await tester.tap(find.text('购买查看'));
+    expect(purchases, hasLength(1));
+  });
+
   testWidgets('reply composer can focus content field', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

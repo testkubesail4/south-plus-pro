@@ -24,14 +24,18 @@ class ThreadDetailParser {
         continue;
       }
 
+      final renderContentClone = content.clone(true);
+      _removeIgnoredContent(renderContentClone);
+      _moveAttachmentBlocksBelowReadContent(renderContentClone);
+      final saleBoxesFirst = _startsWithSaleBox(renderContentClone);
+      final segments = contentParser.extractInlineSegments(renderContentClone);
+
       final contentClone = content.clone(true);
       _removeIgnoredContent(contentClone);
       _moveAttachmentBlocksBelowReadContent(contentClone);
-      final saleBoxesFirst = _startsWithSaleBox(contentClone);
       final saleBoxes = _extractSaleBoxes(contentClone);
       final quote = contentParser.extractQuote(contentClone);
       final links = _extractLinks(contentClone);
-      final segments = contentParser.extractInlineSegments(contentClone);
       final images = const <ThreadImage>[];
       final text = _cleanText(contentClone.text);
       if (text.isEmpty &&
@@ -269,7 +273,8 @@ class ThreadDetailParser {
       attachment.remove();
     }
 
-    if (_cleanText(readContent.text).isNotEmpty && !_endsWithLineBreak(readContent)) {
+    if (_cleanText(readContent.text).isNotEmpty &&
+        !_endsWithLineBreak(readContent)) {
       readContent.append(dom.Element.tag('br'));
     }
     for (final attachment in attachments) {

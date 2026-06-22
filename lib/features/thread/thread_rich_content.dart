@@ -12,19 +12,26 @@ import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
 import '../common/forum_emoji_assets.dart';
 import 'thread_render_models.dart';
+import 'thread_sale_box_view.dart';
 
 class ThreadRichContent extends StatelessWidget {
   ThreadRichContent({
     super.key,
     required List<ThreadContentSegment> segments,
+    this.buyingSaleBoxes = const <String>{},
+    this.onBuySaleBox,
   }) : renderModel = ThreadPostRenderModel.fromSegments(segments);
 
   const ThreadRichContent.renderModel({
     super.key,
     required this.renderModel,
+    this.buyingSaleBoxes = const <String>{},
+    this.onBuySaleBox,
   });
 
   final ThreadPostRenderModel renderModel;
+  final Set<String> buyingSaleBoxes;
+  final ValueChanged<ThreadSaleBox>? onBuySaleBox;
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +49,8 @@ class ThreadRichContent extends StatelessWidget {
           baseStyle,
           selectionRegistrar,
           selectionColor,
+          buyingSaleBoxes,
+          onBuySaleBox,
         );
 
         return Column(
@@ -60,6 +69,8 @@ List<Widget> _buildChildren(
   TextStyle? baseStyle,
   SelectionRegistrar? selectionRegistrar,
   Color selectionColor,
+  Set<String> buyingSaleBoxes,
+  ValueChanged<ThreadSaleBox>? onBuySaleBox,
 ) {
   final children = <Widget>[];
   final inlineSpans = <InlineSpan>[];
@@ -70,7 +81,8 @@ List<Widget> _buildChildren(
       RichText(
         selectionRegistrar: selectionRegistrar,
         selectionColor: selectionColor,
-        text: TextSpan(style: baseStyle, children: List<InlineSpan>.of(inlineSpans)),
+        text: TextSpan(
+            style: baseStyle, children: List<InlineSpan>.of(inlineSpans)),
       ),
     );
     inlineSpans.clear();
@@ -141,6 +153,23 @@ List<Widget> _buildChildren(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: _RichQuoteBlock(
               renderModel: quoteBlock.renderModel,
+              buyingSaleBoxes: buyingSaleBoxes,
+              onBuySaleBox: onBuySaleBox,
+            ),
+          ),
+        );
+      case ThreadRenderBlockType.saleBox:
+        final saleBlock = block as ThreadSaleBoxRenderBlock;
+        flushInline();
+        children.add(
+          Padding(
+            padding: EdgeInsets.only(top: children.isEmpty ? 0 : 10),
+            child: ThreadSaleBoxView(
+              saleBox: saleBlock.saleBox,
+              isBuying: buyingSaleBoxes.contains(saleBlock.saleBox.buyPath),
+              onBuy: onBuySaleBox == null
+                  ? null
+                  : () => onBuySaleBox(saleBlock.saleBox),
             ),
           ),
         );
@@ -770,9 +799,15 @@ String _formatBytes(int bytes) {
 }
 
 class _RichQuoteBlock extends StatelessWidget {
-  const _RichQuoteBlock({required this.renderModel});
+  const _RichQuoteBlock({
+    required this.renderModel,
+    required this.buyingSaleBoxes,
+    required this.onBuySaleBox,
+  });
 
   final ThreadPostRenderModel renderModel;
+  final Set<String> buyingSaleBoxes;
+  final ValueChanged<ThreadSaleBox>? onBuySaleBox;
 
   @override
   Widget build(BuildContext context) {
@@ -790,7 +825,11 @@ class _RichQuoteBlock extends StatelessWidget {
               color: AppColors.textMuted,
               height: 1.55,
             ),
-        child: ThreadRichContent.renderModel(renderModel: renderModel),
+        child: ThreadRichContent.renderModel(
+          renderModel: renderModel,
+          buyingSaleBoxes: buyingSaleBoxes,
+          onBuySaleBox: onBuySaleBox,
+        ),
       ),
     );
   }

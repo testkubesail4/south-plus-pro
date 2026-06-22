@@ -16,7 +16,10 @@ class ThreadContentParser {
 
     void flushText() {
       if (buffer.isEmpty) return;
-      final text = buffer.toString().replaceAll(RegExp(r'[ \t]+\n'), '\n');
+      final text = buffer
+          .toString()
+          .replaceAll(RegExp(r'[ \t]+\n'), '\n')
+          .replaceAll(RegExp(r'\n{2,}'), '\n');
       buffer.clear();
       if (text.trim().isEmpty) {
         if (segments.isNotEmpty && !text.contains('\n')) return;
@@ -42,6 +45,18 @@ class ThreadContentParser {
         return;
       }
       if (node is! dom.Element) return;
+      if (_isSaleBoxElement(node)) {
+        flushText();
+        final saleBox = _saleBoxFromElement(node);
+        if (saleBox != null) {
+          segments.add(ThreadContentSegment.saleBox(saleBox));
+        }
+        return;
+      }
+      if (_isSaleWarningElement(node)) {
+        flushText();
+        return;
+      }
       if (node.localName == 'blockquote' ||
           node.classes.contains('blockquote') ||
           node.classes.contains('quote')) {
@@ -94,6 +109,7 @@ class ThreadContentParser {
         .where((segment) =>
             segment.type == ThreadContentSegmentType.image ||
             segment.type == ThreadContentSegmentType.quote ||
+            segment.type == ThreadContentSegmentType.saleBox ||
             (segment.text?.trim().isNotEmpty ?? false))
         .toList();
     return _trimBoundaryWhitespace(normalizedSegments);
@@ -167,6 +183,64 @@ class ThreadContentParser {
     cloned.querySelector('h6.quote2')?.remove();
     cloned.querySelector('h6.quote')?.remove();
     return cloned;
+  }
+
+  bool _isSaleBoxElement(dom.Element element) {
+    return element.localName == 'h6' &&
+        element.classes.contains('quote') &&
+        element.classes.contains('jumbotron');
+  }
+
+  ThreadSaleBox? _saleBoxFromElement(dom.Element saleElement) {
+    final input = saleElement.querySelector('input[type="button"]');
+    final onclick = input?.attributes['onclick'] ?? '';
+    final buyPath = _buyPathFromOnclick(onclick);
+    if (buyPath == null) return null;
+
+    final summary = _cleanText(
+      saleElement.querySelector('.s3')?.text ?? saleElement.text,
+    );
+    final warningElement = _saleWarningElement(saleElement);
+    final warning = _cleanText(warningElement?.text ?? '');
+    final priceMatch = RegExp(r'售价\s*(\d+)\s*SP币').firstMatch(summary);
+    final buyersMatch = RegExp(r'已有\s*(\d+)\s*人购买').firstMatch(summary);
+    return ThreadSaleBox(
+      summary: summary.isEmpty ? '此帖需要购买后查看' : summary,
+      buyPath: buyPath,
+      warning: warning.isEmpty ? null : warning,
+      price: priceMatch == null ? null : int.tryParse(priceMatch.group(1)!),
+      buyers: buyersMatch == null ? null : int.tryParse(buyersMatch.group(1)!),
+    );
+  }
+
+  String? _buyPathFromOnclick(String onclick) {
+    final match = RegExp("location\\.href\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]")
+        .firstMatch(onclick);
+    return match?.group(1);
+  }
+
+  dom.Element? _saleWarningElement(dom.Element saleElement) {
+    final parent = saleElement.parent;
+    if (parent == null) return null;
+    final siblings = parent.children;
+    final index = siblings.indexOf(saleElement);
+    if (index == -1 || index + 1 >= siblings.length) return null;
+    final sibling = siblings[index + 1];
+    if (sibling.localName != 'blockquote') return null;
+    return sibling.classes.contains('blockquote') ? sibling : null;
+  }
+
+  bool _isSaleWarningElement(dom.Element element) {
+    if (element.localName != 'blockquote' ||
+        !element.classes.contains('blockquote')) {
+      return false;
+    }
+    final previous = element.previousElementSibling;
+    return previous != null && _isSaleBoxElement(previous);
+  }
+
+  String _cleanText(String input) {
+    return input.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   _InlineTextStyleData _styleForElement(
@@ -273,10 +347,6 @@ class ThreadContentParser {
         left.isStrike == right.isStrike &&
         left.fontScale == right.fontScale &&
         left.href == right.href;
-  }
-
-  String _cleanText(String input) {
-    return input.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 }
 

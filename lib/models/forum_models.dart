@@ -186,6 +186,7 @@ enum ThreadContentSegmentType {
   text,
   image,
   quote,
+  saleBox,
 }
 
 class ThreadContentSegment {
@@ -202,6 +203,7 @@ class ThreadContentSegment {
   })  : type = ThreadContentSegmentType.text,
         url = null,
         alt = null,
+        saleBox = null,
         children = const [],
         isEmoji = false;
 
@@ -219,6 +221,7 @@ class ThreadContentSegment {
         fontScale = 1,
         href = null,
         backgroundColorValue = null,
+        saleBox = null,
         children = const [];
 
   const ThreadContentSegment.quote(this.children)
@@ -226,7 +229,24 @@ class ThreadContentSegment {
         text = null,
         url = null,
         alt = null,
+        saleBox = null,
         isEmoji = false,
+        colorValue = null,
+        isBold = false,
+        isItalic = false,
+        isUnderline = false,
+        isStrike = false,
+        fontScale = 1,
+        href = null,
+        backgroundColorValue = null;
+
+  const ThreadContentSegment.saleBox(this.saleBox)
+      : type = ThreadContentSegmentType.saleBox,
+        text = null,
+        url = null,
+        alt = null,
+        isEmoji = false,
+        children = const [],
         colorValue = null,
         isBold = false,
         isItalic = false,
@@ -240,6 +260,7 @@ class ThreadContentSegment {
   final String? text;
   final String? url;
   final String? alt;
+  final ThreadSaleBox? saleBox;
   final bool isEmoji;
   final List<ThreadContentSegment> children;
   final int? colorValue;

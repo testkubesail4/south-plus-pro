@@ -9,6 +9,7 @@ enum ThreadRenderBlockType {
   image,
   emoji,
   quote,
+  saleBox,
 }
 
 class ThreadTextStyleData {
@@ -128,6 +129,13 @@ class ThreadQuoteRenderBlock extends ThreadRenderBlock {
   final ThreadPostRenderModel renderModel;
 }
 
+class ThreadSaleBoxRenderBlock extends ThreadRenderBlock {
+  const ThreadSaleBoxRenderBlock(this.saleBox)
+      : super(ThreadRenderBlockType.saleBox);
+
+  final ThreadSaleBox saleBox;
+}
+
 class ThreadPostRenderModel {
   const ThreadPostRenderModel({
     required this.blocks,
@@ -135,6 +143,7 @@ class ThreadPostRenderModel {
     required this.hasEmoji,
     required this.hasDownloadLinks,
     required this.hasQuotes,
+    required this.hasSaleBoxes,
   });
 
   static const empty = ThreadPostRenderModel(
@@ -143,9 +152,11 @@ class ThreadPostRenderModel {
     hasEmoji: false,
     hasDownloadLinks: false,
     hasQuotes: false,
+    hasSaleBoxes: false,
   );
 
-  factory ThreadPostRenderModel.fromSegments(List<ThreadContentSegment> segments) {
+  factory ThreadPostRenderModel.fromSegments(
+      List<ThreadContentSegment> segments) {
     if (segments.isEmpty) return empty;
 
     final blocks = <ThreadRenderBlock>[];
@@ -153,12 +164,14 @@ class ThreadPostRenderModel {
     var hasEmoji = false;
     var hasDownloadLinks = false;
     var hasQuotes = false;
+    var hasSaleBoxes = false;
 
     void addBlock(ThreadRenderBlock block) {
       if (block case ThreadTextRenderBlock()) {
         if (block.text.isEmpty) return;
         final previous = blocks.isEmpty ? null : blocks.last;
-        if (previous is ThreadTextRenderBlock && previous.style == block.style) {
+        if (previous is ThreadTextRenderBlock &&
+            previous.style == block.style) {
           blocks[blocks.length - 1] = ThreadTextRenderBlock(
             text: previous.text + block.text,
             style: previous.style,
@@ -214,16 +227,23 @@ class ThreadPostRenderModel {
           }
           final url = segment.url;
           if (url == null || url.isEmpty) continue;
-          addBlock(ThreadImageRenderBlock(ThreadImage(url: url, alt: segment.alt)));
+          addBlock(
+              ThreadImageRenderBlock(ThreadImage(url: url, alt: segment.alt)));
           hasImages = true;
         case ThreadContentSegmentType.quote:
-          final quoteModel = ThreadPostRenderModel.fromSegments(segment.children);
+          final quoteModel =
+              ThreadPostRenderModel.fromSegments(segment.children);
           if (quoteModel.blocks.isEmpty) continue;
           addBlock(ThreadQuoteRenderBlock(quoteModel));
           hasQuotes = true;
           hasImages = hasImages || quoteModel.hasImages;
           hasEmoji = hasEmoji || quoteModel.hasEmoji;
           hasDownloadLinks = hasDownloadLinks || quoteModel.hasDownloadLinks;
+        case ThreadContentSegmentType.saleBox:
+          final saleBox = segment.saleBox;
+          if (saleBox == null) continue;
+          addBlock(ThreadSaleBoxRenderBlock(saleBox));
+          hasSaleBoxes = true;
       }
     }
 
@@ -233,6 +253,7 @@ class ThreadPostRenderModel {
       hasEmoji: hasEmoji,
       hasDownloadLinks: hasDownloadLinks,
       hasQuotes: hasQuotes,
+      hasSaleBoxes: hasSaleBoxes,
     );
   }
 
@@ -241,6 +262,7 @@ class ThreadPostRenderModel {
   final bool hasEmoji;
   final bool hasDownloadLinks;
   final bool hasQuotes;
+  final bool hasSaleBoxes;
 
   bool get isEmpty => blocks.isEmpty;
 }

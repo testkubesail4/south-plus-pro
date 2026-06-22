@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/parsers/thread_detail_parser.dart';
 import 'package:south_plus_rewrite/services/parsers/thread_content_parser.dart';
 import 'package:south_plus_rewrite/services/parsers/user_profile_parser.dart';
@@ -33,6 +34,34 @@ void main() {
     expect(segments[1].href, 'https://example.com');
     expect(segments[2].text, ' 后缀');
     expect(segments[2].href, isNull);
+  });
+
+  test('extractInlineSegments preserves sale box position before images', () {
+    final fragment = html_parser.parseFragment('''
+      <div class="f14">
+        文本说明<br>
+        <h6 class="quote jumbotron">
+          <span class="s3 f12 fn">此帖售价 5 SP币,已有 8 人购买</span>
+          <input type="button"
+            onclick="location.href='job.php?action=buytopic&tid=1&pid=1'">
+        </h6>
+        <blockquote class="blockquote jumbotron">购买风险提示</blockquote>
+        <br>
+        <img src="https://example.com/1.webp">
+      </div>
+    ''');
+    final content = fragment.querySelector('.f14')!;
+
+    final segments = ThreadContentParser().extractInlineSegments(content);
+
+    expect(segments, hasLength(3));
+    expect(segments[0].type, ThreadContentSegmentType.text);
+    expect(segments[0].text, contains('文本说明'));
+    expect(segments[1].type, ThreadContentSegmentType.saleBox);
+    expect(segments[1].saleBox?.buyPath, 'job.php?action=buytopic&tid=1&pid=1');
+    expect(segments[1].saleBox?.warning, '购买风险提示');
+    expect(segments[2].type, ThreadContentSegmentType.image);
+    expect(segments[2].url, 'https://example.com/1.webp');
   });
 
   test('WhatsLinkPreviewService treats empty api error as success', () {
@@ -224,9 +253,7 @@ void main() {
     expect(url, 'https://south-plus.net/read.php?tid-741222.html');
   });
 
-  test(
-      'ThreadDetailParser moves top attachments below read_tpc content',
-      () {
+  test('ThreadDetailParser moves top attachments below read_tpc content', () {
     final document = html_parser.parse('''
       <html>
         <body>
