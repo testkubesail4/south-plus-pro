@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-// All forum/preview HTTP stays on a local server with a harmless one-pixel PNG.
+// All forum/preview HTTP stays on a local server with harmless fixture images.
 class ImageHttpFixture extends HttpOverrides {
   ImageHttpFixture._(this.server);
 
@@ -14,7 +14,9 @@ class ImageHttpFixture extends HttpOverrides {
   static const screenshotUrl = 'https://fixture.invalid/screenshot.png';
   static const emojiUrl = 'https://fixture.invalid/emoji.png';
 
-  static Future<ImageHttpFixture> start() async {
+  static Future<ImageHttpFixture> start({
+    Map<String, List<int>> images = const {},
+  }) async {
     final fixture = ImageHttpFixture._(
       await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
     );
@@ -31,9 +33,10 @@ class ImageHttpFixture extends HttpOverrides {
         }));
       } else {
         request.response.headers.contentType = ContentType('image', 'png');
-        request.response.add(base64Decode(
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-        ));
+        request.response.add(images[original] ??
+            base64Decode(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+            ));
       }
       await request.response.close();
     });

@@ -18,6 +18,7 @@ class ThreadPostBody extends StatelessWidget {
     required this.saleBoxesFirst,
     required this.buyingSaleBoxes,
     required this.onBuySaleBox,
+    this.onOpenLink,
     List<ThreadContentSegment> segments = const [],
     ThreadPostRenderModel? renderModel,
   })  : segments = segments,
@@ -34,6 +35,7 @@ class ThreadPostBody extends StatelessWidget {
   final bool saleBoxesFirst;
   final Set<String> buyingSaleBoxes;
   final ValueChanged<ThreadSaleBox> onBuySaleBox;
+  final Future<void> Function(String url, String label)? onOpenLink;
 
   @override
   Widget build(BuildContext context) {
@@ -68,6 +70,7 @@ class ThreadPostBody extends StatelessWidget {
                   renderModel: renderModel,
                   buyingSaleBoxes: buyingSaleBoxes,
                   onBuySaleBox: onBuySaleBox,
+                  onOpenLink: onOpenLink,
                 )
               else if (content.isNotEmpty)
                 Text(content, style: Theme.of(context).textTheme.bodyMedium),

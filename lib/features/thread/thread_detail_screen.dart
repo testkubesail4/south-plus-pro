@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
+import '../../services/attachment_saver.dart';
 import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
@@ -34,6 +35,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final Map<String, ThreadFavoriteState> _favoriteOverrides =
       <String, ThreadFavoriteState>{};
   bool _favoriteBusy = false;
+  bool _savingAttachment = false;
   bool _onlyOriginalPoster = false;
   bool _loading = true;
   Object? _loadError;
@@ -456,6 +458,41 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     );
   }
 
+  Future<void> _openContentLink(String url, String label) async {
+    if (!widget.repository.isAttachmentUrl(url)) {
+      await _openExternalLink(ThreadActionLink(url: url, label: label));
+      return;
+    }
+    if (_savingAttachment) return;
+    _savingAttachment = true;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.removeCurrentSnackBar();
+    final progress = messenger.showSnackBar(const SnackBar(
+      content: Text('正在下载附件…'),
+      duration: Duration(days: 1),
+    ));
+    var progressClosed = false;
+    progress.closed.then((_) => progressClosed = true);
+    try {
+      final saved = await AttachmentSaver.save(
+        widget.repository,
+        url,
+        suggestedName: label,
+      );
+      if (!mounted) return;
+      if (saved) {
+        messenger.showSnackBar(const SnackBar(content: Text('附件已保存')));
+      }
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('附件下载失败：$error')));
+    } finally {
+      if (messenger.mounted && !progressClosed) progress.close();
+      _savingAttachment = false;
+    }
+  }
+
   Future<void> _openExternalLink(ThreadActionLink link) async {
     try {
       await ExternalLinkLauncher.open(link.url);
@@ -535,6 +572,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                   onPageSelected: _goToPage,
                   onThreadLink: _openThreadLink,
                   onExternalLink: _openExternalLink,
+                  onOpenLink: _openContentLink,
                   repository: widget.repository,
                 ),
         );
@@ -598,6 +636,7 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.onPageSelected,
     required this.onThreadLink,
     required this.onExternalLink,
+    required this.onOpenLink,
     required this.repository,
   });
 
@@ -627,6 +666,7 @@ class _ThreadDetailContent extends StatelessWidget {
   final ValueChanged<int> onPageSelected;
   final ValueChanged<ThreadActionLink> onThreadLink;
   final ValueChanged<ThreadActionLink> onExternalLink;
+  final Future<void> Function(String url, String label) onOpenLink;
   final ForumRepository repository;
 
   @override
@@ -753,6 +793,7 @@ class _ThreadDetailContent extends StatelessWidget {
               saleBoxesFirst: detail.bodySaleBoxesFirst,
               buyingSaleBoxes: buyingSaleBoxes,
               onBuySaleBox: onBuySaleBox,
+              onOpenLink: onOpenLink,
             ),
           ),
         );
@@ -815,6 +856,7 @@ class _ThreadDetailContent extends StatelessWidget {
                 saleBoxesFirst: reply.saleBoxesFirst,
                 buyingSaleBoxes: buyingSaleBoxes,
                 onBuySaleBox: onBuySaleBox,
+                onOpenLink: onOpenLink,
               ),
             ),
           ),

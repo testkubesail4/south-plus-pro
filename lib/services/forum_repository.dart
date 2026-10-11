@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
 
@@ -81,6 +83,19 @@ class ForumRepository {
   String? get currentUsername => _currentUsername;
 
   ForumNetworkConfig get networkConfig => _config;
+
+  bool isAttachmentUrl(String url) => _client.isAttachmentUrl(url);
+
+  Future<ForumAttachment> downloadAttachment(
+    String url, {
+    required Directory directory,
+    String? suggestedName,
+  }) =>
+      _client.downloadAttachment(
+        url,
+        directory: directory,
+        suggestedName: suggestedName,
+      );
 
   Future<void> updateNetworkConfig(ForumNetworkConfig config) async {
     if (config == _config) return;

@@ -23,6 +23,8 @@ import java.io.FileOutputStream
 class MainActivity : FlutterActivity() {
     private val saveImageRequestCode = 4107
     private var pendingImageSave: PendingImageSave? = null
+    private val saveAttachmentRequestCode = 4108
+    private var pendingAttachmentSave: Pair<File, MethodChannel.Result>? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -46,6 +48,15 @@ class MainActivity : FlutterActivity() {
         }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
+            "south_plus_rewrite/attachment_saver"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "saveAttachment" -> handleSaveAttachment(call, result)
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
             "south_plus_rewrite/link_opener"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -53,6 +64,70 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun handleSaveAttachment(call: MethodCall, result: MethodChannel.Result) {
+        if (pendingAttachmentSave != null) {
+            result.error("save_in_progress", "已有附件正在保存", null)
+            return
+        }
+        try {
+            val path = call.argument<String>("path") ?: throw IllegalArgumentException("附件路径为空")
+            val file = File(path).canonicalFile
+            val cache = cacheDir.canonicalFile
+            if (!file.path.startsWith(cache.path + File.separator) || !file.isFile || file.length() == 0L) {
+                throw IllegalArgumentException("附件临时文件无效")
+            }
+            val fileName = call.argument<String>("fileName") ?: "attachment.bin"
+            if (fileName.isBlank() || fileName.length > 180 || fileName == "." || fileName == ".." ||
+                fileName.any { it == '/' || it == '\\' || it.code < 32 || it.code == 127 }) {
+                throw IllegalArgumentException("附件文件名无效")
+            }
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = call.argument<String>("mimeType") ?: "application/octet-stream"
+                putExtra(Intent.EXTRA_TITLE, fileName)
+            }
+            pendingAttachmentSave = Pair(file, result)
+            startActivityForResult(intent, saveAttachmentRequestCode)
+        } catch (error: Exception) {
+            pendingAttachmentSave = null
+            result.error("save_failed", error.localizedMessage ?: "无法保存附件", null)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != saveAttachmentRequestCode) return
+        val pending = pendingAttachmentSave ?: return
+        if (resultCode != RESULT_OK) {
+            pendingAttachmentSave = null
+            pending.second.success(false)
+            return
+        }
+        val uri = data?.data
+        if (uri == null) {
+            pendingAttachmentSave = null
+            pending.second.error("save_failed", "没有选择保存位置", null)
+            return
+        }
+        Thread {
+            try {
+                contentResolver.openOutputStream(uri, "w")?.use { output ->
+                    pending.first.inputStream().use { input -> input.copyTo(output) }
+                } ?: throw IllegalStateException("无法写入附件文件")
+                runOnUiThread {
+                    pendingAttachmentSave = null
+                    pending.second.success(true)
+                }
+            } catch (error: Exception) {
+                try { contentResolver.delete(uri, null, null) } catch (_: Exception) { }
+                runOnUiThread {
+                    pendingAttachmentSave = null
+                    pending.second.error("save_failed", error.localizedMessage ?: "保存附件失败", null)
+                }
+            }
+        }.start()
     }
 
     private fun isOnWifi(): Boolean {

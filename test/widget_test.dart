@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'support/image_http_fixture.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html/parser.dart' as html_parser;
+import 'package:path_provider_linux/path_provider_linux.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
@@ -25,8 +29,10 @@ import 'package:south_plus_rewrite/features/thread/thread_rich_content.dart';
 import 'package:south_plus_rewrite/features/thread/thread_render_models.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
 import 'package:south_plus_rewrite/services/image_loading_settings.dart';
+import 'package:south_plus_rewrite/services/parsers/thread_content_parser.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 void main() {
@@ -707,6 +713,246 @@ void main() {
 
     expect(find.text('Fresh Alice'), findsOneWidget);
     expect(find.text('Cached Alice'), findsNothing);
+  });
+
+  testWidgets(
+      'thread attachment tap uses app session and native save, not browser',
+      (tester) async {
+    await tester.runAsync(() async {
+      SharedPreferences.setMockInitialValues({});
+      await ImageLoadingSettings.saveMode(ImageLoadMode.noImages);
+      addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
+      PathProviderLinux.registerWith();
+      final oldOverrides = HttpOverrides.current;
+      HttpOverrides.global = _AttachmentHttpOverrides();
+      final transport = HttpClient();
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      const archive = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 1, 2, 3];
+      final attachmentCookies = <String?>[];
+      server.listen((request) {
+        if (request.uri.path == '/session') {
+          request.response.cookies.add(Cookie('winduser', 'test-session'));
+          request.response.write('ok');
+        } else {
+          attachmentCookies
+              .add(request.headers.value(HttpHeaders.cookieHeader));
+          request.response.headers.contentType =
+              ContentType('application', 'x-7z-compressed');
+          request.response.add(archive);
+        }
+        request.response.close();
+      });
+      addTearDown(() async {
+        transport.close(force: true);
+        await server.close(force: true);
+        HttpOverrides.global = oldOverrides;
+      });
+      final client = _AttachmentUiClient(
+        Uri.parse('http://127.0.0.1:${server.port}/'),
+        transport,
+      );
+      await client.get('/session');
+      final browserUrls = <String>[];
+      const browserChannel = MethodChannel('plugins.flutter.io/url_launcher');
+      const saveChannel = MethodChannel('south_plus_rewrite/attachment_saver');
+      final savedPaths = <String>[];
+      var nativeSave = Completer<bool>();
+      var saveResult = 0;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        browserChannel,
+        (call) async {
+          browserUrls.add((call.arguments as Map)['url'] as String);
+          return true;
+        },
+      );
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        saveChannel,
+        (call) async {
+          expect(call.method, 'saveAttachment');
+          final args = call.arguments as Map;
+          expect(args['fileName'],
+              saveResult == 0 ? 'Record.7z' : 'Reply.Record.7z');
+          expect(await File(args['path'] as String).readAsBytes(), archive);
+          savedPaths.add(args['path'] as String);
+          if (saveResult == 0) return nativeSave.future;
+          if (saveResult == 1) return false;
+          throw PlatformException(code: 'SAVE_FAILED', message: 'Storage full');
+        },
+      );
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(browserChannel, null);
+        tester.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(saveChannel, null);
+      });
+      await tester.pumpWidget(MaterialApp(
+        home: ThreadDetailScreen(
+          thread: _AttachmentUiRepository.thread,
+          repository: _AttachmentUiRepository(client),
+        ),
+      ));
+      await tester.pump();
+      await tester.tap(find.text('Ordinary link'));
+      await tester.pump();
+      expect(browserUrls, ['https://example.com/info']);
+      final attachment = find.text(' Record.7z');
+      await tester.tap(attachment);
+      for (var i = 0; i < 100 && savedPaths.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(savedPaths, hasLength(1),
+          reason: 'attachment must reach native save through the app session');
+      expect(browserUrls, ['https://example.com/info'],
+          reason: 'never open authenticated attachment in anonymous browser');
+      expect(find.text('正在下载附件…'), findsOneWidget);
+      await tester.tap(attachment);
+      await tester.pump();
+      expect(attachmentCookies, ['winduser=test-session'],
+          reason: 'duplicate taps do not start another request or file picker');
+      nativeSave.complete(true);
+      for (var i = 0; i < 100 && find.text('附件已保存').evaluate().isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(find.text('附件已保存'), findsOneWidget);
+      expect(await File(savedPaths.single).exists(), isFalse);
+      saveResult = 1;
+      final replyAttachment = find.text('Reply.Record.7z');
+      await tester.scrollUntilVisible(replyAttachment, 150,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(replyAttachment);
+      for (var i = 0; i < 100 && savedPaths.length != 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await tester.pump();
+      expect(find.text('附件已保存'), findsNothing,
+          reason: 'canceling the picker is not a successful save');
+      saveResult = 2;
+      await tester.tap(replyAttachment);
+      for (var i = 0;
+          i < 100 && find.textContaining('Storage full').evaluate().isEmpty;
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(find.textContaining('Storage full'), findsOneWidget);
+      expect(savedPaths, hasLength(3));
+      expect(browserUrls, ['https://example.com/info']);
+
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: Text('Parent screen')),
+      ));
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push<void>(MaterialPageRoute(
+        builder: (_) => ThreadDetailScreen(
+          thread: _AttachmentUiRepository.thread,
+          repository: _AttachmentUiRepository(client),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      saveResult = 0;
+      nativeSave = Completer<bool>();
+      await tester.tap(attachment);
+      for (var i = 0; i < 100 && savedPaths.length != 4; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(savedPaths, hasLength(4));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('正在下载附件…'), findsOneWidget);
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('Parent screen'), findsOneWidget);
+      expect(attachment, findsNothing);
+      nativeSave.complete(true);
+      for (var i = 0; i < 100 && await File(savedPaths.last).exists(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('正在下载附件…'), findsNothing,
+          reason:
+              'completed download must not leave progress on the parent route');
+      expect(find.text('附件已保存'), findsNothing,
+          reason: 'disposed detail must not announce success on its parent');
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
+  testWidgets('attachment icon stays intrinsic while photos fit the post',
+      (tester) async {
+    await tester.runAsync(() async {
+      SharedPreferences.setMockInitialValues({});
+      await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+      addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
+      PathProviderLinux.registerWith();
+      const iconUrl =
+          'https://south-plus.net/images/colorImagination/file/zip.gif';
+      const photoUrl = 'https://fixture.invalid/attachment-photo.png';
+      final recorder = ui.PictureRecorder();
+      ui.Canvas(recorder).drawColor(const Color(0xff336699), ui.BlendMode.src);
+      final photo = await recorder.endRecording().toImage(800, 400);
+      final photoBytes = await photo.toByteData(format: ui.ImageByteFormat.png);
+      photo.dispose();
+      final fixture = await ImageHttpFixture.start(images: {
+        // Public forum archive icon: GIF89a, intrinsic 16 x 16; markup has no size.
+        iconUrl: base64Decode(
+          'R0lGODlhEAAQANUuAPDj6bqvtIlvgVB1oeba4oCAgNd9X/j5+Pf//M9IaEt2odlTmP/D3a+kqf+H9sVZgYadcFR2oYrjaI/c6E51oZN2e/9r1fPo7vX29WSEhubX3f+x/ld8qePc3+7j6Pzu9spFaLWqr9d7csA2Wvhj2Pd+9fk2q0vNbOo7fzKs94jH8GrciP///4SDhPb29gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAEAAC4ALAAAAAAQABAAAAZ8QJdwSCwKW8ikEokZAioGlHQqfbQOQgBLIDJ5v95F68hCCDaltLrkGLtCrS2DRK+TLG5AoyUwgEaAgQl5LAFLS0NxhSqMjY1uGnEBEymVlpV5HS0BEBkKFAOhERxuHiwEh0pDBRenK6+wsG4uBR8EEie5urmzLqmqRsFEQQA7',
+        ),
+        photoUrl: photoBytes!.buffer.asUint8List(),
+      });
+      final oldOverrides = HttpOverrides.current;
+      HttpOverrides.global = fixture;
+      addTearDown(() async {
+        HttpOverrides.global = oldOverrides;
+        await fixture.close();
+      });
+      await ForumImageCache.manager.emptyCache();
+      final content = html_parser.parseFragment('''
+        <div><span id="att_479474">
+          <img src="images/colorImagination/file/zip.gif" align="absmiddle">
+          <a href="job.php?action-download-pid-tpc-tid-2965509-aid-479474.html"
+             target="_blank"> Record.7z</a> (454 K)
+        </span><img src="$photoUrl"></div>
+      ''').querySelector('div')!;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SizedBox(
+              width: 360,
+              child: ThreadRichContent(
+                segments: ThreadContentParser().extractInlineSegments(content),
+              ),
+            ),
+          ),
+        ),
+      ));
+      final decoded = find.byWidgetPredicate(
+        (widget) => widget is RawImage && widget.image != null,
+      );
+      for (var i = 0; i < 100 && decoded.evaluate().length != 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(decoded, findsNWidgets(2));
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      final images = find.byType(ThreadInlineImage);
+      expect(tester.getSize(images.at(1)), const Size(360, 180),
+          reason: 'normal photos retain aspect ratio inside the post width');
+      expect(tester.getSize(images.first), const Size(16, 16),
+          reason: 'attachment icons must not grow into a full-width image');
+      expect(find.text(' Record.7z'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
   });
 
   testWidgets('deferred inline image placeholder stays compact',
@@ -1480,6 +1726,58 @@ class _FakeLoginRepository extends ForumRepository {
   }) async {
     lastFields = Map<String, String>.from(fields);
     return const LoginResult(success: false, message: '密码错误');
+  }
+}
+
+class _AttachmentHttpOverrides extends HttpOverrides {}
+
+class _AttachmentUiClient extends ForumClient {
+  _AttachmentUiClient(this.origin, HttpClient transport)
+      : super(httpClient: transport);
+  final Uri origin;
+  @override
+  Uri get baseUri => origin;
+}
+
+class _AttachmentUiRepository extends ForumRepository {
+  _AttachmentUiRepository(ForumClient client)
+      : origin = client.baseUri,
+        super(client: client);
+  final Uri origin;
+  static const thread = ForumThread(
+    title: 'Attachment sample',
+    url: 'https://example.com/read.php?tid-1.html',
+    replies: 0,
+    section: 'Test',
+  );
+  @override
+  Future<ThreadDetail> fetchThreadDetail(ForumThread thread,
+      {int page = 1}) async {
+    final content = html_parser.parseFragment('''
+      <div><a href="https://example.com/info">Ordinary link</a>
+        <blockquote><span><img src="images/colorImagination/file/zip.gif" align="absmiddle">
+          <a href="${origin}job.php?action-download-pid-tpc-tid-1-aid-2.html"> Record.7z</a> (454 K)
+        </span></blockquote>
+      </div>
+    ''').querySelector('div')!;
+    return ThreadDetail(
+      thread: thread,
+      body: '',
+      bodySegments: ThreadContentParser().extractInlineSegments(content),
+      replies: [
+        ThreadReply(
+          author: 'Test reply',
+          content: '',
+          segments: ThreadContentParser().extractInlineSegments(
+            html_parser
+                .parseFragment(
+                    '<div><a href="${origin}job.php?action-download-pid-1-tid-1-aid-3.html">Reply.Record.7z</a></div>')
+                .querySelector('div')!,
+          ),
+        )
+      ],
+      pagination: const ThreadPagination(currentPage: 1, totalPages: 1),
+    );
   }
 }
 

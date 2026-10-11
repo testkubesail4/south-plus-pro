@@ -20,6 +20,7 @@ class ThreadRichContent extends StatelessWidget {
     required List<ThreadContentSegment> segments,
     this.buyingSaleBoxes = const <String>{},
     this.onBuySaleBox,
+    this.onOpenLink,
   }) : renderModel = ThreadPostRenderModel.fromSegments(segments);
 
   const ThreadRichContent.renderModel({
@@ -27,11 +28,13 @@ class ThreadRichContent extends StatelessWidget {
     required this.renderModel,
     this.buyingSaleBoxes = const <String>{},
     this.onBuySaleBox,
+    this.onOpenLink,
   });
 
   final ThreadPostRenderModel renderModel;
   final Set<String> buyingSaleBoxes;
   final ValueChanged<ThreadSaleBox>? onBuySaleBox;
+  final Future<void> Function(String url, String label)? onOpenLink;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +54,7 @@ class ThreadRichContent extends StatelessWidget {
           selectionColor,
           buyingSaleBoxes,
           onBuySaleBox,
+          onOpenLink,
         );
 
         return Column(
@@ -71,6 +75,7 @@ List<Widget> _buildChildren(
   Color selectionColor,
   Set<String> buyingSaleBoxes,
   ValueChanged<ThreadSaleBox>? onBuySaleBox,
+  Future<void> Function(String url, String label)? onOpenLink,
 ) {
   final children = <Widget>[];
   final inlineSpans = <InlineSpan>[];
@@ -106,7 +111,12 @@ List<Widget> _buildChildren(
             baseline: TextBaseline.alphabetic,
             child: SelectionContainer.disabled(
               child: GestureDetector(
-                onTap: () => _openInlineLink(context, linkBlock.url),
+                onTap: () => _openContentLink(
+                  context,
+                  linkBlock.url,
+                  linkBlock.text,
+                  onOpenLink,
+                ),
                 onLongPress: () => _copyInlineLink(context, linkBlock.url),
                 child: Text(
                   linkBlock.text,
@@ -130,6 +140,7 @@ List<Widget> _buildChildren(
             child: _DownloadLinkPanel(
               label: downloadBlock.label,
               url: downloadBlock.url,
+              onOpenLink: onOpenLink,
             ),
           ),
         );
@@ -155,6 +166,7 @@ List<Widget> _buildChildren(
               renderModel: quoteBlock.renderModel,
               buyingSaleBoxes: buyingSaleBoxes,
               onBuySaleBox: onBuySaleBox,
+              onOpenLink: onOpenLink,
             ),
           ),
         );
@@ -252,7 +264,16 @@ TextDecoration _decoration({
   return TextDecoration.combine(decorations);
 }
 
-Future<void> _openInlineLink(BuildContext context, String url) async {
+Future<void> _openContentLink(
+  BuildContext context,
+  String url,
+  String label,
+  Future<void> Function(String url, String label)? onOpenLink,
+) async {
+  if (onOpenLink != null) {
+    await onOpenLink(url, label);
+    return;
+  }
   try {
     await ExternalLinkLauncher.open(url);
   } catch (error) {
@@ -271,10 +292,12 @@ class _DownloadLinkPanel extends StatelessWidget {
   const _DownloadLinkPanel({
     required this.label,
     required this.url,
+    this.onOpenLink,
   });
 
   final String label;
   final String url;
+  final Future<void> Function(String url, String label)? onOpenLink;
 
   @override
   Widget build(BuildContext context) {
@@ -317,7 +340,8 @@ class _DownloadLinkPanel extends StatelessWidget {
                 ),
                 _DownloadActionButton(
                   filled: true,
-                  onPressed: () => _openDownloadLink(context, url),
+                  onPressed: () =>
+                      _openContentLink(context, url, label, onOpenLink),
                   icon: const Icon(Icons.download_outlined),
                   label: '下载',
                 ),
@@ -801,11 +825,13 @@ class _RichQuoteBlock extends StatelessWidget {
     required this.renderModel,
     required this.buyingSaleBoxes,
     required this.onBuySaleBox,
+    required this.onOpenLink,
   });
 
   final ThreadPostRenderModel renderModel;
   final Set<String> buyingSaleBoxes;
   final ValueChanged<ThreadSaleBox>? onBuySaleBox;
+  final Future<void> Function(String url, String label)? onOpenLink;
 
   @override
   Widget build(BuildContext context) {
@@ -827,6 +853,7 @@ class _RichQuoteBlock extends StatelessWidget {
           renderModel: renderModel,
           buyingSaleBoxes: buyingSaleBoxes,
           onBuySaleBox: onBuySaleBox,
+          onOpenLink: onOpenLink,
         ),
       ),
     );
@@ -956,7 +983,6 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
               borderRadius: BorderRadius.circular(8),
               child: Container(
                 key: const ValueKey('thread-inline-image-container'),
-                width: double.infinity,
                 constraints: const BoxConstraints(maxHeight: 360),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
@@ -972,7 +998,7 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
 
                     return CachedForumImage(
                       url: widget.image.url,
-                      fit: BoxFit.contain,
+                      fit: BoxFit.scaleDown,
                       memCacheWidth: spec.memCacheWidth,
                       memCacheHeight: spec.memCacheHeight,
                       maxWidthDiskCache: spec.maxWidthDiskCache,
