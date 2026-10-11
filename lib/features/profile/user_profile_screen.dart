@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/cached_forum_image.dart';
 import '../thread/thread_detail_screen.dart';
 
 part 'user_profile_widgets.dart';

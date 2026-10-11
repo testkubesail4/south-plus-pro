@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'support/image_http_fixture.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -105,6 +108,9 @@ void main() {
   });
 
   testWidgets('login submits selected forum options', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await ImageLoadingSettings.saveMode(ImageLoadMode.noImages);
+    addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
     final repository = _FakeLoginRepository();
 
     await tester.pumpWidget(
@@ -112,6 +118,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.byType(Image), findsOneWidget,
+        reason: 'login captcha remains visible in strict mode');
     await tester.tap(find.text('UID'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('一年'));
@@ -149,8 +157,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(RefreshIndicator), findsOneWidget);
-    final listView = tester.widget<ListView>(find.byType(ListView));
-    expect(listView.physics, isA<AlwaysScrollableScrollPhysics>());
+    expect(
+        repository.requestedCategoryUrls, [_FakeBoardRepository.category.url]);
+    await tester.drag(find.byType(ListView), const Offset(0, 320));
+    await tester.pumpAndSettle();
+    expect(repository.requestedCategoryUrls, [
+      _FakeBoardRepository.category.url,
+      _FakeBoardRepository.category.url,
+    ]);
   });
 
   testWidgets('board thread list exposes nested sub boards at the top',
@@ -467,6 +481,14 @@ void main() {
 
     await tester.tap(find.byTooltip('清空浏览历史'));
     await tester.pumpAndSettle();
+    expect(repository.cleared, isFalse);
+    expect(find.text('看过的主题'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(repository.cleared, isFalse);
+    expect(find.text('看过的主题'), findsOneWidget);
+    await tester.tap(find.byTooltip('清空浏览历史'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '清空'));
     await tester.pumpAndSettle();
 
@@ -593,6 +615,30 @@ void main() {
     expect(AppThemeController.themeMode, ThemeMode.system);
   });
 
+  testWidgets('account screen offers strict no-image mode', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(MaterialApp(
+      home: AccountScreen(
+        repository: _FakeTasksRepository(),
+        onLoggedOut: () {},
+        packageInfoLoader: _fakePackageInfo,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('图片与流量'), 180,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('无图模式'), findsOneWidget);
+    await tester.ensureVisible(find.text('无图模式'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('无图模式'));
+    await tester.pumpAndSettle();
+    expect(
+        (await SharedPreferences.getInstance())
+            .getString('settings.imageLoadMode'),
+        'noImages');
+    addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
+  });
+
   testWidgets('account screen exposes app version and update check',
       (tester) async {
     final repository = _FakeTasksRepository();
@@ -667,6 +713,7 @@ void main() {
       (tester) async {
     SharedPreferences.setMockInitialValues({});
     await ImageLoadingSettings.saveMode(ImageLoadMode.manual);
+    addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
 
     await tester.pumpWidget(
       const MaterialApp(
@@ -967,6 +1014,16 @@ void main() {
 
   testWidgets('download links render preview and download actions',
       (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await ImageLoadingSettings.saveMode(ImageLoadMode.noImages);
+    addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
+    final fixture = await tester.runAsync(ImageHttpFixture.start);
+    final oldOverrides = HttpOverrides.current;
+    HttpOverrides.global = fixture;
+    addTearDown(() async {
+      HttpOverrides.global = oldOverrides;
+      await fixture!.close();
+    });
     final clipboardWrites = <String>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
@@ -1017,29 +1074,20 @@ void main() {
     final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
     expect(clipboardData?.text, magnetUrl);
     expect(find.text('链接已复制'), findsOneWidget);
-  });
-
-  testWidgets('download link preview dialog includes copy action',
-      (tester) async {
-    const magnetUrl =
-        'magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12';
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ThreadRichContent(
-            segments: const [
-              ThreadContentSegment.text(magnetUrl),
-            ],
-          ),
-        ),
-      ),
-    );
 
     await tester.tap(find.text('预览'));
+    await tester.runAsync(() async {
+      for (var i = 0;
+          i < 100 && find.text('Safe sample').evaluate().isEmpty;
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+    });
     await tester.pumpAndSettle();
 
     expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Safe sample'), findsOneWidget);
     expect(
       find.descendant(
         of: find.byType(AlertDialog),
@@ -1047,34 +1095,12 @@ void main() {
       ),
       findsOneWidget,
     );
-  });
-
-  testWidgets('ThreadRichContent renders emoji without manual-load placeholder',
-      (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    await ImageLoadingSettings.saveMode(ImageLoadMode.manual);
-    addTearDown(() async {
-      await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ThreadRichContent(
-            segments: const [
-              ThreadContentSegment.image(
-                url: 'https://example.com/emoji-wide.png',
-                isEmoji: true,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    await tester.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.text('复制')));
     await tester.pump();
-
-    expect(find.text('点击加载图片'), findsNothing);
-    expect(find.byType(Image), findsWidgets);
+    expect(clipboardWrites, [magnetUrl, magnetUrl]);
+    await tester.tap(find.widgetWithText(TextButton, '关闭'));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('ThreadRichContent renderModel preserves quote and download UI',

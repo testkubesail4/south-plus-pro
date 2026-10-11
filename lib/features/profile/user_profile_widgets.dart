@@ -46,9 +46,6 @@ class _ProfileHeader extends StatelessWidget {
                     CircleAvatar(
                       radius: 36,
                       backgroundColor: AppColors.brandSoft,
-                      backgroundImage: profile.avatarUrl == null
-                          ? null
-                          : NetworkImage(profile.avatarUrl!),
                       child: profile.avatarUrl == null
                           ? Text(
                               profile.name.characters.firstOrNull ?? '?',
@@ -58,7 +55,15 @@ class _ProfileHeader extends StatelessWidget {
                                 fontWeight: FontWeight.w800,
                               ),
                             )
-                          : null,
+                          : ClipOval(
+                              child: CachedForumImage(
+                                url: profile.avatarUrl!,
+                                width: 72,
+                                height: 72,
+                                fit: BoxFit.cover,
+                                bypassLoadPolicy: true,
+                              ),
+                            ),
                     ),
                     Positioned(
                       right: -1,

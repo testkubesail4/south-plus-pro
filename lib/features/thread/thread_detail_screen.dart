@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
@@ -48,8 +47,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   Map<ThreadReply, String> _replyStableIds = <ThreadReply, String>{};
   Map<String, ThreadPostRenderModel> _replyRenderModels =
       <String, ThreadPostRenderModel>{};
-  List<ThreadDetailListEntry> _detailEntries =
-      const <ThreadDetailListEntry>[];
+  List<ThreadDetailListEntry> _detailEntries = const <ThreadDetailListEntry>[];
   bool _onlyOriginalPosterActive = false;
   int _visibleFloorCount = 0;
 
@@ -216,12 +214,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _onlyOriginalPosterActive =
         _onlyOriginalPoster || originalPosterFilterActive;
 
-    final visibleReplies =
-        _onlyOriginalPosterActive && originalAuthor != null
-            ? detail.replies
-                .where((reply) => reply.author == originalAuthor)
-                .toList(growable: false)
-            : detail.replies;
+    final visibleReplies = _onlyOriginalPosterActive && originalAuthor != null
+        ? detail.replies
+            .where((reply) => reply.author == originalAuthor)
+            .toList(growable: false)
+        : detail.replies;
     final hasOpeningPost = detail.body.trim().isNotEmpty ||
         detail.bodySegments.isNotEmpty ||
         detail.bodyImages.isNotEmpty ||
@@ -268,9 +265,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
             'thread-reply-${_replyStableIds[reply] ?? reply.floor ?? reply.author}',
           ),
           reply: reply,
-          renderModel:
-              _replyRenderModels[_replyStableIds[reply]] ??
-                ThreadPostRenderModel.empty,
+          renderModel: _replyRenderModels[_replyStableIds[reply]] ??
+              ThreadPostRenderModel.empty,
         ),
       ThreadDetailPaginationEntry(
         key: ValueKey(
@@ -682,7 +678,8 @@ class _ThreadDetailContent extends StatelessWidget {
       case ThreadDetailListEntryType.topSpacing:
         return _entryWithKey(
           key: entry.key,
-          child: SizedBox(height: (entry as ThreadDetailTopSpacingEntry).height),
+          child:
+              SizedBox(height: (entry as ThreadDetailTopSpacingEntry).height),
         );
       case ThreadDetailListEntryType.pagination:
         return _entryWithKey(
@@ -1170,14 +1167,13 @@ class _AuthorAvatar extends StatelessWidget {
             child: ClipOval(
               child: imageUrl == null || imageUrl.isEmpty
                   ? _AvatarFallback(author: author)
-                  : CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      cacheManager: ForumImageCache.manager,
+                  : CachedForumImage(
+                      url: imageUrl,
+                      bypassLoadPolicy: true,
                       width: 44,
                       height: 44,
                       fit: BoxFit.cover,
-                      errorWidget: (context, url, error) =>
-                          _AvatarFallback(author: author),
+                      errorWidget: (context) => _AvatarFallback(author: author),
                     ),
             ),
           ),

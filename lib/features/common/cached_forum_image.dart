@@ -286,6 +286,25 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   String? _lastLoggedDecision;
 
   @override
+  void initState() {
+    super.initState();
+    ImageLoadingSettings.notifier.addListener(_policyChanged);
+  }
+
+  void _policyChanged() {
+    setState(() {
+      _forcedLoad = false;
+      _canLoad = ImageLoadingSettings.canAutoLoadImages();
+    });
+  }
+
+  @override
+  void dispose() {
+    ImageLoadingSettings.notifier.removeListener(_policyChanged);
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(covariant _PolicyAwareCachedImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url) {
@@ -309,6 +328,10 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
 
   @override
   Widget build(BuildContext context) {
+    final mode = ImageLoadingSettings.notifier.value;
+    if (mode == null || mode == ImageLoadMode.noImages) {
+      return const SizedBox.shrink();
+    }
     if (widget.bypassLoadPolicy) {
       _logDecision('bypass');
       return _image();

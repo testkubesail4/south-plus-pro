@@ -810,6 +810,7 @@ IconData _iconForImageMode(ImageLoadMode mode) {
     ImageLoadMode.automatic => Icons.image_outlined,
     ImageLoadMode.wifiOnly => Icons.wifi_outlined,
     ImageLoadMode.manual => Icons.touch_app_outlined,
+    ImageLoadMode.noImages => Icons.hide_image_outlined,
   };
 }
 

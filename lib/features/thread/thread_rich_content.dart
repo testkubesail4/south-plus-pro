@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show SelectionRegistrar;
 import 'package:flutter/services.dart';
@@ -6,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
 import '../../services/image_saver.dart';
+import '../../services/image_loading_settings.dart';
 import '../../services/perf_trace.dart';
 import '../../services/whats_link_preview_service.dart';
 import '../../theme/app_theme.dart';
@@ -562,15 +562,15 @@ class _PreviewScreenshotStrip extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 child: AspectRatio(
                   aspectRatio: 16 / 9,
-                  child: CachedNetworkImage(
-                    imageUrl: urls[index],
-                    cacheManager: ForumImageCache.manager,
+                  child: CachedForumImage(
+                    url: urls[index],
+                    bypassLoadPolicy: true,
                     fit: BoxFit.cover,
                     memCacheWidth: spec.memCacheWidth,
                     memCacheHeight: spec.memCacheHeight,
                     maxWidthDiskCache: spec.maxWidthDiskCache,
                     maxHeightDiskCache: spec.maxHeightDiskCache,
-                    placeholder: (context, url) => ColoredBox(
+                    placeholder: (context) => ColoredBox(
                       color: AppColors.surfaceTint,
                       child: Center(
                         child: SizedBox.square(
@@ -579,8 +579,7 @@ class _PreviewScreenshotStrip extends StatelessWidget {
                         ),
                       ),
                     ),
-                    errorWidget: (context, url, error) =>
-                        ThreadImageFailurePlaceholder(
+                    errorWidget: (context) => ThreadImageFailurePlaceholder(
                       url: urls[index],
                       onOpen: () => _openDownloadLink(context, urls[index]),
                       onCopy: () => _copyDownloadLink(context, urls[index]),
@@ -659,19 +658,18 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
                   minScale: 0.8,
                   maxScale: 4,
                   child: Center(
-                    child: CachedNetworkImage(
-                      imageUrl: widget.urls[index],
-                      cacheManager: ForumImageCache.manager,
+                    child: CachedForumImage(
+                      url: widget.urls[index],
+                      bypassLoadPolicy: true,
                       fit: BoxFit.contain,
                       memCacheWidth: spec.memCacheWidth,
                       memCacheHeight: spec.memCacheHeight,
                       maxWidthDiskCache: spec.maxWidthDiskCache,
                       maxHeightDiskCache: spec.maxHeightDiskCache,
-                      placeholder: (context, url) => const Center(
+                      placeholder: (context) => const Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                      errorWidget: (context, url, error) =>
-                          ThreadImageFailurePlaceholder(
+                      errorWidget: (context) => ThreadImageFailurePlaceholder(
                         url: widget.urls[index],
                         onOpen: () =>
                             _openDownloadLink(context, widget.urls[index]),
@@ -848,7 +846,8 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
   bool _saving = false;
 
   Future<void> _saveImage() async {
-    if (_saving) return;
+    final mode = await ImageLoadingSettings.loadMode();
+    if (!mounted || _saving || mode == ImageLoadMode.noImages) return;
 
     setState(() {
       _saving = true;
@@ -922,10 +921,16 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                   alignment: Alignment.centerRight,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-                    child: TextButton.icon(
-                      onPressed: _saveImage,
-                      icon: const Icon(Icons.download_outlined),
-                      label: const Text('保存图片'),
+                    child: ValueListenableBuilder<ImageLoadMode?>(
+                      valueListenable: ImageLoadingSettings.notifier,
+                      builder: (context, mode, _) => TextButton.icon(
+                        onPressed:
+                            mode == null || mode == ImageLoadMode.noImages
+                                ? null
+                                : _saveImage,
+                        icon: const Icon(Icons.download_outlined),
+                        label: const Text('保存图片'),
+                      ),
                     ),
                   ),
                 ),

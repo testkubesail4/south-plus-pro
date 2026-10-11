@@ -2,8 +2,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
 import 'package:south_plus_rewrite/features/common/forum_emoji_assets.dart';
+import 'package:south_plus_rewrite/services/image_loading_settings.dart';
 
 void main() {
   test('forum emoji URLs map to bundled asset names', () {
@@ -27,6 +29,8 @@ void main() {
   });
 
   testWidgets('asset load failure falls back to network image', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
