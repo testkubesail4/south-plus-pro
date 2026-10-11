@@ -9,37 +9,6 @@ class UserProfileParser {
 
   final ForumUrlResolver urls;
 
-  UserProfile parse({
-    required String uid,
-    required String profileUrl,
-    required dom.Document profileDocument,
-    required dom.Document homeDocument,
-    required dom.Document topicsDocument,
-    required dom.Document postsDocument,
-    required dom.Document favoritesDocument,
-  }) {
-    final shell = _parseShell(uid, profileDocument);
-    return UserProfile(
-      uid: uid,
-      name: shell.name,
-      url: profileUrl,
-      tagline: shell.tagline,
-      avatarUrl: shell.avatarUrl,
-      level: shell.level,
-      isOnline: shell.isOnline,
-      statusText: shell.statusText,
-      messageUrl: shell.messageUrl,
-      info: _parseFields(profileDocument.querySelector('#u-profile')),
-      stats: _parseFields(profileDocument.querySelector('#u-profile-s')),
-      signature: _profileSignature(profileDocument),
-      homeActivities: _parseHomeActivities(homeDocument),
-      homeReplies: _parseHomeReplies(homeDocument),
-      topics: _parseThreadRows(topicsDocument, includeMetrics: true),
-      posts: _parseThreadRows(postsDocument, includeAuthor: true),
-      favorites: _parseFavorites(favoritesDocument),
-    );
-  }
-
   UserProfile parseOverview({
     required String uid,
     required String profileUrl,

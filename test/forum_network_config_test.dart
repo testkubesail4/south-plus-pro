@@ -126,35 +126,6 @@ void main() {
     );
   });
 
-  test('ForumUrlResolver preserves simple board mode tokens when paging', () {
-    final resolver = ForumUrlResolver(
-      baseUri: Uri.https('east-plus.net', '/'),
-    );
-
-    expect(
-      resolver.boardSimplePath(
-        const ForumCategory(
-          name: '汉化本发布',
-          slug: 'p36',
-          url: 'https://south-plus.net/simple/index.php?p36.html',
-        ),
-        page: 2,
-      ),
-      'https://east-plus.net/simple/index.php?p36_2.html',
-    );
-    expect(
-      resolver.boardSimplePath(
-        const ForumCategory(
-          name: '茶馆',
-          slug: 'f9',
-          url: 'https://south-plus.net/simple/index.php?f9.html',
-        ),
-        page: 2,
-      ),
-      'https://east-plus.net/simple/index.php?f9_2.html',
-    );
-  });
-
   test('ForumNetworkSettings persists selected site and DoH provider',
       () async {
     SharedPreferences.setMockInitialValues({});

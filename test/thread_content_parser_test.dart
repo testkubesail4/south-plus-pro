@@ -64,6 +64,45 @@ void main() {
     expect(segments[2].url, 'https://example.com/1.webp');
   });
 
+  for (final (price, buyInput) in [
+    (0, ''),
+    (5, '<input type="button" onclick="return false">'),
+  ]) {
+    test(
+        'extractInlineSegments retains unlocked $price SP content '
+        'with ${buyInput.isEmpty ? 'no' : 'unparseable'} buy action', () {
+      final fragment = html_parser.parseFragment('''
+          <div class="f14">
+            <h6 class="quote jumbotron">
+              <span class="s3 f12 fn">此帖售价 $price SP币,已有 8 人购买</span>
+              $buyInput
+            </h6>
+            <blockquote class="blockquote jumbotron">
+              Unlocked sample content<br>Password: sample123<br>
+              <a href="https://example.com/one">Download one</a>
+              <a href="https://example.com/two">Download two</a>
+              <a href="https://example.com/three">Download three</a>
+            </blockquote>
+          </div>
+      ''');
+
+      final segments = ThreadContentParser()
+          .extractInlineSegments(fragment.querySelector('.f14')!);
+
+      expect(segments, hasLength(2));
+      expect(segments.first.children.map((segment) => segment.text).join(),
+          contains('此帖售价 $price SP币'));
+      final body = segments.last.children;
+      expect(body.map((segment) => segment.text).join(),
+          contains('Unlocked sample content\nPassword: sample123'));
+      expect(body.map((segment) => segment.href).whereType<String>(), [
+        'https://example.com/one',
+        'https://example.com/two',
+        'https://example.com/three',
+      ]);
+    });
+  }
+
   test('WhatsLinkPreviewService treats empty api error as success', () {
     final error = WhatsLinkPreviewService.apiErrorMessage({
       'error': '',
@@ -336,14 +375,10 @@ void main() {
     ''');
     final parser = UserProfileParser();
 
-    final profile = parser.parse(
+    final profile = parser.parseOverview(
       uid: '2536715',
       profileUrl: 'https://south-plus.net/u.php?action-show-uid-2536715.html',
       profileDocument: profileDocument,
-      homeDocument: html_parser.parse(''),
-      topicsDocument: html_parser.parse(''),
-      postsDocument: html_parser.parse(''),
-      favoritesDocument: html_parser.parse(''),
     );
 
     expect(profile.tagline, '您还没有设置个性签名');

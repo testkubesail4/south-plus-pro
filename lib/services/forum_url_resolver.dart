@@ -90,26 +90,6 @@ class ForumUrlResolver {
     return 'thread_new.php?fid-$fid-page-$normalizedPage.html';
   }
 
-  String boardSimplePath(ForumCategory category, {int page = 1}) {
-    final normalizedPage = _normalizedPage(page);
-    final href = category.url;
-    if (href != null && href.contains('/simple/')) {
-      if (normalizedPage == 1) return href;
-      final token = _simpleBoardTokenFromValue(href) ??
-          _simpleBoardTokenFromCategory(category);
-      if (token != null) {
-        return '$_origin/simple/index.php?${token}_$normalizedPage.html';
-      }
-    }
-    final fid = fidFromCategory(category);
-    if (fid != null) {
-      final token = _simpleBoardTokenFromCategory(category) ?? 'f$fid';
-      final pagePart = normalizedPage == 1 ? '' : '_$normalizedPage';
-      return '$_origin/simple/index.php?$token$pagePart.html';
-    }
-    return '$_origin/simple/index.php?${category.slug}.html';
-  }
-
   String threadDetailPath(String url, {int page = 1}) {
     final uri = Uri.tryParse(url);
     final isForum = uri == null || uri.host.isEmpty || _isForumHost(uri.host);
@@ -164,14 +144,6 @@ class ForumUrlResolver {
       return RegExp(r'\d+').firstMatch(token)?.group(0);
     }
     return _fidPattern.firstMatch(value)?.group(1);
-  }
-
-  String? _simpleBoardTokenFromCategory(ForumCategory category) {
-    for (final value in [category.slug, category.url ?? '']) {
-      final token = _simpleBoardTokenFromValue(value);
-      if (token != null) return token;
-    }
-    return null;
   }
 
   String? _simpleBoardTokenFromValue(String value) {

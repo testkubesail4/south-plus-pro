@@ -50,8 +50,8 @@ class ThreadContentParser {
         final saleBox = _saleBoxFromElement(node);
         if (saleBox != null) {
           segments.add(ThreadContentSegment.saleBox(saleBox));
+          return;
         }
-        return;
       }
       if (_isSaleWarningElement(node)) {
         flushText();
@@ -236,7 +236,10 @@ class ThreadContentParser {
       return false;
     }
     final previous = element.previousElementSibling;
-    return previous != null && _isSaleBoxElement(previous);
+    // Without a buy action, the same markup holds unlocked post content.
+    return previous != null &&
+        _isSaleBoxElement(previous) &&
+        _saleBoxFromElement(previous) != null;
   }
 
   String _cleanText(String input) {
