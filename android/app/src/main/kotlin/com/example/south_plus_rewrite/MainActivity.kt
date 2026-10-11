@@ -83,17 +83,63 @@ class MainActivity : FlutterActivity() {
                 fileName.any { it == '/' || it == '\\' || it.code < 32 || it.code == 127 }) {
                 throw IllegalArgumentException("附件文件名无效")
             }
-            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = call.argument<String>("mimeType") ?: "application/octet-stream"
-                putExtra(Intent.EXTRA_TITLE, fileName)
-            }
+            val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
             pendingAttachmentSave = Pair(file, result)
-            startActivityForResult(intent, saveAttachmentRequestCode)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                saveAttachmentInDownloads(file, fileName, mimeType, result)
+            } else {
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = mimeType
+                    putExtra(Intent.EXTRA_TITLE, fileName)
+                }
+                startActivityForResult(intent, saveAttachmentRequestCode)
+            }
         } catch (error: Exception) {
             pendingAttachmentSave = null
             result.error("save_failed", error.localizedMessage ?: "无法保存附件", null)
         }
+    }
+
+    private fun saveAttachmentInDownloads(
+        file: File,
+        fileName: String,
+        mimeType: String,
+        result: MethodChannel.Result
+    ) {
+        Thread {
+            val resolver = contentResolver
+            var pendingUri: Uri? = null
+            try {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SouthPlus")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: throw IllegalStateException("无法创建下载文件")
+                pendingUri = uri
+                resolver.openOutputStream(uri, "w")?.use { output ->
+                    file.inputStream().use { input -> input.copyTo(output) }
+                } ?: throw IllegalStateException("无法写入下载文件")
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                check(resolver.update(uri, values, null, null) == 1) { "无法完成下载文件保存" }
+                runOnUiThread {
+                    pendingAttachmentSave = null
+                    result.success(true)
+                }
+            } catch (error: Exception) {
+                pendingUri?.let { uri ->
+                    try { resolver.delete(uri, null, null) } catch (_: Exception) { }
+                }
+                runOnUiThread {
+                    pendingAttachmentSave = null
+                    result.error("save_failed", error.localizedMessage ?: "保存附件失败", null)
+                }
+            }
+        }.start()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
