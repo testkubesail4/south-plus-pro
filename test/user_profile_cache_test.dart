@@ -37,7 +37,7 @@ void main() {
     final db = LocalDatabase.openForTesting();
     addTearDown(db.close);
     final cache = UserProfileCache(
-      maxAge: Duration.zero,
+      maxAge: const Duration(days: 1),
       databaseProvider: () async => db,
     );
     const profile = UserProfile(
@@ -47,6 +47,17 @@ void main() {
     );
 
     await cache.saveOverview(profile.url, profile);
+    expect((await cache.loadOverview(profile.url))?.name, 'Alice');
+
+    final key = 'profile_overview_v1:${profile.url}';
+    final fresh = db.profileOverview(key)!;
+    db.saveProfileOverview(
+      cacheKeys: [key],
+      profileUrl: fresh.profileUrl,
+      uid: fresh.uid,
+      payloadJson: fresh.payloadJson,
+      cachedAt: DateTime.now().toUtc().subtract(const Duration(days: 2)),
+    );
 
     expect(await cache.loadOverview(profile.url), isNull);
   });

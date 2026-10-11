@@ -417,19 +417,6 @@ void main() {
     expect(find.text('可领取'), findsOneWidget);
     expect(find.text('已签到'), findsNothing);
     expect(find.byIcon(Icons.redeem_outlined), findsOneWidget);
-  });
-
-  testWidgets('home task shortcut matches current live daily-claimable state',
-      (tester) async {
-    final repository = _FakeClaimableTaskHomeRepository();
-
-    await tester.pumpWidget(
-      MaterialApp(home: ForumHomePage(repository: repository)),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('可领取'), findsOneWidget);
-    expect(find.text('已签到'), findsNothing);
     expect(find.text('已自动签到'), findsNothing);
   });
 
@@ -548,7 +535,8 @@ void main() {
     await tester.tap(find.text('领取奖励'));
     await tester.pumpAndSettle();
 
-    expect(repository.ranTaskIds, ['15']);
+    expect(repository.taskActions, [('15', true)]);
+    expect(repository.taskPageRequests.last, ForumTaskStatus.completed);
     expect(find.text('奖励领取完成'), findsOneWidget);
     expect(find.text('完成时间 2026-06-17 AM:11:37:46'), findsOneWidget);
   });
@@ -1869,7 +1857,8 @@ class _FakeHistoryRepository extends ForumRepository {
 }
 
 class _FakeTasksRepository extends ForumRepository {
-  final ranTaskIds = <String>[];
+  final taskActions = <(String?, bool)>[];
+  final taskPageRequests = <ForumTaskStatus>[];
   var _claimed = false;
 
   @override
@@ -1880,6 +1869,7 @@ class _FakeTasksRepository extends ForumRepository {
 
   @override
   Future<List<ForumTask>> fetchForumTasks(ForumTaskStatus status) async {
+    taskPageRequests.add(status);
     if (status == ForumTaskStatus.inProgress && !_claimed) {
       return const [
         ForumTask(
@@ -1913,7 +1903,7 @@ class _FakeTasksRepository extends ForumRepository {
     ForumTask task, {
     bool claimReward = false,
   }) async {
-    ranTaskIds.add(task.id ?? '');
+    taskActions.add((task.id, claimReward));
     _claimed = true;
     return const ForumTaskActionResult(
       success: true,

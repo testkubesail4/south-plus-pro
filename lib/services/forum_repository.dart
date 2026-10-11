@@ -291,12 +291,13 @@ class ForumRepository {
     final response = await _client.get(
       'plugin.php?H_name=tasks&action=ajax&actions=$action&cid=$id',
     );
-    final parts = response.split('\t');
-    final status = parts.first.trim().toLowerCase();
+    final payload = _responseParser.ajaxPayload(response);
+    final parts = payload?.split('\t') ?? const <String>[];
+    final status = parts.isEmpty ? '' : parts.first.trim().toLowerCase();
     final message = parts.length > 1
-        ? _cleanText(parts.skip(1).join(' '))
+        ? _cleanText(parts[1])
         : _responseParser.ajaxMessage(response);
-    final success = status == 'success';
+    final success = parts.length > 1 && status == 'success';
     ForumTraceLogger.log(
       'Action',
       'runForumTask response task=${task.name} expectation=$expectation action=$action rawStatus=$status success=$success message=$message raw=$response',
@@ -306,8 +307,8 @@ class ForumRepository {
       message: message.isEmpty
           ? success
               ? expectation == _ForumTaskActionExpectation.claimReward
-                    ? '任务奖励领取完成'
-                    : '任务领取完成'
+                  ? '任务奖励领取完成'
+                  : '任务领取完成'
               : '任务操作失败'
           : message,
     );
@@ -553,7 +554,8 @@ class ForumRepository {
     required List<ForumTaskClaimItem> claimedRewards,
     required List<String> failures,
   }) async {
-    ForumTraceLogger.log('Reward', '_claimTaskReward task=${_describeTask(task)}');
+    ForumTraceLogger.log(
+        'Reward', '_claimTaskReward task=${_describeTask(task)}');
     final claimedNames = claimedRewards.map((item) => item.name).toSet();
     if (claimedNames.contains(task.name)) {
       ForumTraceLogger.log(
@@ -631,6 +633,13 @@ class ForumRepository {
       return _ForumTaskActionDecision(
         _ForumTaskActionKind.loginRequired,
         message.isEmpty ? '登录状态已失效' : message,
+      );
+    }
+    if (result.success &&
+        expectation == _ForumTaskActionExpectation.claimReward) {
+      return _ForumTaskActionDecision(
+        _ForumTaskActionKind.rewardClaimed,
+        message.isEmpty ? '任务奖励领取完成' : message,
       );
     }
     if (_alreadyCompletedTask(message)) {

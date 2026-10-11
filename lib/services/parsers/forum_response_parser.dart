@@ -82,10 +82,14 @@ class ForumResponseParser {
         message.contains('取消');
   }
 
-  String ajaxMessage(String xml) {
-    final cdata = RegExp(r'<!\[CDATA\[(.*?)\]\]>', dotAll: true)
+  String? ajaxPayload(String xml) {
+    return RegExp(r'<ajax>\s*<!\[CDATA\[(.*?)\]\]>\s*</ajax>', dotAll: true)
         .firstMatch(xml)
         ?.group(1);
+  }
+
+  String ajaxMessage(String xml) {
+    final cdata = ajaxPayload(xml);
     if (cdata != null) return _cleanText(cdata);
 
     final document = html_parser.parse(xml);

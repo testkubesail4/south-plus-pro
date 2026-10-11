@@ -268,12 +268,59 @@ void main() {
     expect(page.totalPages, 1);
   });
 
+  test('runForumTask decodes task XML and rejects unsuccessful responses',
+      () async {
+    const task = ForumTask(
+      id: '15',
+      name: '日常',
+      status: ForumTaskStatus.inProgress,
+    );
+    for (final (claimReward, response, success, message) in [
+      (
+        true,
+        '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t你[日常]已经完成!\t15]]></ajax>',
+        true,
+        '你[日常]已经完成!'
+      ),
+      (
+        false,
+        '<ajax><![CDATA[success\t已经申请[日常]完成,请赶紧去完成任务吧!]]></ajax>',
+        true,
+        '已经申请[日常]完成,请赶紧去完成任务吧!'
+      ),
+      (true, '<ajax><![CDATA[success]]></ajax>', false, 'success'),
+      (true, '<ajax><![CDATA[error\t奖励已领取]]></ajax>', false, '奖励已领取'),
+      (
+        true,
+        '<ajax><![CDATA[confirm\t还没超过 18 小时]]></ajax>',
+        false,
+        '还没超过 18 小时'
+      ),
+      (true, '<ajax><![CDATA[error\t请先登录]]></ajax>', false, '请先登录'),
+      (true, '<html><body>请先登录</body></html>', false, '请先登录'),
+      (true, 'success\t你[日常]已经完成!\t15', false, 'success 你[日常]已经完成! 15'),
+    ]) {
+      final action = claimReward ? 'job2' : 'job';
+      final client = _PathForumClient({
+        'plugin.php?H_name=tasks&action=ajax&actions=$action&cid=15': response,
+      });
+      final result = await ForumRepository(client: client)
+          .runForumTask(task, claimReward: claimReward);
+      expect(result.success, success, reason: response);
+      expect(result.message, message, reason: response);
+    }
+  });
+
   test('claimForumTaskRewards applies tasks before claiming rewards', () async {
     final client = _PathForumClient({
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14': 'success\t任务领取完成',
-      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14': 'success\t任务奖励领取完成',
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': 'success\t任务领取完成',
-      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15': 'success\t任务奖励领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t已经申请[周常]完成,请赶紧去完成任务吧!]]></ajax>',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t你[周常]已经完成!\t14]]></ajax>',
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t已经申请[日常]完成,请赶紧去完成任务吧!]]></ajax>',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t你[日常]已经完成!\t15]]></ajax>',
       'plugin.php?H_name-tasks-actions-newtasks.html.html': [
         '''
           <table>
@@ -339,7 +386,7 @@ void main() {
             <tr><td>无所事事的周常</td></tr>
             <tr>
               <td><b>日常</b> (人气 : 84278697) 任务时效2011-12-03~2028-12-31</td>
-              <td>奖励 : SP币 2 G 上次领取未超过 23 小时</td>
+              <td>奖励 : SP币 2 G 上次领取未超过 18 小时</td>
               <td></td>
             </tr>
             <tr><td>每日SP+2的日常。</td></tr>
@@ -369,13 +416,30 @@ void main() {
       '日常奖励领取完成SP+2',
     ]);
     expect(result.failures, isEmpty);
+    expect(result.claimedRewards.map((item) => item.message), [
+      '你[周常]已经完成!',
+      '你[日常]已经完成!',
+    ]);
+    final snapshot = await repository.loadCachedForumTaskSnapshot();
+    expect(snapshot?.taskNamed('日常')?.availability,
+        ForumTaskAvailability.completed);
+    expect(snapshot?.taskNamed('日常')?.cooldownRemaining,
+        const Duration(hours: 18));
+
+    final repeated = await repository.claimForumTaskRewards();
+    expect(repeated.claimedRewards, isEmpty);
+    expect(repeated.alreadyHandled, isTrue);
+    expect(
+        client.paths.where((path) => path.contains('actions=job')).length, 4);
   });
 
   test('claimForumTaskRewards continues when available task is already started',
       () async {
     final client = _PathForumClient({
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14': 'error\t领取失败：任务已领取，快去完成任务吧。',
-      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14': 'success\t任务奖励领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[error\t领取失败：任务已领取，快去完成任务吧。]]></ajax>',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t你[周常]已经完成!\t14]]></ajax>',
       'plugin.php?H_name-tasks-actions-newtasks.html.html': [
         '''
           <table>
@@ -533,8 +597,10 @@ void main() {
   test('claimForumTaskRewards starts next-cycle tasks despite old completion',
       () async {
     final client = _PathForumClient({
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': 'success\t任务领取完成',
-      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15': 'success\t任务奖励领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t已经申请[日常]完成,请赶紧去完成任务吧!]]></ajax>',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t你[日常]已经完成!\t15]]></ajax>',
       'plugin.php?H_name-tasks-actions-newtasks.html.html': [
         '''
           <table>
@@ -616,7 +682,7 @@ void main() {
       () async {
     final client = _PathForumClient({
       'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14':
-          'error\t任务申领失败：距离上次申领没超过168小时。',
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[error\t任务申领失败：距离上次申领没超过168小时。]]></ajax>',
       'plugin.php?H_name-tasks-actions-newtasks.html.html': '<html></html>',
       'plugin.php?H_name-tasks-actions-endtasks.html.html': '<html></html>',
       'plugin.php?H_name-tasks.html': '''
@@ -650,7 +716,7 @@ void main() {
       () async {
     final client = _PathForumClient({
       'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15':
-          'confirm\t拒离上次申请[日常]还没超过 18 小时',
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[confirm\t拒离上次申请[日常]还没超过 18 小时]]></ajax>',
       'plugin.php?H_name-tasks-actions-endtasks.html.html': '''
         <table>
           <tr>
@@ -794,7 +860,7 @@ void main() {
         </table>
       ''',
       'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14':
-          'success\t任务奖励领取完成',
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t你[周常]已经完成!\t14]]></ajax>',
     });
     final repository = ForumRepository(client: client);
 
@@ -900,7 +966,7 @@ void main() {
       ''',
       ],
       'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=14':
-          'success\t任务奖励领取完成',
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t你[周常]已经完成!\t14]]></ajax>',
     });
     final repository = ForumRepository(client: client);
 
@@ -958,6 +1024,9 @@ void main() {
   test(
       'refreshForumTaskSnapshot keeps claimable in-progress state over completed history',
       () async {
+    final completedAt = _forumCompletionTime(
+      DateTime.now().subtract(const Duration(days: 2)),
+    );
     final client = _PathForumClient({
       'plugin.php?H_name-tasks-actions-newtasks.html.html': '''
         <table>
@@ -976,7 +1045,7 @@ void main() {
             <td>奖励 : SP币 2 G</td>
             <td></td>
           </tr>
-          <tr><td>每日SP+2的日常。 已完成 100 % 完成时间 2026-06-17 AM:11:37:46</td></tr>
+          <tr><td>每日SP+2的日常。 已完成 100 % 完成时间 $completedAt</td></tr>
         </table>
       ''',
       'plugin.php?H_name-tasks.html': '''
@@ -996,13 +1065,16 @@ void main() {
     final daily = snapshot.taskNamed('日常');
 
     expect(daily?.availability, ForumTaskAvailability.claimable);
-    expect(daily?.completedAt, '2026-06-17 AM:11:37:46');
+    expect(daily?.completedAt, completedAt);
     expect(daily?.cooldownRemaining, const Duration(hours: 18));
   });
 
   test(
       'refreshForumTaskSnapshot prefers current-cycle completion over stale in-progress claimable state',
       () async {
+    final completedAt = _forumCompletionTime(
+      DateTime.now().subtract(const Duration(hours: 1)),
+    );
     final client = _PathForumClient({
       'plugin.php?H_name-tasks-actions-newtasks.html.html': '''
         <table>
@@ -1021,7 +1093,7 @@ void main() {
             <td>奖励 : SP币 2 G</td>
             <td></td>
           </tr>
-          <tr><td>每日SP+2的日常。 已完成 100 % 完成时间 2099-06-19 AM:11:37:46</td></tr>
+          <tr><td>每日SP+2的日常。 已完成 100 % 完成时间 $completedAt</td></tr>
         </table>
       ''',
       'plugin.php?H_name-tasks.html': '''
@@ -1041,7 +1113,7 @@ void main() {
     final daily = snapshot.taskNamed('日常');
 
     expect(daily?.availability, ForumTaskAvailability.completed);
-    expect(daily?.completedAt, '2099-06-19 AM:11:37:46');
+    expect(daily?.completedAt, completedAt);
     expect(daily?.cooldownRemaining, const Duration(hours: 18));
   });
 
@@ -1157,8 +1229,10 @@ void main() {
     const store = ForumTaskStateStore();
     await store.save(snapshot);
     final client = _PathForumClient({
-      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15': 'success\t任务领取完成',
-      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15': 'success\t任务奖励领取完成',
+      'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t已经申请[日常]完成,请赶紧去完成任务吧!]]></ajax>',
+      'plugin.php?H_name=tasks&action=ajax&actions=job2&cid=15':
+          '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t你[日常]已经完成!\t15]]></ajax>',
       'plugin.php?H_name-tasks-actions-endtasks.html.html': [
         '<html></html>',
         '''
@@ -1221,6 +1295,15 @@ void main() {
   });
 }
 
+String _forumCompletionTime(DateTime date) {
+  final day = date.toIso8601String().substring(0, 10);
+  final marker = date.hour < 12 ? 'AM' : 'PM';
+  final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+  final minute = date.minute.toString().padLeft(2, '0');
+  final second = date.second.toString().padLeft(2, '0');
+  return '$day $marker:$hour:$minute:$second';
+}
+
 class _FakeForumClient extends ForumClient {
   _FakeForumClient(this.html);
 
@@ -1254,6 +1337,7 @@ class _PathForumClient extends ForumClient {
     final value = htmlByPath[normalized] ?? htmlByPath[path];
     if (value is List<String>) {
       if (value.isEmpty) return '<html></html>';
+      if (value.length == 1) return value.single;
       return value.removeAt(0);
     }
     return value is String ? value : '<html></html>';
