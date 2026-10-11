@@ -1,3 +1,5 @@
+import 'dart:ffi';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:south_plus_rewrite/services/update_checker.dart';
 
@@ -18,9 +20,22 @@ void main() {
     expect(result.hasUpdate, isTrue);
     expect(result.release.version, '0.1.8');
     expect(result.release.htmlUrl, 'https://github.com/release');
+    for (final (abi, suffix) in [
+      (Abi.androidArm, 'armeabi-v7a'),
+      (Abi.androidArm64, 'arm64-v8a'),
+      (Abi.androidX64, 'x86_64'),
+    ]) {
+      expect(
+        result.release.downloadUrlForPlatform(
+          operatingSystem: 'android',
+          abi: abi,
+        ),
+        'https://github.com/release/download/south_plus_rewrite-android-$suffix.apk',
+      );
+    }
     expect(
-      result.release.downloadUrlForPlatform(operatingSystem: 'android'),
-      'https://github.com/release/download/south_plus_rewrite-android-universal.apk',
+      result.release.downloadUrlForPlatform(operatingSystem: 'windows'),
+      'https://github.com/release/download/south_plus_rewrite-windows-x64.zip',
     );
   });
 
@@ -34,10 +49,18 @@ void main() {
     expect(result.hasUpdate, isFalse);
   });
 
-  test('compares dotted versions numerically', () {
-    expect(compareAppVersions('0.1.10', '0.1.9'), greaterThan(0));
-    expect(compareAppVersions('v1.2.0', '1.2'), 0);
-    expect(compareAppVersions('1.2.0+4', '1.2.1+1'), lessThan(0));
+  test('checks numeric versions and ignores build-only changes', () async {
+    for (final (latest, current, hasUpdate) in [
+      ('0.1.10', '0.1.9', true),
+      ('v1.2.0', '1.2', false),
+      ('1.2.0+4', '1.2.1+1', false),
+      ('v1.2.0+5', '1.2.0+4', false),
+    ]) {
+      final result = await UpdateChecker(
+        fetcher: (_) async => _releaseJson(tagName: latest),
+      ).check(currentVersion: current);
+      expect(result.hasUpdate, hasUpdate, reason: '$latest vs $current');
+    }
   });
 
   test('rejects malformed release payloads', () {
@@ -47,11 +70,22 @@ void main() {
     );
   });
 
-  test('falls back to the release page without a matching asset', () {
-    final release = AppRelease.fromGitHubJson(_releaseJson(tagName: 'v0.1.8'));
+  test('falls back to the release page without the process ABI APK', () {
+    final json = _releaseJson(tagName: 'v0.1.8');
+    (json['assets'] as List).removeWhere(
+      (asset) => (asset['name'] as String).endsWith('android-arm64-v8a.apk'),
+    );
+    final release = AppRelease.fromGitHubJson(json);
 
     expect(
-      release.downloadUrlForPlatform(operatingSystem: 'linux'),
+      release.downloadUrlForPlatform(
+        operatingSystem: 'android',
+        abi: Abi.androidArm64,
+      ),
+      'https://github.com/release',
+    );
+    expect(
+      release.downloadUrlForPlatform(operatingSystem: 'ios'),
       'https://github.com/release',
     );
   });
@@ -65,6 +99,12 @@ Map<String, Object?> _releaseJson({required String tagName}) {
     'published_at': '2026-06-17T08:00:00Z',
     'body': '- 更新内容',
     'assets': [
+      for (final suffix in ['armeabi-v7a', 'arm64-v8a', 'x86_64'])
+        {
+          'name': 'south_plus_rewrite-android-$suffix.apk',
+          'browser_download_url':
+              'https://github.com/release/download/south_plus_rewrite-android-$suffix.apk',
+        },
       {
         'name': 'south_plus_rewrite-android-universal.apk',
         'browser_download_url':

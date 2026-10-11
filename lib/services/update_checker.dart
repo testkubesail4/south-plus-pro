@@ -1,7 +1,6 @@
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
-
-import 'package:flutter/foundation.dart';
 
 const defaultUpdateRepository = 'testkubesail4/south-plus-pro';
 
@@ -28,7 +27,7 @@ class UpdateChecker {
     return UpdateCheckResult(
       currentVersion: currentVersion,
       release: release,
-      hasUpdate: compareAppVersions(release.version, currentVersion) > 0,
+      hasUpdate: _compareAppVersions(release.version, currentVersion) > 0,
     );
   }
 }
@@ -84,7 +83,7 @@ class AppRelease {
 
     final publishedAtText = json['published_at'] as String?;
     return AppRelease(
-      version: normalizeAppVersion(tagName),
+      version: _normalizeAppVersion(tagName),
       tagName: tagName,
       name: (json['name'] as String?)?.trim().isNotEmpty == true
           ? (json['name'] as String).trim()
@@ -98,10 +97,15 @@ class AppRelease {
     );
   }
 
-  String downloadUrlForPlatform({String? operatingSystem}) {
+  String downloadUrlForPlatform({String? operatingSystem, Abi? abi}) {
     final os = operatingSystem ?? Platform.operatingSystem;
     final asset = switch (os) {
-      'android' => _assetNamed('android-universal.apk'),
+      'android' => switch (abi ?? Abi.current()) {
+          Abi.androidArm => _assetNamed('android-armeabi-v7a.apk'),
+          Abi.androidArm64 => _assetNamed('android-arm64-v8a.apk'),
+          Abi.androidX64 => _assetNamed('android-x86_64.apk'),
+          _ => null,
+        },
       'windows' => _assetNamed('windows-x64.zip'),
       _ => null,
     };
@@ -173,8 +177,7 @@ Future<Map<String, Object?>> _fetchLatestRelease(Uri uri) async {
   }
 }
 
-@visibleForTesting
-String normalizeAppVersion(String version) {
+String _normalizeAppVersion(String version) {
   final trimmed = version.trim();
   final withoutPrefix = trimmed.startsWith('v') || trimmed.startsWith('V')
       ? trimmed.substring(1)
@@ -182,8 +185,7 @@ String normalizeAppVersion(String version) {
   return withoutPrefix.split('+').first.trim();
 }
 
-@visibleForTesting
-int compareAppVersions(String left, String right) {
+int _compareAppVersions(String left, String right) {
   final leftParts = _parseVersionParts(left);
   final rightParts = _parseVersionParts(right);
   final length = leftParts.length > rightParts.length
@@ -199,7 +201,7 @@ int compareAppVersions(String left, String right) {
 }
 
 List<int> _parseVersionParts(String version) {
-  final normalized = normalizeAppVersion(version);
+  final normalized = _normalizeAppVersion(version);
   final main = normalized.split('-').first;
   return main
       .split('.')
