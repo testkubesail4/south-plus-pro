@@ -17,7 +17,7 @@ void main() {
       MaterialApp(home: SearchScreen(repository: repository)),
     );
 
-    await tester.enterText(find.byType(TextField), 'sample');
+    await tester.enterText(find.byType(TextField).first, 'sample');
     await tester.tap(searchButton);
     await tester.pump();
     await tester.testTextInput.receiveAction(TextInputAction.search);
@@ -38,11 +38,48 @@ void main() {
 
     await tester.tap(searchButton);
     await tester.pump();
-    repository.searches.last.complete(const []);
+    repository.searches.last.complete(const ForumSearchPage(threads: []));
     await tester.pump();
     await tester.pump();
     expect(repository.searches, hasLength(2));
     expect(find.text('没有找到相关主题'), findsOneWidget);
+  });
+
+  testWidgets('search sends username only and follows the server next page',
+      (tester) async {
+    final repository = _FakeRepository();
+    await tester.pumpWidget(
+      MaterialApp(home: SearchScreen(repository: repository)),
+    );
+
+    await tester.tap(find.text('高级选项'));
+    await tester.pumpAndSettle();
+    expect(repository.boardRequests, 1);
+
+    await tester.enterText(find.byType(TextField).at(1), 'someone');
+    await tester.tap(find.byWidgetPredicate((w) => w is FilledButton));
+    await tester.pump();
+    final query = repository.queries.single;
+    expect(query.keyword, isEmpty);
+    expect(query.username, 'someone');
+    expect(query.boardId, 'all');
+    expect(query.order, ForumThreadOrder.postedAt);
+    expect(query.ascending, isFalse);
+
+    repository.searches.single.complete(const ForumSearchPage(
+      threads: [_FakeRepository.thread],
+      total: 42,
+      nextPagePath: 'search.php?step=2&page=2',
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('共 42 条结果'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('下一页'), 100,
+        scrollable: find.byType(Scrollable).last);
+    await tester.tap(find.text('下一页'));
+    await tester.pump();
+    expect(repository.pagePaths, ['search.php?step=2&page=2']);
+    expect(repository.queries.last, same(query));
   });
 
   testWidgets('reply failure shows short text and re-enables submit once',
@@ -89,12 +126,36 @@ class _FakeRepository extends ForumRepository {
     section: 'section',
   );
 
-  final searches = <Completer<List<ForumThread>>>[];
+  final searches = <Completer<ForumSearchPage>>[];
+  final queries = <ForumSearchQuery>[];
+  final pagePaths = <String>[];
   final reply = Completer<ReplyResult>();
   int replies = 0;
+  int boardRequests = 0;
 
   @override
-  Future<List<ForumThread>> searchThreads(String keyword) {
+  Future<List<ForumSearchBoard>> fetchSearchBoards() async {
+    boardRequests++;
+    return const [
+      ForumSearchBoard(id: 'all', name: 'all boards'),
+      ForumSearchBoard(id: '1', name: 'board one'),
+    ];
+  }
+
+  @override
+  Future<ForumSearchPage> searchForum(ForumSearchQuery query) {
+    queries.add(query);
+    searches.add(Completer());
+    return searches.last.future;
+  }
+
+  @override
+  Future<ForumSearchPage> searchForumPage(
+    ForumSearchQuery query,
+    String pagePath,
+  ) {
+    queries.add(query);
+    pagePaths.add(pagePath);
     searches.add(Completer());
     return searches.last.future;
   }

@@ -7,6 +7,28 @@ import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../thread/thread_detail_screen.dart';
 
+const _allBoards = ForumSearchBoard(id: 'all', name: '全部版块');
+
+const _timeLabels = {
+  ForumSearchTime.all: '全部时间',
+  ForumSearchTime.newTopics: '最新主题',
+  ForumSearchTime.day: '一天内',
+  ForumSearchTime.twoDays: '两天内',
+  ForumSearchTime.week: '一周内',
+  ForumSearchTime.month: '一个月内',
+  ForumSearchTime.twoMonths: '两个月内',
+  ForumSearchTime.threeMonths: '三个月内',
+  ForumSearchTime.halfYear: '半年内',
+  ForumSearchTime.year: '一年内',
+};
+
+const _orderLabels = {
+  ForumThreadOrder.postedAt: '发表时间',
+  ForumThreadOrder.lastPost: '最后发表',
+  ForumThreadOrder.replies: '回复',
+  ForumThreadOrder.hits: '人气',
+};
+
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key, required this.repository});
 
@@ -18,33 +40,81 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final _keyword = TextEditingController();
-  Future<List<ForumThread>>? _future;
+  final _username = TextEditingController();
+  ForumSearchMatch _match = ForumSearchMatch.partial;
+  String _boardId = _allBoards.id;
+  ForumSearchTime _time = ForumSearchTime.year;
+  ForumThreadOrder _order = ForumThreadOrder.postedAt;
+  bool _ascending = false;
+  List<ForumSearchBoard> _boards = const [_allBoards];
+  bool _boardsRequested = false;
+
+  Future<ForumSearchPage>? _future;
+  Future<ForumSearchPage> Function()? _lastRequest;
+  ForumSearchQuery? _query;
   String? _error;
-  String _lastQuery = '';
   bool _searching = false;
 
   @override
   void dispose() {
     _keyword.dispose();
+    _username.dispose();
     super.dispose();
+  }
+
+  // Board options cost a search.php request, so load them only when needed.
+  Future<void> _loadBoards() async {
+    if (_boardsRequested) return;
+    _boardsRequested = true;
+    try {
+      final boards = await widget.repository.fetchSearchBoards();
+      if (!mounted || boards.isEmpty) return;
+      setState(() {
+        _boards = boards.any((board) => board.id == _allBoards.id)
+            ? boards
+            : [_allBoards, ...boards];
+      });
+    } catch (_) {
+      // Keep "全部版块" and allow another attempt on the next expand.
+      _boardsRequested = false;
+    }
   }
 
   void _search() {
     if (_searching) return;
-    final query = _keyword.text.trim();
-    if (query.isEmpty) {
+    final query = ForumSearchQuery(
+      keyword: _keyword.text.trim(),
+      username: _username.text.trim(),
+      match: _match,
+      boardId: _boardId,
+      time: _time,
+      order: _order,
+      ascending: _ascending,
+    );
+    if (query.keyword.isEmpty && query.username.isEmpty) {
       setState(() {
-        _error = '请输入关键词';
+        _error = '请输入关键词或用户名';
         _future = null;
       });
       return;
     }
+    _query = query;
+    _run(() => widget.repository.searchForum(query));
+  }
 
-    final future = widget.repository.searchThreads(query);
+  void _nextPage(String pagePath) {
+    final query = _query;
+    if (_searching || query == null) return;
+    _run(() => widget.repository.searchForumPage(query, pagePath));
+  }
+
+  void _run(Future<ForumSearchPage> Function() request) {
+    if (_searching) return;
+    final future = request();
     setState(() {
       _searching = true;
       _error = null;
-      _lastQuery = query;
+      _lastRequest = request;
       _future = future;
     });
     future.whenComplete(() {
@@ -64,56 +134,130 @@ class _SearchScreenState extends State<SearchScreen> {
         top: false,
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: _keyword,
-                    autofocus: true,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _search(),
-                    decoration: InputDecoration(
-                      labelText: '关键词',
-                      hintText: '搜索主题标题',
-                      prefixIcon: Icon(Icons.search),
-                      suffixIcon: _keyword.text.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: '清空',
-                              onPressed: () {
-                                _keyword.clear();
-                                setState(() {});
-                              },
-                              icon: Icon(Icons.close),
-                            ),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.55,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      controller: _keyword,
+                      autofocus: true,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _search(),
+                      decoration: InputDecoration(
+                        labelText: '关键词',
+                        hintText: '搜索主题标题',
+                        prefixIcon: Icon(Icons.search),
+                        suffixIcon: _keyword.text.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: '清空',
+                                onPressed: () {
+                                  _keyword.clear();
+                                  setState(() {});
+                                },
+                                icon: Icon(Icons.close),
+                              ),
+                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _username,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _search(),
+                      decoration: InputDecoration(
+                        labelText: '用户名',
+                        hintText: '只看该用户的主题',
+                        prefixIcon: Icon(Icons.person_outline),
                       ),
                     ),
+                    Theme(
+                      data: Theme.of(context)
+                          .copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        title: const Text('高级选项'),
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: const EdgeInsets.only(bottom: 4),
+                        onExpansionChanged: (expanded) {
+                          if (expanded) _loadBoards();
+                        },
+                        children: [
+                          _SearchOption<ForumSearchMatch>(
+                            label: '匹配方式',
+                            value: _match,
+                            labels: const {
+                              ForumSearchMatch.partial: '部分符合',
+                              ForumSearchMatch.exact: '完全符合',
+                            },
+                            onChanged: (value) =>
+                                setState(() => _match = value),
+                          ),
+                          _SearchOption<String>(
+                            // Rebuild when the loaded options replace the default.
+                            key: ValueKey(_boards.length),
+                            label: '版块',
+                            value: _boardId,
+                            labels: {
+                              for (final board in _boards) board.id: board.name,
+                            },
+                            onChanged: (value) =>
+                                setState(() => _boardId = value),
+                          ),
+                          _SearchOption<ForumSearchTime>(
+                            label: '时间',
+                            value: _time,
+                            labels: _timeLabels,
+                            onChanged: (value) => setState(() => _time = value),
+                          ),
+                          _SearchOption<ForumThreadOrder>(
+                            label: '排序',
+                            value: _order,
+                            labels: _orderLabels,
+                            onChanged: (value) =>
+                                setState(() => _order = value),
+                          ),
+                          _SearchOption<bool>(
+                            label: '顺序',
+                            value: _ascending,
+                            labels: const {false: '降序', true: '升序'},
+                            onChanged: (value) =>
+                                setState(() => _ascending = value),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_error != null)
+                      Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                   ],
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: _searching ? null : _search,
-                    icon: Icon(Icons.search),
-                    label: Text(_searching ? '搜索中...' : '搜索'),
-                  ),
-                ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _searching ? null : _search,
+                  icon: Icon(Icons.search),
+                  label: Text(_searching ? '搜索中...' : '搜索'),
+                ),
               ),
             ),
             Divider(height: 1, color: AppColors.border),
             Expanded(
               child: future == null
                   ? const _SearchIntro()
-                  : FutureBuilder<List<ForumThread>>(
+                  : FutureBuilder<ForumSearchPage>(
                       future: future,
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
@@ -124,41 +268,91 @@ class _SearchScreenState extends State<SearchScreen> {
                                 forumRequestErrorText(kind),
                               final error => '$error',
                             },
-                            onRetry: _search,
+                            onRetry: () => _run(_lastRequest!),
                           );
                         }
                         if (!snapshot.hasData) {
                           return const ThreadListSkeleton(itemCount: 5);
                         }
-                        final results = snapshot.data!;
+                        final page = snapshot.data!;
+                        final results = page.threads;
                         if (results.isEmpty) {
-                          return _EmptySearchResult(query: _lastQuery);
+                          return _EmptySearchResult(query: _query!);
                         }
-                        return ListView.separated(
+                        final nextPagePath = page.nextPagePath;
+                        final total = page.total;
+                        return ListView(
                           padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                          itemCount: results.length,
-                          separatorBuilder: (_, __) =>
+                          children: [
+                            if (total != null) ...[
+                              Text(
+                                '共 $total 条结果',
+                                style: TextStyle(color: AppColors.textMuted),
+                              ),
                               const SizedBox(height: 10),
-                          itemBuilder: (context, index) {
-                            final thread = results[index];
-                            return _SearchResultTile(
-                              thread: thread,
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => ThreadDetailScreen(
-                                    thread: thread,
-                                    repository: widget.repository,
+                            ],
+                            for (final thread in results) ...[
+                              _SearchResultTile(
+                                thread: thread,
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => ThreadDetailScreen(
+                                      thread: thread,
+                                      repository: widget.repository,
+                                    ),
                                   ),
                                 ),
                               ),
-                            );
-                          },
+                              const SizedBox(height: 10),
+                            ],
+                            if (nextPagePath != null)
+                              OutlinedButton(
+                                onPressed: _searching
+                                    ? null
+                                    : () => _nextPage(nextPagePath),
+                                child: const Text('下一页'),
+                              ),
+                          ],
                         );
                       },
                     ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SearchOption<T> extends StatelessWidget {
+  const _SearchOption({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.labels,
+    required this.onChanged,
+  });
+
+  final String label;
+  final T value;
+  final Map<T, String> labels;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: DropdownButtonFormField<T>(
+        initialValue: value,
+        isExpanded: true,
+        decoration: InputDecoration(labelText: label),
+        items: [
+          for (final entry in labels.entries)
+            DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+        ],
+        onChanged: (value) {
+          if (value != null) onChanged(value);
+        },
       ),
     );
   }
@@ -273,7 +467,7 @@ class _SearchIntro extends StatelessWidget {
     return const EmptyStateView(
       icon: Icons.search,
       title: '搜索主题',
-      message: '输入关键词后搜索主题标题。',
+      message: '输入关键词或用户名后搜索主题。',
     );
   }
 }
@@ -281,14 +475,17 @@ class _SearchIntro extends StatelessWidget {
 class _EmptySearchResult extends StatelessWidget {
   const _EmptySearchResult({required this.query});
 
-  final String query;
+  final ForumSearchQuery query;
 
   @override
   Widget build(BuildContext context) {
     return EmptyStateView(
       icon: Icons.manage_search_outlined,
       title: '没有找到相关主题',
-      message: '关键词：“$query”',
+      message: [
+        if (query.keyword.isNotEmpty) '关键词：“${query.keyword}”',
+        if (query.username.isNotEmpty) '用户名：“${query.username}”',
+      ].join('\n'),
     );
   }
 }

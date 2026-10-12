@@ -1027,6 +1027,79 @@ class ForumRepository {
     return home.sections;
   }
 
+  Future<dom.Element> _fetchSearchForm() async {
+    final response = await _client.get('search.php');
+    _throwIfBlockedPage(response);
+    final document = html_parser.parse(response);
+    final form = document.querySelector('form[action*="search.php"]') ??
+        document.querySelector('form');
+    if (form == null) {
+      throw const ForumRequestException(
+        ForumRequestKind.server,
+        '没有找到搜索表单',
+      );
+    }
+    return form;
+  }
+
+  Future<List<ForumSearchBoard>> fetchSearchBoards() async {
+    final form = await _fetchSearchForm();
+    return [
+      for (final option in form.querySelectorAll('select[name="f_fid"] option'))
+        if (!option.attributes.containsKey('disabled') &&
+            option.attributes.containsKey('value'))
+          ForumSearchBoard(
+            id: option.attributes['value']!,
+            name: option.text.trim(),
+          ),
+    ];
+  }
+
+  void _validateSearchQuery(ForumSearchQuery query) {
+    if (query.keyword.trim().isEmpty && query.username.trim().isEmpty) {
+      throw const ForumRepositoryException('请输入关键词或用户名');
+    }
+  }
+
+  Future<ForumSearchPage> searchForum(ForumSearchQuery query) async {
+    _validateSearchQuery(query);
+    final form = await _fetchSearchForm();
+    final fields = _formParser.defaults(form)
+      ..remove('digest')
+      ..remove('sch_area')
+      ..['step'] = '2'
+      ..['keyword'] = query.keyword.trim()
+      ..['pwuser'] = query.username.trim()
+      ..['method'] = query.match.queryValue
+      ..['f_fid'] = query.boardId
+      ..['sch_time'] = query.time.queryValue
+      ..['orderway'] = query.order.queryValue
+      ..['asc'] = query.ascending ? 'ASC' : 'DESC'
+      ..['submit'] = '提 交';
+    final action = form.attributes['action'] ?? 'search.php?';
+    final response = await _client.post(
+      _urls.relativePath(_urls.absoluteUrl(action)),
+      fields,
+    );
+    return _searchResultParser.parsePage(html_parser.parse(response));
+  }
+
+  Future<ForumSearchPage> searchForumPage(
+    ForumSearchQuery query,
+    String pagePath,
+  ) async {
+    _validateSearchQuery(query);
+    final uri = Uri.tryParse(pagePath);
+    if (uri == null ||
+        uri.hasAuthority ||
+        uri.hasScheme ||
+        uri.path != 'search.php') {
+      throw const ForumRepositoryException('搜索分页链接无效');
+    }
+    final response = await _client.get(pagePath);
+    return _searchResultParser.parsePage(html_parser.parse(response));
+  }
+
   Future<List<ForumThread>> searchThreads(String keyword) async {
     final query = keyword.trim();
     if (query.isEmpty) return const [];

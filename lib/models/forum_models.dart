@@ -11,6 +11,71 @@ enum ForumThreadOrder {
   final String queryValue;
 }
 
+enum ForumSearchMatch {
+  partial('OR'),
+  exact('AND');
+
+  const ForumSearchMatch(this.queryValue);
+
+  final String queryValue;
+}
+
+enum ForumSearchTime {
+  all('all'),
+  newTopics('newatc'),
+  day('86400'),
+  twoDays('172800'),
+  week('604800'),
+  month('2592000'),
+  twoMonths('5184000'),
+  threeMonths('7776000'),
+  halfYear('15552000'),
+  year('31536000');
+
+  const ForumSearchTime(this.queryValue);
+
+  final String queryValue;
+}
+
+class ForumSearchQuery {
+  const ForumSearchQuery({
+    this.keyword = '',
+    this.username = '',
+    this.match = ForumSearchMatch.partial,
+    this.boardId = 'all',
+    this.time = ForumSearchTime.year,
+    this.order = ForumThreadOrder.postedAt,
+    this.ascending = false,
+  });
+
+  final String keyword;
+  final String username;
+  final ForumSearchMatch match;
+  final String boardId;
+  final ForumSearchTime time;
+  final ForumThreadOrder order;
+  final bool ascending;
+}
+
+class ForumSearchBoard {
+  const ForumSearchBoard({required this.id, required this.name});
+
+  final String id;
+  final String name;
+}
+
+class ForumSearchPage {
+  const ForumSearchPage({
+    required this.threads,
+    this.total,
+    this.nextPagePath,
+  });
+
+  final List<ForumThread> threads;
+  final int? total;
+  final String? nextPagePath;
+}
+
 class ForumThread {
   const ForumThread({
     required this.title,

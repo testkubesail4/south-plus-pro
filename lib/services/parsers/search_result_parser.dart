@@ -10,6 +10,48 @@ class SearchResultParser {
 
   final ForumUrlResolver urls;
 
+  ForumSearchPage parsePage(dom.Document document) {
+    final threads = parse(document);
+    final totalMatch =
+        RegExp(r'共\s*搜索到了\s*(\d+)\s*条信息').firstMatch(_pageText(document));
+    final pages = document.querySelector('.pages');
+    final currentMatch =
+        RegExp(r'Pages:\s*(\d+)\s*/').firstMatch(_cleanText(pages?.text ?? ''));
+    final current = int.tryParse(currentMatch?.group(1) ?? '') ??
+        int.tryParse(
+          _cleanText(pages?.querySelector('b, .current')?.text ?? ''),
+        ) ??
+        1;
+    String? nextPagePath;
+    int? nextPage;
+    for (final link in pages?.querySelectorAll('a[href]') ?? <dom.Element>[]) {
+      final path = urls.relativePath(
+        urls.absoluteUrl(link.attributes['href'] ?? ''),
+      );
+      final uri = Uri.tryParse(path);
+      if (uri == null ||
+          uri.hasAuthority ||
+          uri.hasScheme ||
+          uri.path != 'search.php') {
+        continue;
+      }
+      final pageMatch =
+          RegExp(r'(?:[?&]page=|(?:^|-)page-)(\d+)').firstMatch(path);
+      final page = int.tryParse(pageMatch?.group(1) ?? '');
+      if (page != null &&
+          page > current &&
+          (nextPage == null || page < nextPage)) {
+        nextPage = page;
+        nextPagePath = path;
+      }
+    }
+    return ForumSearchPage(
+      threads: threads,
+      total: int.tryParse(totalMatch?.group(1) ?? ''),
+      nextPagePath: nextPagePath,
+    );
+  }
+
   List<ForumThread> parse(dom.Document document) {
     final text = _pageText(document);
     if (forumTextIsRateLimited(text)) {
@@ -86,11 +128,11 @@ class SearchResultParser {
   }
 
   bool _isNormalResult(String text) {
-    return text.contains('搜索结果') ||
+    return RegExp(r'共\s*搜索到了\s*\d+\s*条信息').hasMatch(text) ||
+        text.contains('搜索结果') ||
         text.contains('搜索結果') ||
         RegExp(r'共\s*(?:搜索|搜尋)?到\s*\d+').hasMatch(text) ||
-        RegExp(r'(?:找到|搜索到|搜尋到)\s*\d+\s*[条條篇]')
-            .hasMatch(text) ||
+        RegExp(r'(?:找到|搜索到|搜尋到)\s*\d+\s*[条條篇]').hasMatch(text) ||
         text.contains('没有找到符合条件') ||
         text.contains('沒有找到符合條件');
   }
