@@ -5,6 +5,7 @@ import 'features/profile/network_setup_flow_screen.dart';
 import 'services/forum_network_config.dart';
 import 'services/forum_network_setup_store.dart';
 import 'services/forum_repository.dart';
+import 'services/forum_text_size_settings.dart';
 import 'theme/app_theme.dart';
 
 class SouthPlusApp extends StatefulWidget {
@@ -31,11 +32,52 @@ class _SouthPlusAppState extends State<SouthPlusApp> {
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: themeMode,
+          builder: (context, child) {
+            return ValueListenableBuilder<ForumTextSize>(
+              valueListenable: ForumTextSizeSettings.notifier,
+              builder: (context, size, _) {
+                final media = MediaQuery.of(context);
+                return MediaQuery(
+                  data: media.copyWith(
+                    textScaler: _ScaledTextScaler(
+                      media.textScaler,
+                      size.scale,
+                    ),
+                  ),
+                  child: child!,
+                );
+              },
+            );
+          },
           home: SessionGate(onToggleTheme: AppThemeController.toggle),
         );
       },
     );
   }
+}
+
+/// Applies the user's text size on top of the system scaler, keeping any
+/// nonlinear system scaling intact.
+class _ScaledTextScaler extends TextScaler {
+  const _ScaledTextScaler(this.base, this.factor);
+
+  final TextScaler base;
+  final double factor;
+
+  @override
+  double scale(double fontSize) => base.scale(fontSize) * factor;
+
+  @override
+  double get textScaleFactor => scale(1);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ScaledTextScaler &&
+      other.base == base &&
+      other.factor == factor;
+
+  @override
+  int get hashCode => Object.hash(base, factor);
 }
 
 class SessionGate extends StatefulWidget {

@@ -31,6 +31,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
+import 'package:south_plus_rewrite/services/forum_text_size_settings.dart';
 import 'package:south_plus_rewrite/services/image_loading_settings.dart';
 import 'package:south_plus_rewrite/services/parsers/thread_content_parser.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
@@ -684,6 +685,64 @@ void main() {
             .getString('settings.imageLoadMode'),
         'noImages');
     addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
+  });
+
+  testWidgets('large text multiplies the system text scaler', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ForumNetworkSetupStore.completedKey: true,
+    });
+    tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+    addTearDown(() {
+      tester.platformDispatcher.clearTextScaleFactorTestValue();
+      ForumTextSizeSettings.notifier.value = ForumTextSize.normal;
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      home: AccountScreen(
+        repository: _FakeTasksRepository(),
+        onLoggedOut: () {},
+        packageInfoLoader: _fakePackageInfo,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('字体大小'), 180,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('大'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('大'));
+    await tester.pumpAndSettle();
+    expect(
+      (await SharedPreferences.getInstance())
+          .getString('settings.forumTextSize'),
+      'large',
+    );
+
+    await tester.pumpWidget(const SouthPlusApp());
+    await tester.pump();
+    await tester.pump();
+    final scaler =
+        MediaQuery.textScalerOf(tester.element(find.text('southplus')));
+    expect(scaler.scale(10), closeTo(10 * 1.5 * 1.15, 0.001));
+    // Let the home page's paced request timer finish before teardown.
+    await tester.pump(const Duration(seconds: 2));
+  });
+
+  testWidgets('rich post body follows the app text scaler', (tester) async {
+    // System 1.5 x large 1.15, as composed by SouthPlusApp.
+    await tester.pumpWidget(MaterialApp(
+      home: MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(1.5 * 1.15)),
+        child: Scaffold(
+          body: ThreadRichContent(
+            segments: const [ThreadContentSegment.text('body text')],
+          ),
+        ),
+      ),
+    ));
+
+    final body = tester.widget<RichText>(find.byWidgetPredicate((widget) =>
+        widget is RichText && widget.text.toPlainText() == 'body text'));
+    expect(body.textScaler.scale(10), closeTo(10 * 1.5 * 1.15, 0.001));
   });
 
   testWidgets('account screen exposes app version and update check',

@@ -86,6 +86,8 @@ List<Widget> _buildChildren(
       RichText(
         selectionRegistrar: selectionRegistrar,
         selectionColor: selectionColor,
+        // RichText does not inherit MediaQuery scaling on its own.
+        textScaler: MediaQuery.textScalerOf(context),
         text: TextSpan(
             style: baseStyle, children: List<InlineSpan>.of(inlineSpans)),
       ),

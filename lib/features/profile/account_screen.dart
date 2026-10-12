@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_network_setup_store.dart';
+import '../../services/forum_text_size_settings.dart';
 import '../../services/image_loading_settings.dart';
 import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
@@ -341,6 +342,37 @@ class _AccountScreenState extends State<AccountScreen> {
                 title: '清理图片缓存',
                 subtitle: _clearingCache ? '正在清理...' : '释放本地图片缓存空间',
                 onTap: _clearingCache ? null : _clearImageCache,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _AccountSection(
+            title: '字体大小',
+            subtitle: '在系统字号基础上调整应用文字',
+            children: [
+              ValueListenableBuilder<ForumTextSize>(
+                valueListenable: ForumTextSizeSettings.notifier,
+                builder: (context, current, _) {
+                  return Column(
+                    children: ForumTextSize.values.map((size) {
+                      return _SelectableAccountTile(
+                        icon: switch (size) {
+                          ForumTextSize.small => Icons.text_decrease,
+                          ForumTextSize.normal => Icons.text_fields,
+                          ForumTextSize.large => Icons.text_increase,
+                        },
+                        onTap: () => ForumTextSizeSettings.save(size),
+                        title: Text(switch (size) {
+                          ForumTextSize.small => '小',
+                          ForumTextSize.normal => '标准',
+                          ForumTextSize.large => '大',
+                        }),
+                        subtitle: Text('系统字号的 ${(size.scale * 100).round()}%'),
+                        selected: current == size,
+                      );
+                    }).toList(),
+                  );
+                },
               ),
             ],
           ),
