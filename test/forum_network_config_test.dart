@@ -90,7 +90,7 @@ void main() {
           url: 'https://south-plus.net/thread.php?fid-218.html',
         ),
       ),
-      'thread_new.php?fid-218-page-1.html',
+      'thread_new.php?fid-218-orderway-lastpost-asc-DESC-page-1.html',
     );
     expect(
       resolver.boardDesktopPath(
@@ -101,7 +101,7 @@ void main() {
         ),
         page: 2,
       ),
-      'thread_new.php?fid-218-page-2.html',
+      'thread_new.php?fid-218-orderway-lastpost-asc-DESC-page-2.html',
     );
     expect(
       resolver.boardDesktopPath(
@@ -111,7 +111,7 @@ void main() {
           url: 'https://south-plus.net/simple/index.php?p36.html',
         ),
       ),
-      'thread_new.php?fid-36-page-1.html',
+      'thread_new.php?fid-36-orderway-lastpost-asc-DESC-page-1.html',
     );
     expect(
       resolver.boardDesktopPath(
@@ -122,7 +122,7 @@ void main() {
         ),
         page: 3,
       ),
-      'thread_new.php?fid-9-page-3.html',
+      'thread_new.php?fid-9-orderway-lastpost-asc-DESC-page-3.html',
     );
   });
 

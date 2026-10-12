@@ -591,16 +591,27 @@ class _PageBox extends StatelessWidget {
   }
 }
 
+String _orderLabel(ForumThreadOrder order) => switch (order) {
+      ForumThreadOrder.lastPost => '最后发表',
+      ForumThreadOrder.postedAt => '发表时间',
+      ForumThreadOrder.hits => '人气',
+      ForumThreadOrder.replies => '回复',
+    };
+
 class _BoardHeader extends StatelessWidget {
   const _BoardHeader({
     required this.title,
     required this.slug,
+    required this.order,
     required this.onCompose,
+    required this.onOrderSelected,
   });
 
   final String title;
   final String slug;
+  final ForumThreadOrder order;
   final VoidCallback onCompose;
+  final ValueChanged<ForumThreadOrder> onOrderSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -652,7 +663,10 @@ class _BoardHeader extends StatelessWidget {
             color: AppColors.surface,
             border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
-          child: Wrap(
+          child: Row(
+            children: [
+              Expanded(
+                child: Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 4,
             children: [
@@ -674,6 +688,30 @@ class _BoardHeader extends StatelessWidget {
               Text(
                 ' / $slug',
                 style: TextStyle(color: AppColors.textMuted),
+              ),
+            ],
+                ),
+              ),
+              PopupMenuButton<ForumThreadOrder>(
+                key: const ValueKey('board-order-button'),
+                tooltip: '排序',
+                initialValue: order,
+                onSelected: onOrderSelected,
+                itemBuilder: (context) => [
+                  for (final value in ForumThreadOrder.values)
+                    PopupMenuItem(value: value, child: Text(_orderLabel(value))),
+                ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.sort, size: 18, color: AppColors.textMuted),
+                    const SizedBox(width: 4),
+                    Text(
+                      _orderLabel(order),
+                      style: TextStyle(color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

@@ -83,11 +83,15 @@ class ForumUrlResolver {
     return null;
   }
 
-  String? boardDesktopPath(ForumCategory category, {int page = 1}) {
+  String? boardDesktopPath(
+    ForumCategory category, {
+    int page = 1,
+    ForumThreadOrder order = ForumThreadOrder.lastPost,
+  }) {
     final fid = fidFromCategory(category);
     if (fid == null) return null;
     final normalizedPage = _normalizedPage(page);
-    return 'thread_new.php?fid-$fid-page-$normalizedPage.html';
+    return 'thread_new.php?fid-$fid-orderway-${order.queryValue}-asc-DESC-page-$normalizedPage.html';
   }
 
   String threadDetailPath(String url, {int page = 1}) {

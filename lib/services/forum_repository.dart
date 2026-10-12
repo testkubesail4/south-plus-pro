@@ -1064,9 +1064,14 @@ class ForumRepository {
   Future<ForumThreadPage> fetchBoardThreadPage(
     ForumCategory category, {
     int page = 1,
+    ForumThreadOrder order = ForumThreadOrder.lastPost,
   }) async {
     final normalizedPage = page < 1 ? 1 : page;
-    final desktopPath = _urls.boardDesktopPath(category, page: normalizedPage);
+    final desktopPath = _urls.boardDesktopPath(
+      category,
+      page: normalizedPage,
+      order: order,
+    );
     if (desktopPath == null) {
       throw ForumRepositoryException('没有解析到${category.name}帖子列表');
     }

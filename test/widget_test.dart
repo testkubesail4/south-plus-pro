@@ -297,6 +297,44 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('board order refetches from page one and resets in sub boards',
+      (tester) async {
+    final repository = _FakeBoardRepository();
+
+    await tester.binding.setSurfaceSize(const Size(360, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BoardThreadListScreen(
+          category: _FakeBoardRepository.archiveCategory,
+          repository: repository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('最后发表'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('board-order-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('人气').last);
+    await tester.pumpAndSettle();
+    expect(repository.requestedOrders.last, (ForumThreadOrder.hits, 1));
+
+    await tester.drag(find.byType(ListView), const Offset(0, 320));
+    await tester.pumpAndSettle();
+    expect(repository.requestedOrders, [
+      (ForumThreadOrder.lastPost, 1),
+      (ForumThreadOrder.hits, 1),
+      (ForumThreadOrder.hits, 1),
+    ]);
+
+    await tester.tap(find.text('同人志&CG'));
+    await tester.pumpAndSettle();
+    expect(repository.requestedOrders.last, (ForumThreadOrder.lastPost, 1));
+    expect(find.text('最后发表'), findsOneWidget);
+  });
+
   testWidgets('board sub board entry scrolls with thread list', (tester) async {
     final repository = _FakeBoardRepository();
 
@@ -1807,13 +1845,16 @@ class _FakeBoardRepository extends ForumRepository {
   );
 
   final requestedCategoryUrls = <String>[];
+  final requestedOrders = <(ForumThreadOrder, int)>[];
 
   @override
   Future<ForumThreadPage> fetchBoardThreadPage(
     ForumCategory category, {
     int page = 1,
+    ForumThreadOrder order = ForumThreadOrder.lastPost,
   }) async {
     requestedCategoryUrls.add(category.url ?? '');
+    requestedOrders.add((order, page));
     if (category.url?.contains('fid-218') == true) {
       return ForumThreadPage(
         currentPage: 1,
@@ -1949,6 +1990,7 @@ class _FakeHomeRepository extends ForumRepository {
   Future<ForumThreadPage> fetchBoardThreadPage(
     ForumCategory category, {
     int page = 1,
+    ForumThreadOrder order = ForumThreadOrder.lastPost,
   }) async {
     requestedCategoryUrls.add(category.url ?? '');
     return const ForumThreadPage(

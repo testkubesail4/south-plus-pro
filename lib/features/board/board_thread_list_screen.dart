@@ -39,6 +39,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   late ForumCategory _category = widget.category;
   late List<ForumBoard> _knownSubBoards = List.of(widget.initialSubBoards);
   int _page = 1;
+  ForumThreadOrder _order = ForumThreadOrder.lastPost;
 
   @override
   void initState() {
@@ -50,6 +51,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     final threadPage = await widget.repository.fetchBoardThreadPage(
       _category,
       page: page,
+      order: _order,
     );
     _rememberSubBoards(threadPage);
     final defaultSubBoard = _defaultContentSubBoard(threadPage);
@@ -64,11 +66,13 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
           _category = nextCategory;
           _knownSubBoards = List.of(defaultSubBoard.children);
           _page = 1;
+          _order = ForumThreadOrder.lastPost;
         });
       } else {
         _category = nextCategory;
         _knownSubBoards = List.of(defaultSubBoard.children);
         _page = 1;
+        _order = ForumThreadOrder.lastPost;
       }
       final nextPage =
           await widget.repository.fetchBoardThreadPage(nextCategory, page: 1);
@@ -111,6 +115,20 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       _page = page;
       _future = _fetchPage(page);
     });
+    await _scrollToTopAfterLoad();
+  }
+
+  Future<void> _changeOrder(ForumThreadOrder order) async {
+    if (order == _order) return;
+    setState(() {
+      _order = order;
+      _page = 1;
+      _future = _fetchPage(1);
+    });
+    await _scrollToTopAfterLoad();
+  }
+
+  Future<void> _scrollToTopAfterLoad() async {
     await _future;
     if (!mounted || !_scrollController.hasClients) return;
     await _scrollController.animateTo(
@@ -143,15 +161,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       );
       _knownSubBoards = List.of(board.children);
       _page = 1;
+      _order = ForumThreadOrder.lastPost;
       _future = _fetchPage(_page);
     });
-    await _future;
-    if (!mounted || !_scrollController.hasClients) return;
-    await _scrollController.animateTo(
-      0,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
+    await _scrollToTopAfterLoad();
   }
 
   Future<void> _openAd(ForumBoardAd ad) async {
@@ -184,7 +197,9 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                 _BoardHeader(
                   title: _category.name,
                   slug: _category.slug,
+                  order: _order,
                   onCompose: _openComposer,
+                  onOrderSelected: _changeOrder,
                 ),
                 Expanded(
                   child: ColoredBox(

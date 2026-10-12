@@ -1,5 +1,16 @@
 import 'dart:typed_data';
 
+enum ForumThreadOrder {
+  lastPost('lastpost'),
+  postedAt('postdate'),
+  hits('hits'),
+  replies('replies');
+
+  const ForumThreadOrder(this.queryValue);
+
+  final String queryValue;
+}
+
 class ForumThread {
   const ForumThread({
     required this.title,

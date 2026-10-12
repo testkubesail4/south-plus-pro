@@ -64,10 +64,69 @@ void main() {
     expect(client.bytesPath, startsWith('ck.php?nowtime='));
   });
 
+  test('board sorting uses server order and does not retain the previous order',
+      () async {
+    const category = ForumCategory(name: 'Fixture board', slug: 'fid-42');
+    const html = '''
+      <html><body>
+        <table id="ajaxtable">
+          <tr class="tr3 t_one">
+            <td></td>
+            <td><h3><a href="read.php?tid-41.html">Fixture sticky</a></h3>
+              <img src="images/colorImagination/file/headtopic_1.gif"
+                   title="置顶帖标志"></td>
+            <td></td><td>3 / 90</td><td></td>
+          </tr>
+        </table>
+        <ul class="stream">
+          <li class="dcsns-li"><div class="inner">
+            <span class="section-title"><a href="read.php?tid-43.html">Fixture first</a></span>
+            <span class="section-text">回复/人气：2/&nbsp;10</span>
+          </div></li>
+          <li class="dcsns-li"><div class="inner">
+            <span class="section-title"><a href="read.php?tid-42.html">Fixture second</a></span>
+            <span class="section-text">回复/人气：80/&nbsp;500</span>
+          </div></li>
+        </ul>
+        <div class="pages"><b>3</b>
+          <a href="thread_new.php?fid-42-orderway-ORDER-asc-DESC-page-4.html">4</a>
+        </div>
+      </body></html>
+    ''';
+    final client = _PathForumClient({
+      for (final value in ['lastpost', 'postdate', 'hits', 'replies'])
+        'thread_new.php?fid-42-orderway-$value-asc-DESC-page-3.html':
+            html.replaceAll('ORDER', value),
+      'thread_new.php?fid-42-orderway-lastpost-asc-DESC-page-1.html':
+          html.replaceAll('ORDER', 'lastpost'),
+    });
+    final repository = ForumRepository(client: client);
+    for (final order in ForumThreadOrder.values) {
+      final page = await repository.fetchBoardThreadPage(
+        category,
+        page: 3,
+        order: order,
+      );
+      expect(page.currentPage, 3);
+      expect(page.totalPages, 4);
+      expect(page.threads.map((thread) => thread.title),
+          ['Fixture sticky', 'Fixture first', 'Fixture second']);
+      expect(page.threads.first.isSticky, isTrue);
+    }
+    await repository.fetchBoardThreadPage(category);
+    expect(client.paths, [
+      'thread_new.php?fid-42-orderway-lastpost-asc-DESC-page-3.html',
+      'thread_new.php?fid-42-orderway-postdate-asc-DESC-page-3.html',
+      'thread_new.php?fid-42-orderway-hits-asc-DESC-page-3.html',
+      'thread_new.php?fid-42-orderway-replies-asc-DESC-page-3.html',
+      'thread_new.php?fid-42-orderway-lastpost-asc-DESC-page-1.html',
+    ]);
+  });
+
   test('fetchBoardThreadPage uses thread_new only and keeps sticky threads',
       () async {
     final client = _PathForumClient({
-      'thread_new.php?fid-218-page-1.html': '''
+      'thread_new.php?fid-218-orderway-lastpost-asc-DESC-page-1.html': '''
         <html>
           <body>
             <table>
@@ -157,8 +216,8 @@ void main() {
               </li>
             </ul>
             <div class="pages">
-              <a href="thread_new.php?fid-218-page-1.html">1</a>
-              <a href="thread_new.php?fid-218-page-2.html">2</a>
+              <a href="thread_new.php?fid-218-orderway-lastpost-asc-DESC-page-1.html">1</a>
+              <a href="thread_new.php?fid-218-orderway-lastpost-asc-DESC-page-2.html">2</a>
             </div>
           </body>
         </html>
@@ -174,7 +233,8 @@ void main() {
       ),
     );
 
-    expect(client.paths, ['thread_new.php?fid-218-page-1.html']);
+    expect(client.paths,
+        ['thread_new.php?fid-218-orderway-lastpost-asc-DESC-page-1.html']);
     expect(page.subBoards.map((board) => board.name), ['同人志&CG']);
     expect(page.currentPage, 1);
     expect(page.totalPages, 2);
@@ -192,7 +252,7 @@ void main() {
   test('fetchBoardThreadPage returns sub boards for empty parent boards',
       () async {
     final client = _PathForumClient({
-      'thread_new.php?fid-226-page-1.html': '''
+      'thread_new.php?fid-226-orderway-lastpost-asc-DESC-page-1.html': '''
         <html>
           <body>
             <table>
@@ -258,7 +318,8 @@ void main() {
       ),
     );
 
-    expect(client.paths, ['thread_new.php?fid-226-page-1.html']);
+    expect(client.paths,
+        ['thread_new.php?fid-226-orderway-lastpost-asc-DESC-page-1.html']);
     expect(page.threads, isEmpty);
     expect(page.subBoards.map((board) => board.name), [
       '同人志&CG',

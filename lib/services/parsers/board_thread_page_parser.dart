@@ -188,7 +188,9 @@ class BoardThreadPageParser {
 
   int? _threadNewPageFromHref(String href) {
     for (final pattern in [
-      RegExp(r'thread_new\.php\?fid-\d+-page-(\d+)\.html'),
+      RegExp(
+        r'thread_new\.php\?fid-\d+(?:-orderway-(?:lastpost|postdate|hits|replies)-asc-DESC)?-page-(\d+)\.html',
+      ),
       RegExp(r'thread_new\.php\?fid=\d+&page=(\d+)'),
     ]) {
       final match = pattern.firstMatch(href);
