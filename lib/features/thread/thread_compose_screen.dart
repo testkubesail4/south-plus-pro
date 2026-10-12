@@ -27,6 +27,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   final _content = TextEditingController();
   bool _submitting = false;
   bool _draftLoaded = false;
+  bool _replyNotice = false;
   String? _error;
 
   String get _draftTitleKey => 'draft.thread.${widget.category.slug}.title';
@@ -81,6 +82,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
         category: widget.category,
         title: _title.text,
         content: _content.text,
+        enableReplyNotice: _replyNotice,
       );
       if (!mounted) return;
       if (!result.success) {
@@ -158,6 +160,17 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                     controller: _content,
                     enabled: !_submitting,
                     baseUri: widget.repository.networkConfig.baseUri,
+                  ),
+                  CheckboxListTile(
+                    value: _replyNotice,
+                    onChanged: _submitting
+                        ? null
+                        : (value) =>
+                            setState(() => _replyNotice = value ?? false),
+                    title: const Text('新回复站内通知'),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 10),

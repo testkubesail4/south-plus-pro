@@ -23,6 +23,7 @@ import 'package:south_plus_rewrite/features/profile/account_screen.dart';
 import 'package:south_plus_rewrite/features/profile/forum_tasks_screen.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';
+import 'package:south_plus_rewrite/features/thread/thread_compose_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_post_body.dart';
 import 'package:south_plus_rewrite/features/thread/thread_rich_content.dart';
@@ -743,6 +744,36 @@ void main() {
     final body = tester.widget<RichText>(find.byWidgetPredicate((widget) =>
         widget is RichText && widget.text.toPlainText() == 'body text'));
     expect(body.textScaler.scale(10), closeTo(10 * 1.5 * 1.15, 0.001));
+  });
+
+  testWidgets('compose sends reply notice only when checked', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = _FakeComposeRepository();
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadComposeScreen(
+        category: _FakeBoardRepository.category,
+        repository: repository,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    final submit = find.text('提交');
+
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      isFalse,
+    );
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('新回复站内通知'));
+    await tester.tap(find.text('新回复站内通知'));
+    await tester.pump();
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+
+    expect(repository.replyNotices, [false, true]);
   });
 
   testWidgets('account screen exposes app version and update check',
@@ -1992,6 +2023,22 @@ class _FakeBoardRepository extends ForumRepository {
         ),
       ],
     );
+  }
+}
+
+class _FakeComposeRepository extends ForumRepository {
+  final replyNotices = <bool>[];
+
+  @override
+  Future<ReplyResult> submitThread({
+    required ForumCategory category,
+    required String title,
+    required String content,
+    bool enableReplyNotice = false,
+  }) async {
+    replyNotices.add(enableReplyNotice);
+    // Fail so the screen stays open for the next submit.
+    return const ReplyResult(success: false, message: 'rejected');
   }
 }
 

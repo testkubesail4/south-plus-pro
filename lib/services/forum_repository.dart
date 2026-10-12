@@ -1205,6 +1205,7 @@ class ForumRepository {
     required ForumCategory category,
     required String title,
     required String content,
+    bool enableReplyNotice = false,
   }) async {
     final trimmedTitle = title.trim();
     final trimmedContent = content.trim();
@@ -1230,9 +1231,11 @@ class ForumRepository {
     }
 
     final fields = _formParser.defaults(form)
+      ..remove('atc_newrp')
       ..['atc_title'] = trimmedTitle
       ..['atc_content'] = trimmedContent
       ..['Submit'] = '提 交';
+    if (enableReplyNotice) fields['atc_newrp'] = '1';
 
     final action = form.attributes['action'] ?? 'post.php?';
     final response = await _client.post(
