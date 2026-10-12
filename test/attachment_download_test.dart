@@ -14,7 +14,7 @@ class _RealHttpOverrides extends HttpOverrides {}
 
 class _LocalForumClient extends ForumClient {
   _LocalForumClient(this.origin, HttpClient transport)
-      : super(httpClient: transport);
+      : super(httpClient: transport, delay: (_) async {});
   final Uri origin;
   @override
   Uri get baseUri => origin;

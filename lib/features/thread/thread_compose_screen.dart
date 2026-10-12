@@ -3,7 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
+import '../common/async_state_view.dart';
 import '../editor/windcode_toolbar.dart';
 
 class ThreadComposeScreen extends StatefulWidget {
@@ -68,30 +70,35 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     setState(() {
       _submitting = true;
       _error = null;
     });
 
-    final result = await widget.repository.submitThread(
-      category: widget.category,
-      title: _title.text,
-      content: _content.text,
-    );
+    try {
+      final result = await widget.repository.submitThread(
+        category: widget.category,
+        title: _title.text,
+        content: _content.text,
+      );
+      if (!mounted) return;
+      if (!result.success) {
+        setState(() => _error = result.message);
+        return;
+      }
 
-    if (!mounted) return;
-    setState(() => _submitting = false);
-    if (!result.success) {
-      setState(() => _error = result.message);
-      return;
+      await _clearDraft();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message)),
+      );
+      Navigator.of(context).pop(true);
+    } on ForumRequestException catch (error) {
+      if (mounted) setState(() => _error = forumRequestErrorText(error.kind));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
-
-    await _clearDraft();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(result.message)),
-    );
-    Navigator.of(context).pop(true);
   }
 
   void _preview() {

@@ -3,7 +3,17 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
+
+/// Short user-facing text for a classified forum request failure.
+String forumRequestErrorText(ForumRequestKind kind) => switch (kind) {
+      ForumRequestKind.rateLimited => '请求过于频繁',
+      ForumRequestKind.loginRequired => '登录失效',
+      ForumRequestKind.forbidden => '没有权限',
+      ForumRequestKind.network => '网络失败',
+      ForumRequestKind.server => '服务器失败',
+    };
 
 class AsyncErrorView extends StatelessWidget {
   const AsyncErrorView({

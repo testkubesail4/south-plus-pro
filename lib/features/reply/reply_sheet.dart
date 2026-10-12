@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
+import '../common/async_state_view.dart';
 import '../editor/windcode_toolbar.dart';
 
 class ReplyComposer extends StatefulWidget {
@@ -59,6 +61,7 @@ class ReplyComposerState extends State<ReplyComposer> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     if (_content.text.trim().isEmpty) {
       setState(() => _error = '回复内容不能为空');
       focusContent();
@@ -69,21 +72,24 @@ class ReplyComposerState extends State<ReplyComposer> {
       _error = null;
     });
 
-    final result = await widget.repository.submitReply(
-      thread: widget.thread,
-      title: _title.text,
-      content: _content.text,
-    );
-
-    if (!mounted) return;
-    setState(() => _submitting = false);
-    if (!result.success) {
-      setState(() => _error = result.message);
-      return;
+    try {
+      final result = await widget.repository.submitReply(
+        thread: widget.thread,
+        title: _title.text,
+        content: _content.text,
+      );
+      if (!mounted) return;
+      if (!result.success) {
+        setState(() => _error = result.message);
+        return;
+      }
+      _content.clear();
+      widget.onSubmitted(result.message);
+    } on ForumRequestException catch (error) {
+      if (mounted) setState(() => _error = forumRequestErrorText(error.kind));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
-
-    _content.clear();
-    widget.onSubmitted(result.message);
   }
 
   void insertContent(String value) {

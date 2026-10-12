@@ -44,6 +44,9 @@ void main() {
     await tester.pumpWidget(const SouthPlusApp());
     await tester.pump();
     await tester.pump();
+    // Home loads simple/index.php and then index.php. The shared forum
+    // limiter spaces those sends by at least 1s; let that timer finish.
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('southplus'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);

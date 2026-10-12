@@ -7,6 +7,7 @@ import '../models/forum_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
 import 'forum_network_config.dart';
+import 'forum_request_exception.dart';
 import 'forum_task_state_store.dart';
 import 'forum_trace_logger.dart';
 import 'forum_url_resolver.dart';
@@ -1030,7 +1031,9 @@ class ForumRepository {
     final query = keyword.trim();
     if (query.isEmpty) return const [];
 
-    final searchPage = html_parser.parse(await _client.get('search.php'));
+    final searchHtml = await _client.get('search.php');
+    _throwIfBlockedPage(searchHtml);
+    final searchPage = html_parser.parse(searchHtml);
     final form = searchPage.querySelector('form[action*="search.php"]') ??
         searchPage.querySelector('form');
     if (form == null) {
@@ -1140,6 +1143,7 @@ class ForumRepository {
     }
 
     final html = await _client.get('post.php?fid=$fid');
+    _throwIfBlockedPage(html);
     final document = html_parser.parse(html);
     final form = document.querySelector('form[name="FORM"]');
     if (form == null) {
@@ -1155,12 +1159,7 @@ class ForumRepository {
     final action = form.attributes['action'] ?? 'post.php?';
     final response = await _client.post(
         _urls.relativePath(_urls.absoluteUrl(action)), fields);
-    final message = _responseParser.pageMessage(response);
-    final success = _responseParser.isReplySuccess(response, message);
-    return ReplyResult(
-      success: success,
-      message: success ? '主题已发布' : message,
-    );
+    return _replyResult(response, '主题已发布');
   }
 
   Future<UserProfile> fetchUserProfile(String url) async {
@@ -1309,6 +1308,7 @@ class ForumRepository {
     }
 
     final html = await _client.get(_urls.relativePath(thread.url));
+    _throwIfBlockedPage(html);
     final document = html_parser.parse(html);
     final form = document.querySelector('form[name="FORM"]');
     if (form == null) {
@@ -1325,12 +1325,40 @@ class ForumRepository {
     final action = form.attributes['action'] ?? 'post.php?';
     final response = await _client.post(
         _urls.relativePath(_urls.absoluteUrl(action)), fields);
+    return _replyResult(response, '回复已提交');
+  }
+
+  ReplyResult _replyResult(String response, String successMessage) {
     final message = _responseParser.pageMessage(response);
-    final success = _responseParser.isReplySuccess(response, message);
-    return ReplyResult(
-      success: success,
-      message: success ? '回复已提交' : message,
-    );
+    if (_responseParser.isReplySuccess(response, message)) {
+      return ReplyResult(success: true, message: successMessage);
+    }
+    _throwIfBlockedPage(response);
+    return ReplyResult(success: false, message: message);
+  }
+
+  void _throwIfBlockedPage(String html) {
+    final document = html_parser.parse(html);
+    final text = '${document.querySelector('title')?.text ?? ''}\n'
+        '${document.body?.text ?? ''}';
+    if (forumTextIsRateLimited(text)) {
+      throw const ForumRequestException(
+        ForumRequestKind.rateLimited,
+        '请求过于频繁',
+      );
+    }
+    if (forumTextNeedsLogin(text)) {
+      throw const ForumRequestException(
+        ForumRequestKind.loginRequired,
+        '需要登录',
+      );
+    }
+    if (forumTextIsForbidden(text)) {
+      throw const ForumRequestException(
+        ForumRequestKind.forbidden,
+        '没有权限',
+      );
+    }
   }
 
   Future<ReplyResult> buySaleBox(ThreadSaleBox saleBox) async {

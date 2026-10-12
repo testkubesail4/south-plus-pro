@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../thread/thread_detail_screen.dart';
@@ -20,6 +21,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<List<ForumThread>>? _future;
   String? _error;
   String _lastQuery = '';
+  bool _searching = false;
 
   @override
   void dispose() {
@@ -28,6 +30,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _search() {
+    if (_searching) return;
     final query = _keyword.text.trim();
     if (query.isEmpty) {
       setState(() {
@@ -37,11 +40,19 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
+    final future = widget.repository.searchThreads(query);
     setState(() {
+      _searching = true;
       _error = null;
       _lastQuery = query;
-      _future = widget.repository.searchThreads(query);
+      _future = future;
     });
+    future.whenComplete(() {
+      // Only the latest search may release the button.
+      if (mounted && identical(_future, future)) {
+        setState(() => _searching = false);
+      }
+    }).ignore();
   }
 
   @override
@@ -91,9 +102,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   ],
                   const SizedBox(height: 12),
                   FilledButton.icon(
-                    onPressed: _search,
+                    onPressed: _searching ? null : _search,
                     icon: Icon(Icons.search),
-                    label: const Text('搜索'),
+                    label: Text(_searching ? '搜索中...' : '搜索'),
                   ),
                 ],
               ),
@@ -108,7 +119,11 @@ class _SearchScreenState extends State<SearchScreen> {
                         if (snapshot.hasError) {
                           return AsyncErrorView(
                             title: '搜索失败',
-                            message: '${snapshot.error}',
+                            message: switch (snapshot.error) {
+                              ForumRequestException(:final kind) =>
+                                forumRequestErrorText(kind),
+                              final error => '$error',
+                            },
                             onRetry: _search,
                           );
                         }

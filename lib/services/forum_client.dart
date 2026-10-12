@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'forum_network_config.dart';
+import 'forum_request_exception.dart';
 import 'forum_session_store.dart';
 import 'forum_trace_logger.dart';
 
@@ -29,6 +31,8 @@ class ForumClient {
     HttpClient? httpClient,
     ForumNetworkConfig? config,
     ForumSessionStore? sessionStore,
+    DateTime Function()? clock,
+    Future<void> Function(Duration duration)? delay,
   })  : config = config ??
             const ForumNetworkConfig(
               site: ForumNetworkConfig.defaultSite,
@@ -37,6 +41,10 @@ class ForumClient {
             ),
         _sessionStore = sessionStore ?? ForumSessionStore(),
         _ownsHttpClient = httpClient == null,
+        _pacer = _ForumRequestPacer(
+          clock ?? DateTime.now,
+          delay ?? _waitForForumGap,
+        ),
         _httpClient = httpClient ??
             createForumHttpClient(
               config ??
@@ -53,45 +61,19 @@ class ForumClient {
   final ForumNetworkConfig config;
   Uri get baseUri => config.baseUri;
   final Map<String, ForumStoredCookie> _cookies = <String, ForumStoredCookie>{};
+  final _ForumRequestPacer _pacer;
   Future<void>? _restoreFuture;
 
   Future<void> restoreCookies() {
     return _restoreFuture ??= _restoreCookies();
   }
 
-  Future<String> get(String path) async {
-    await restoreCookies();
-    final uri = baseUri.resolve(path);
-    final requestStartedAt = DateTime.now();
-    ForumTraceLogger.log('HTTP', 'GET $uri');
-    final request = await _httpClient.getUrl(uri);
-    _applyCookies(request);
-    final response = await request.close();
-    await _storeCookies(response, uri);
-    final bodyBytes =
-        await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d));
-    final body = utf8.decode(bodyBytes);
-    final elapsed = DateTime.now().difference(requestStartedAt).inMilliseconds;
-    ForumTraceLogger.log(
-      'HTTP',
-      'GET $uri -> status=${response.statusCode} bytes=${bodyBytes.length} elapsedMs=$elapsed',
-    );
-    if (ForumTraceLogger.shouldLogFullBody(uri)) {
-      ForumTraceLogger.logBlock('HTTP', 'GET $uri response', body);
-    }
-    return body;
+  Future<String> get(String path) {
+    return _readText('GET', path, retryCooldown: true);
   }
 
-  Future<Uint8List> getBytes(String path) async {
-    await restoreCookies();
-    final uri = baseUri.resolve(path);
-    final request = await _httpClient.getUrl(uri);
-    _applyCookies(request);
-    final response = await request.close();
-    await _storeCookies(response, uri);
-    final bytes =
-        await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d));
-    return Uint8List.fromList(bytes);
+  Future<Uint8List> getBytes(String path) {
+    return _readBytes(path);
   }
 
   bool _sameOrigin(Uri uri) =>
@@ -126,7 +108,7 @@ class ForumClient {
       final request = await _httpClient.getUrl(uri);
       request.followRedirects = false;
       _applyCookies(request);
-      final response = await request.close();
+      final response = await _pacer.send(uri, request.close);
       await _storeCookies(response, uri);
       if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
         final location = response.headers.value(HttpHeaders.locationHeader);
@@ -235,36 +217,201 @@ class ForumClient {
     return value.length > 180 ? value.substring(0, 180) : value;
   }
 
-  Future<String> post(String path, Map<String, String> form) async {
-    await restoreCookies();
+  Future<String> post(String path, Map<String, String> form) {
+    return _readText('POST', path, form: form);
+  }
+
+  Future<String> _readText(
+    String method,
+    String path, {
+    Map<String, String>? form,
+    bool retryCooldown = false,
+  }) async {
     final uri = baseUri.resolve(path);
-    final requestStartedAt = DateTime.now();
+    try {
+      final result = await _exchange(method, uri, form: form);
+      if (result.status >= 500) {
+        throw const ForumRequestException(
+          ForumRequestKind.server,
+          '论坛服务器错误',
+        );
+      }
+      final body = utf8.decode(result.bytes);
+      final cooled = result.status == HttpStatus.tooManyRequests ||
+          forumTextIsRateLimited(body);
+      if (_isForumSearch(uri) && cooled) {
+        _pacer.escalateSearch();
+        if (retryCooldown && method == 'GET') {
+          return _readText(method, path, form: form);
+        }
+        throw const ForumRequestException(
+          ForumRequestKind.rateLimited,
+          '请求过于频繁',
+        );
+      }
+      if (retryCooldown && cooled) {
+        return _readText(method, path, form: form);
+      }
+      _throwForHttpStatus(result.status);
+      return body;
+    } on ForumRequestException {
+      rethrow;
+    } on SocketException catch (error) {
+      throw ForumRequestException(
+        ForumRequestKind.network,
+        _networkMessage(error.message),
+      );
+    } on HttpException catch (error) {
+      throw ForumRequestException(
+        ForumRequestKind.network,
+        _networkMessage(error.message),
+      );
+    } on TlsException catch (error) {
+      throw ForumRequestException(
+        ForumRequestKind.network,
+        _networkMessage(error.message),
+      );
+    } on TimeoutException catch (error) {
+      throw ForumRequestException(
+        ForumRequestKind.network,
+        _networkMessage(error.message ?? ''),
+      );
+    }
+  }
+
+  Future<Uint8List> _readBytes(String path) async {
+    try {
+      final result = await _exchange('GET', baseUri.resolve(path));
+      _throwForHttpStatus(result.status);
+      return result.bytes;
+    } on ForumRequestException {
+      rethrow;
+    } on SocketException catch (error) {
+      throw ForumRequestException(
+        ForumRequestKind.network,
+        _networkMessage(error.message),
+      );
+    } on HttpException catch (error) {
+      throw ForumRequestException(
+        ForumRequestKind.network,
+        _networkMessage(error.message),
+      );
+    } on TlsException catch (error) {
+      throw ForumRequestException(
+        ForumRequestKind.network,
+        _networkMessage(error.message),
+      );
+    } on TimeoutException catch (error) {
+      throw ForumRequestException(
+        ForumRequestKind.network,
+        _networkMessage(error.message ?? ''),
+      );
+    }
+  }
+
+  Future<({int status, Uint8List bytes})> _exchange(
+    String method,
+    Uri uri, {
+    Map<String, String>? form,
+    int redirectsLeft = 5,
+  }) async {
+    await restoreCookies();
+    final startedAt = DateTime.now();
     ForumTraceLogger.log(
       'HTTP',
-      'POST $uri form=${ForumTraceLogger.sanitizeForm(form)}',
+      method == 'POST'
+          ? 'POST $uri form=${ForumTraceLogger.sanitizeForm(form ?? const {})}'
+          : 'GET $uri',
     );
-    final request = await _httpClient.postUrl(uri);
-    request.headers.contentType = ContentType(
-      'application',
-      'x-www-form-urlencoded',
-      charset: 'utf-8',
-    );
+    final request = method == 'POST'
+        ? await _httpClient.postUrl(uri)
+        : await _httpClient.getUrl(uri);
+    request.followRedirects = false;
+    if (method == 'POST') {
+      request.headers.contentType = ContentType(
+        'application',
+        'x-www-form-urlencoded',
+        charset: 'utf-8',
+      );
+    }
     _applyCookies(request);
-    request.write(Uri(queryParameters: form).query);
-    final response = await request.close();
+    final response = await _pacer.send(uri, () {
+      if (method == 'POST') {
+        request.write(Uri(queryParameters: form ?? const {}).query);
+      }
+      return request.close();
+    });
     await _storeCookies(response, uri);
-    final bodyBytes =
-        await response.fold<List<int>>(<int>[], (b, d) => b..addAll(d));
-    final body = utf8.decode(bodyBytes);
-    final elapsed = DateTime.now().difference(requestStartedAt).inMilliseconds;
+    if (_redirectStatuses.contains(response.statusCode)) {
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      await response.drain<void>();
+      final next = location == null ? null : uri.resolve(location);
+      if (redirectsLeft <= 0 || next == null) {
+        throw const ForumRequestException(
+          ForumRequestKind.network,
+          '重定向次数过多',
+        );
+      }
+      if (method == 'POST' &&
+          (response.statusCode == HttpStatus.temporaryRedirect ||
+              response.statusCode == HttpStatus.permanentRedirect)) {
+        throw const ForumRequestException(
+          ForumRequestKind.server,
+          '不能自动重送提交',
+        );
+      }
+      final keepMethod = response.statusCode == HttpStatus.temporaryRedirect ||
+          response.statusCode == HttpStatus.permanentRedirect;
+      return _exchange(
+        keepMethod ? method : 'GET',
+        next,
+        form: keepMethod ? form : null,
+        redirectsLeft: redirectsLeft - 1,
+      );
+    }
+    final bytes = Uint8List.fromList(
+      await response.fold<List<int>>(<int>[], (body, data) => body..addAll(data)),
+    );
+    final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
     ForumTraceLogger.log(
       'HTTP',
-      'POST $uri -> status=${response.statusCode} bytes=${bodyBytes.length} elapsedMs=$elapsed',
+      '$method $uri -> status=${response.statusCode} bytes=${bytes.length} elapsedMs=$elapsed',
     );
     if (ForumTraceLogger.shouldLogFullBody(uri)) {
-      ForumTraceLogger.logBlock('HTTP', 'POST $uri response', body);
+      ForumTraceLogger.logBlock(
+        'HTTP',
+        '$method $uri response',
+        utf8.decode(bytes, allowMalformed: true),
+      );
     }
-    return body;
+    return (status: response.statusCode, bytes: bytes);
+  }
+
+  void _throwForHttpStatus(int status) {
+    if (status >= 500) {
+      throw const ForumRequestException(
+        ForumRequestKind.server,
+        '论坛服务器错误',
+      );
+    }
+    if (status == HttpStatus.unauthorized) {
+      throw const ForumRequestException(
+        ForumRequestKind.loginRequired,
+        '需要登录',
+      );
+    }
+    if (status == HttpStatus.forbidden) {
+      throw const ForumRequestException(
+        ForumRequestKind.forbidden,
+        '没有权限',
+      );
+    }
+    if (status == HttpStatus.tooManyRequests) {
+      throw const ForumRequestException(
+        ForumRequestKind.rateLimited,
+        '请求过于频繁',
+      );
+    }
   }
 
   Future<void> clearSession() async {
@@ -349,5 +496,114 @@ class ForumClient {
 
   void close({bool force = false}) {
     if (_ownsHttpClient) _httpClient.close(force: force);
+  }
+}
+
+const _redirectStatuses = <int>{
+  HttpStatus.movedPermanently,
+  HttpStatus.found,
+  HttpStatus.seeOther,
+  HttpStatus.temporaryRedirect,
+  HttpStatus.permanentRedirect,
+};
+
+Future<void> _waitForForumGap(Duration duration) {
+  return Future<void>.delayed(duration);
+}
+
+String _networkMessage(String message) {
+  return message.isEmpty ? '网络连接失败' : message;
+}
+
+bool _isForumSearch(Uri uri) {
+  final segments = uri.pathSegments;
+  return segments.isNotEmpty && segments.last.toLowerCase() == 'search.php';
+}
+
+class _ForumRequestPacer {
+  _ForumRequestPacer(this._clock, this._delay);
+
+  final DateTime Function() _clock;
+  final Future<void> Function(Duration duration) _delay;
+  Future<void> _tail = Future<void>.value();
+  DateTime _nextAny = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _nextSearch = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime? _lastSearchStart;
+  Duration _searchGap = const Duration(milliseconds: 3334);
+
+  Completer<void>? _wake;
+  Timer? _timer;
+
+  Future<T> send<T>(Uri uri, Future<T> Function() writeAndClose) {
+    final previous = _tail;
+    final gate = Completer<void>();
+    _tail = gate.future;
+    return previous.then((_) async {
+      final Future<T> pending;
+      try {
+        await _wait(uri);
+        _stamp(uri);
+        pending = writeAndClose();
+      } finally {
+        if (!gate.isCompleted) gate.complete();
+      }
+      return pending;
+    });
+  }
+
+  Future<void> _wait(Uri uri) async {
+    final search = _isForumSearch(uri);
+    while (true) {
+      final now = _clock();
+      var ready = _nextAny;
+      if (search && _nextSearch.isAfter(ready)) ready = _nextSearch;
+      final wait = ready.difference(now);
+      if (wait <= Duration.zero) return;
+      final wake = Completer<void>();
+      _wake = wake;
+      var woken = false;
+      try {
+        woken = await Future.any<bool>([
+          _sleep(wait).then((_) => false),
+          wake.future.then((_) => true),
+        ]);
+      } finally {
+        if (identical(_wake, wake)) _wake = null;
+      }
+      if (!woken) return;
+    }
+  }
+
+  Future<void> _sleep(Duration duration) {
+    if (!identical(_delay, _waitForForumGap)) return _delay(duration);
+    final done = Completer<void>();
+    final timer = Timer(duration, () {
+      if (!done.isCompleted) done.complete();
+    });
+    _timer = timer;
+    return done.future;
+  }
+
+  void _stamp(Uri uri) {
+    final started = _clock();
+    _nextAny = started.add(const Duration(seconds: 1));
+    if (!_isForumSearch(uri)) return;
+    _lastSearchStart = started;
+    final next = started.add(_searchGap);
+    if (next.isAfter(_nextSearch)) _nextSearch = next;
+  }
+
+  void escalateSearch() {
+    _searchGap = const Duration(seconds: 10);
+    final last = _lastSearchStart;
+    if (last != null) {
+      final raised = last.add(_searchGap);
+      if (raised.isAfter(_nextSearch)) _nextSearch = raised;
+    }
+    _timer?.cancel();
+    _timer = null;
+    final wake = _wake;
+    _wake = null;
+    if (wake != null && !wake.isCompleted) wake.complete();
   }
 }

@@ -1,6 +1,7 @@
 import 'package:html/dom.dart' as dom;
 
 import '../../models/forum_models.dart';
+import '../forum_request_exception.dart';
 import '../forum_url_resolver.dart';
 
 class SearchResultParser {
@@ -10,6 +11,13 @@ class SearchResultParser {
   final ForumUrlResolver urls;
 
   List<ForumThread> parse(dom.Document document) {
+    final text = _pageText(document);
+    if (forumTextIsRateLimited(text)) {
+      throw const ForumRequestException(
+        ForumRequestKind.rateLimited,
+        '请求过于频繁',
+      );
+    }
     final threads = <ForumThread>[];
     final seen = <String>{};
     for (final row in document.querySelectorAll('tr')) {
@@ -50,7 +58,41 @@ class SearchResultParser {
       );
       if (threads.length >= 60) break;
     }
+    final normal = _isNormalResult(text);
+    if (!normal && forumTextNeedsLogin(text)) {
+      throw const ForumRequestException(
+        ForumRequestKind.loginRequired,
+        '需要登录',
+      );
+    }
+    if (!normal && forumTextIsForbidden(text)) {
+      throw const ForumRequestException(
+        ForumRequestKind.forbidden,
+        '没有权限',
+      );
+    }
+    if (threads.isEmpty && !normal) {
+      throw const ForumRequestException(
+        ForumRequestKind.server,
+        '搜索结果无效',
+      );
+    }
     return threads;
+  }
+
+  String _pageText(dom.Document document) {
+    return '${document.querySelector('title')?.text ?? ''}\n'
+        '${document.body?.text ?? ''}';
+  }
+
+  bool _isNormalResult(String text) {
+    return text.contains('搜索结果') ||
+        text.contains('搜索結果') ||
+        RegExp(r'共\s*(?:搜索|搜尋)?到\s*\d+').hasMatch(text) ||
+        RegExp(r'(?:找到|搜索到|搜尋到)\s*\d+\s*[条條篇]')
+            .hasMatch(text) ||
+        text.contains('没有找到符合条件') ||
+        text.contains('沒有找到符合條件');
   }
 
   int? _firstInt(String input) {
