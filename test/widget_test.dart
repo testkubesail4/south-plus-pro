@@ -596,6 +596,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(find.text('论坛任务'), 180,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('论坛任务'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('论坛任务'));
     await tester.pumpAndSettle();
 
@@ -622,9 +626,8 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: AccountScreen(
+        home: SettingsScreen(
           repository: repository,
-          onLoggedOut: () {},
           packageInfoLoader: _fakePackageInfo,
         ),
       ),
@@ -667,9 +670,8 @@ void main() {
   testWidgets('account screen offers strict no-image mode', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(MaterialApp(
-      home: AccountScreen(
+      home: SettingsScreen(
         repository: _FakeTasksRepository(),
-        onLoggedOut: () {},
         packageInfoLoader: _fakePackageInfo,
       ),
     ));
@@ -699,9 +701,8 @@ void main() {
     });
 
     await tester.pumpWidget(MaterialApp(
-      home: AccountScreen(
+      home: SettingsScreen(
         repository: _FakeTasksRepository(),
-        onLoggedOut: () {},
         packageInfoLoader: _fakePackageInfo,
       ),
     ));
@@ -782,9 +783,8 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: AccountScreen(
+        home: SettingsScreen(
           repository: repository,
-          onLoggedOut: () {},
           packageInfoLoader: _fakePackageInfo,
         ),
       ),

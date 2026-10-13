@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
 
@@ -79,11 +81,13 @@ class ForumRepository {
   UserProfileCache _profileCache;
   final BrowsingHistoryStore _historyStore;
   final ForumTaskStateStore _taskStateStore;
-  String? _currentUsername;
+  final _sessionUser = ValueNotifier<String?>(null);
+
+  ValueListenable<String?> get sessionUser => _sessionUser;
 
   bool get isLoggedIn => _client.isLoggedIn;
 
-  String? get currentUsername => _currentUsername;
+  String? get currentUsername => _sessionUser.value;
 
   ForumNetworkConfig get networkConfig => _config;
 
@@ -158,7 +162,7 @@ class ForumRepository {
     _userProfileParser = UserProfileParser(urls: _urls);
     _profileCache = UserProfileCache(urls: _urls);
     _client = ForumClient(config: config);
-    _currentUsername = null;
+    _sessionUser.value = null;
     await ForumNetworkSettings.save(config);
   }
 
@@ -290,10 +294,13 @@ class ForumRepository {
 
   Future<bool> restoreSession() async {
     await _client.restoreCookies();
-    if (!_client.isLoggedIn) return false;
+    if (!_client.isLoggedIn) {
+      _sessionUser.value = null;
+      return false;
+    }
 
-    _currentUsername = await _fetchLoggedInUsername();
-    if (_currentUsername == null) {
+    _sessionUser.value = await _fetchLoggedInUsername();
+    if (_sessionUser.value == null) {
       await clearSession();
       return false;
     }
@@ -301,7 +308,7 @@ class ForumRepository {
   }
 
   Future<void> clearSession() async {
-    _currentUsername = null;
+    _sessionUser.value = null;
     await _client.clearSession();
   }
 
@@ -386,7 +393,7 @@ class ForumRepository {
     });
 
     if (_client.isLoggedIn || response.contains('登录成功')) {
-      _currentUsername = _responseParser.loggedInUsername(response) ??
+      _sessionUser.value = _responseParser.loggedInUsername(response) ??
           await _fetchLoggedInUsername() ??
           username.trim();
       return const LoginResult(success: true, message: '登录成功');

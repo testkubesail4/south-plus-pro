@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_network_setup_store.dart';
@@ -11,23 +12,30 @@ import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/cached_forum_image.dart';
+import '../history/browsing_history_screen.dart';
 import '../messages/pm_box_screen.dart';
 import 'forum_tasks_screen.dart';
 import 'network_setup_flow_screen.dart';
 import 'network_settings_screen.dart';
 import 'user_profile_screen.dart';
 
+part 'settings_screen.dart';
+
 class AccountScreen extends StatefulWidget {
   const AccountScreen({
     super.key,
     required this.repository,
     required this.onLoggedOut,
+    this.onBrowseHome,
     this.updateChecker = const UpdateChecker(),
     this.packageInfoLoader = PackageInfo.fromPlatform,
   });
 
   final ForumRepository repository;
   final VoidCallback onLoggedOut;
+
+  /// Lets the pushed history page send the user back to the home tab.
+  final VoidCallback? onBrowseHome;
   final UpdateChecker updateChecker;
   final Future<PackageInfo> Function() packageInfoLoader;
 
@@ -35,396 +43,175 @@ class AccountScreen extends StatefulWidget {
   State<AccountScreen> createState() => _AccountScreenState();
 }
 
+/// The 我的 tab: who is signed in and everything that belongs to them.
+/// Device settings live one level deeper in [SettingsScreen].
 class _AccountScreenState extends State<AccountScreen> {
-  late Future<ImageLoadMode> _imageMode = ImageLoadingSettings.loadMode();
-  late Future<PackageInfo> _packageInfo = widget.packageInfoLoader();
-  bool _clearingCache = false;
-  bool _checkingUpdate = false;
-
-  Future<void> _setImageMode(ImageLoadMode mode) async {
-    await ImageLoadingSettings.saveMode(mode);
-    if (!mounted) return;
-    setState(() {
-      _imageMode = Future<ImageLoadMode>.value(mode);
-    });
-  }
-
-  Future<void> _clearImageCache() async {
-    setState(() => _clearingCache = true);
-    await ForumImageCache.manager.emptyCache();
-    if (!mounted) return;
-    setState(() => _clearingCache = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('图片缓存已清理')),
-    );
-  }
-
   Future<void> _logout() async {
-    await widget.repository.clearSession();
-    if (!mounted) return;
-    widget.onLoggedOut();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已退出登录')),
-    );
-  }
-
-  Future<void> _openNetworkSetup() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => NetworkSetupFlowScreen(
-          repository: widget.repository,
-        ),
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('退出登录'),
+        content: const Text('将清除本机的登录状态，帖子、收藏和私信不受影响。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('退出登录'),
+          ),
+        ],
       ),
     );
-    if (!mounted) return;
-    setState(() {});
+    if (confirmed != true || !mounted) return;
+    // The shell rebuilds this tab as soon as the session owner clears, so
+    // everything needed afterwards is captured before awaiting.
+    final messenger = ScaffoldMessenger.of(context);
+    final onLoggedOut = widget.onLoggedOut;
+    await widget.repository.clearSession();
+    onLoggedOut();
+    messenger.showSnackBar(const SnackBar(content: Text('已退出登录')));
   }
 
-  Future<void> _resetNetworkSetupAndOpen() async {
-    await ForumNetworkSetupStore.reset();
-    if (!mounted) return;
-    await _openNetworkSetup();
+  void _push(Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
-  Future<void> _checkForUpdate() async {
-    setState(() => _checkingUpdate = true);
-    try {
-      final packageInfo = await _packageInfo;
-      final result = await widget.updateChecker.check(
-        currentVersion: packageInfo.version,
-      );
-      if (!mounted) return;
-      await _showUpdateResult(result);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('检查更新失败：$error')),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() => _checkingUpdate = false);
-    }
-  }
+  void _openProfile(UserProfileTab tab) => _push(UserProfileScreen(
+        userUrl: 'u.php',
+        repository: widget.repository,
+        initialTab: tab,
+      ));
 
-  Future<void> _showUpdateResult(UpdateCheckResult result) {
-    final release = result.release;
-    final downloadUrl = release.downloadUrlForPlatform();
-    return showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(result.hasUpdate ? '发现新版本' : '已是最新版本'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('当前版本：v${result.currentVersion}'),
-              const SizedBox(height: 4),
-              Text('最新版本：${release.tagName}'),
-              if (release.publishedAt != null) ...[
-                const SizedBox(height: 4),
-                Text('发布时间：${_formatReleaseDate(release.publishedAt!)}'),
-              ],
-              if (release.body.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text(
-                  _compactReleaseNotes(release.body),
-                  maxLines: 5,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(result.hasUpdate ? '稍后' : '知道了'),
-            ),
-            TextButton.icon(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                await _openReleaseLink(release.htmlUrl);
-              },
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('版本详情'),
-            ),
-            FilledButton.icon(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                await _openReleaseLink(downloadUrl);
-              },
-              icon: Icon(
-                result.hasUpdate ? Icons.download_outlined : Icons.open_in_new,
-              ),
-              label: Text(result.hasUpdate ? '下载新版' : '打开下载页'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _openReleaseLink(String url) async {
-    try {
-      await ExternalLinkLauncher.open(url);
-    } on ExternalLinkLaunchException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
-    }
-  }
+  void _openSettings() => _push(SettingsScreen(
+        repository: widget.repository,
+        updateChecker: widget.updateChecker,
+        packageInfoLoader: widget.packageInfoLoader,
+      ));
 
   @override
   Widget build(BuildContext context) {
-    final username = widget.repository.currentUsername;
-    final networkConfig = widget.repository.networkConfig;
+    final loggedIn = widget.repository.isLoggedIn;
     return SafeArea(
       bottom: false,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-          _AccountHeader(
-            title: username ?? '未登录',
-            subtitle:
-                widget.repository.isLoggedIn ? '南+账号已连接' : '登录后可查看个人内容和收藏',
-            loggedIn: widget.repository.isLoggedIn,
-          ),
-          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
-                child: _StatusSummaryTile(
-                  icon: Icons.public_outlined,
-                  label: '访问入口',
-                  value: networkConfig.site.host,
+                child: Text(
+                  '我的',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StatusSummaryTile(
-                  icon: networkConfig.dohEnabled
-                      ? Icons.enhanced_encryption_outlined
-                      : Icons.dns_outlined,
-                  label: '解析方式',
-                  value: networkConfig.dohEnabled ? '加密解析' : '系统默认',
-                ),
+              IconButton(
+                tooltip: '设置',
+                onPressed: _openSettings,
+                icon: const Icon(Icons.settings_outlined),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 6),
+          _AccountHeader(
+            title: widget.repository.currentUsername ?? '未登录',
+            subtitle: loggedIn ? '南+账号已连接' : '登录后可查看个人内容、收藏和短消息',
+            loggedIn: loggedIn,
+          ),
+          if (!loggedIn) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => openLogin(context, widget.repository),
+              icon: const Icon(Icons.login),
+              label: const Text('登录南+账号'),
+            ),
+          ],
+          if (loggedIn) ...[
+            const SizedBox(height: 16),
+            _AccountSection(
+              title: '个人内容',
+              children: [
+                _AccountTile(
+                  icon: Icons.badge_outlined,
+                  title: '资料',
+                  subtitle: '等级、积分和个人信息',
+                  onTap: () => _openProfile(UserProfileTab.profile),
+                ),
+                _AccountTile(
+                  icon: Icons.article_outlined,
+                  title: '主题',
+                  subtitle: '我发表的主题',
+                  onTap: () => _openProfile(UserProfileTab.topics),
+                ),
+                _AccountTile(
+                  icon: Icons.forum_outlined,
+                  title: '回复',
+                  subtitle: '我参与的回复',
+                  onTap: () => _openProfile(UserProfileTab.posts),
+                ),
+                _AccountTile(
+                  icon: Icons.star_border_rounded,
+                  title: '收藏',
+                  subtitle: '我公开收藏的主题',
+                  onTap: () => _openProfile(UserProfileTab.favorites),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
           _AccountSection(
             title: '账号',
-            subtitle: '管理登录状态和个人内容入口',
             children: [
-              _AccountTile(
-                icon: Icons.person_outline,
-                title: widget.repository.isLoggedIn ? '个人中心' : '登录',
-                subtitle:
-                    widget.repository.isLoggedIn ? '资料、主题、回复、收藏' : '登录南+账号',
-                accent: widget.repository.isLoggedIn,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => widget.repository.isLoggedIn
-                        ? UserProfileScreen(
-                            userUrl: 'u.php',
-                            repository: widget.repository,
-                          )
-                        : LoginScreen(
-                            repository: widget.repository,
-                          ),
-                  ),
-                ),
-              ),
-              _AccountTile(
-                icon: Icons.fact_check_outlined,
-                title: '论坛任务',
-                subtitle: widget.repository.isLoggedIn
-                    ? '申请日常、周常并领取奖励'
-                    : '登录后领取 SP 币任务奖励',
-                accent: widget.repository.isLoggedIn,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ForumTasksScreen(
-                      repository: widget.repository,
-                    ),
-                  ),
-                ),
-              ),
-              if (widget.repository.isLoggedIn)
+              if (loggedIn)
                 _AccountTile(
                   icon: Icons.mail_outline,
                   title: '短消息',
                   subtitle: '收件箱、发件箱和消息跟踪',
                   accent: true,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          PmBoxScreen(repository: widget.repository),
-                    ),
-                  ),
+                  onTap: () =>
+                      _push(PmBoxScreen(repository: widget.repository)),
                 ),
-              if (widget.repository.isLoggedIn)
+              _AccountTile(
+                icon: Icons.fact_check_outlined,
+                title: '论坛任务',
+                subtitle: loggedIn ? '申请日常、周常并领取奖励' : '登录后领取 SP 币任务奖励',
+                accent: loggedIn,
+                onTap: () =>
+                    _push(ForumTasksScreen(repository: widget.repository)),
+              ),
+              _AccountTile(
+                icon: Icons.history_outlined,
+                title: '浏览历史',
+                subtitle: '只保存在本机的阅读记录',
+                onTap: () => _push(BrowsingHistoryScreen(
+                  repository: widget.repository,
+                  onBrowseHome: widget.onBrowseHome,
+                )),
+              ),
+              _AccountTile(
+                icon: Icons.settings_outlined,
+                title: '设置',
+                subtitle: '网络、外观、图片、字体和版本',
+                onTap: _openSettings,
+              ),
+            ],
+          ),
+          if (loggedIn) ...[
+            const SizedBox(height: 14),
+            _AccountSection(
+              title: '登录状态',
+              children: [
                 _AccountTile(
                   icon: Icons.logout,
                   title: '退出登录',
-                  subtitle: '清除本地登录状态',
+                  subtitle: '清除本机登录状态',
                   danger: true,
                   onTap: _logout,
                 ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _AccountSection(
-            title: '网络',
-            subtitle: '调整访问入口、解析方式和连接探测',
-            children: [
-              _AccountTile(
-                icon: Icons.public_outlined,
-                title: '连接设置',
-                subtitle:
-                    '${networkConfig.site.host} · ${networkConfig.dohEnabled ? '加密解析' : '系统默认解析'}',
-                accent: true,
-                onTap: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => NetworkSettingsScreen(
-                        repository: widget.repository,
-                      ),
-                    ),
-                  );
-                  if (!mounted) return;
-                  setState(() {});
-                },
-              ),
-              _AccountTile(
-                icon: Icons.auto_fix_high_outlined,
-                title: '连接引导',
-                subtitle: '重新探测解析线路、访问入口和直连线路',
-                onTap: _openNetworkSetup,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _AccountSection(
-            title: '界面设置',
-            subtitle: '选择应用配色偏好',
-            children: [
-              ValueListenableBuilder<ThemeMode>(
-                valueListenable: AppThemeController.notifier,
-                builder: (context, themeMode, _) {
-                  return Column(
-                    children: ThemeMode.values.map((mode) {
-                      return _SelectableAccountTile(
-                        icon: _iconForThemeMode(mode),
-                        onTap: () => AppThemeController.setMode(mode),
-                        title: Text(_labelForThemeMode(mode)),
-                        subtitle: Text(_descriptionForThemeMode(mode)),
-                        selected: themeMode == mode,
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _AccountSection(
-            title: '图片与流量',
-            subtitle: '控制帖子图片的加载策略和本地缓存',
-            children: [
-              FutureBuilder<ImageLoadMode>(
-                future: _imageMode,
-                builder: (context, snapshot) {
-                  final mode = snapshot.data ?? ImageLoadMode.automatic;
-                  return Column(
-                    children: ImageLoadMode.values.map((item) {
-                      final selected = item == mode;
-                      return _SelectableAccountTile(
-                        icon: _iconForImageMode(item),
-                        onTap: () => _setImageMode(item),
-                        title: Text(item.label),
-                        subtitle: Text(item.description),
-                        selected: selected,
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-              _AccountTile(
-                icon: Icons.cleaning_services_outlined,
-                title: '清理图片缓存',
-                subtitle: _clearingCache ? '正在清理...' : '释放本地图片缓存空间',
-                onTap: _clearingCache ? null : _clearImageCache,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _AccountSection(
-            title: '字体大小',
-            subtitle: '在系统字号基础上调整应用文字',
-            children: [
-              ValueListenableBuilder<ForumTextSize>(
-                valueListenable: ForumTextSizeSettings.notifier,
-                builder: (context, current, _) {
-                  return Column(
-                    children: ForumTextSize.values.map((size) {
-                      return _SelectableAccountTile(
-                        icon: switch (size) {
-                          ForumTextSize.small => Icons.text_decrease,
-                          ForumTextSize.normal => Icons.text_fields,
-                          ForumTextSize.large => Icons.text_increase,
-                        },
-                        onTap: () => ForumTextSizeSettings.save(size),
-                        title: Text(switch (size) {
-                          ForumTextSize.small => '小',
-                          ForumTextSize.normal => '标准',
-                          ForumTextSize.large => '大',
-                        }),
-                        subtitle: Text('系统字号的 ${(size.scale * 100).round()}%'),
-                        selected: current == size,
-                      );
-                    }).toList(),
-                  );
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _AccountSection(
-            title: '应用',
-            subtitle: '版本信息和开发调试入口',
-            children: [
-              FutureBuilder<PackageInfo>(
-                future: _packageInfo,
-                builder: (context, snapshot) {
-                  final info = snapshot.data;
-                  return _StaticInfoTile(
-                    icon: Icons.info_outline,
-                    title: '南+',
-                    subtitle: info == null
-                        ? '正在读取版本信息'
-                        : 'v${info.version}+${info.buildNumber}',
-                  );
-                },
-              ),
-              _AccountTile(
-                icon: Icons.system_update_alt_outlined,
-                title: '检查更新',
-                subtitle:
-                    _checkingUpdate ? '正在检查 GitHub Releases' : '查看是否有新版本可下载',
-                accent: true,
-                onTap: _checkingUpdate ? null : _checkForUpdate,
-              ),
-              if (kDebugMode)
-                _AccountTile(
-                  icon: Icons.bug_report_outlined,
-                  title: '重置网络引导',
-                  subtitle: '调试首次启动引导流程',
-                  onTap: _resetNetworkSetupAndOpen,
-                ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ],
       ),
     );

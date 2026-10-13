@@ -9,11 +9,10 @@ import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
-import '../history/browsing_history_screen.dart';
+import '../messages/pm_box_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';
 import '../profile/forum_tasks_screen.dart';
-import '../profile/user_profile_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 
@@ -37,70 +36,111 @@ class _HomeShellState extends State<HomeShell> {
   late final ForumRepository _repository =
       widget.repository ?? ForumRepository();
   int _index = 0;
+  // Tabs are built on first visit, so startup only loads the home page.
+  final Set<int> _opened = {0};
 
-  void _showHome() {
-    setState(() => _index = 0);
+  void _select(int index) {
+    setState(() {
+      _index = index;
+      _opened.add(index);
+    });
   }
 
-  void _showHistory() {
-    setState(() => _index = 2);
+  void _showHome() {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    _select(0);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: [
-          ForumHomePage(
-            repository: _repository,
-            onHistoryTap: _showHistory,
-            onToggleTheme: widget.onToggleTheme,
+    final compactLabels = MediaQuery.textScalerOf(context).scale(1) > 1.5;
+    return ValueListenableBuilder<String?>(
+      valueListenable: _repository.sessionUser,
+      builder: (context, owner, _) {
+        // A new owner rebuilds every tab, so no account's data lingers.
+        Widget tab(int index, Widget Function() build) =>
+            _opened.contains(index)
+                ? KeyedSubtree(key: ValueKey((index, owner)), child: build())
+                : const SizedBox.shrink();
+        return PopScope(
+          canPop: _index == 0,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _select(0);
+          },
+          child: Scaffold(
+            body: IndexedStack(
+              index: _index,
+              children: [
+                tab(
+                  0,
+                  () => ForumHomePage(
+                    repository: _repository,
+                    onAccountTap: () => _select(4),
+                    onToggleTheme: widget.onToggleTheme,
+                  ),
+                ),
+                tab(1, () => FavoriteThreadsPage(repository: _repository)),
+                tab(2, () => SearchScreen(repository: _repository)),
+                tab(
+                  3,
+                  () => _repository.isLoggedIn
+                      ? PmBoxScreen(repository: _repository)
+                      : Scaffold(
+                          appBar: AppBar(title: const Text('短消息')),
+                          body: LoginPrompt(
+                            icon: Icons.mail_outline,
+                            title: '短消息',
+                            message: '登录后可以查看收件箱、发件箱和消息跟踪。',
+                            onLogin: () => openLogin(context, _repository),
+                          ),
+                        ),
+                ),
+                tab(
+                  4,
+                  () => AccountScreen(
+                    repository: _repository,
+                    onLoggedOut: _showHome,
+                    onBrowseHome: _showHome,
+                  ),
+                ),
+              ],
+            ),
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: _index,
+              onDestinationSelected: _select,
+              labelBehavior: compactLabels
+                  ? NavigationDestinationLabelBehavior.onlyShowSelected
+                  : NavigationDestinationLabelBehavior.alwaysShow,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home),
+                  label: '首页',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.star_border_rounded),
+                  selectedIcon: Icon(Icons.star_rounded),
+                  label: '收藏',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.search),
+                  label: '搜索',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.mail_outline),
+                  selectedIcon: Icon(Icons.mail),
+                  label: '消息',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline),
+                  selectedIcon: Icon(Icons.person),
+                  label: '我的',
+                ),
+              ],
+            ),
           ),
-          FavoriteThreadsPage(
-            repository: _repository,
-            onLoginTap: () => setState(() => _index = 4),
-          ),
-          _index == 2
-              ? BrowsingHistoryScreen(
-                  repository: _repository,
-                  onBrowseHome: _showHome,
-                )
-              : const SizedBox.shrink(),
-          SearchScreen(repository: _repository),
-          AccountScreen(repository: _repository, onLoggedOut: _showHome),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: '首页',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.star_border_rounded),
-            selectedIcon: Icon(Icons.star_rounded),
-            label: '收藏',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: '历史',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.search),
-            label: '搜索',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: '我的',
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -109,12 +149,14 @@ class ForumHomePage extends StatefulWidget {
   const ForumHomePage({
     super.key,
     required this.repository,
-    this.onHistoryTap,
+    this.onAccountTap,
     this.onToggleTheme,
   });
 
   final ForumRepository repository;
-  final VoidCallback? onHistoryTap;
+
+  /// Shows the signed-in user's 我的 tab.
+  final VoidCallback? onAccountTap;
   final VoidCallback? onToggleTheme;
 
   @override
@@ -179,7 +221,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
                 children: [
                   _TopBar(
                     repository: widget.repository,
-                    onHistoryTap: widget.onHistoryTap,
+                    onAccountTap: widget.onAccountTap,
                     onToggleTheme: widget.onToggleTheme,
                   ),
                   if (snapshot.hasError)

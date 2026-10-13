@@ -84,7 +84,15 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
     if (!widget.repository.isLoggedIn) {
       return Scaffold(
         appBar: AppBar(title: const Text('论坛任务')),
-        body: _TasksLoginPrompt(repository: widget.repository),
+        body: LoginPrompt(
+          icon: Icons.fact_check_outlined,
+          title: '论坛任务',
+          message: '登录后可以申请日常、周常任务，并领取 SP 币奖励。',
+          onLogin: () async {
+            if (!await openLogin(context, widget.repository)) return;
+            if (mounted) setState(() => _future = _load());
+          },
+        ),
       );
     }
 
@@ -422,52 +430,6 @@ class _TaskPill extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _TasksLoginPrompt extends StatelessWidget {
-  const _TasksLoginPrompt({required this.repository});
-
-  final ForumRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 28),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.fact_check_outlined, color: AppColors.brand, size: 34),
-              const SizedBox(height: 14),
-              Text('论坛任务', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              Text(
-                '登录后可以申请日常、周常任务，并领取 SP 币奖励。',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => LoginScreen(repository: repository),
-                  ),
-                ),
-                icon: Icon(Icons.login),
-                label: const Text('去登录'),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

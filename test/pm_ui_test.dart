@@ -273,6 +273,10 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(find.text('短消息'), 180,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('短消息'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('短消息'));
     await tester.pumpAndSettle();
     expect(find.byType(PmBoxScreen), findsOneWidget);

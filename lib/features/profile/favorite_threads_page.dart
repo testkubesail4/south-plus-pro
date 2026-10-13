@@ -63,9 +63,15 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
   @override
   Widget build(BuildContext context) {
     if (!widget.repository.isLoggedIn) {
-      return _FavoriteLoginPrompt(
-        repository: widget.repository,
-        onLoginTap: widget.onLoginTap,
+      return SafeArea(
+        bottom: false,
+        child: LoginPrompt(
+          icon: Icons.star_border_rounded,
+          title: '收藏',
+          message: '这里会展示你收藏过的主题。登录后可以更快回看想追的帖子，不用再从版块里翻。',
+          onLogin:
+              widget.onLoginTap ?? () => openLogin(context, widget.repository),
+        ),
       );
     }
 
@@ -402,85 +408,6 @@ class _MetaPill extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _FavoriteLoginPrompt extends StatelessWidget {
-  const _FavoriteLoginPrompt({
-    required this.repository,
-    this.onLoginTap,
-  });
-
-  final ForumRepository repository;
-  final VoidCallback? onLoginTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 24, 16, 28),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 54,
-                  height: 54,
-                  decoration: BoxDecoration(
-                    color: AppColors.brandSoft,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.star_border_rounded,
-                    color: AppColors.brand,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text('收藏', style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 8),
-                Text(
-                  '这里会展示你收藏过的主题。登录后可以更快回看想追的帖子，不用再从版块里翻。',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 18),
-                FilledButton.icon(
-                  onPressed: onLoginTap ?? () => _openLogin(context),
-                  icon: Icon(Icons.login),
-                  label: const Text('去登录'),
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => LoginScreen(repository: repository),
-                    ),
-                  ),
-                  icon: Icon(Icons.open_in_new),
-                  label: const Text('打开登录页'),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _openLogin(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => LoginScreen(repository: repository),
       ),
     );
   }

@@ -6,7 +6,73 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
-import '../home/home_shell.dart';
+
+/// Opens the login page; true once a login succeeded. The app shell follows
+/// the session itself, so callers only refresh their own screen.
+Future<bool> openLogin(BuildContext context, ForumRepository repository) async {
+  final loggedIn = await Navigator.of(context).push<bool>(
+    MaterialPageRoute(builder: (_) => LoginScreen(repository: repository)),
+  );
+  return loggedIn ?? false;
+}
+
+/// The card shown in place of account-only content while logged out.
+class LoginPrompt extends StatelessWidget {
+  const LoginPrompt({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.onLogin,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final VoidCallback onLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 28),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: AppColors.brandSoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: AppColors.brand, size: 28),
+              ),
+              const SizedBox(height: 16),
+              Text(title, style: theme.textTheme.headlineSmall),
+              const SizedBox(height: 8),
+              Text(message, style: theme.textTheme.bodyMedium),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onLogin,
+                icon: const Icon(Icons.login),
+                label: const Text('去登录'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, ForumRepository? repository})
@@ -109,14 +175,8 @@ class _LoginScreenState extends State<LoginScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(result.message)),
     );
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => HomeShell(
-          repository: _repo,
-          onToggleTheme: AppThemeController.toggle,
-        ),
-      ),
-    );
+    // Back to the screen that asked for login; never a second app shell.
+    Navigator.of(context).maybePop(true);
   }
 
   @override
@@ -271,16 +331,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     OutlinedButton(
                       onPressed: _loading
                           ? null
-                          : () {
-                              Navigator.of(context).pushReplacement(
-                                MaterialPageRoute(
-                                  builder: (_) => HomeShell(
-                                    repository: _repo,
-                                    onToggleTheme: AppThemeController.toggle,
-                                  ),
-                                ),
-                              );
-                            },
+                          : () => Navigator.of(context).maybePop(false),
                       child: const Text('先浏览公开内容'),
                     ),
                   ],

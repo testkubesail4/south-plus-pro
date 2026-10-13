@@ -3,12 +3,12 @@ part of 'home_shell.dart';
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.repository,
-    this.onHistoryTap,
+    this.onAccountTap,
     this.onToggleTheme,
   });
 
   final ForumRepository repository;
-  final VoidCallback? onHistoryTap;
+  final VoidCallback? onAccountTap;
   final VoidCallback? onToggleTheme;
 
   @override
@@ -16,81 +16,22 @@ class _TopBar extends StatelessWidget {
     final nextThemeLabel = AppThemeController.isDark ? '切换为白天模式' : '切换为暗黑模式';
     return Container(
       height: 58,
-      padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
+      padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
       decoration: BoxDecoration(
         color: AppColors.header,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
-          IconButton(
-            tooltip: '菜单',
-            onPressed: () => showModalBottomSheet<void>(
-              context: context,
-              showDragHandle: true,
-              builder: (context) => SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ListTile(
-                        leading: Icon(Icons.search),
-                        title: const Text('搜索'),
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  SearchScreen(repository: repository),
-                            ),
-                          );
-                        },
-                      ),
-                      if (onHistoryTap != null)
-                        ListTile(
-                          leading: Icon(Icons.history_outlined),
-                          title: const Text('浏览历史'),
-                          onTap: () {
-                            Navigator.of(context).pop();
-                            onHistoryTap?.call();
-                          },
-                        ),
-                      ListTile(
-                        leading: Icon(Icons.person_outline),
-                        title: Text(repository.isLoggedIn ? '个人中心' : '登录'),
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => repository.isLoggedIn
-                                  ? UserProfileScreen(
-                                      userUrl: 'u.php',
-                                      repository: repository,
-                                    )
-                                  : LoginScreen(repository: repository),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            icon: Icon(Icons.menu, color: AppColors.text, size: 30),
-          ),
           Expanded(
-            child: Center(
-              child: Text(
-                'southplus',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
-                  fontStyle: FontStyle.italic,
-                  letterSpacing: 0,
-                ),
+            child: Text(
+              'southplus',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+                fontStyle: FontStyle.italic,
+                letterSpacing: 0,
               ),
             ),
           ),
@@ -105,26 +46,10 @@ class _TopBar extends StatelessWidget {
                 color: AppColors.text,
               ),
             ),
-          IconButton(
-            tooltip: '搜索',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => SearchScreen(repository: repository),
-              ),
-            ),
-            icon: Icon(Icons.search, color: AppColors.text),
-          ),
           if (repository.isLoggedIn)
             InkWell(
               borderRadius: BorderRadius.circular(999),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => UserProfileScreen(
-                    userUrl: 'u.php',
-                    repository: repository,
-                  ),
-                ),
-              ),
+              onTap: onAccountTap,
               child: Container(
                 constraints: const BoxConstraints(minHeight: 44),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -142,12 +67,17 @@ class _TopBar extends StatelessWidget {
                       size: 18,
                     ),
                     const SizedBox(width: 5),
-                    Text(
-                      repository.currentUsername ?? '已登录',
-                      style: TextStyle(
-                        color: AppColors.brand,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 120),
+                      child: Text(
+                        repository.currentUsername ?? '已登录',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.brand,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -156,11 +86,7 @@ class _TopBar extends StatelessWidget {
             )
           else
             TextButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => LoginScreen(repository: repository),
-                ),
-              ),
+              onPressed: () => openLogin(context, repository),
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.brand,
                 minimumSize: const Size(56, 44),
@@ -651,18 +577,18 @@ class _SimpleSection extends StatelessWidget {
                   Icon(icon, color: AppColors.brand, size: 20),
                   const SizedBox(width: 7),
                 ],
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
+                // Expanded so large system text wraps instead of overflowing.
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-                if (trailing != null) ...[
-                  const Spacer(),
-                  trailing!,
-                ],
+                if (trailing != null) trailing!,
               ],
             ),
           ),
