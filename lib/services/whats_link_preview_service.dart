@@ -2,12 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'forum_url_resolver.dart';
+
 class WhatsLinkPreviewService {
   const WhatsLinkPreviewService({HttpClient? client}) : _client = client;
 
   final HttpClient? _client;
 
   Future<WhatsLinkPreview> fetch(String link) async {
+    if (!ForumUrlResolver.isSafeExternalUrl(link) ||
+        !{'http', 'https', 'magnet', 'ed2k'}
+            .contains(Uri.tryParse(link)?.scheme)) {
+      throw const WhatsLinkPreviewException('不支持预览此链接');
+    }
     final client = _client ?? HttpClient();
     final uri = Uri.https('whatslink.info', '/api/v1/link', {'url': link});
     try {

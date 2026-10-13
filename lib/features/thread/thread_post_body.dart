@@ -80,7 +80,10 @@ class ThreadPostBody extends StatelessWidget {
                 ...images.map(
                   (image) => Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: ThreadInlineImage(image: image),
+                    child: ThreadInlineImage(
+                      image: image,
+                      onOpenLink: onOpenLink,
+                    ),
                   ),
                 ),
               ],

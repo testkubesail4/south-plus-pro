@@ -5,6 +5,7 @@ import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../common/async_state_view.dart';
+import '../editor/windcode_toolbar.dart';
 
 /// Writes, replies, forwards or edits a message through a server compose form.
 /// [path] is the server entry (reply/forward/edit/profile link); null opens a
@@ -147,6 +148,13 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
                     labelText: '内容',
                     alignLabelWithHint: true,
                   ),
+                ),
+                const SizedBox(height: 10),
+                WindCodeToolbar(
+                  controller: _body,
+                  enabled: !_submitting,
+                  baseUri: widget.repository.networkConfig.baseUri,
+                  allowSale: false,
                 ),
                 CheckboxListTile(
                   value: _saveToSendbox,

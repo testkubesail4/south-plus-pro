@@ -2,6 +2,7 @@ import 'package:html/dom.dart' as dom;
 
 import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
+import 'windcode_parser.dart';
 
 class ThreadContentParser {
   ThreadContentParser({ForumUrlResolver? urls})
@@ -9,10 +10,15 @@ class ThreadContentParser {
 
   final ForumUrlResolver urls;
 
-  List<ThreadContentSegment> extractInlineSegments(dom.Element content) {
+  List<ThreadContentSegment> extractInlineSegments(dom.Element content) =>
+      _extractInlineSegments(content, const _InlineTextStyleData());
+
+  List<ThreadContentSegment> _extractInlineSegments(
+      dom.Element content, _InlineTextStyleData inherited,
+      {bool parseRaw = true}) {
     final segments = <ThreadContentSegment>[];
     final buffer = StringBuffer();
-    var activeStyle = const _InlineTextStyleData();
+    var activeStyle = _styleForElement(content, inherited);
 
     void flushText() {
       if (buffer.isEmpty) return;
@@ -24,27 +30,118 @@ class ThreadContentParser {
       if (text.trim().isEmpty) {
         if (segments.isNotEmpty && !text.contains('\n')) return;
       }
-      segments.add(
-        ThreadContentSegment.text(
-          text,
-          colorValue: activeStyle.colorValue,
-          backgroundColorValue: activeStyle.backgroundColorValue,
-          isBold: activeStyle.isBold,
-          isItalic: activeStyle.isItalic,
-          isUnderline: activeStyle.isUnderline,
-          isStrike: activeStyle.isStrike,
-          fontScale: activeStyle.fontScale,
-          href: activeStyle.href,
-        ),
+      final segment = ThreadContentSegment.text(
+        text,
+        colorValue: activeStyle.colorValue,
+        backgroundColorValue: activeStyle.backgroundColorValue,
+        isBold: activeStyle.isBold,
+        isItalic: activeStyle.isItalic,
+        isUnderline: activeStyle.isUnderline,
+        isStrike: activeStyle.isStrike,
+        fontScale: activeStyle.fontScale,
+        href: activeStyle.href,
+        fontFamily: activeStyle.fontFamily,
       );
+      segments.addAll(_linkify(segment));
     }
 
-    void walk(dom.Node node) {
+    void walk(dom.Node node, bool expandRaw) {
       if (node is dom.Text) {
-        buffer.write(node.text.replaceAll(RegExp(r'[ \t\r\f]+'), ' '));
+        final raw = expandRaw ? WindCodeParser().parse(node.text) : null;
+        if (raw != null) {
+          for (final child in raw) {
+            walk(child, false);
+          }
+        } else {
+          buffer.write(node.text.replaceAll(RegExp(r'[ \t\r\f]+'), ' '));
+        }
         return;
       }
       if (node is! dom.Element) return;
+      if ({'script', 'style', 'form', 'input', 'button', 'noscript'}
+          .contains(node.localName)) return;
+      if (node.localName == 'h6' && _isCodeElement(node.nextElementSibling))
+        return;
+      if (_isCodeElement(node)) {
+        flushText();
+        final lines = node.classes.contains('blockquote2')
+            ? node.querySelectorAll('ol > li')
+            : <dom.Element>[];
+        segments.add(ThreadContentSegment.code(
+            lines.isEmpty ? _codeText(node) : lines.map(_codeText).join('\n')));
+        return;
+      }
+      if ({'iframe', 'object', 'embed', 'video', 'audio'}
+          .contains(node.localName)) {
+        flushText();
+        final source = node.attributes['src'] ??
+            node.attributes['data'] ??
+            node.querySelector('source')?.attributes['src'];
+        final resolved = source == null ? null : urls.absoluteUrl(source);
+        final safe =
+            resolved != null && ForumUrlResolver.isSafeExternalUrl(resolved);
+        segments.add(ThreadContentSegment.media(
+          url: safe ? resolved : null,
+          text: node.attributes['title'] ?? '${node.localName} 媒体（应用内不支持播放）',
+        ));
+        return;
+      }
+      if (node.localName == 'ul' || node.localName == 'ol') {
+        flushText();
+        segments.add(ThreadContentSegment.list([
+          for (final item
+              in node.children.where((child) => child.localName == 'li'))
+            ThreadContentSegment.block(
+                _extractInlineSegments(item, activeStyle, parseRaw: expandRaw)),
+        ],
+            isOrdered: node.localName == 'ol',
+            listStyle: node.attributes['type'] ?? '1'));
+        return;
+      }
+      if (node.localName == 'table') {
+        flushText();
+        final rows = <List<ThreadContentTableCell>>[];
+        for (final row in node.querySelectorAll('tr')) {
+          var parent = row.parent;
+          while (parent != null && parent.localName != 'table') {
+            parent = parent.parent;
+          }
+          if (parent != node) continue;
+          rows.add([
+            for (final cell in row.children
+                .where((child) => {'td', 'th'}.contains(child.localName)))
+              ThreadContentTableCell(
+                  _extractInlineSegments(cell, activeStyle,
+                      parseRaw: expandRaw),
+                  isHeader: cell.localName == 'th'),
+          ]);
+        }
+        segments.add(ThreadContentSegment.table(rows));
+        return;
+      }
+      final alignment = node.attributes['align'] ??
+          RegExp(r'text-align\s*:\s*(left|right|center|justify)',
+                  caseSensitive: false)
+              .firstMatch(node.attributes['style'] ?? '')
+              ?.group(1) ??
+          (node.localName == 'center' ? 'center' : null);
+      if (alignment != null &&
+          {'left', 'right', 'center', 'justify'}.contains(alignment)) {
+        flushText();
+        final clone = node.clone(true)
+          ..attributes.remove('align')
+          ..attributes.remove('style');
+        segments.add(ThreadContentSegment.block(
+            _extractInlineSegments(clone, _styleForElement(node, activeStyle),
+                parseRaw: expandRaw),
+            alignment: switch (alignment) {
+              'center' => ThreadContentAlignment.center,
+              'right' => ThreadContentAlignment.end,
+              'justify' => ThreadContentAlignment.justify,
+              _ => ThreadContentAlignment.start,
+            }));
+        return;
+      }
       if (_isSaleBoxElement(node)) {
         flushText();
         final saleBox = _saleBoxFromElement(node);
@@ -58,10 +155,13 @@ class ThreadContentParser {
         return;
       }
       if (node.localName == 'blockquote' ||
+          node.classes.contains('blockquote3') ||
           node.classes.contains('blockquote') ||
           node.classes.contains('quote')) {
         flushText();
-        final quoteSegments = extractInlineSegments(_quoteContentElement(node));
+        final quoteSegments = _extractInlineSegments(
+            _quoteContentElement(node), activeStyle,
+            parseRaw: expandRaw);
         if (quoteSegments.isNotEmpty) {
           segments.add(ThreadContentSegment.quote(quoteSegments));
         }
@@ -74,53 +174,121 @@ class ThreadContentParser {
       if (node.localName == 'img') {
         final src = node.attributes['src'] ?? '';
         if (src.isEmpty) return;
+        final imageUrl = urls.absoluteUrl(src);
+        if (!ForumUrlResolver.isSafeExternalUrl(imageUrl) ||
+            !{'http', 'https'}.contains(Uri.tryParse(imageUrl)?.scheme)) {
+          buffer.write(node.attributes['alt'] ?? '[图片链接无效]');
+          return;
+        }
         flushText();
         final alt = _cleanText(
           node.attributes['alt'] ?? node.attributes['title'] ?? '',
         );
         segments.add(
           ThreadContentSegment.image(
-            url: urls.absoluteUrl(src),
+            url: imageUrl,
             alt: alt.isEmpty ? null : alt,
             isEmoji: _isInlineEmojiImage(src),
+            href: activeStyle.href,
           ),
         );
         return;
       }
 
+      final isBlock = {
+        'p',
+        'div',
+        'li',
+        'tr',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6'
+      }.contains(node.localName);
+      if (isBlock) buffer.write('\n');
       final previousStyle = activeStyle;
       final nextStyle = _styleForElement(node, activeStyle);
       final styleChanged = !_sameInlineStyle(activeStyle, nextStyle);
       if (styleChanged) flushText();
       activeStyle = nextStyle;
       for (final child in node.nodes) {
-        walk(child);
+        walk(child, expandRaw);
       }
       if (styleChanged) flushText();
       activeStyle = previousStyle;
+      if (isBlock) buffer.write('\n');
     }
 
     for (final node in content.nodes) {
-      walk(node);
+      walk(node, parseRaw);
     }
     flushText();
 
     final normalizedSegments = segments
         .where((segment) =>
-            segment.type == ThreadContentSegmentType.image ||
-            segment.type == ThreadContentSegmentType.quote ||
-            segment.type == ThreadContentSegmentType.saleBox ||
+            segment.type != ThreadContentSegmentType.text ||
             (segment.text?.trim().isNotEmpty ?? false))
         .toList();
     return _trimBoundaryWhitespace(normalizedSegments);
   }
 
+  Iterable<ThreadContentSegment> _linkify(ThreadContentSegment segment) sync* {
+    final text = segment.text ?? '';
+    if (segment.href != null) {
+      yield segment;
+      return;
+    }
+    var offset = 0;
+    for (final match in RegExp(r'''(?:https?://|www\.)[^\s<>"'，。；！？]+''',
+            caseSensitive: false)
+        .allMatches(text)) {
+      var value = match
+          .group(0)!
+          .split(RegExp(r'\[/[a-z][^\]]*\]', caseSensitive: false))
+          .first;
+      value = value.replaceFirst(RegExp(r'[.,;!?:]+$'), '');
+      while (value.endsWith(')') &&
+          ')'.allMatches(value).length > '('.allMatches(value).length) {
+        value = value.substring(0, value.length - 1);
+      }
+      while (value.endsWith(']') &&
+          ']'.allMatches(value).length > '['.allMatches(value).length) {
+        value = value.substring(0, value.length - 1);
+      }
+      final href = urls.absoluteUrl(
+          value.toLowerCase().startsWith('www.') ? 'https://$value' : value);
+      if (!ForumUrlResolver.isSafeExternalUrl(href)) continue;
+      if (match.start > offset) {
+        yield _textSegmentWithText(
+            segment, text.substring(offset, match.start));
+      }
+      final link = _textSegmentWithText(segment, value);
+      yield ThreadContentSegment.text(value,
+          colorValue: link.colorValue,
+          backgroundColorValue: link.backgroundColorValue,
+          isBold: link.isBold,
+          isItalic: link.isItalic,
+          isUnderline: link.isUnderline,
+          isStrike: link.isStrike,
+          fontScale: link.fontScale,
+          href: href,
+          fontFamily: link.fontFamily);
+      offset = match.start + value.length;
+    }
+    if (offset < text.length)
+      yield _textSegmentWithText(segment, text.substring(offset));
+  }
+
   String? extractQuote(dom.Element content) {
-    final quoteElement = content.querySelector('blockquote') ??
-        content.querySelector('.blockquote');
-    if (quoteElement == null) return null;
-    final quote = _cleanText(quoteElement.text);
-    return quote.isEmpty ? null : quote;
+    for (final element
+        in content.querySelectorAll('blockquote, .blockquote, .blockquote3')) {
+      if (_isCodeElement(element)) continue;
+      final quote = _cleanText(element.text);
+      if (quote.isNotEmpty) return quote;
+    }
+    return null;
   }
 
   List<ThreadContentSegment> _trimBoundaryWhitespace(
@@ -175,7 +343,27 @@ class ThreadContentParser {
       isStrike: segment.isStrike,
       fontScale: segment.fontScale,
       href: segment.href,
+      fontFamily: segment.fontFamily,
     );
+  }
+
+  bool _isCodeElement(dom.Element? node) =>
+      node != null &&
+      (node.localName == 'pre' ||
+          node.localName == 'code' ||
+          node.classes.contains('blockquote2') ||
+          (node.localName == 'blockquote' &&
+              (RegExp(r'^code(?:\d|_|$)', caseSensitive: false)
+                      .hasMatch(node.id) ||
+                  RegExp(r'Copy code|复制代码', caseSensitive: false)
+                      .hasMatch(node.previousElementSibling?.text ?? ''))));
+
+  String _codeText(dom.Node node) {
+    if (node is dom.Text) return node.text;
+    if (node is! dom.Element) return '';
+    if (node.localName == 'br') return '\n';
+    if ({'script', 'style'}.contains(node.localName)) return '';
+    return node.nodes.map(_codeText).join().replaceAll('\r\n', '\n');
   }
 
   dom.Element _quoteContentElement(dom.Element quote) {
@@ -260,11 +448,16 @@ class ThreadContentParser {
     }
     if (tag == 'a') {
       final href = element.attributes['href'] ?? '';
-      if (href.isNotEmpty && !href.startsWith('javascript:')) {
-        style = style.copyWith(href: urls.absoluteUrl(href));
+      final resolved = urls.absoluteUrl(href);
+      if (href.isNotEmpty &&
+          urls.forumLinkTarget(resolved) is! ForumBlockedLinkTarget) {
+        style = style.copyWith(href: resolved);
       }
     }
 
+    final family = element.attributes['face'];
+    if (family != null && family.trim().isNotEmpty)
+      style = style.copyWith(fontFamily: family);
     final color = _elementColor(element);
     if (color != null) style = style.copyWith(colorValue: color);
     final background = _elementBackgroundColor(element);
@@ -290,7 +483,8 @@ class ThreadContentParser {
   int? _elementColor(dom.Element element) {
     final style = element.attributes['style'] ?? '';
     final styleMatch =
-        RegExp(r'color\s*:\s*([^;]+)', caseSensitive: false).firstMatch(style);
+        RegExp(r'(?:^|;)\s*color\s*:\s*([^;]+)', caseSensitive: false)
+            .firstMatch(style);
     final raw = styleMatch?.group(1) ?? element.attributes['color'];
     if (raw == null) return null;
     return _parseCssColor(raw.trim());
@@ -298,17 +492,8 @@ class ThreadContentParser {
 
   int? _parseCssColor(String raw) {
     final lower = raw.toLowerCase();
-    const named = {
-      'black': 0xff000000,
-      'red': 0xffff0000,
-      'blue': 0xff0000ff,
-      'green': 0xff008000,
-      'white': 0xffffffff,
-      'gray': 0xff808080,
-      'grey': 0xff808080,
-      'purple': 0xff800080,
-    };
-    if (named.containsKey(lower)) return named[lower];
+    if (forumWindCodeColors.containsKey(lower))
+      return forumWindCodeColors[lower];
     final hexMatch = RegExp(r'^#?([0-9a-f]{3}|[0-9a-f]{6})$').firstMatch(lower);
     if (hexMatch == null) return null;
     var hex = hexMatch.group(1)!;
@@ -349,6 +534,7 @@ class ThreadContentParser {
         left.isUnderline == right.isUnderline &&
         left.isStrike == right.isStrike &&
         left.fontScale == right.fontScale &&
+        left.fontFamily == right.fontFamily &&
         left.href == right.href;
   }
 }
@@ -363,6 +549,7 @@ class _InlineTextStyleData {
     this.fontScale = 1,
     this.href,
     this.backgroundColorValue,
+    this.fontFamily,
   });
 
   final int? colorValue;
@@ -373,6 +560,7 @@ class _InlineTextStyleData {
   final bool isStrike;
   final double fontScale;
   final String? href;
+  final String? fontFamily;
 
   _InlineTextStyleData copyWith({
     int? colorValue,
@@ -383,6 +571,7 @@ class _InlineTextStyleData {
     double? fontScale,
     String? href,
     int? backgroundColorValue,
+    String? fontFamily,
   }) {
     return _InlineTextStyleData(
       colorValue: colorValue ?? this.colorValue,
@@ -393,6 +582,7 @@ class _InlineTextStyleData {
       isStrike: isStrike ?? this.isStrike,
       fontScale: fontScale ?? this.fontScale,
       href: href ?? this.href,
+      fontFamily: fontFamily ?? this.fontFamily,
     );
   }
 }

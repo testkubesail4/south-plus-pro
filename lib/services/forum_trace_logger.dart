@@ -30,7 +30,9 @@ class ForumTraceLogger {
           lower.contains('pass') ||
           lower.contains('answer') ||
           lower.contains('question') ||
-          lower.contains('verify');
+          lower.contains('verify') ||
+          {'keyword', 'pwuser', 'sid', 'atc_content', 'msg_title', 'touidmsg'}
+              .contains(lower);
       final value = isSensitive ? '<redacted>' : form[key];
       entries.add('$key=$value');
     }

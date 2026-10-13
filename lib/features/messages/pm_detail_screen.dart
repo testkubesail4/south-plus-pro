@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../models/forum_models.dart';
 import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/forum_link_opener.dart';
+import '../thread/thread_rich_content.dart';
 import 'pm_compose_screen.dart';
 
 /// Returns the server result so the box can follow its refresh destination.
@@ -122,10 +125,12 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
               children: [
                 _PmMessageCard(
+                  repository: widget.repository,
                   sender: detail.sender,
                   title: detail.title,
                   time: detail.time,
                   content: detail.content,
+                  segments: detail.segments,
                 ),
                 const SizedBox(height: 14),
                 Wrap(
@@ -267,10 +272,12 @@ class _PmChatlogScreenState extends State<PmChatlogScreen> {
                   ),
                 for (final record in chatlog.records) ...[
                   _PmMessageCard(
+                    repository: widget.repository,
                     sender: record.sender,
                     title: record.title,
                     time: record.time,
                     content: record.content,
+                    segments: record.segments,
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -303,16 +310,20 @@ class _PmChatlogScreenState extends State<PmChatlogScreen> {
 
 class _PmMessageCard extends StatelessWidget {
   const _PmMessageCard({
+    required this.repository,
     required this.sender,
     required this.title,
     required this.time,
     required this.content,
+    required this.segments,
   });
 
+  final ForumRepository repository;
   final String sender;
   final String title;
   final String time;
   final String content;
+  final List<ThreadContentSegment> segments;
 
   @override
   Widget build(BuildContext context) {
@@ -341,12 +352,24 @@ class _PmMessageCard extends StatelessWidget {
             style: TextStyle(color: AppColors.textMuted, fontSize: 12),
           ),
           Divider(height: 24, color: AppColors.border),
-          // Plain text only: PM bodies never go through the public image or
-          // link-preview caches.
-          SelectableText(
-            content,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
+          if (segments.isEmpty)
+            SelectableText(
+              content,
+              style: Theme.of(context).textTheme.bodyMedium,
+            )
+          else
+            SelectionArea(
+              // Private media: memory-only images, no link-preview service,
+              // no purchase actions.
+              child: ThreadRichContent(
+                segments: segments,
+                privateMedia: true,
+                onOpenLink: (url, _) =>
+                    // Private captions must not become a thread title that
+                    // browsing history could keep.
+                    openForumLink(context, repository, url),
+              ),
+            ),
         ],
       ),
     );

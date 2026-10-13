@@ -203,6 +203,7 @@ class CachedForumImage extends StatelessWidget {
     this.maxWidthDiskCache,
     this.maxHeightDiskCache,
     this.bypassLoadPolicy = false,
+    this.privateMemoryOnly = false,
   });
 
   final String url;
@@ -220,9 +221,14 @@ class CachedForumImage extends StatelessWidget {
   final int? maxHeightDiskCache;
   final bool bypassLoadPolicy;
 
+  /// Private content (PMs): cookie-less, memory-only, untraced, and evicted
+  /// from the in-memory image cache when the widget goes away.
+  final bool privateMemoryOnly;
+
   @override
   Widget build(BuildContext context) {
     return _PolicyAwareCachedImage(
+      privateMemoryOnly: privateMemoryOnly,
       url: url,
       assetName: assetName,
       width: width,
@@ -257,6 +263,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
     this.maxWidthDiskCache,
     this.maxHeightDiskCache,
     required this.bypassLoadPolicy,
+    required this.privateMemoryOnly,
   });
 
   final String url;
@@ -273,6 +280,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
   final int? maxWidthDiskCache;
   final int? maxHeightDiskCache;
   final bool bypassLoadPolicy;
+  final bool privateMemoryOnly;
 
   @override
   State<_PolicyAwareCachedImage> createState() =>
@@ -284,6 +292,7 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   bool _forcedLoad = false;
   int _retry = 0;
   String? _lastLoggedDecision;
+  ImageProvider? _privateProvider;
 
   @override
   void initState() {
@@ -301,6 +310,7 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   @override
   void dispose() {
     ImageLoadingSettings.notifier.removeListener(_policyChanged);
+    _privateProvider?.evict();
     super.dispose();
   }
 
@@ -308,6 +318,8 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   void didUpdateWidget(covariant _PolicyAwareCachedImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url) {
+      _privateProvider?.evict();
+      _privateProvider = null;
       _forcedLoad = false;
       _retry = 0;
       _lastLoggedDecision = null;
@@ -316,11 +328,15 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   }
 
   void _loadNow() {
-    ForumTraceLogger.log(
-      'ImageLoad',
-      'manual load requested url=${widget.url} nextRetry=${_retry + 1}',
-    );
+    if (!widget.privateMemoryOnly) {
+      ForumTraceLogger.log(
+        'ImageLoad',
+        'manual load requested url=${widget.url} nextRetry=${_retry + 1}',
+      );
+    }
     setState(() {
+      _privateProvider?.evict();
+      _privateProvider = null;
       _forcedLoad = true;
       _retry++;
     });
@@ -383,10 +399,12 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
         alignment: widget.alignment,
         errorBuilder: (context, error, stackTrace) {
           assert(() {
-            debugPrint(
-              'CachedForumImage asset load failed for $assetName, '
-              'falling back to network: ${widget.url}',
-            );
+            if (!widget.privateMemoryOnly) {
+              debugPrint(
+                'CachedForumImage asset load failed for $assetName, '
+                'falling back to network: ${widget.url}',
+              );
+            }
             return true;
           }());
           return _networkImage();
@@ -397,6 +415,7 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   }
 
   Widget _networkImage() {
+    if (widget.privateMemoryOnly) return _privateNetworkImage();
     ForumTraceLogger.log(
       'ImageLoad',
       'request url=${widget.url} '
@@ -445,7 +464,37 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
     );
   }
 
+  // Image.network sends no cookies and keeps bytes only in the in-memory
+  // ImageCache, which dispose() evicts.
+  Widget _privateNetworkImage() {
+    final provider = _privateProvider ??= ResizeImage.resizeIfNeeded(
+      widget.memCacheWidth,
+      widget.memCacheHeight,
+      NetworkImage(widget.url),
+    );
+    return Image(
+      key: ValueKey(_retry),
+      image: provider,
+      width: widget.width,
+      height: widget.height,
+      fit: widget.fit,
+      alignment: widget.alignment,
+      loadingBuilder: widget.placeholder == null
+          ? null
+          : (context, child, progress) =>
+              progress == null ? child : widget.placeholder!(context),
+      errorBuilder: (context, error, stackTrace) =>
+          widget.errorWidget?.call(context) ??
+          _ImageErrorPlaceholder(
+            width: widget.width,
+            height: widget.height,
+            onRetry: _loadNow,
+          ),
+    );
+  }
+
   void _logDecision(String decision) {
+    if (widget.privateMemoryOnly) return;
     if (_lastLoggedDecision == decision) return;
     _lastLoggedDecision = decision;
     ForumTraceLogger.log(

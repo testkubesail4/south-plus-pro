@@ -16,6 +16,7 @@ class ThreadDetailParser {
 
   List<ThreadReply> desktopThreadCards(dom.Document document) {
     final replies = <ThreadReply>[];
+    final namedAnchors = document.querySelectorAll('a[name]');
     for (final post in document.querySelectorAll('table.js-post')) {
       final authorCell = post.querySelector('th.r_two');
       final contentCell = post.querySelector('th.r_one');
@@ -77,6 +78,7 @@ class ThreadDetailParser {
           quote: quote,
           quoteUrl: quoteHref == null ? null : urls.absoluteUrl(quoteHref),
           segments: segments,
+          anchors: _postAnchors(post, floor, namedAnchors),
           images: images,
           links: links,
           saleBoxes: saleBoxes,
@@ -87,11 +89,57 @@ class ThreadDetailParser {
     return replies;
   }
 
+  List<String> _postAnchors(
+      dom.Element post, String floor, List<dom.Element> namedAnchors) {
+    final anchors = <String>{};
+    for (final node in [post, ...post.querySelectorAll('[id], a[name]')]) {
+      for (final value in [
+        node.id,
+        node.localName == 'a' ? node.attributes['name'] : null
+      ]) {
+        if (value != null && value.isNotEmpty) anchors.add(value);
+      }
+    }
+    var previous = post.previousElementSibling;
+    while (previous?.localName == 'a') {
+      final value = previous!.attributes['name'] ?? previous.id;
+      if (value.isNotEmpty) anchors.add(value);
+      previous = previous.previousElementSibling;
+    }
+    final pids = anchors
+        .map((anchor) =>
+            RegExp(r'^(?:td_|read_)([1-9]\d*)$').firstMatch(anchor)?.group(1))
+        .whereType<String>()
+        .toSet();
+    final form = _enclosingForm(post);
+    for (final anchor in namedAnchors) {
+      final name = anchor.attributes['name'];
+      if (pids.contains(name) && _enclosingForm(anchor) == form)
+        anchors.add(name!);
+    }
+    final number = RegExp(r'(\d+)\s*(?:F|楼)', caseSensitive: false)
+        .firstMatch(floor)
+        ?.group(1);
+    if (number != null) anchors.add('fl-$number');
+    if (floor == '楼主') anchors.add('fl-0');
+    return List.unmodifiable(anchors);
+  }
+
+  dom.Element? _enclosingForm(dom.Element node) {
+    dom.Element? parent = node;
+    while (parent != null && parent.localName != 'form') {
+      parent = parent.parent;
+    }
+    return parent;
+  }
+
   ThreadPagination desktopPagination(
     dom.Document document, {
     int requestedPage = 1,
+    String? threadUrl,
   }) {
-    final text = _cleanText(document.body?.text ?? '');
+    final pagers = document.querySelectorAll('.pages, .pagesone');
+    final text = _cleanText(pagers.map((pager) => pager.text).join(' '));
     final pagesMatch = RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)').firstMatch(text);
     final currentFromText =
         pagesMatch == null ? null : int.tryParse(pagesMatch.group(1)!);
@@ -99,12 +147,19 @@ class ThreadDetailParser {
         pagesMatch == null ? null : int.tryParse(pagesMatch.group(2)!);
 
     var totalFromLinks = 1;
-    for (final link in document.querySelectorAll('a[href*="read.php?tid-"]')) {
-      final page = _pageFromHref(link.attributes['href'] ?? '');
+    for (final link
+        in pagers.expand((pager) => pager.querySelectorAll('a[href]'))) {
+      final href = link.attributes['href'] ?? '';
+      if (urls.forumLinkTarget(href) is! ForumThreadLinkTarget ||
+          (threadUrl != null &&
+              (urls.tidFromUrl(href) != urls.tidFromUrl(threadUrl) ||
+                  urls.uidFromUrl(href) != urls.uidFromUrl(threadUrl))))
+        continue;
+      final page = _pageFromHref(href);
       if (page != null && page > totalFromLinks) totalFromLinks = page;
     }
 
-    final total = totalFromText ?? totalFromLinks;
+    final total = (totalFromText ?? totalFromLinks).clamp(1, 0x7fffffff);
     final current = (currentFromText ?? requestedPage).clamp(1, total).toInt();
     return ThreadPagination(currentPage: current, totalPages: total);
   }
@@ -325,13 +380,14 @@ class ThreadDetailParser {
 
   String? _authorPostsHref(dom.Element contentCell) {
     for (final link in contentCell.querySelectorAll(
-      'a[href*="read.php?tid-"][href*="-uid-"]',
+      '.tiptop a[href*="read.php?tid-"][href*="-uid-"]',
     )) {
       final href = link.attributes['href'] ?? '';
       if (href.isEmpty ||
           href.contains('skinco-') ||
           href.contains('page-') ||
-          !RegExp(r'read\.php\?tid-\d+-uid-\d+\.html').hasMatch(href)) {
+          !RegExp(r'read\.php\?tid-\d+-uid-\d+\.html').hasMatch(href) ||
+          urls.forumLinkTarget(href) is! ForumThreadLinkTarget) {
         continue;
       }
       final label = _cleanText(link.text);

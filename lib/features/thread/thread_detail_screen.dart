@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
@@ -8,8 +10,10 @@ import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
+import '../common/forum_link_opener.dart';
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
+import '../search/search_screen.dart';
 import 'thread_post_body.dart';
 import 'thread_render_models.dart';
 
@@ -36,7 +40,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       <String, ThreadFavoriteState>{};
   bool _favoriteBusy = false;
   bool _savingAttachment = false;
-  bool _onlyOriginalPoster = false;
   bool _loading = true;
   Object? _loadError;
   late ForumThread _thread;
@@ -51,13 +54,24 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       <String, ThreadPostRenderModel>{};
   List<ThreadDetailListEntry> _detailEntries = const <ThreadDetailListEntry>[];
   bool _onlyOriginalPosterActive = false;
+  bool _authorFilterActive = false;
   int _visibleFloorCount = 0;
+  // One-shot URL fragment target, consumed by the first successful load.
+  String? _pendingAnchor;
+  Object? _anchorTarget;
+  final _anchorKey = GlobalKey(debugLabel: 'thread-anchor-target');
 
   @override
   void initState() {
     super.initState();
     _thread = widget.thread;
+    _pendingAnchor = _fragmentOf(widget.thread.url);
     _loadPage(1);
+  }
+
+  static String? _fragmentOf(String url) {
+    final fragment = Uri.tryParse(url)?.fragment ?? '';
+    return fragment.isEmpty ? null : fragment;
   }
 
   @override
@@ -66,9 +80,10 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     if (oldWidget.thread.url == widget.thread.url) return;
     _thread = widget.thread;
     _authorFilterName = null;
-    _onlyOriginalPoster = false;
     _detail = null;
     _page = 1;
+    _pendingAnchor = _fragmentOf(widget.thread.url);
+    _anchorTarget = null;
     _resetDetailRenderState();
     _loadPage(1);
   }
@@ -94,14 +109,19 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         page: normalizedPage,
       );
       if (!mounted || runId != _loadRunId) return;
+      final anchor = _pendingAnchor;
       setState(() {
         _detail = detail;
         _thread = detail.thread;
         _page = detail.pagination.currentPage;
         _loading = false;
+        _pendingAnchor = null;
+        _anchorTarget = anchor == null ? null : _anchorTargetIn(detail, anchor);
         _recomputeDetailRenderState();
       });
-      if (scrollToTop && _scrollController.hasClients) {
+      if (anchor != null) {
+        _revealAnchor();
+      } else if (scrollToTop && _scrollController.hasClients) {
         await _scrollController.animateTo(
           0,
           duration: const Duration(milliseconds: 220),
@@ -122,6 +142,45 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
   }
 
+  /// The post whose parsed DOM anchors contain [anchor] exactly; never guessed.
+  static Object? _anchorTargetIn(ThreadDetail detail, String anchor) {
+    if (detail.bodyAnchors.contains(anchor)) return detail;
+    for (final reply in detail.replies) {
+      if (reply.anchors.contains(anchor)) return reply;
+    }
+    return null;
+  }
+
+  /// Steps the lazy list forward until the target row is mounted, then
+  /// reveals it; falls back to a notice on the page actually shown.
+  Future<void> _revealAnchor() async {
+    for (var attempt = 0; _anchorTarget != null && attempt < 200; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final target = _anchorKey.currentContext;
+      if (target != null) {
+        await Scrollable.ensureVisible(target);
+        // shortcut: re-aligns once after the next layout; images that finish
+        // loading later above the target can still shift it.
+        await WidgetsBinding.instance.endOfFrame;
+        final settled = _anchorKey.currentContext;
+        if (mounted && settled != null) await Scrollable.ensureVisible(settled);
+        return;
+      }
+      if (!_scrollController.hasClients) continue;
+      final position = _scrollController.position;
+      if (position.pixels >= position.maxScrollExtent) break;
+      position.jumpTo(math.min(
+        position.pixels + position.viewportDimension,
+        position.maxScrollExtent,
+      ));
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('未找到指定楼层，已显示所在页')),
+    );
+  }
+
   Future<void> _goToPage(int page) async {
     final detail = _detail;
     if (detail != null) {
@@ -139,16 +198,17 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     await _showAuthorFilter(authorPostsUrl, reply.author);
   }
 
+  /// Server uid filtering only: a local name filter over an unfiltered page
+  /// keeps unfiltered page counts and can leave whole pages empty.
   Future<void> _showOriginalPosterPosts(ForumThread thread) async {
-    final authorPostsUrl = thread.authorPostsUrl;
-    if (authorPostsUrl == null || authorPostsUrl.isEmpty) {
-      setState(() {
-        _onlyOriginalPoster = true;
-        _recomputeDetailRenderState();
-      });
+    final url = widget.repository.originalPosterPostsUrl(thread);
+    if (url == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('无法只看楼主：缺少楼主身份')),
+      );
       return;
     }
-    await _showAuthorFilter(authorPostsUrl, thread.author ?? '楼主');
+    await _showAuthorFilter(url, thread.author ?? '楼主');
   }
 
   Future<void> _showAuthorFilter(String authorPostsUrl, String author) async {
@@ -156,18 +216,20 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     setState(() {
       _thread = current.copyWith(url: authorPostsUrl);
       _authorFilterName = author;
-      _onlyOriginalPoster = false;
       _recomputeDetailRenderState();
     });
     await _loadPage(1, scrollToTop: true);
   }
 
+  // Covers filters chosen here and uid deep links alike; never reloads the
+  // incoming URL, which may itself carry the filter or a page/fragment.
   Future<void> _clearAuthorFilter() async {
-    if (_authorFilterName == null) return;
+    final current = _detail?.thread ?? _thread;
+    final url = widget.repository.unfilteredThreadUrl(current);
+    if (url == null) return;
     setState(() {
-      _thread = widget.thread;
+      _thread = current.copyWith(url: url);
       _authorFilterName = null;
-      _onlyOriginalPoster = false;
       _recomputeDetailRenderState();
     });
     await _loadPage(1, scrollToTop: true);
@@ -180,6 +242,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _replyRenderModels = <String, ThreadPostRenderModel>{};
     _detailEntries = const <ThreadDetailListEntry>[];
     _onlyOriginalPosterActive = false;
+    _authorFilterActive = false;
     _visibleFloorCount = 0;
   }
 
@@ -209,18 +272,13 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _replyRenderModels = nextReplyRenderModels;
     }
 
-    final originalAuthor = detail.thread.author;
-    final originalPosterFilterActive = _authorFilterName != null &&
-        originalAuthor != null &&
-        _authorFilterName == originalAuthor;
+    // Filter state comes from the validated uid in the loaded URL, not names.
     _onlyOriginalPosterActive =
-        _onlyOriginalPoster || originalPosterFilterActive;
+        widget.repository.isOriginalPosterFilter(detail.thread);
+    _authorFilterActive =
+        widget.repository.unfilteredThreadUrl(detail.thread) != null;
 
-    final visibleReplies = _onlyOriginalPosterActive && originalAuthor != null
-        ? detail.replies
-            .where((reply) => reply.author == originalAuthor)
-            .toList(growable: false)
-        : detail.replies;
+    final visibleReplies = detail.replies;
     final hasOpeningPost = detail.body.trim().isNotEmpty ||
         detail.bodySegments.isNotEmpty ||
         detail.bodyImages.isNotEmpty ||
@@ -237,25 +295,21 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       ),
       const ThreadDetailTopSpacingEntry(12),
       ThreadDetailOpeningPostEntry(
-        key: ValueKey(
-          'thread-opening-${detail.thread.url}-${detail.pagination.currentPage}',
-        ),
+        key: identical(_anchorTarget, detail)
+            ? _anchorKey
+            : ValueKey(
+                'thread-opening-${detail.thread.url}-${detail.pagination.currentPage}',
+              ),
         hasBody: hasOpeningPost,
         renderModel: _openingPostRenderModel,
       ),
-      if (_authorFilterName != null)
+      if (_authorFilterActive)
         ThreadDetailAuthorFilterChipEntry(
           key: const ValueKey('thread-author-filter-chip'),
           visibleFloorCount: _visibleFloorCount,
         ),
       const ThreadDetailTopSpacingEntry(16),
-      if (_onlyOriginalPoster && visibleReplies.isEmpty)
-        const ThreadDetailEmptyStateEntry(
-          key: ValueKey('thread-empty-original-poster'),
-          title: '没有楼主回复',
-          message: '当前页只包含其他用户回复。',
-        ),
-      if (_authorFilterName != null && _visibleFloorCount == 0)
+      if (_authorFilterActive && _visibleFloorCount == 0)
         const ThreadDetailEmptyStateEntry(
           key: ValueKey('thread-empty-author-filter'),
           title: '没有该作者内容',
@@ -263,9 +317,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         ),
       for (final reply in visibleReplies)
         ThreadDetailReplyEntry(
-          key: ValueKey(
-            'thread-reply-${_replyStableIds[reply] ?? reply.floor ?? reply.author}',
-          ),
+          key: identical(_anchorTarget, reply)
+              ? _anchorKey
+              : ValueKey(
+                  'thread-reply-${_replyStableIds[reply] ?? reply.floor ?? reply.author}',
+                ),
           reply: reply,
           renderModel: _replyRenderModels[_replyStableIds[reply]] ??
               ThreadPostRenderModel.empty,
@@ -460,7 +516,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   Future<void> _openContentLink(String url, String label) async {
     if (!widget.repository.isAttachmentUrl(url)) {
-      await _openExternalLink(ThreadActionLink(url: url, label: label));
+      await openForumLink(context, widget.repository, url, label: label);
       return;
     }
     if (_savingAttachment) return;
@@ -521,6 +577,21 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
             centerTitle: true,
             actions: [
               IconButton(
+                tooltip: '搜索同名主题',
+                // Loaded title only; the pre-load title can be a placeholder.
+                onPressed: detail == null || detail.thread.title.trim().isEmpty
+                    ? null
+                    : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => SearchScreen(
+                              repository: widget.repository,
+                              initialKeyword: detail.thread.title.trim(),
+                            ),
+                          ),
+                        ),
+                icon: const Icon(Icons.manage_search),
+              ),
+              IconButton(
                 tooltip: '回复',
                 onPressed: () => _scrollToReply(),
                 icon: Icon(Icons.reply_outlined),
@@ -542,9 +613,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                   detail: detail,
                   entries: _detailEntries,
                   loading: _loading,
-                  onlyOriginalPoster: _onlyOriginalPoster,
                   onlyOriginalPosterActive: _onlyOriginalPosterActive,
-                  authorFilterName: _authorFilterName,
+                  authorFilterName:
+                      _authorFilterActive ? _authorFilterName ?? '该作者' : null,
                   visibleFloorCount: _visibleFloorCount,
                   favorite: detail.favorite == null
                       ? null
@@ -557,12 +628,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                   onRefresh: _refresh,
                   onAuthorTap: _openUserProfile,
                   onFavorite: _handleFavorite,
-                  onOnlyOriginalPosterChanged: (selected) {
-                    setState(() {
-                      _onlyOriginalPoster = selected;
-                      _recomputeDetailRenderState();
-                    });
-                  },
                   onShowOriginalPosterPosts: _showOriginalPosterPosts,
                   onShowAuthorPosts: _showAuthorPosts,
                   onClearAuthorFilter: _clearAuthorFilter,
@@ -613,7 +678,6 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.detail,
     required this.entries,
     required this.loading,
-    required this.onlyOriginalPoster,
     required this.onlyOriginalPosterActive,
     required this.authorFilterName,
     required this.visibleFloorCount,
@@ -626,7 +690,6 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.onRefresh,
     required this.onAuthorTap,
     required this.onFavorite,
-    required this.onOnlyOriginalPosterChanged,
     required this.onShowOriginalPosterPosts,
     required this.onShowAuthorPosts,
     required this.onClearAuthorFilter,
@@ -643,7 +706,6 @@ class _ThreadDetailContent extends StatelessWidget {
   final ThreadDetail detail;
   final List<ThreadDetailListEntry> entries;
   final bool loading;
-  final bool onlyOriginalPoster;
   final bool onlyOriginalPosterActive;
   final String? authorFilterName;
   final int visibleFloorCount;
@@ -656,7 +718,6 @@ class _ThreadDetailContent extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final ValueChanged<String> onAuthorTap;
   final ValueChanged<ThreadFavorite> onFavorite;
-  final ValueChanged<bool> onOnlyOriginalPosterChanged;
   final ValueChanged<ForumThread> onShowOriginalPosterPosts;
   final ValueChanged<ThreadReply> onShowAuthorPosts;
   final VoidCallback onClearAuthorFilter;
@@ -739,15 +800,9 @@ class _ThreadDetailContent extends StatelessWidget {
           originalAuthor: originalAuthor,
           onOnlyOriginalPosterChanged: originalAuthor == null
               ? null
-              : (selected) {
-                  if (selected) {
-                    onShowOriginalPosterPosts(detail.thread);
-                  } else if (authorFilterName != null) {
-                    onClearAuthorFilter();
-                  } else {
-                    onOnlyOriginalPosterChanged(false);
-                  }
-                },
+              : (selected) => selected
+                  ? onShowOriginalPosterPosts(detail.thread)
+                  : onClearAuthorFilter(),
           previousThread: detail.previousThread,
           nextThread: detail.nextThread,
           rssFeed: detail.rssFeed,

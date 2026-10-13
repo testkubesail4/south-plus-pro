@@ -9,11 +9,67 @@ class WindCodeToolbar extends StatelessWidget {
     required this.controller,
     this.enabled = true,
     this.baseUri,
+    this.allowSale = true,
   });
 
   final TextEditingController controller;
   final bool enabled;
   final Uri? baseUri;
+
+  /// Sale insertion is off where no purchase flow is verified (PMs).
+  final bool allowSale;
+
+  // The site editor's own size, colour and font menus.
+  static const sizes = [1, 2, 3, 4, 5, 6];
+  static const colors = <String, int>{
+    'skyblue': 0xFF87CEEB,
+    'royalblue': 0xFF4169E1,
+    'blue': 0xFF0000FF,
+    'darkblue': 0xFF00008B,
+    'orange': 0xFFFFA500,
+    'orangered': 0xFFFF4500,
+    'crimson': 0xFFDC143C,
+    'red': 0xFFFF0000,
+    'firebrick': 0xFFB22222,
+    'darkred': 0xFF8B0000,
+    'green': 0xFF008000,
+    'limegreen': 0xFF32CD32,
+    'seagreen': 0xFF2E8B57,
+    'teal': 0xFF008080,
+    'deeppink': 0xFFFF1493,
+    'tomato': 0xFFFF6347,
+    'coral': 0xFFFF7F50,
+    'purple': 0xFF800080,
+    'indigo': 0xFF4B0082,
+    'burlywood': 0xFFDEB887,
+    'sandybrown': 0xFFF4A460,
+    'sienna': 0xFFA0522D,
+    'chocolate': 0xFFD2691E,
+    'silver': 0xFFC0C0C0,
+  };
+  static const fonts = [
+    '宋体',
+    '楷体_GB2312',
+    '新宋体',
+    '黑体',
+    '隶书',
+    'Andale Mono',
+    'Arial',
+    'Arial Black',
+    'Book Antiqua',
+    'Century Gothic',
+    'Comic Sans MS',
+    'Courier New',
+    'Georgia',
+    'Impact',
+    'Tahoma',
+    'Times New Roman',
+    'Trebuchet MS',
+    'Script MT Bold',
+    'Stencil',
+    'Verdana',
+    'Lucida Console',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -24,10 +80,76 @@ class WindCodeToolbar extends StatelessWidget {
         onTap: () => _showEmojiSheet(context),
       ),
       _WindCodeAction(
-        label: '出售',
-        icon: Icons.sell_outlined,
-        onTap: () => _showSaleSheet(context),
+        label: '粗体',
+        icon: Icons.format_bold,
+        onTap: () => _wrapSelection('[b]', '[/b]', '文字'),
       ),
+      _WindCodeAction(
+        label: '斜体',
+        icon: Icons.format_italic,
+        onTap: () => _wrapSelection('[i]', '[/i]', '文字'),
+      ),
+      _WindCodeAction(
+        label: '下划线',
+        icon: Icons.format_underlined,
+        onTap: () => _wrapSelection('[u]', '[/u]', '文字'),
+      ),
+      _WindCodeAction(
+        label: '字号',
+        icon: Icons.format_size,
+        onTap: () => _pickAndWrap(
+          context,
+          title: '字号',
+          options: {for (final size in sizes) '$size': '$size'},
+          tag: 'size',
+        ),
+      ),
+      _WindCodeAction(
+        label: '颜色',
+        icon: Icons.format_color_text,
+        onTap: () => _pickAndWrap(
+          context,
+          title: '颜色',
+          options: {for (final name in colors.keys) name: name},
+          tag: 'color',
+          swatch: (name) => Color(colors[name]!),
+        ),
+      ),
+      _WindCodeAction(
+        label: '字体',
+        icon: Icons.font_download_outlined,
+        onTap: () => _pickAndWrap(
+          context,
+          title: '字体',
+          options: {for (final font in fonts) font: font},
+          tag: 'font',
+        ),
+      ),
+      _WindCodeAction(
+        label: '对齐',
+        icon: Icons.format_align_center,
+        onTap: () => _pickAndWrap(
+          context,
+          title: '对齐',
+          options: const {
+            'left': '居左',
+            'center': '居中',
+            'right': '居右',
+          },
+          tag: 'align',
+        ),
+      ),
+      _WindCodeAction(
+        label: '列表',
+        icon: Icons.format_list_bulleted,
+        onTap: () => _showListSheet(context),
+      ),
+      if (allowSale)
+        _WindCodeAction(
+          label: '出售',
+          icon: Icons.sell_outlined,
+          onTap: () => _showSaleSheet(context),
+        ),
       _WindCodeAction(
         label: '引用',
         icon: Icons.format_quote,
@@ -83,6 +205,112 @@ class WindCodeToolbar extends StatelessWidget {
       suffix: suffix,
       placeholder: placeholder,
       selection: controller.value.selection,
+    );
+  }
+
+  Future<String?> _pickOption(
+    BuildContext context, {
+    required String title,
+    required Map<String, String> options,
+    Color Function(String value)? swatch,
+  }) {
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final MapEntry(:key, :value) in options.entries)
+                      ListTile(
+                        leading: swatch == null
+                            ? null
+                            : CircleAvatar(
+                                radius: 10,
+                                backgroundColor: swatch(key),
+                              ),
+                        title: Text(value),
+                        onTap: () => Navigator.of(context).pop(key),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndWrap(
+    BuildContext context, {
+    required String title,
+    required Map<String, String> options,
+    required String tag,
+    Color Function(String value)? swatch,
+  }) async {
+    final selection = controller.value.selection;
+    final value = await _pickOption(
+      context,
+      title: title,
+      options: options,
+      swatch: swatch,
+    );
+    if (value == null) return;
+    _wrapRange(
+      prefix: '[$tag=$value]',
+      suffix: '[/$tag]',
+      placeholder: '文字',
+      selection: selection,
+    );
+  }
+
+  Future<void> _showListSheet(BuildContext context) async {
+    final selection = controller.value.selection;
+    final type = await _pickOption(
+      context,
+      title: '列表',
+      options: const {
+        '': '无序列表',
+        '1': '数字列表',
+        'a': '字母列表',
+      },
+    );
+    if (type == null) return;
+    final text = controller.text;
+    final start = selection.start < 0 ? text.length : selection.start;
+    final end = selection.end < 0 ? text.length : selection.end;
+    // Each selected line becomes one item, as the site editor prompts per item.
+    final lines = text
+        .substring(start, end)
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    final items =
+        (lines.isEmpty ? ['项目'] : lines).map((line) => '[li]$line[/li]').join();
+    final open = type.isEmpty ? '[list]' : '[list=$type]';
+    final value = '$open$items[/list]';
+    controller.value = TextEditingValue(
+      text: text.replaceRange(start, end, value),
+      selection: TextSelection.collapsed(offset: start + value.length),
     );
   }
 

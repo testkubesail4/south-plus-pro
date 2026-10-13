@@ -1,3 +1,5 @@
+import 'forum_models.dart';
+
 enum ForumPmBox {
   inbox('receivebox'),
   sendbox('sendbox'),
@@ -65,6 +67,7 @@ class ForumPmDetail {
     required this.title,
     required this.time,
     required this.content,
+    this.segments = const [],
     this.replyPath,
     this.forwardPath,
     this.editPath,
@@ -78,6 +81,7 @@ class ForumPmDetail {
   final String title;
   final String time;
   final String content;
+  final List<ThreadContentSegment> segments;
   final String? replyPath;
   final String? forwardPath;
   final String? editPath;
@@ -113,11 +117,13 @@ class ForumPmChatRecord {
     required this.title,
     required this.time,
     required this.content,
+    this.segments = const [],
   });
   final String sender;
   final String title;
   final String time;
   final String content;
+  final List<ThreadContentSegment> segments;
 }
 
 class ForumPmChatlog {

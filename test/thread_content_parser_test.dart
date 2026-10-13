@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:south_plus_rewrite/models/forum_models.dart';
@@ -6,7 +8,36 @@ import 'package:south_plus_rewrite/services/parsers/thread_content_parser.dart';
 import 'package:south_plus_rewrite/services/parsers/user_profile_parser.dart';
 import 'package:south_plus_rewrite/services/whats_link_preview_service.dart';
 
+class _CountingPreviewClient implements HttpClient {
+  int requests = 0;
+  @override
+  Future<HttpClientRequest> getUrl(Uri uri) {
+    requests++;
+    throw StateError('unexpected preview transport');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
+  test('preview rejects unsafe and unsupported URLs without outbound requests',
+      () async {
+    final client = _CountingPreviewClient();
+    final service = WhatsLinkPreviewService(client: client);
+    for (final value in [
+      'https://fixture-user:fixture-password@example.invalid/file.zip',
+      'file:///fixture.zip',
+      'javascript:alert(1)',
+      'mailto:reader@example.invalid',
+      'https://example.invalid/\\\\private',
+    ]) {
+      await expectLater(
+          service.fetch(value), throwsA(isA<WhatsLinkPreviewException>()));
+    }
+    expect(client.requests, 0);
+  });
+
   test('extractInlineSegments trims boundary blank lines', () {
     final fragment = html_parser.parseFragment(
       '<div class="card-text"><br><br>\n  正文第一行<br>正文第二行<br><br></div>',
@@ -137,18 +168,39 @@ void main() {
     expect(preview.screenshotUrls, ['https://whatslink.info/image/example']);
   });
 
+  test('pagination ignores body counters and foreign thread or uid links', () {
+    final parser = ThreadDetailParser();
+    for (final pager in [
+      '',
+      '''<div class="pagesone">Pages: 1/2
+      <a href="read.php?tid-701-uid-901-page-2.html">2</a></div>''',
+      '''<div class="pages">
+      <a href="read.php?tid-701-uid-901-page-2.html">2</a>
+      <a href="read.php?tid-999-uid-901-page-99.html">99</a>
+      <a href="read.php?tid-701-uid-902-page-88.html">88</a>
+      <a href="read.php?tid-701-page-77.html">77</a></div>'''
+    ]) {
+      final document = html_parser.parse('''<blockquote><pre>Pages: 1/99</pre>
+        <a href="read.php?tid-999-page-99.html">99</a></blockquote>$pager''');
+      final page = parser.desktopPagination(document,
+          threadUrl: 'read.php?tid-701-uid-901.html');
+      expect(page.currentPage, 1);
+      expect(page.totalPages, pager.isEmpty ? 1 : 2);
+    }
+  });
+
   test('ThreadDetailParser extracts desktop posts with avatars and pagination',
       () {
     final document = html_parser.parse('''
       <html>
         <body>
-          <a href="read.php?tid-741222-fpage-0-toread--page-1.html">«</a>
+          <div class="pages"><a href="read.php?tid-741222-fpage-0-toread--page-1.html">«</a>
           <span>2</span>
           <a href="read.php?tid-741222-fpage-0-toread--page-247.html">»</a>
           <a href="job.php?action-previous-fid-2-tid-741222-fpage-0-goto-previous.html">上一主题</a>
           <a href="job.php?action-previous-fid-2-tid-741222-fpage-0-goto-next.html">下一主题</a>
           <a href="rss.php?tid=741222">Rss订阅本帖最新内容</a>
-          Pages: 2/247 Go
+          Pages: 2/247 Go</div>
           <table class="js-post">
             <tr class="tr1">
               <th class="r_two" rowspan="2">
@@ -198,6 +250,7 @@ void main() {
     expect(replies, hasLength(1));
     expect(replies.single.author, 'Alice');
     expect(replies.single.floor, 'B1F');
+    expect(replies.single.anchors, containsAll(['td_1', 'read_1', 'fl-1']));
     expect(replies.single.postedAt, '2026-05-29 12:30');
     expect(
       replies.single.authorUrl,

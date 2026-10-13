@@ -1,5 +1,39 @@
 import 'dart:typed_data';
 
+sealed class ForumLinkTarget {
+  const ForumLinkTarget();
+}
+
+class ForumThreadLinkTarget extends ForumLinkTarget {
+  const ForumThreadLinkTarget(this.url);
+  final String url;
+}
+
+class ForumUserLinkTarget extends ForumLinkTarget {
+  const ForumUserLinkTarget(this.userUrl, {this.tab = UserProfileTab.home});
+  final String userUrl;
+  final UserProfileTab tab;
+}
+
+class ForumBoardLinkTarget extends ForumLinkTarget {
+  const ForumBoardLinkTarget(this.category);
+  final ForumCategory category;
+}
+
+class ForumPageLinkTarget extends ForumLinkTarget {
+  const ForumPageLinkTarget(this.url);
+  final String url;
+}
+
+class ForumExternalLinkTarget extends ForumLinkTarget {
+  const ForumExternalLinkTarget(this.url);
+  final String url;
+}
+
+class ForumBlockedLinkTarget extends ForumLinkTarget {
+  const ForumBlockedLinkTarget();
+}
+
 enum ForumThreadOrder {
   lastPost('lastpost'),
   postedAt('postdate'),
@@ -46,6 +80,7 @@ class ForumSearchQuery {
     this.time = ForumSearchTime.year,
     this.order = ForumThreadOrder.postedAt,
     this.ascending = false,
+    this.digest = false,
   });
 
   final String keyword;
@@ -55,13 +90,20 @@ class ForumSearchQuery {
   final ForumSearchTime time;
   final ForumThreadOrder order;
   final bool ascending;
+  final bool digest;
 }
 
 class ForumSearchBoard {
-  const ForumSearchBoard({required this.id, required this.name});
+  const ForumSearchBoard(
+      {required this.id,
+      required this.name,
+      this.depth = 0,
+      this.selectable = true});
 
   final String id;
   final String name;
+  final int depth;
+  final bool selectable;
 }
 
 class ForumSearchPage {
@@ -69,11 +111,25 @@ class ForumSearchPage {
     required this.threads,
     this.total,
     this.nextPagePath,
+    this.previousPagePath,
+    this.currentPage = 1,
+    this.pageLinks = const [],
   });
 
   final List<ForumThread> threads;
   final int? total;
   final String? nextPagePath;
+  final String? previousPagePath;
+  final int currentPage;
+  final List<ForumSearchPageLink> pageLinks;
+}
+
+class ForumSearchPageLink {
+  const ForumSearchPageLink(
+      {required this.label, required this.path, required this.page});
+  final String label;
+  final String path;
+  final int page;
 }
 
 class ForumThread {
@@ -188,6 +244,7 @@ class ThreadDetail {
     this.bodyImages = const [],
     this.bodyLinks = const [],
     this.bodySegments = const [],
+    this.bodyAnchors = const [],
     this.bodySaleBoxes = const [],
     this.bodySaleBoxesFirst = false,
     this.favorite,
@@ -203,6 +260,7 @@ class ThreadDetail {
   final List<ThreadImage> bodyImages;
   final List<ThreadLink> bodyLinks;
   final List<ThreadContentSegment> bodySegments;
+  final List<String> bodyAnchors;
   final List<ThreadSaleBox> bodySaleBoxes;
   final bool bodySaleBoxesFirst;
   final ThreadFavorite? favorite;
@@ -236,6 +294,7 @@ class ThreadReply {
     this.quote,
     this.quoteUrl,
     this.segments = const [],
+    this.anchors = const [],
     this.images = const [],
     this.links = const [],
     this.saleBoxes = const [],
@@ -252,6 +311,7 @@ class ThreadReply {
   final String? quote;
   final String? quoteUrl;
   final List<ThreadContentSegment> segments;
+  final List<String> anchors;
   final List<ThreadImage> images;
   final List<ThreadLink> links;
   final List<ThreadSaleBox> saleBoxes;
@@ -263,74 +323,131 @@ enum ThreadContentSegmentType {
   image,
   quote,
   saleBox,
+  block,
+  code,
+  list,
+  table,
+  media
+}
+
+const forumWindCodeColors = {
+  'black': 0xff000000,
+  'red': 0xffff0000,
+  'blue': 0xff0000ff,
+  'green': 0xff008000,
+  'white': 0xffffffff,
+  'gray': 0xff808080,
+  'grey': 0xff808080,
+  'purple': 0xff800080,
+  'skyblue': 0xff87ceeb,
+  'royalblue': 0xff4169e1,
+  'darkblue': 0xff00008b,
+  'orange': 0xffffa500,
+  'orangered': 0xffff4500,
+  'crimson': 0xffdc143c,
+  'firebrick': 0xffb22222,
+  'darkred': 0xff8b0000,
+  'limegreen': 0xff32cd32,
+  'seagreen': 0xff2e8b57,
+  'teal': 0xff008080,
+  'deeppink': 0xffff1493,
+  'tomato': 0xffff6347,
+  'coral': 0xffff7f50,
+  'indigo': 0xff4b0082,
+  'burlywood': 0xffdeb887,
+  'sandybrown': 0xfff4a460,
+  'sienna': 0xffa0522d,
+  'chocolate': 0xffd2691e,
+  'silver': 0xffc0c0c0,
+};
+
+enum ThreadContentAlignment { start, center, end, justify }
+
+class ThreadContentTableCell {
+  const ThreadContentTableCell(this.segments, {this.isHeader = false});
+  final List<ThreadContentSegment> segments;
+  final bool isHeader;
 }
 
 class ThreadContentSegment {
-  const ThreadContentSegment.text(
-    this.text, {
+  const ThreadContentSegment._({
+    required this.type,
+    this.text,
+    this.url,
+    this.alt,
+    this.saleBox,
+    this.isEmoji = false,
+    this.children = const [],
     this.colorValue,
+    this.backgroundColorValue,
     this.isBold = false,
     this.isItalic = false,
     this.isUnderline = false,
     this.isStrike = false,
     this.fontScale = 1,
     this.href,
-    this.backgroundColorValue,
-  })  : type = ThreadContentSegmentType.text,
-        url = null,
-        alt = null,
-        saleBox = null,
-        children = const [],
-        isEmoji = false;
+    this.fontFamily,
+    this.alignment = ThreadContentAlignment.start,
+    this.isOrdered = false,
+    this.listStyle = '1',
+    this.tableRows = const [],
+  });
 
-  const ThreadContentSegment.image({
-    required this.url,
-    this.alt,
-    this.isEmoji = false,
-  })  : type = ThreadContentSegmentType.image,
-        text = null,
-        colorValue = null,
-        isBold = false,
-        isItalic = false,
-        isUnderline = false,
-        isStrike = false,
-        fontScale = 1,
-        href = null,
-        backgroundColorValue = null,
-        saleBox = null,
-        children = const [];
+  const ThreadContentSegment.text(
+    String? text, {
+    int? colorValue,
+    bool isBold = false,
+    bool isItalic = false,
+    bool isUnderline = false,
+    bool isStrike = false,
+    double fontScale = 1,
+    String? href,
+    int? backgroundColorValue,
+    String? fontFamily,
+  }) : this._(
+            type: ThreadContentSegmentType.text,
+            text: text,
+            colorValue: colorValue,
+            isBold: isBold,
+            isItalic: isItalic,
+            isUnderline: isUnderline,
+            isStrike: isStrike,
+            fontScale: fontScale,
+            href: href,
+            backgroundColorValue: backgroundColorValue,
+            fontFamily: fontFamily);
 
-  const ThreadContentSegment.quote(this.children)
-      : type = ThreadContentSegmentType.quote,
-        text = null,
-        url = null,
-        alt = null,
-        saleBox = null,
-        isEmoji = false,
-        colorValue = null,
-        isBold = false,
-        isItalic = false,
-        isUnderline = false,
-        isStrike = false,
-        fontScale = 1,
-        href = null,
-        backgroundColorValue = null;
-
-  const ThreadContentSegment.saleBox(this.saleBox)
-      : type = ThreadContentSegmentType.saleBox,
-        text = null,
-        url = null,
-        alt = null,
-        isEmoji = false,
-        children = const [],
-        colorValue = null,
-        isBold = false,
-        isItalic = false,
-        isUnderline = false,
-        isStrike = false,
-        fontScale = 1,
-        href = null,
-        backgroundColorValue = null;
+  const ThreadContentSegment.image(
+      {required String? url, String? alt, bool isEmoji = false, String? href})
+      : this._(
+            type: ThreadContentSegmentType.image,
+            url: url,
+            alt: alt,
+            isEmoji: isEmoji,
+            href: href);
+  const ThreadContentSegment.quote(List<ThreadContentSegment> children)
+      : this._(type: ThreadContentSegmentType.quote, children: children);
+  const ThreadContentSegment.saleBox(ThreadSaleBox? saleBox)
+      : this._(type: ThreadContentSegmentType.saleBox, saleBox: saleBox);
+  const ThreadContentSegment.block(List<ThreadContentSegment> children,
+      {ThreadContentAlignment alignment = ThreadContentAlignment.start})
+      : this._(
+            type: ThreadContentSegmentType.block,
+            children: children,
+            alignment: alignment);
+  const ThreadContentSegment.code(String text)
+      : this._(type: ThreadContentSegmentType.code, text: text);
+  const ThreadContentSegment.list(List<ThreadContentSegment> children,
+      {bool isOrdered = false, String listStyle = '1'})
+      : this._(
+            type: ThreadContentSegmentType.list,
+            children: children,
+            isOrdered: isOrdered,
+            listStyle: listStyle);
+  const ThreadContentSegment.table(List<List<ThreadContentTableCell>> rows)
+      : this._(type: ThreadContentSegmentType.table, tableRows: rows);
+  const ThreadContentSegment.media({String? url, required String text})
+      : this._(type: ThreadContentSegmentType.media, url: url, text: text);
 
   final ThreadContentSegmentType type;
   final String? text;
@@ -347,6 +464,11 @@ class ThreadContentSegment {
   final bool isStrike;
   final double fontScale;
   final String? href;
+  final String? fontFamily;
+  final ThreadContentAlignment alignment;
+  final bool isOrdered;
+  final String listStyle;
+  final List<List<ThreadContentTableCell>> tableRows;
 }
 
 class ThreadImage {

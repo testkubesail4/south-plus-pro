@@ -13,8 +13,12 @@ void main() {
     final client = _SearchClient();
     final repository = ForumRepository(client: client);
     final boards = await repository.fetchSearchBoards();
-    expect(boards.map((board) => (board.id, board.name)),
-        [('all', 'Fixture all'), ('42', 'Fixture board')]);
+    expect(boards.map((board) => (board.id, board.name)), [
+      ('all', 'Fixture all'),
+      ('group', 'Fixture heading'),
+      ('42', 'Fixture board')
+    ]);
+    expect(boards[1].selectable, false);
 
     final result = await repository.searchForum(const ForumSearchQuery(
       username: 'fixture-user',
@@ -35,11 +39,70 @@ void main() {
       'orderway': 'hits',
       'asc': 'ASC',
       'submit': '提 交',
+      'sch_area': '0',
     });
     expect(result.total, 23);
     expect(result.threads.map((thread) => thread.title),
         ['Fixture first', 'Fixture second']);
     expect(result.nextPagePath, 'search.php?sid=fixture-session&page=2');
+  });
+
+  test(
+      'verified enhanced form keeps hierarchy, wildcard, digest and true empty result',
+      () async {
+    final client = _SearchClient()
+      ..formResponse = '''<form action="search.php?">
+      <input type="checkbox" name="digest" value="1" checked>
+      <input name="sch_area" value="2">
+      <select name="f_fid"><option value="all">Fixture all</option>
+        <option value="">&gt;&gt; Fixture group</option>
+        <option value="42">|- Fixture duplicate</option>
+        <option value="43">|- Fixture duplicate</option>
+        <option value="44" disabled>Fixture unavailable</option></select>
+    </form>''';
+    final repository = ForumRepository(client: client);
+    final boards = await repository.fetchSearchBoards();
+    expect(boards.map((b) => (b.id, b.depth, b.selectable)), [
+      ('all', 0, true),
+      ('', 0, false),
+      ('42', 1, true),
+      ('43', 1, true),
+      ('44', 0, false),
+    ]);
+    await repository.searchForum(const ForumSearchQuery(
+        username: 'fixture*', digest: true, boardId: '43'));
+    expect(client.fields!['digest'], '1');
+    expect(client.fields!['sch_area'], '0');
+    expect(client.fields!['pwuser'], 'fixture*');
+    await repository.searchForum(const ForumSearchQuery(keyword: 'one | two'));
+    expect(client.fields!['digest'], isNull);
+    expect(client.fields!['keyword'], 'one | two');
+    final submitted = client.fields;
+    for (final id in ['', '44', '999']) {
+      await expectLater(
+          repository
+              .searchForum(ForumSearchQuery(keyword: 'fixture', boardId: id)),
+          throwsA(isA<ForumRepositoryException>()));
+    }
+    expect(client.fields, same(submitted));
+    client.postResponse = '<html><body>没有查找匹配的内容</body></html>';
+    final empty = await repository
+        .searchForum(const ForumSearchQuery(keyword: 'fixture'));
+    expect(empty.threads, isEmpty);
+    expect(empty.total, 0);
+  });
+
+  test('foreign search form cannot receive keyword or username', () async {
+    final client = _SearchClient()
+      ..formResponse = '''<form action="https://example.invalid/search.php">
+      <select name="f_fid"><option value="all">Fixture all</option></select>
+    </form>''';
+    await expectLater(
+        ForumRepository(client: client).searchForum(const ForumSearchQuery(
+            keyword: 'fixture-query', username: 'fixture-user')),
+        throwsA(isA<ForumRepositoryException>()));
+    expect(client.fields, isNull);
+    expect(client.getPaths, ['search.php']);
   });
 
   test('search defaults and time values match the forum wire protocol',
@@ -97,6 +160,9 @@ void main() {
     expect(client.getPaths.last, 'search.php?sid=fixture-session&page=2');
     expect(client.fields, same(submitted));
     expect(second.total, 23);
+    expect(second.currentPage, 2);
+    expect(second.previousPagePath, 'search.php?sid=fixture-session&page=1');
+    expect(second.pageLinks.map((link) => link.page), [1, 2, 4, 3]);
     expect(second.nextPagePath, 'search.php?sid=fixture-session&page=3');
     client.pageResponse = '<html><body>共搜索到了0条信息</body></html>';
     final last = await repository.searchForumPage(query, second.nextPagePath!);

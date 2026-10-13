@@ -10,6 +10,11 @@ enum ThreadRenderBlockType {
   emoji,
   quote,
   saleBox,
+  block,
+  code,
+  list,
+  table,
+  media,
 }
 
 class ThreadTextStyleData {
@@ -21,6 +26,7 @@ class ThreadTextStyleData {
     this.isUnderline = false,
     this.isStrike = false,
     this.fontScale = 1,
+    this.fontFamily,
   });
 
   factory ThreadTextStyleData.fromSegment(ThreadContentSegment segment) {
@@ -32,6 +38,7 @@ class ThreadTextStyleData {
       isUnderline: segment.isUnderline,
       isStrike: segment.isStrike,
       fontScale: segment.fontScale,
+      fontFamily: segment.fontFamily,
     );
   }
 
@@ -42,6 +49,7 @@ class ThreadTextStyleData {
   final bool isUnderline;
   final bool isStrike;
   final double fontScale;
+  final String? fontFamily;
 
   @override
   bool operator ==(Object other) {
@@ -53,7 +61,8 @@ class ThreadTextStyleData {
         other.isItalic == isItalic &&
         other.isUnderline == isUnderline &&
         other.isStrike == isStrike &&
-        other.fontScale == fontScale;
+        other.fontScale == fontScale &&
+        other.fontFamily == fontFamily;
   }
 
   @override
@@ -65,6 +74,7 @@ class ThreadTextStyleData {
         isUnderline,
         isStrike,
         fontScale,
+        fontFamily,
       );
 }
 
@@ -107,19 +117,25 @@ class ThreadDownloadLinkRenderBlock extends ThreadRenderBlock {
 }
 
 class ThreadImageRenderBlock extends ThreadRenderBlock {
-  const ThreadImageRenderBlock(this.image) : super(ThreadRenderBlockType.image);
+  const ThreadImageRenderBlock(this.image, {this.href})
+      : super(ThreadRenderBlockType.image);
 
   final ThreadImage image;
+
+  /// Link wrapping the image ([url][img]...[/url] or a > img).
+  final String? href;
 }
 
 class ThreadEmojiRenderBlock extends ThreadRenderBlock {
   const ThreadEmojiRenderBlock({
     required this.url,
     this.alt,
+    this.href,
   }) : super(ThreadRenderBlockType.emoji);
 
   final String url;
   final String? alt;
+  final String? href;
 }
 
 class ThreadQuoteRenderBlock extends ThreadRenderBlock {
@@ -134,6 +150,73 @@ class ThreadSaleBoxRenderBlock extends ThreadRenderBlock {
       : super(ThreadRenderBlockType.saleBox);
 
   final ThreadSaleBox saleBox;
+}
+
+/// A paragraph-level container (p/div/align) that starts on its own line.
+class ThreadBlockRenderBlock extends ThreadRenderBlock {
+  const ThreadBlockRenderBlock(this.renderModel, this.alignment)
+      : super(ThreadRenderBlockType.block);
+
+  final ThreadPostRenderModel renderModel;
+  final ThreadContentAlignment alignment;
+}
+
+class ThreadCodeRenderBlock extends ThreadRenderBlock {
+  const ThreadCodeRenderBlock(this.text) : super(ThreadRenderBlockType.code);
+
+  final String text;
+}
+
+class ThreadListRenderBlock extends ThreadRenderBlock {
+  const ThreadListRenderBlock({
+    required this.items,
+    required this.isOrdered,
+    required this.listStyle,
+  }) : super(ThreadRenderBlockType.list);
+
+  final List<ThreadPostRenderModel> items;
+  final bool isOrdered;
+  final String listStyle;
+
+  String markerAt(int index) {
+    if (!isOrdered) return '•';
+    final letter = switch (listStyle) {
+      'a' => 'a',
+      'A' => 'A',
+      _ => null,
+    };
+    if (letter == null) return '${index + 1}.';
+    // Spreadsheet-style letters keep going past z (aa, ab, ...).
+    var n = index;
+    var marker = '';
+    do {
+      marker = String.fromCharCode(letter.codeUnitAt(0) + n % 26) + marker;
+      n = n ~/ 26 - 1;
+    } while (n >= 0);
+    return '$marker.';
+  }
+}
+
+class ThreadTableRenderCell {
+  const ThreadTableRenderCell(this.renderModel, {required this.isHeader});
+
+  final ThreadPostRenderModel renderModel;
+  final bool isHeader;
+}
+
+class ThreadTableRenderBlock extends ThreadRenderBlock {
+  const ThreadTableRenderBlock(this.rows) : super(ThreadRenderBlockType.table);
+
+  final List<List<ThreadTableRenderCell>> rows;
+}
+
+/// Audio/video/flash: never played in-app; shown as a card with its link.
+class ThreadMediaRenderBlock extends ThreadRenderBlock {
+  const ThreadMediaRenderBlock({required this.url, required this.label})
+      : super(ThreadRenderBlockType.media);
+
+  final String? url;
+  final String label;
 }
 
 class ThreadPostRenderModel {
@@ -182,6 +265,14 @@ class ThreadPostRenderModel {
       blocks.add(block);
     }
 
+    void absorb(ThreadPostRenderModel model) {
+      hasImages = hasImages || model.hasImages;
+      hasEmoji = hasEmoji || model.hasEmoji;
+      hasDownloadLinks = hasDownloadLinks || model.hasDownloadLinks;
+      hasQuotes = hasQuotes || model.hasQuotes;
+      hasSaleBoxes = hasSaleBoxes || model.hasSaleBoxes;
+    }
+
     for (final segment in segments) {
       switch (segment.type) {
         case ThreadContentSegmentType.text:
@@ -221,14 +312,20 @@ class ThreadPostRenderModel {
           if (segment.isEmoji) {
             final url = segment.url;
             if (url == null || url.isEmpty) continue;
-            addBlock(ThreadEmojiRenderBlock(url: url, alt: segment.alt));
+            addBlock(ThreadEmojiRenderBlock(
+              url: url,
+              alt: segment.alt,
+              href: segment.href,
+            ));
             hasEmoji = true;
             continue;
           }
           final url = segment.url;
           if (url == null || url.isEmpty) continue;
-          addBlock(
-              ThreadImageRenderBlock(ThreadImage(url: url, alt: segment.alt)));
+          addBlock(ThreadImageRenderBlock(
+            ThreadImage(url: url, alt: segment.alt),
+            href: segment.href,
+          ));
           hasImages = true;
         case ThreadContentSegmentType.quote:
           final quoteModel =
@@ -244,6 +341,52 @@ class ThreadPostRenderModel {
           if (saleBox == null) continue;
           addBlock(ThreadSaleBoxRenderBlock(saleBox));
           hasSaleBoxes = true;
+        case ThreadContentSegmentType.block:
+          final model = ThreadPostRenderModel.fromSegments(segment.children);
+          if (model.blocks.isEmpty) continue;
+          addBlock(ThreadBlockRenderBlock(model, segment.alignment));
+          absorb(model);
+        case ThreadContentSegmentType.code:
+          final text = segment.text ?? '';
+          if (text.isEmpty) continue;
+          addBlock(ThreadCodeRenderBlock(text));
+        case ThreadContentSegmentType.list:
+          final items = [
+            for (final child in segment.children)
+              ThreadPostRenderModel.fromSegments([child]),
+          ].where((item) => item.blocks.isNotEmpty).toList();
+          if (items.isEmpty) continue;
+          addBlock(ThreadListRenderBlock(
+            items: List.unmodifiable(items),
+            isOrdered: segment.isOrdered,
+            listStyle: segment.listStyle,
+          ));
+          items.forEach(absorb);
+        case ThreadContentSegmentType.table:
+          final rows = [
+            for (final row in segment.tableRows)
+              if (row.isNotEmpty)
+                List<ThreadTableRenderCell>.unmodifiable([
+                  for (final cell in row)
+                    ThreadTableRenderCell(
+                      ThreadPostRenderModel.fromSegments(cell.segments),
+                      isHeader: cell.isHeader,
+                    ),
+                ]),
+          ];
+          if (rows.isEmpty) continue;
+          addBlock(ThreadTableRenderBlock(List.unmodifiable(rows)));
+          for (final row in rows) {
+            for (final cell in row) {
+              absorb(cell.renderModel);
+            }
+          }
+        case ThreadContentSegmentType.media:
+          final url = segment.url;
+          addBlock(ThreadMediaRenderBlock(
+            url: url == null || url.isEmpty ? null : url,
+            label: segment.text?.trim() ?? '',
+          ));
       }
     }
 

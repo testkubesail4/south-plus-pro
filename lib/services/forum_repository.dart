@@ -89,6 +89,46 @@ class ForumRepository {
 
   bool isAttachmentUrl(String url) => _client.isAttachmentUrl(url);
 
+  ForumLinkTarget forumLinkTarget(String url) => _urls.forumLinkTarget(url);
+
+  String? searchBoardId(ForumCategory category) =>
+      _urls.fidFromCategory(category);
+
+  String? originalPosterPostsUrl(ForumThread thread) {
+    final tid = _urls.tidFromUrl(thread.url);
+    if (tid == null) return null;
+    final provided = thread.authorPostsUrl ?? '';
+    final providedUid = _urls.uidFromUrl(provided);
+    final authorUrl = thread.authorUrl ?? '';
+    final authorUid = _urls.forumLinkTarget(authorUrl) is ForumUserLinkTarget
+        ? _urls.uidFromUrl(authorUrl)
+        : null;
+    final uid = _urls.forumLinkTarget(provided) is ForumThreadLinkTarget &&
+            providedUid != null &&
+            _urls.tidFromUrl(provided) == tid &&
+            (authorUid == null || providedUid == authorUid)
+        ? providedUid
+        : authorUid;
+    return uid == null
+        ? null
+        : _urls.absoluteUrl('read.php?tid-$tid-uid-$uid.html');
+  }
+
+  bool isOriginalPosterFilter(ForumThread thread) {
+    final activeUid = _urls.uidFromUrl(thread.url);
+    final original = originalPosterPostsUrl(thread);
+    return activeUid != null &&
+        original != null &&
+        activeUid == _urls.uidFromUrl(original);
+  }
+
+  String? unfilteredThreadUrl(ForumThread thread) {
+    final tid = _urls.tidFromUrl(thread.url);
+    return tid == null || _urls.uidFromUrl(thread.url) == null
+        ? null
+        : _urls.absoluteUrl('read.php?tid-$tid.html');
+  }
+
   Future<ForumAttachment> downloadAttachment(
     String url, {
     required Directory directory,
@@ -1170,18 +1210,22 @@ class ForumRepository {
     return form;
   }
 
-  Future<List<ForumSearchBoard>> fetchSearchBoards() async {
-    final form = await _fetchSearchForm();
-    return [
-      for (final option in form.querySelectorAll('select[name="f_fid"] option'))
-        if (!option.attributes.containsKey('disabled') &&
-            option.attributes.containsKey('value'))
+  Future<List<ForumSearchBoard>> fetchSearchBoards() async =>
+      _searchBoards(await _fetchSearchForm());
+
+  List<ForumSearchBoard> _searchBoards(dom.Element form) => [
+        for (final option
+            in form.querySelectorAll('select[name="f_fid"] option'))
           ForumSearchBoard(
-            id: option.attributes['value']!,
+            id: option.attributes['value'] ?? '',
             name: option.text.trim(),
+            depth: RegExp(r'\|-').allMatches(option.text).length,
+            selectable: !option.attributes.containsKey('disabled') &&
+                (option.attributes['value'] == 'all' ||
+                    RegExp(r'^[1-9]\d*$')
+                        .hasMatch(option.attributes['value'] ?? '')),
           ),
-    ];
-  }
+      ];
 
   void _validateSearchQuery(ForumSearchQuery query) {
     if (query.keyword.trim().isEmpty && query.username.trim().isEmpty) {
@@ -1192,9 +1236,13 @@ class ForumRepository {
   Future<ForumSearchPage> searchForum(ForumSearchQuery query) async {
     _validateSearchQuery(query);
     final form = await _fetchSearchForm();
+    if (!_searchBoards(form)
+        .any((board) => board.id == query.boardId && board.selectable)) {
+      throw const ForumRepositoryException('搜索版块已不可用，请重新选择');
+    }
     final fields = _formParser.defaults(form)
       ..remove('digest')
-      ..remove('sch_area')
+      ..['sch_area'] = '0'
       ..['step'] = '2'
       ..['keyword'] = query.keyword.trim()
       ..['pwuser'] = query.username.trim()
@@ -1204,7 +1252,12 @@ class ForumRepository {
       ..['orderway'] = query.order.queryValue
       ..['asc'] = query.ascending ? 'ASC' : 'DESC'
       ..['submit'] = '提 交';
+    if (query.digest) fields['digest'] = '1';
     final action = form.attributes['action'] ?? 'search.php?';
+    if (!_urls.isForumUrl(action) ||
+        Uri.tryParse(_urls.absoluteUrl(action))?.path != '/search.php') {
+      throw const ForumRepositoryException('搜索表单入口无效');
+    }
     final response = await _client.post(
       _urls.relativePath(_urls.absoluteUrl(action)),
       fields,
@@ -1436,13 +1489,15 @@ class ForumRepository {
   }) async {
     final normalizedPage = page < 1 ? 1 : page;
     final detailPath = _urls.threadDetailPath(thread.url, page: normalizedPage);
-    final html = await _client.get(detailPath);
+    final html =
+        await _client.get(Uri.parse(detailPath).removeFragment().toString());
     final document = html_parser.parse(html);
     final favorite = await _extractThreadFavorite(thread, html);
     final posts = _threadDetailParser.desktopThreadCards(document);
     final pagination = _threadDetailParser.desktopPagination(
       document,
       requestedPage: normalizedPage,
+      threadUrl: thread.url,
     );
     final section = _threadDetailParser.sectionTitle(document);
 
@@ -1450,8 +1505,17 @@ class ForumRepository {
       throw ForumRepositoryException(_responseParser.pageMessage(html));
     }
 
-    final isOpeningPage = pagination.currentPage == 1;
+    final authorFilterUid = _urls.uidFromUrl(thread.url);
+    final originalUid = _urls.uidFromUrl(originalPosterPostsUrl(thread) ?? '');
+    final openingFloor = posts.first.floor == '楼主' ||
+        RegExp(r'^B?0F?$', caseSensitive: false)
+            .hasMatch(posts.first.floor ?? '') ||
+        posts.first.anchors.any({'tpc', 'read_tpc', 'td_tpc'}.contains);
+    final isOpeningPage = pagination.currentPage == 1 &&
+        openingFloor &&
+        (authorFilterUid == null || authorFilterUid == originalUid);
     final first = isOpeningPage ? posts.first : null;
+    final updateOriginalAuthor = authorFilterUid == null;
     final detailThread = thread.copyWith(
       title: _threadDetailParser.threadTitle(document) ?? thread.title,
       url: _canonicalThreadUrl(
@@ -1460,10 +1524,10 @@ class ForumRepository {
         detailPath: detailPath,
       ),
       section: section ?? thread.section,
-      author: first?.author,
-      authorUrl: first?.authorUrl,
-      authorAvatarUrl: first?.authorAvatarUrl,
-      authorPostsUrl: first?.authorPostsUrl,
+      author: updateOriginalAuthor ? first?.author : null,
+      authorUrl: updateOriginalAuthor ? first?.authorUrl : null,
+      authorAvatarUrl: updateOriginalAuthor ? first?.authorAvatarUrl : null,
+      authorPostsUrl: updateOriginalAuthor ? first?.authorPostsUrl : null,
       lastPost: first?.postedAt ?? thread.lastPost,
     );
 
@@ -1473,6 +1537,7 @@ class ForumRepository {
       bodyImages: first?.images ?? const [],
       bodyLinks: first?.links ?? const [],
       bodySegments: first?.segments ?? const [],
+      bodyAnchors: first?.anchors ?? const [],
       bodySaleBoxes: first?.saleBoxes ?? const [],
       bodySaleBoxesFirst: first?.saleBoxesFirst ?? false,
       replies: isOpeningPage ? posts.skip(1).toList() : posts,
@@ -1734,6 +1799,11 @@ class ForumRepository {
     required String sourceUrl,
     required String detailPath,
   }) {
+    final authorUid = _urls.uidFromUrl(sourceUrl);
+    final sourceTid = _urls.tidFromUrl(sourceUrl);
+    if (authorUid != null && sourceTid != null) {
+      return _urls.absoluteUrl('read.php?tid-$sourceTid-uid-$authorUid.html');
+    }
     final parsed = parserUrl;
     if (parsed != null && parsed.isNotEmpty) return parsed;
 

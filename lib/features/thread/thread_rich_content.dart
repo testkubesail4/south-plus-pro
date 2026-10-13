@@ -21,7 +21,9 @@ class ThreadRichContent extends StatelessWidget {
     this.buyingSaleBoxes = const <String>{},
     this.onBuySaleBox,
     this.onOpenLink,
-  }) : renderModel = ThreadPostRenderModel.fromSegments(segments);
+    this.privateMedia = false,
+  })  : alignment = ThreadContentAlignment.start,
+        renderModel = ThreadPostRenderModel.fromSegments(segments);
 
   const ThreadRichContent.renderModel({
     super.key,
@@ -29,12 +31,19 @@ class ThreadRichContent extends StatelessWidget {
     this.buyingSaleBoxes = const <String>{},
     this.onBuySaleBox,
     this.onOpenLink,
+    this.privateMedia = false,
+    this.alignment = ThreadContentAlignment.start,
   });
 
   final ThreadPostRenderModel renderModel;
   final Set<String> buyingSaleBoxes;
   final ValueChanged<ThreadSaleBox>? onBuySaleBox;
   final Future<void> Function(String url, String label)? onOpenLink;
+
+  /// Private content (PMs): images stay memory-only and are never saved,
+  /// and download links are not sent to the third-party preview service.
+  final bool privateMedia;
+  final ThreadContentAlignment alignment;
 
   @override
   Widget build(BuildContext context) {
@@ -55,10 +64,17 @@ class ThreadRichContent extends StatelessWidget {
           buyingSaleBoxes,
           onBuySaleBox,
           onOpenLink,
+          privateMedia,
+          alignment,
         );
 
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: switch (alignment) {
+            ThreadContentAlignment.center => CrossAxisAlignment.center,
+            ThreadContentAlignment.end => CrossAxisAlignment.end,
+            ThreadContentAlignment.justify => CrossAxisAlignment.stretch,
+            ThreadContentAlignment.start => CrossAxisAlignment.start,
+          },
           children: children,
         );
       },
@@ -76,14 +92,42 @@ List<Widget> _buildChildren(
   Set<String> buyingSaleBoxes,
   ValueChanged<ThreadSaleBox>? onBuySaleBox,
   Future<void> Function(String url, String label)? onOpenLink,
+  bool privateMedia,
+  ThreadContentAlignment alignment,
 ) {
   final children = <Widget>[];
   final inlineSpans = <InlineSpan>[];
+
+  Widget nested(
+    ThreadPostRenderModel model, {
+    ThreadContentAlignment alignment = ThreadContentAlignment.start,
+  }) =>
+      ThreadRichContent.renderModel(
+        renderModel: model,
+        buyingSaleBoxes: buyingSaleBoxes,
+        onBuySaleBox: onBuySaleBox,
+        onOpenLink: onOpenLink,
+        privateMedia: privateMedia,
+        alignment: alignment,
+      );
+
+  void addBlockChild(Widget child) {
+    children.add(Padding(
+      padding: EdgeInsets.only(top: children.isEmpty ? 0 : 8),
+      child: child,
+    ));
+  }
 
   void flushInline() {
     if (inlineSpans.isEmpty) return;
     children.add(
       RichText(
+        textAlign: switch (alignment) {
+          ThreadContentAlignment.center => TextAlign.center,
+          ThreadContentAlignment.end => TextAlign.end,
+          ThreadContentAlignment.justify => TextAlign.justify,
+          ThreadContentAlignment.start => TextAlign.start,
+        },
         selectionRegistrar: selectionRegistrar,
         selectionColor: selectionColor,
         // RichText does not inherit MediaQuery scaling on its own.
@@ -112,21 +156,33 @@ List<Widget> _buildChildren(
             alignment: PlaceholderAlignment.baseline,
             baseline: TextBaseline.alphabetic,
             child: SelectionContainer.disabled(
-              child: GestureDetector(
-                onTap: () => _openContentLink(
-                  context,
-                  linkBlock.url,
-                  linkBlock.text,
-                  onOpenLink,
-                ),
-                onLongPress: () => _copyInlineLink(context, linkBlock.url),
-                child: Text(
-                  linkBlock.text,
-                  style: _threadTextStyle(
-                    baseStyle,
-                    linkBlock.style,
-                    forceLinkColor: true,
-                    forceUnderline: true,
+              child: Semantics(
+                link: true,
+                child: GestureDetector(
+                  onTap: () => _openContentLink(
+                    context,
+                    linkBlock.url,
+                    linkBlock.text,
+                    onOpenLink,
+                  ),
+                  onLongPress: () => _showLinkSheet(
+                    context,
+                    linkBlock.url,
+                    () => _openContentLink(
+                      context,
+                      linkBlock.url,
+                      linkBlock.text,
+                      onOpenLink,
+                    ),
+                  ),
+                  child: Text(
+                    linkBlock.text,
+                    style: _threadTextStyle(
+                      baseStyle,
+                      linkBlock.style,
+                      forceLinkColor: true,
+                      forceUnderline: true,
+                    ),
                   ),
                 ),
               ),
@@ -143,6 +199,7 @@ List<Widget> _buildChildren(
               label: downloadBlock.label,
               url: downloadBlock.url,
               onOpenLink: onOpenLink,
+              allowPreview: !privateMedia,
             ),
           ),
         );
@@ -152,12 +209,19 @@ List<Widget> _buildChildren(
         children.add(
           Padding(
             padding: EdgeInsets.only(top: children.isEmpty ? 0 : 10),
-            child: ThreadInlineImage(image: imageBlock.image),
+            child: ThreadInlineImage(
+              image: imageBlock.image,
+              href: imageBlock.href,
+              privateMedia: privateMedia,
+              onOpenLink: onOpenLink,
+            ),
           ),
         );
       case ThreadRenderBlockType.emoji:
         final emojiBlock = block as ThreadEmojiRenderBlock;
-        inlineSpans.add(_emojiSpan(context, emojiBlock));
+        inlineSpans.add(
+          _emojiSpan(context, emojiBlock, privateMedia, onOpenLink),
+        );
       case ThreadRenderBlockType.quote:
         final quoteBlock = block as ThreadQuoteRenderBlock;
         flushInline();
@@ -169,6 +233,7 @@ List<Widget> _buildChildren(
               buyingSaleBoxes: buyingSaleBoxes,
               onBuySaleBox: onBuySaleBox,
               onOpenLink: onOpenLink,
+              privateMedia: privateMedia,
             ),
           ),
         );
@@ -187,6 +252,57 @@ List<Widget> _buildChildren(
             ),
           ),
         );
+      case ThreadRenderBlockType.block:
+        final paragraph = block as ThreadBlockRenderBlock;
+        flushInline();
+        children.add(SizedBox(
+          width: double.infinity,
+          child: nested(paragraph.renderModel, alignment: paragraph.alignment),
+        ));
+      case ThreadRenderBlockType.code:
+        flushInline();
+        addBlockChild(_CodeBlock(text: (block as ThreadCodeRenderBlock).text));
+      case ThreadRenderBlockType.list:
+        final listBlock = block as ThreadListRenderBlock;
+        flushInline();
+        addBlockChild(Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < listBlock.items.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minWidth: 22),
+                      child: Text(
+                        listBlock.markerAt(i),
+                        style: baseStyle?.copyWith(color: AppColors.textMuted),
+                        textScaler: MediaQuery.textScalerOf(context),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(child: nested(listBlock.items[i])),
+                  ],
+                ),
+              ),
+          ],
+        ));
+      case ThreadRenderBlockType.table:
+        flushInline();
+        addBlockChild(_RichTable(
+          rows: (block as ThreadTableRenderBlock).rows,
+          cellBuilder: nested,
+        ));
+      case ThreadRenderBlockType.media:
+        final media = block as ThreadMediaRenderBlock;
+        flushInline();
+        addBlockChild(_MediaFallbackCard(
+          url: media.url,
+          label: media.label,
+          onOpenLink: onOpenLink,
+        ));
     }
   }
 
@@ -216,10 +332,208 @@ TextStyle _threadTextStyle(
     fontStyle: style.isItalic ? FontStyle.italic : baseStyle?.fontStyle,
     decoration: decoration,
     fontSize: (baseStyle?.fontSize ?? 16) * style.fontScale,
+    // Fonts the device lacks fall back to the platform font.
+    fontFamily: style.fontFamily ?? baseStyle?.fontFamily,
   );
 }
 
-InlineSpan _emojiSpan(BuildContext context, ThreadEmojiRenderBlock block) {
+class _CodeBlock extends StatelessWidget {
+  const _CodeBlock({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceTint,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '代码',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              SelectionContainer.disabled(
+                child: IconButton(
+                  tooltip: '复制代码',
+                  icon: const Icon(Icons.copy_outlined, size: 18),
+                  onPressed: () => _copyText(context, text, '代码已复制'),
+                ),
+              ),
+            ],
+          ),
+          Divider(height: 1, color: AppColors.border),
+          // Literal text: tags and whitespace inside code are shown as written.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              text,
+              softWrap: false,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.text,
+                fontFamily: 'monospace',
+                fontFamilyFallback: const ['Courier New', 'Courier'],
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RichTable extends StatelessWidget {
+  const _RichTable({required this.rows, required this.cellBuilder});
+
+  final List<List<ThreadTableRenderCell>> rows;
+  final Widget Function(ThreadPostRenderModel model) cellBuilder;
+
+  static const _minColumnWidth = 120.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final columns =
+        rows.fold<int>(0, (max, row) => row.length > max ? row.length : max);
+    return LayoutBuilder(builder: (context, constraints) {
+      // Columns share the width but never shrink below a readable minimum;
+      // wider tables scroll sideways instead of crushing their text.
+      final available = constraints.maxWidth.isFinite
+          ? constraints.maxWidth
+          : MediaQuery.sizeOf(context).width;
+      final columnWidth = available / columns < _minColumnWidth
+          ? _minColumnWidth
+          : available / columns;
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Table(
+          defaultColumnWidth: FixedColumnWidth(columnWidth),
+          border: TableBorder.all(color: AppColors.border),
+          children: [
+            for (final row in rows)
+              TableRow(
+                decoration: row.every((cell) => cell.isHeader)
+                    ? BoxDecoration(color: AppColors.surfaceTint)
+                    : null,
+                children: [
+                  for (var i = 0; i < columns; i++)
+                    Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: i < row.length
+                          ? DefaultTextStyle.merge(
+                              style: row[i].isHeader
+                                  ? const TextStyle(fontWeight: FontWeight.w700)
+                                  : null,
+                              child: cellBuilder(row[i].renderModel),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      );
+    });
+  }
+}
+
+class _MediaFallbackCard extends StatelessWidget {
+  const _MediaFallbackCard({
+    required this.url,
+    required this.label,
+    required this.onOpenLink,
+  });
+
+  final String? url;
+  final String label;
+  final Future<void> Function(String url, String label)? onOpenLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final url = this.url;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceTint,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.play_circle_outline, color: AppColors.textMuted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label.isEmpty ? '媒体内容' : label,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            url == null ? '媒体内容无法在应用内播放' : url,
+            style: theme.textTheme.bodySmall,
+          ),
+          if (url != null) ...[
+            const SizedBox(height: 8),
+            SelectionContainer.disabled(
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _DownloadActionButton(
+                    onPressed: () => _copyDownloadLink(context, url),
+                    icon: const Icon(Icons.copy_outlined),
+                    label: '复制',
+                  ),
+                  _DownloadActionButton(
+                    filled: true,
+                    onPressed: () =>
+                        _openContentLink(context, url, label, onOpenLink),
+                    icon: const Icon(Icons.open_in_new),
+                    label: '打开',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _copyText(BuildContext context, String text, String done) async {
+  await Clipboard.setData(ClipboardData(text: text));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(done)));
+}
+
+InlineSpan _emojiSpan(
+  BuildContext context,
+  ThreadEmojiRenderBlock block,
+  bool privateMedia,
+  Future<void> Function(String url, String label)? onOpenLink,
+) {
   const emojiMaxHeight = 70.0;
   const emojiMaxWidth = 191.0;
   final spec = ForumImageDecodeSpec.forDisplay(
@@ -228,28 +542,47 @@ InlineSpan _emojiSpan(BuildContext context, ThreadEmojiRenderBlock block) {
     maxLongEdge: 512,
   );
 
-  return WidgetSpan(
-    alignment: PlaceholderAlignment.middle,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 1),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: emojiMaxWidth,
-          maxHeight: emojiMaxHeight,
-        ),
-        child: CachedForumImage(
-          url: block.url,
-          assetName: forumEmojiAssetNameForUrl(block.url),
-          fit: BoxFit.scaleDown,
-          memCacheWidth: spec.memCacheWidth,
-          memCacheHeight: spec.memCacheHeight,
-          maxWidthDiskCache: spec.maxWidthDiskCache,
-          maxHeightDiskCache: spec.maxHeightDiskCache,
-          bypassLoadPolicy: true,
-          errorWidget: (context) => const SizedBox(width: 0, height: 0),
-        ),
+  final href = block.href;
+  final emoji = Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 1),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(
+        maxWidth: emojiMaxWidth,
+        maxHeight: emojiMaxHeight,
+      ),
+      child: CachedForumImage(
+        url: block.url,
+        assetName: forumEmojiAssetNameForUrl(block.url),
+        fit: BoxFit.scaleDown,
+        memCacheWidth: spec.memCacheWidth,
+        memCacheHeight: spec.memCacheHeight,
+        maxWidthDiskCache: spec.maxWidthDiskCache,
+        maxHeightDiskCache: spec.maxHeightDiskCache,
+        bypassLoadPolicy: true,
+        privateMemoryOnly: privateMedia,
+        errorWidget: (context) => const SizedBox(width: 0, height: 0),
       ),
     ),
+  );
+  return WidgetSpan(
+    alignment: PlaceholderAlignment.middle,
+    // A linked face has no viewer, so tapping it follows the link.
+    child: href == null
+        ? emoji
+        : SelectionContainer.disabled(
+            child: Semantics(
+              link: true,
+              child: GestureDetector(
+                onTap: () => _openContentLink(context, href, '', onOpenLink),
+                onLongPress: () => _showLinkSheet(
+                  context,
+                  href,
+                  () => _openContentLink(context, href, '', onOpenLink),
+                ),
+                child: emoji,
+              ),
+            ),
+          ),
   );
 }
 
@@ -286,8 +619,50 @@ Future<void> _openContentLink(
   }
 }
 
-Future<void> _copyInlineLink(BuildContext context, String url) async {
-  await _copyDownloadLink(context, url);
+// Shows the full destination before acting, so a disguised label can't hide it.
+void _showLinkSheet(BuildContext context, String url, VoidCallback onOpen) {
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SelectableText(
+              url,
+              style: Theme.of(sheetContext).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    _copyDownloadLink(context, url);
+                  },
+                  icon: const Icon(Icons.copy_outlined),
+                  label: const Text('复制链接'),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    onOpen();
+                  },
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('打开'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _DownloadLinkPanel extends StatelessWidget {
@@ -295,11 +670,13 @@ class _DownloadLinkPanel extends StatelessWidget {
     required this.label,
     required this.url,
     this.onOpenLink,
+    this.allowPreview = true,
   });
 
   final String label;
   final String url;
   final Future<void> Function(String url, String label)? onOpenLink;
+  final bool allowPreview;
 
   @override
   Widget build(BuildContext context) {
@@ -335,11 +712,13 @@ class _DownloadLinkPanel extends StatelessWidget {
                   icon: const Icon(Icons.copy_outlined),
                   label: '复制',
                 ),
-                _DownloadActionButton(
-                  onPressed: () => _showWhatsLinkPreview(context, url),
-                  icon: const Icon(Icons.visibility_outlined),
-                  label: '预览',
-                ),
+                if (allowPreview)
+                  _DownloadActionButton(
+                    onPressed: () =>
+                        _showWhatsLinkPreview(context, url, onOpenLink),
+                    icon: const Icon(Icons.visibility_outlined),
+                    label: '预览',
+                  ),
                 _DownloadActionButton(
                   filled: true,
                   onPressed: () =>
@@ -418,9 +797,10 @@ class _DownloadActionButton extends StatelessWidget {
 }
 
 class _WhatsLinkPreviewDialog extends StatefulWidget {
-  const _WhatsLinkPreviewDialog({required this.url});
+  const _WhatsLinkPreviewDialog({required this.url, this.onOpenLink});
 
   final String url;
+  final Future<void> Function(String url, String label)? onOpenLink;
 
   @override
   State<_WhatsLinkPreviewDialog> createState() =>
@@ -497,7 +877,8 @@ class _WhatsLinkPreviewDialogState extends State<_WhatsLinkPreviewDialog> {
           label: const Text('复制'),
         ),
         FilledButton.icon(
-          onPressed: () => _openDownloadLink(context, widget.url),
+          onPressed: () =>
+              _openContentLink(context, widget.url, '', widget.onOpenLink),
           icon: const Icon(Icons.download_outlined),
           label: const Text('下载'),
         ),
@@ -784,10 +1165,15 @@ class _PreviewInfoRow extends StatelessWidget {
   }
 }
 
-void _showWhatsLinkPreview(BuildContext context, String url) {
+void _showWhatsLinkPreview(
+  BuildContext context,
+  String url,
+  Future<void> Function(String url, String label)? onOpenLink,
+) {
   showDialog<void>(
     context: context,
-    builder: (context) => _WhatsLinkPreviewDialog(url: url),
+    builder: (context) =>
+        _WhatsLinkPreviewDialog(url: url, onOpenLink: onOpenLink),
   );
 }
 
@@ -828,12 +1214,14 @@ class _RichQuoteBlock extends StatelessWidget {
     required this.buyingSaleBoxes,
     required this.onBuySaleBox,
     required this.onOpenLink,
+    required this.privateMedia,
   });
 
   final ThreadPostRenderModel renderModel;
   final Set<String> buyingSaleBoxes;
   final ValueChanged<ThreadSaleBox>? onBuySaleBox;
   final Future<void> Function(String url, String label)? onOpenLink;
+  final bool privateMedia;
 
   @override
   Widget build(BuildContext context) {
@@ -856,6 +1244,7 @@ class _RichQuoteBlock extends StatelessWidget {
           buyingSaleBoxes: buyingSaleBoxes,
           onBuySaleBox: onBuySaleBox,
           onOpenLink: onOpenLink,
+          privateMedia: privateMedia,
         ),
       ),
     );
@@ -863,9 +1252,24 @@ class _RichQuoteBlock extends StatelessWidget {
 }
 
 class ThreadInlineImage extends StatefulWidget {
-  const ThreadInlineImage({super.key, required this.image});
+  const ThreadInlineImage({
+    super.key,
+    required this.image,
+    this.privateMedia = false,
+    this.onOpenLink,
+    this.href,
+  });
 
   final ThreadImage image;
+
+  /// Memory-only display; saving would route bytes through the disk cache.
+  final bool privateMedia;
+
+  /// Link policy for the failure placeholder's and [href]'s open actions.
+  final Future<void> Function(String url, String label)? onOpenLink;
+
+  /// Link wrapping the image; tap still opens the viewer.
+  final String? href;
 
   @override
   State<ThreadInlineImage> createState() => _ThreadInlineImageState();
@@ -933,10 +1337,15 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                       maxWidthDiskCache: spec.maxWidthDiskCache,
                       maxHeightDiskCache: spec.maxHeightDiskCache,
                       bypassLoadPolicy: true,
+                      privateMemoryOnly: widget.privateMedia,
                       errorWidget: (context) => ThreadImageFailurePlaceholder(
                         url: widget.image.url,
-                        onOpen: () =>
-                            _openDownloadLink(context, widget.image.url),
+                        onOpen: () => _openContentLink(
+                          context,
+                          widget.image.url,
+                          '',
+                          widget.onOpenLink,
+                        ),
                         onCopy: () =>
                             _copyDownloadLink(context, widget.image.url),
                         backgroundColor: Colors.black,
@@ -945,24 +1354,44 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                     ),
                   ),
                 ),
-                const Divider(height: 1),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Padding(
+                if (!widget.privateMedia || widget.href != null) ...[
+                  const Divider(height: 1),
+                  Padding(
                     padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-                    child: ValueListenableBuilder<ImageLoadMode?>(
-                      valueListenable: ImageLoadingSettings.notifier,
-                      builder: (context, mode, _) => TextButton.icon(
-                        onPressed:
-                            mode == null || mode == ImageLoadMode.noImages
-                                ? null
-                                : _saveImage,
-                        icon: const Icon(Icons.download_outlined),
-                        label: const Text('保存图片'),
-                      ),
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
+                      children: [
+                        if (widget.href case final href?)
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.of(dialogContext).pop();
+                              _openContentLink(
+                                context,
+                                href,
+                                '',
+                                widget.onOpenLink,
+                              );
+                            },
+                            icon: const Icon(Icons.open_in_new),
+                            label: const Text('打开链接'),
+                          ),
+                        if (!widget.privateMedia)
+                          ValueListenableBuilder<ImageLoadMode?>(
+                            valueListenable: ImageLoadingSettings.notifier,
+                            builder: (context, mode, _) => TextButton.icon(
+                              onPressed:
+                                  mode == null || mode == ImageLoadMode.noImages
+                                      ? null
+                                      : _saveImage,
+                              icon: const Icon(Icons.download_outlined),
+                              label: const Text('保存图片'),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -980,7 +1409,16 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
           child: InkWell(
             borderRadius: BorderRadius.circular(8),
             onTap: _openImageViewer,
-            onLongPress: _saveImage,
+            onLongPress: switch (widget.href) {
+              // A linked image's long press shows its destination first.
+              final href? => () => _showLinkSheet(
+                    context,
+                    href,
+                    () =>
+                        _openContentLink(context, href, '', widget.onOpenLink),
+                  ),
+              null => widget.privateMedia ? null : _saveImage,
+            },
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Container(
@@ -1005,6 +1443,7 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                       memCacheHeight: spec.memCacheHeight,
                       maxWidthDiskCache: spec.maxWidthDiskCache,
                       maxHeightDiskCache: spec.maxHeightDiskCache,
+                      privateMemoryOnly: widget.privateMedia,
                       placeholder: (context) {
                         return const SizedBox(
                           height: 160,
@@ -1013,8 +1452,12 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                       },
                       errorWidget: (context) => ThreadImageFailurePlaceholder(
                         url: widget.image.url,
-                        onOpen: () =>
-                            _openDownloadLink(context, widget.image.url),
+                        onOpen: () => _openContentLink(
+                          context,
+                          widget.image.url,
+                          '',
+                          widget.onOpenLink,
+                        ),
                         onCopy: () =>
                             _copyDownloadLink(context, widget.image.url),
                       ),
@@ -1026,7 +1469,8 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
           ),
         );
       },
-      arguments: {'url': widget.image.url},
+      // Private image URLs stay out of timeline traces.
+      arguments: widget.privateMedia ? null : {'url': widget.image.url},
     );
   }
 }

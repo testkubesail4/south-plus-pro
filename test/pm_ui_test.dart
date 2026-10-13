@@ -157,6 +157,10 @@ void main() {
     expect(repository.submits, isEmpty);
 
     await tester.enterText(find.byType(TextField).at(0), '101');
+    await tester.pumpAndSettle();
+    // The formatting toolbar sits above the submit button.
+    await tester.ensureVisible(find.text('提交修改'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('提交修改'));
     await tester.pump();
     expect(repository.submits.single,

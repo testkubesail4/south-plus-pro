@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../profile/user_profile_screen.dart';
+import '../search/search_screen.dart';
 import 'thread_preview_image_layout.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_compose_screen.dart';
@@ -199,6 +200,21 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                   slug: _category.slug,
                   order: _order,
                   onCompose: _openComposer,
+                  onSearch: switch (
+                      widget.repository.searchBoardId(_category)) {
+                    final fid? => () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => SearchScreen(
+                              repository: widget.repository,
+                              initialBoard: ForumSearchBoard(
+                                id: fid,
+                                name: _category.name,
+                              ),
+                            ),
+                          ),
+                        ),
+                    null => null,
+                  },
                   onOrderSelected: _changeOrder,
                 ),
                 Expanded(

@@ -22,8 +22,10 @@ class SearchResultParser {
           _cleanText(pages?.querySelector('b, .current')?.text ?? ''),
         ) ??
         1;
-    String? nextPagePath;
-    int? nextPage;
+    String? nextPagePath, previousPagePath;
+    int? nextPage, previousPage;
+    final pageLinks = <ForumSearchPageLink>[];
+    final seenPages = <String>{};
     for (final link in pages?.querySelectorAll('a[href]') ?? <dom.Element>[]) {
       final path = urls.relativePath(
         urls.absoluteUrl(link.attributes['href'] ?? ''),
@@ -38,6 +40,14 @@ class SearchResultParser {
       final pageMatch =
           RegExp(r'(?:[?&]page=|(?:^|-)page-)(\d+)').firstMatch(path);
       final page = int.tryParse(pageMatch?.group(1) ?? '');
+      if (page != null && page >= 1 && seenPages.add(path)) {
+        pageLinks.add(ForumSearchPageLink(
+            label: _cleanText(link.text), path: path, page: page));
+        if (page < current && (previousPage == null || page > previousPage)) {
+          previousPage = page;
+          previousPagePath = path;
+        }
+      }
       if (page != null &&
           page > current &&
           (nextPage == null || page < nextPage)) {
@@ -47,8 +57,12 @@ class SearchResultParser {
     }
     return ForumSearchPage(
       threads: threads,
-      total: int.tryParse(totalMatch?.group(1) ?? ''),
+      total: int.tryParse(totalMatch?.group(1) ?? '') ??
+          (_pageText(document).contains('没有查找匹配的内容') ? 0 : null),
       nextPagePath: nextPagePath,
+      previousPagePath: previousPagePath,
+      currentPage: current,
+      pageLinks: List.unmodifiable(pageLinks),
     );
   }
 
@@ -133,6 +147,7 @@ class SearchResultParser {
         text.contains('搜索結果') ||
         RegExp(r'共\s*(?:搜索|搜尋)?到\s*\d+').hasMatch(text) ||
         RegExp(r'(?:找到|搜索到|搜尋到)\s*\d+\s*[条條篇]').hasMatch(text) ||
+        text.contains('没有查找匹配的内容') ||
         text.contains('没有找到符合条件') ||
         text.contains('沒有找到符合條件');
   }

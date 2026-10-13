@@ -4,6 +4,8 @@ import '../../models/forum_pm_models.dart';
 import '../forum_network_config.dart';
 import '../forum_request_exception.dart';
 import 'forum_form_parser.dart';
+import 'thread_content_parser.dart';
+import '../forum_url_resolver.dart';
 
 class ForumPmRoute {
   const ForumPmRoute(this.path, this.action, this.fields);
@@ -301,6 +303,8 @@ class ForumPmParser {
         title: clean(rows['标题']!.text),
         time: clean(rows['时间']!.text),
         content: plainText(content),
+        segments: ThreadContentParser(urls: ForumUrlResolver(baseUri: baseUri))
+            .extractInlineSegments(content),
         replyPath: reply,
         forwardPath: forward,
         editPath: edit,
@@ -440,7 +444,10 @@ class ForumPmParser {
           sender: '',
           title: clean(title.text),
           time: clean(time.text),
-          content: plainText(body)));
+          content: plainText(body),
+          segments:
+              ThreadContentParser(urls: ForumUrlResolver(baseUri: baseUri))
+                  .extractInlineSegments(body)));
     }
     String? compose;
     for (final link in document.querySelectorAll('a[href]')) {

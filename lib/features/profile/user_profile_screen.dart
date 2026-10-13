@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../messages/pm_compose_screen.dart';
+import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 
 part 'user_profile_widgets.dart';
@@ -15,10 +16,14 @@ class UserProfileScreen extends StatefulWidget {
     super.key,
     required this.userUrl,
     required this.repository,
+    this.initialTab = UserProfileTab.home,
   });
 
   final String userUrl;
   final ForumRepository repository;
+
+  /// Tabs follow [UserProfileTab] order.
+  final UserProfileTab initialTab;
 
   @override
   State<UserProfileScreen> createState() => _UserProfileScreenState();
@@ -77,7 +82,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 5,
+      length: UserProfileTab.values.length,
+      initialIndex: widget.initialTab.index,
       child: Scaffold(
         backgroundColor: AppColors.background,
         body: SafeArea(
@@ -126,6 +132,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               ),
                           null => null,
                         },
+                        // Prefills the search; the user still submits it.
+                        onSearchTopics: profile.name.trim().isEmpty
+                            ? null
+                            : () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => SearchScreen(
+                                      repository: widget.repository,
+                                      initialUsername: profile.name.trim(),
+                                    ),
+                                  ),
+                                ),
                       ),
                     ),
                     const SliverToBoxAdapter(child: _ProfileTabs()),

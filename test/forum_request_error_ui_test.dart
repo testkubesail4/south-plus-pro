@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';
 import 'package:south_plus_rewrite/features/search/search_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
@@ -9,10 +10,12 @@ import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('search blocks resubmits and separates failures from no results',
       (tester) async {
     final repository = _FakeRepository();
-    final searchButton = find.byWidgetPredicate((w) => w is FilledButton);
+    final searchButton = find.byKey(const ValueKey('search-submit'));
     await tester.pumpWidget(
       MaterialApp(home: SearchScreen(repository: repository)),
     );
@@ -52,12 +55,15 @@ void main() {
       MaterialApp(home: SearchScreen(repository: repository)),
     );
 
-    await tester.tap(find.text('高级选项'));
+    await tester.tap(find.text('筛选条件'));
     await tester.pumpAndSettle();
     expect(repository.boardRequests, 1);
 
     await tester.enterText(find.byType(TextField).at(1), 'someone');
-    await tester.tap(find.byWidgetPredicate((w) => w is FilledButton));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('search-submit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('search-submit')));
     await tester.pump();
     final query = repository.queries.single;
     expect(query.keyword, isEmpty);
@@ -72,7 +78,7 @@ void main() {
       nextPagePath: 'search.php?step=2&page=2',
     ));
     await tester.pumpAndSettle();
-    expect(find.text('共 42 条结果'), findsOneWidget);
+    expect(find.textContaining('共 42 条结果'), findsOneWidget);
 
     await tester.scrollUntilVisible(find.text('下一页'), 100,
         scrollable: find.byType(Scrollable).last);

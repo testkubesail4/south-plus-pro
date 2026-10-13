@@ -605,12 +605,14 @@ class _BoardHeader extends StatelessWidget {
     required this.order,
     required this.onCompose,
     required this.onOrderSelected,
+    this.onSearch,
   });
 
   final String title;
   final String slug;
   final ForumThreadOrder order;
   final VoidCallback onCompose;
+  final VoidCallback? onSearch;
   final ValueChanged<ForumThreadOrder> onOrderSelected;
 
   @override
@@ -644,6 +646,12 @@ class _BoardHeader extends StatelessWidget {
                   ),
                 ),
               ),
+              if (onSearch != null)
+                IconButton(
+                  tooltip: '在本版搜索',
+                  onPressed: onSearch,
+                  icon: const Icon(Icons.search),
+                ),
               IconButton.filled(
                 tooltip: '发帖',
                 onPressed: onCompose,

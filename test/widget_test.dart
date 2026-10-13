@@ -1212,8 +1212,12 @@ void main() {
     expect(find.text('Example'), findsOneWidget);
     expect(find.byType(OutlinedButton), findsNothing);
 
+    // Long press reveals the full destination before copying.
     await tester.longPress(find.text('Example'));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.text('https://example.com'), findsOneWidget);
+    await tester.tap(find.text('复制链接'));
+    await tester.pumpAndSettle();
 
     final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
     expect(clipboard?.text, 'https://example.com');

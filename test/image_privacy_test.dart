@@ -290,6 +290,139 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    'private rich content obeys policy, stays off disk and evicts on close',
+    (tester) async {
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues({});
+        const privateImage = 'https://fixture.invalid/private-image.png';
+        const privateEmoji = 'https://fixture.invalid/private-emoji.png';
+        PaintingBinding.instance.imageCache.clear();
+        await ImageLoadingSettings.saveMode(ImageLoadMode.noImages);
+        await tester.pumpWidget(
+          frame(
+            ThreadRichContent(
+              privateMedia: true,
+              segments: const [
+                ThreadContentSegment.quote([
+                  ThreadContentSegment.image(url: privateImage),
+                ]),
+                ThreadContentSegment.image(url: privateEmoji, isEmoji: true),
+              ],
+            ),
+          ),
+        );
+        await tester.pump();
+        expect(decodedImages, findsNothing);
+        expect(fixture.requests, isNot(contains(privateImage)));
+        expect(fixture.requests, isNot(contains(privateEmoji)));
+
+        await ImageLoadingSettings.saveMode(ImageLoadMode.manual);
+        await waitForImages(tester, 1);
+        expect(fixture.requests, contains(privateEmoji));
+        expect(fixture.requests, isNot(contains(privateImage)));
+        await tester.tap(find.text('点击加载图片'));
+        await waitForImages(tester, 2);
+        expect(fixture.requests, contains(privateImage));
+        expect(find.byType(CachedNetworkImage), findsNothing);
+
+        await tester.tap(find.byType(ThreadInlineImage));
+        await waitForImages(tester, 3);
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(find.text('保存图片'), findsNothing);
+
+        await tester.pumpWidget(const SizedBox());
+        expect(await ForumImageCache.manager.getFileFromCache(privateImage),
+            isNull);
+        expect(await ForumImageCache.manager.getFileFromCache(privateEmoji),
+            isNull);
+        expect(PaintingBinding.instance.imageCache.currentSize, 0);
+      });
+    },
+  );
+  for (final private in [false, true]) {
+    testWidgets(
+      'linked image and face follow the link policy (private: $private)',
+      (tester) async {
+        await tester.runAsync(() async {
+          SharedPreferences.setMockInitialValues({});
+          await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+          const threadLink = 'https://fixture.invalid/read.php?tid-5.html';
+          const userLink = 'https://fixture.invalid/u.php?uid-42.html';
+          final opened = <String>[];
+          await tester.pumpWidget(
+            frame(
+              SingleChildScrollView(
+                child: SelectionArea(
+                  child: ThreadRichContent(
+                    privateMedia: private,
+                    onOpenLink: (url, label) async => opened.add(url),
+                    segments: const [
+                      ThreadContentSegment.image(
+                        url: 'https://fixture.invalid/linked-banner.png',
+                        href: threadLink,
+                      ),
+                      ThreadContentSegment.image(
+                        url: 'https://fixture.invalid/linked-face.png',
+                        isEmoji: true,
+                        href: userLink,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+          await waitForImages(tester, 2);
+          expect(
+            find.byType(CachedNetworkImage),
+            private ? findsNothing : findsWidgets,
+          );
+
+          // Tap still opens the viewer; the link is one explicit step away.
+          await tester.tap(find.byType(ThreadInlineImage));
+          await waitForImages(tester, 3);
+          expect(opened, isEmpty);
+          await tester.tap(find.text('打开链接'));
+          for (var i = 0; i < 10; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          expect(opened, [threadLink]);
+          expect(find.byType(Dialog), findsNothing);
+
+          // Long press shows the full destination before opening.
+          // Real timers run inside runAsync, so hold the press for real.
+          final press = await tester.startGesture(
+            tester.getCenter(find.byType(ThreadInlineImage)),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 700));
+          await tester.pump();
+          await press.up();
+          for (var i = 0; i < 10; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          expect(find.text(threadLink), findsOneWidget);
+          expect(find.text('复制链接'), findsOneWidget);
+          await tester.tap(find.text('打开'));
+          for (var i = 0; i < 10; i++) {
+            await tester.pump(const Duration(milliseconds: 100));
+          }
+          expect(opened, [threadLink, threadLink]);
+
+          // A linked face has no viewer: tapping it follows the link.
+          await tester.tap(find
+              .byWidgetPredicate(
+                (w) => w is Semantics && (w.properties.link ?? false),
+              )
+              .last);
+          await tester.pump();
+          expect(opened.last, userLink);
+          await tester.pumpWidget(const SizedBox());
+        });
+      },
+    );
+  }
 }
 
 class _AvatarRepository extends ForumRepository {

@@ -1,10 +1,15 @@
 part of 'user_profile_screen.dart';
 
 class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({required this.profile, this.onMessage});
+  const _ProfileHeader({
+    required this.profile,
+    this.onMessage,
+    this.onSearchTopics,
+  });
 
   final UserProfile profile;
   final VoidCallback? onMessage;
+  final VoidCallback? onSearchTopics;
 
   @override
   Widget build(BuildContext context) {
@@ -129,6 +134,12 @@ class _ProfileHeader extends StatelessWidget {
                   icon: Icons.mail_outline,
                   label: '发短消息',
                   onTap: onMessage,
+                ),
+              if (onSearchTopics != null)
+                _ActionChip(
+                  icon: Icons.manage_search,
+                  label: '搜索主题',
+                  onTap: onSearchTopics,
                 ),
               _MetricChip(label: 'UID', value: profile.uid),
               if (profile.level != null && profile.level!.isNotEmpty)

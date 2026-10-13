@@ -229,7 +229,7 @@ class ForumClient {
     Map<String, String>? form,
     bool retryCooldown = false,
   }) async {
-    final uri = baseUri.resolve(path);
+    final uri = baseUri.resolve(path).removeFragment();
     try {
       final result = await _exchange(method, uri, form: form);
       if (result.status >= 500) {
@@ -289,7 +289,8 @@ class ForumClient {
 
   Future<Uint8List> _readBytes(String path) async {
     try {
-      final result = await _exchange('GET', baseUri.resolve(path));
+      final result =
+          await _exchange('GET', baseUri.resolve(path).removeFragment());
       _throwForHttpStatus(result.status);
       return result.bytes;
     } on ForumRequestException {
@@ -322,15 +323,21 @@ class ForumClient {
     Uri uri, {
     Map<String, String>? form,
     int redirectsLeft = 5,
+    bool sensitiveSearch = false,
   }) async {
     await restoreCookies();
     final startedAt = DateTime.now();
     final isPm = uri.path == '/message.php';
-    final tracePath = isPm ? 'message.php' : uri.toString();
+    sensitiveSearch = sensitiveSearch || _isForumSearch(uri);
+    final tracePath = isPm
+        ? 'message.php'
+        : sensitiveSearch
+            ? 'search.php'
+            : uri.toString();
     ForumTraceLogger.log(
       'HTTP',
-      isPm
-          ? '$method message.php'
+      isPm || sensitiveSearch
+          ? '$method $tracePath'
           : method == 'POST'
               ? 'POST $uri form=${ForumTraceLogger.sanitizeForm(form ?? const {})}'
               : 'GET $uri',
@@ -363,7 +370,8 @@ class ForumClient {
           '私讯请求不能自动跟随跳转',
         );
       }
-      final next = location == null ? null : uri.resolve(location);
+      final next =
+          location == null ? null : uri.resolve(location).removeFragment();
       if (redirectsLeft <= 0 || next == null) {
         throw const ForumRequestException(
           ForumRequestKind.network,
@@ -385,17 +393,19 @@ class ForumClient {
         next,
         form: keepMethod ? form : null,
         redirectsLeft: redirectsLeft - 1,
+        sensitiveSearch: sensitiveSearch,
       );
     }
     final bytes = Uint8List.fromList(
-      await response.fold<List<int>>(<int>[], (body, data) => body..addAll(data)),
+      await response
+          .fold<List<int>>(<int>[], (body, data) => body..addAll(data)),
     );
     final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
     ForumTraceLogger.log(
       'HTTP',
       '$method $tracePath -> status=${response.statusCode} bytes=${bytes.length} elapsedMs=$elapsed',
     );
-    if (!isPm && ForumTraceLogger.shouldLogFullBody(uri)) {
+    if (!isPm && !sensitiveSearch && ForumTraceLogger.shouldLogFullBody(uri)) {
       ForumTraceLogger.logBlock(
         'HTTP',
         '$method $uri response',
