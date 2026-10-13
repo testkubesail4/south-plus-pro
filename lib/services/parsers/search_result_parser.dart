@@ -127,6 +127,14 @@ class SearchResultParser {
         '没有权限',
       );
     }
+    if (threads.isEmpty &&
+        document.querySelectorAll('tr.f_one center').any((element) =>
+            RegExp(r'^用户\s*不存在$').hasMatch(_cleanText(element.text)))) {
+      throw const ForumRequestException(
+        ForumRequestKind.invalidInput,
+        '用户不存在，请检查实际登录名称',
+      );
+    }
     if (threads.isEmpty && !normal) {
       throw const ForumRequestException(
         ForumRequestKind.server,

@@ -2,12 +2,39 @@ import 'package:html/dom.dart' as dom;
 
 import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
+import '../forum_request_exception.dart';
 
 class UserProfileParser {
   UserProfileParser({ForumUrlResolver? urls})
       : urls = urls ?? ForumUrlResolver();
 
   final ForumUrlResolver urls;
+
+  String parseLoginUsername(dom.Document document) {
+    var name = document
+            .querySelector('input[name="sendtoname"]')
+            ?.attributes['value']
+            ?.trim() ??
+        '';
+    if (name.isEmpty) {
+      for (final candidate
+          in document.querySelectorAll('#main .t .f_one center > b')) {
+        if (candidate.parent?.text.contains('不接受邮件') ?? false) {
+          name = candidate.text.trim();
+          break;
+        }
+      }
+    }
+    if (name.isEmpty ||
+        name.length > 128 ||
+        RegExp(r'[\x00-\x1f\x7f]').hasMatch(name)) {
+      throw const ForumRequestException(
+        ForumRequestKind.server,
+        '无法取得实际登录名称',
+      );
+    }
+    return name;
+  }
 
   UserProfile parseOverview({
     required String uid,
@@ -30,6 +57,9 @@ class UserProfileParser {
       signature: _profileSignature(profileDocument),
     );
   }
+
+  UserProfile appendFavorites(UserProfile overview, dom.Document document) =>
+      overview.copyWith(favorites: _parseFavorites(document));
 
   UserProfile appendDetails({
     required UserProfile overview,

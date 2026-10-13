@@ -194,6 +194,27 @@ void main() {
     expect(client.fields, isNull);
   });
 
+  test(
+      'nonexistent login username is distinct from a valid user with no matches',
+      () async {
+    final client = _SearchClient()
+      ..postResponse = '''<html><body><table><tr class="f_one">
+        <td><center>用户 不存在</center></td></tr></table></body></html>''';
+    final repository = ForumRepository(client: client);
+    await expectLater(
+      repository
+          .searchForum(const ForumSearchQuery(username: 'fixture-missing')),
+      throwsA(isA<ForumRequestException>()
+          .having((error) => error.kind.name, 'kind', 'invalidInput')
+          .having((error) => error.message, 'message', '用户不存在，请检查实际登录名称')),
+    );
+    client.postResponse = '<html><body>没有查找匹配的内容</body></html>';
+    final empty = await repository
+        .searchForum(const ForumSearchQuery(username: 'fixture-existing'));
+    expect(empty.threads, isEmpty);
+    expect(empty.total, 0);
+  });
+
   test('search and page errors retain classified exceptions', () async {
     for (final (html, kind) in [
       ('<html><body>搜索间隔9秒后再试</body></html>', ForumRequestKind.rateLimited),

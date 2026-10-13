@@ -53,7 +53,7 @@ class HomePageParser {
 
   List<ForumSection> parseDesktopForumSections(dom.Document document) {
     final sections = <ForumSection>[];
-    for (final heading in document.querySelectorAll('h2 a')) {
+    for (final heading in document.querySelectorAll('h2')) {
       final title = _cleanText(heading.text);
       if (title.isEmpty) continue;
 

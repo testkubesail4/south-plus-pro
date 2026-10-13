@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -39,7 +40,12 @@ void main() {
 
   setUpAll(() async {
     oldOverrides = HttpOverrides.current;
-    fixture = await ImageHttpFixture.start();
+    fixture = await ImageHttpFixture.start(
+      images: {
+        _portraitUrl: await _png(400, 1200),
+        _tallUrl: await _png(200, 8000),
+      },
+    );
     HttpOverrides.global = fixture;
     PathProviderLinux.registerWith();
     await ForumImageCache.manager.emptyCache();
@@ -423,6 +429,111 @@ void main() {
       },
     );
   }
+
+  for (final private in [false, true]) {
+    testWidgets(
+      'the full viewer keeps a portrait image\'s ratio in either orientation '
+      '(private: $private)',
+      (tester) async {
+        addTearDown(tester.view.reset);
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(800, 400);
+        await tester.runAsync(() async {
+          SharedPreferences.setMockInitialValues({});
+          await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+          PaintingBinding.instance.imageCache.clear();
+          await tester.pumpWidget(frame(SizedBox(
+            width: 360,
+            child: ThreadInlineImage(
+              image: const ThreadImage(url: _portraitUrl),
+              privateMedia: private,
+            ),
+          )));
+          await waitForImages(tester, 1);
+          await tester.tap(find.byType(ThreadInlineImage));
+          await waitForImages(tester, 2);
+
+          void expectPortrait(String reason) {
+            final viewer = find.descendant(
+              of: find.byType(Dialog),
+              matching: decodedImages,
+            );
+            final raw = tester.widget<RawImage>(viewer);
+            final image = raw.image!;
+            expect(image.width / image.height, closeTo(1 / 3, 0.01),
+                reason: '$reason: decoded');
+            // The painted rect from the image's actual fit and box.
+            // paintImage's own default when no fit is given.
+            final painted = applyBoxFit(
+              raw.fit ?? BoxFit.scaleDown,
+              Size(image.width.toDouble(), image.height.toDouble()),
+              tester.getSize(viewer),
+            ).destination;
+            expect(painted.width / painted.height, closeTo(1 / 3, 0.01),
+                reason: '$reason: painted');
+          }
+
+          expectPortrait('landscape');
+          tester.view.physicalSize = const Size(400, 800);
+          await tester.pump();
+          await waitForImages(tester, 2);
+          expectPortrait('portrait');
+          await tester.pumpWidget(const SizedBox());
+        });
+      },
+    );
+
+    testWidgets(
+      'the full viewer decodes a very tall image within its bound '
+      '(private: $private)',
+      (tester) async {
+        addTearDown(tester.view.reset);
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(800, 400);
+        await tester.runAsync(() async {
+          SharedPreferences.setMockInitialValues({});
+          await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+          PaintingBinding.instance.imageCache.clear();
+          await tester.pumpWidget(frame(SizedBox(
+            width: 360,
+            child: ThreadInlineImage(
+              image: const ThreadImage(url: _tallUrl),
+              privateMedia: private,
+            ),
+          )));
+          await waitForImages(tester, 1);
+          await tester.tap(find.byType(ThreadInlineImage));
+          await waitForImages(tester, 2);
+          final image = tester
+              .widget<RawImage>(find.descendant(
+                of: find.byType(Dialog),
+                matching: decodedImages,
+              ))
+              .image!;
+          // The viewer's bound: 0.92 of the long side, 1.2x for zoom.
+          expect(image.height, lessThanOrEqualTo((800 * 0.92 * 1.2).ceil()));
+          expect(image.width / image.height, closeTo(1 / 40, 0.002));
+          await tester.pumpWidget(const SizedBox());
+        });
+      },
+    );
+  }
+}
+
+const _portraitUrl = 'https://fixture.invalid/portrait.png';
+const _tallUrl = 'https://fixture.invalid/tall.png';
+
+// A real PNG larger than the viewer, so decode hints actually resize it.
+Future<List<int>> _png(int width, int height) async {
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder).drawRect(
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    Paint()..color = const Color(0xFF3366CC),
+  );
+  final image = await recorder.endRecording().toImage(width, height);
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  return data!.buffer.asUint8List();
 }
 
 class _AvatarRepository extends ForumRepository {
@@ -457,6 +568,7 @@ class _AvatarRepository extends ForumRepository {
   @override
   Future<UserProfile> fetchUserProfileOverview(String url) async => profile;
   @override
-  Future<UserProfile> fetchUserProfileDetails(UserProfile overview) async =>
+  Future<UserProfile> fetchUserProfileDetails(UserProfile overview,
+          {bool forceReload = false}) async =>
       overview;
 }

@@ -9,6 +9,43 @@ class BoardThreadPageParser {
 
   final ForumUrlResolver urls;
 
+  String? parseBoardName(dom.Document document, ForumCategory category) {
+    final fid = urls.fidFromCategory(category);
+    if (fid == null) return null;
+    for (final link in document.querySelectorAll('#breadcrumbs a[href]')) {
+      if (urls.fidFromUrl(link.attributes['href'] ?? '') != fid) continue;
+      final name = _cleanText(link.text);
+      if (name.isNotEmpty) return name;
+    }
+    return null;
+  }
+
+  String validationText(dom.Document document, ForumCategory category) {
+    final validation = document.clone(true);
+    final titles = <dom.Element>[];
+    for (final item in validation.querySelectorAll('ul.stream > li.dcsns-li')) {
+      final link =
+          item.querySelector('.section-title a[href*="read.php?tid-"]');
+      if (link != null) titles.add(link);
+    }
+    for (final row in validation.querySelectorAll('#ajaxtable tr.tr3')) {
+      final link = _desktopThreadLink(row);
+      if (link != null) titles.add(link);
+    }
+    for (final row in _subBoardTable(validation)?.querySelectorAll('tr') ??
+        <dom.Element>[]) {
+      final board = _subBoardFromRow(row, category);
+      if (board == null || urls.fidFromUrl(board.url) == null) continue;
+      titles.addAll(row.children.last.querySelectorAll('a[href]'));
+    }
+    for (final link in titles) {
+      if (urls.forumLinkTarget(link.attributes['href'] ?? '')
+          is ForumThreadLinkTarget) link.nodes.clear();
+    }
+    return '${validation.querySelector('title')?.text ?? ''}\n'
+        '${validation.body?.text ?? ''}';
+  }
+
   List<ForumThread> parseWallThreads(
     dom.Document document,
     ForumCategory category,

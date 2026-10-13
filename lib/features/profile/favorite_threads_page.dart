@@ -48,15 +48,15 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
     _future ??= _loadFavorites();
   }
 
-  Future<UserProfile> _loadFavorites() async {
-    final overview = await widget.repository.fetchUserProfileOverview('u.php');
-    return widget.repository.fetchUserProfileDetails(overview);
-  }
+  Future<UserProfile> _loadFavorites() =>
+      widget.repository.fetchUserProfileFavorites('u.php');
 
   Future<void> _refresh() async {
     if (!widget.repository.isLoggedIn) return;
     final next = _loadFavorites();
-    setState(() => _future = next);
+    setState(() {
+      _future = next;
+    });
     await next;
   }
 

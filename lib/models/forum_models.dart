@@ -217,6 +217,7 @@ class ForumThreadPage {
     required this.totalPages,
     this.ads = const [],
     this.subBoards = const [],
+    this.boardName,
   });
 
   final List<ForumThread> threads;
@@ -224,6 +225,7 @@ class ForumThreadPage {
   final int totalPages;
   final List<ForumBoardAd> ads;
   final List<ForumBoard> subBoards;
+  final String? boardName;
 
   bool get hasPrevious => currentPage > 1;
   bool get hasNext => currentPage < totalPages;

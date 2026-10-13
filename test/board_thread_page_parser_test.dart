@@ -4,6 +4,35 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/parsers/board_thread_page_parser.dart';
 
 void main() {
+  test('board name trusts only matching board routes inside the breadcrumb',
+      () {
+    const category = ForumCategory(name: 'f42', slug: 'f42');
+    final parser = BoardThreadPageParser();
+    for (final href in [
+      'thread.php?fid-42.html',
+      'thread_new.php?fid-42-page-2.html',
+      'simple/index.php?f42_2.html',
+    ]) {
+      final document =
+          html_parser.parse('''<a href="$href">Fixture unrelated</a>
+        <div id="breadcrumbs"><a href="thread.php?fid-7.html">Fixture parent</a>
+          <a href="https://example.invalid/thread.php?fid-42.html">Fixture foreign</a>
+          <a href="post.php?fid=42">Fixture action</a>
+          <a href="$href">Fixture board</a></div>''');
+      expect(parser.parseBoardName(document, category), 'Fixture board');
+    }
+    for (final markup in [
+      '<a href="thread.php?fid-42.html">Fixture outside</a>',
+      '<div id="breadcrumbs"><a href="thread.php?fid-7.html">Fixture wrong board</a></div>',
+      '<div id="breadcrumbs"><a href="https://example.invalid/thread.php?fid-42.html">Fixture foreign</a></div>',
+      '<div id="breadcrumbs"><a href="post.php?fid=42">Fixture action</a></div>',
+      '<div id="breadcrumbs"><a href="thread.php?fid-42.html"> </a></div>',
+    ]) {
+      expect(
+          parser.parseBoardName(html_parser.parse(markup), category), isNull);
+    }
+  });
+
   test('BoardThreadPageParser extracts sub boards from desktop board pages',
       () {
     final document = html_parser.parse('''

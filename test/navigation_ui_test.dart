@@ -256,8 +256,13 @@ class _NavRepository extends ForumRepository {
   Future<UserProfile?> cachedUserProfileOverview(String url) async => null;
 
   @override
-  Future<UserProfile> fetchUserProfileDetails(UserProfile overview) async =>
+  Future<UserProfile> fetchUserProfileDetails(UserProfile overview,
+          {bool forceReload = false}) async =>
       overview;
+
+  @override
+  Future<UserProfile> fetchUserProfileFavorites(String url) =>
+      fetchUserProfileOverview(url);
 
   @override
   Future<LoginChallenge> fetchLoginChallenge() async => LoginChallenge(

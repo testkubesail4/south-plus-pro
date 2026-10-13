@@ -1037,8 +1037,11 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final spec = ForumImageDecodeSpec.forDisplay(
-      logicalSize: Size(size.width * 0.96, size.height * 0.84),
+      // Same bounds as the post image viewer: never stretch to the box.
+      logicalSize: Size.square(size.longestSide * 0.96),
       devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      includeMemHeight: false,
+      includeDiskWidth: false,
       memoryScale: 1.15,
       diskScale: 1.15,
       maxLongEdge: 2400,
@@ -1314,8 +1317,13 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
       context: context,
       builder: (dialogContext) {
         final size = MediaQuery.sizeOf(dialogContext);
+        // A square bound fits either orientation. The shared cache decodes
+        // to both memory bounds exactly, stretching the image, so memory
+        // gets the width and the disk copy the height (its resize ignores
+        // the height once a width is given). The private path has no disk
+        // copy and fits both bounds instead.
         final spec = ForumImageDecodeSpec.forDisplay(
-          logicalSize: Size(size.width * 0.92, size.height * 0.82),
+          logicalSize: Size.square(size.longestSide * 0.92),
           devicePixelRatio: MediaQuery.devicePixelRatioOf(dialogContext),
           memoryScale: 1.2,
           diskScale: 1.2,
@@ -1333,8 +1341,8 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                       url: widget.image.url,
                       fit: BoxFit.contain,
                       memCacheWidth: spec.memCacheWidth,
-                      memCacheHeight: spec.memCacheHeight,
-                      maxWidthDiskCache: spec.maxWidthDiskCache,
+                      memCacheHeight:
+                          widget.privateMedia ? spec.memCacheHeight : null,
                       maxHeightDiskCache: spec.maxHeightDiskCache,
                       bypassLoadPolicy: true,
                       privateMemoryOnly: widget.privateMedia,

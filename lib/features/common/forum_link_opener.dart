@@ -41,15 +41,10 @@ Future<void> openForumLink(
         ),
       ));
     case ForumBoardLinkTarget(:final category):
+      // Link text can say anything; the board page names the board.
       navigator.push(MaterialPageRoute<void>(
         builder: (_) => BoardThreadListScreen(
-          category: category.name.isNotEmpty || title.isEmpty
-              ? category
-              : ForumCategory(
-                  name: title,
-                  slug: category.slug,
-                  url: category.url,
-                ),
+          category: category,
           repository: repository,
         ),
       ));

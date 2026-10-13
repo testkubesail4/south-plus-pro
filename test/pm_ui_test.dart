@@ -123,6 +123,9 @@ void main() {
     await tester.enterText(find.byType(TextField).at(1), 'hello');
     await tester.enterText(find.byType(TextField).at(2), 'body');
     expect(find.text('12'), findsOneWidget);
+    // The wrapping formatting toolbar sits above these controls.
+    await tester.scrollUntilVisible(submit, 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('保存到发件箱'));
     await tester.tap(submit);
     await tester.pump();
@@ -149,6 +152,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(repository.composePaths, ['message.php?action-write-edmid-13.html']);
+    await tester.scrollUntilVisible(find.text('提交修改'), 200,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('提交修改'), findsOneWidget);
 
     await tester.tap(find.text('提交修改'));
@@ -156,10 +161,14 @@ void main() {
     expect(find.text('请输入数字收件人 UID'), findsOneWidget);
     expect(repository.submits, isEmpty);
 
-    await tester.enterText(find.byType(TextField).at(0), '101');
+    final recipient = find.widgetWithText(TextField, '收件人 UID');
+    await tester.scrollUntilVisible(recipient, -200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.enterText(recipient, '101');
     await tester.pumpAndSettle();
     // The formatting toolbar sits above the submit button.
-    await tester.ensureVisible(find.text('提交修改'));
+    await tester.scrollUntilVisible(find.text('提交修改'), 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('提交修改'));
     await tester.pump();
@@ -230,6 +239,16 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), '101');
     await tester.enterText(find.byType(TextField).at(1), 'hello');
     await tester.enterText(find.byType(TextField).at(2), 'body');
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('pm-submit-button')),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(PmComposeScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.tap(find.byKey(const ValueKey('pm-submit-button')));
     await tester.pump();
     repository.submitResult.complete(const ForumPmActionResult(
@@ -380,6 +399,7 @@ class _FakePmRepository extends ForumRepository {
   Future<UserProfile> fetchUserProfileOverview(String url) async => profile;
 
   @override
-  Future<UserProfile> fetchUserProfileDetails(UserProfile overview) async =>
+  Future<UserProfile> fetchUserProfileDetails(UserProfile overview,
+          {bool forceReload = false}) async =>
       overview;
 }

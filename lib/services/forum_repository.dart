@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -25,6 +26,14 @@ import 'parsers/search_result_parser.dart';
 import 'parsers/thread_content_parser.dart';
 import 'parsers/thread_detail_parser.dart';
 import 'parsers/user_profile_parser.dart';
+
+typedef _ProfileDetailsData = ({
+  List<UserActivityItem> homeActivities,
+  List<UserActivityItem> homeReplies,
+  List<UserListItem> topics,
+  List<UserListItem> posts,
+  List<UserListItem> favorites,
+});
 
 class ForumRepository {
   ForumRepository({
@@ -61,7 +70,9 @@ class ForumRepository {
               ),
             ),
         _historyStore = historyStore ?? BrowsingHistoryStore(),
-        _taskStateStore = taskStateStore ?? const ForumTaskStateStore();
+        _taskStateStore = taskStateStore ?? const ForumTaskStateStore() {
+    _sessionEpoch.addListener(_clearProfileDetails);
+  }
 
   ForumClient _client;
   ForumNetworkConfig _config;
@@ -79,11 +90,19 @@ class ForumRepository {
   );
   late UserProfileParser _userProfileParser = UserProfileParser(urls: _urls);
   UserProfileCache _profileCache;
+  Future<_ProfileDetailsData>? _profileDetailsFuture;
+  _ProfileDetailsData? _profileDetailsData;
+  String? _profileDetailsUid;
+  Timer? _profileDetailsTimer;
+  int _profileDetailsGeneration = 0;
   final BrowsingHistoryStore _historyStore;
   final ForumTaskStateStore _taskStateStore;
   final _sessionUser = ValueNotifier<String?>(null);
+  final _sessionEpoch = ValueNotifier<int>(0);
 
   ValueListenable<String?> get sessionUser => _sessionUser;
+
+  ValueListenable<int> get sessionEpoch => _sessionEpoch;
 
   bool get isLoggedIn => _client.isLoggedIn;
 
@@ -149,6 +168,7 @@ class ForumRepository {
 
   Future<void> updateNetworkConfig(ForumNetworkConfig config) async {
     if (config == _config) return;
+    _sessionEpoch.value++;
     _client.close(force: true);
     _config = config;
     _urls = ForumUrlResolver(baseUri: config.baseUri);
@@ -295,19 +315,23 @@ class ForumRepository {
   Future<bool> restoreSession() async {
     await _client.restoreCookies();
     if (!_client.isLoggedIn) {
+      _sessionEpoch.value++;
       _sessionUser.value = null;
       return false;
     }
 
-    _sessionUser.value = await _fetchLoggedInUsername();
-    if (_sessionUser.value == null) {
+    final username = await _fetchLoggedInUsername();
+    if (username == null) {
       await clearSession();
       return false;
     }
+    if (username != currentUsername) _sessionEpoch.value++;
+    _sessionUser.value = username;
     return true;
   }
 
   Future<void> clearSession() async {
+    _sessionEpoch.value++;
     _sessionUser.value = null;
     await _client.clearSession();
   }
@@ -380,6 +404,7 @@ class ForumRepository {
       return const LoginResult(success: false, message: '验证码不能为空');
     }
 
+    _sessionEpoch.value++;
     final response = await _client.post('login.php', {
       ...fields,
       'step': fields['step'] ?? '2',
@@ -1201,8 +1226,10 @@ class ForumRepository {
   }
 
   Future<List<ForumSection>> fetchForumSections() async {
-    final home = await fetchHome();
-    return home.sections;
+    final response = await _client.get('index.php');
+    _throwIfBlockedPage(response);
+    return _homePageParser
+        .parseDesktopForumSections(html_parser.parse(response));
   }
 
   Future<dom.Element> _fetchSearchForm() async {
@@ -1339,8 +1366,16 @@ class ForumRepository {
     if (desktopPath == null) {
       throw ForumRepositoryException('没有解析到${category.name}帖子列表');
     }
-    final desktopHtml = await _client.get(desktopPath);
-    final desktopDocument = html_parser.parse(desktopHtml);
+    final desktopDocument = await _fetchStructuredDocument(
+      desktopPath,
+      (response) => _boardDocument(response, category),
+    );
+    final boardName =
+        _boardThreadPageParser.parseBoardName(desktopDocument, category);
+    if (boardName != null) {
+      category = ForumCategory(
+          name: boardName, slug: category.slug, url: category.url);
+    }
     final subBoards = _boardThreadPageParser.parseDesktopSubBoards(
       desktopDocument,
       category,
@@ -1365,6 +1400,7 @@ class ForumRepository {
         totalPages: pages.total,
         ads: _boardThreadPageParser.parseDesktopAds(desktopDocument),
         subBoards: subBoards,
+        boardName: boardName,
       );
     }
 
@@ -1375,6 +1411,7 @@ class ForumRepository {
         totalPages: normalizedPage,
         ads: _boardThreadPageParser.parseDesktopAds(desktopDocument),
         subBoards: subBoards,
+        boardName: boardName,
       );
     }
 
@@ -1434,6 +1471,33 @@ class ForumRepository {
     return _replyResult(response, '主题已发布');
   }
 
+  Future<String> fetchLoginUsername(String numericUid) async {
+    if (!RegExp(r'^[1-9]\d*$').hasMatch(numericUid)) {
+      throw const ForumRepositoryException('用户 UID 无效');
+    }
+    if (!isLoggedIn) {
+      throw const ForumRequestException(
+        ForumRequestKind.loginRequired,
+        '需要登录',
+      );
+    }
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final owner = currentUsername;
+    final response = await client.getOnce('sendemail.php?uid-$numericUid.html');
+    if (epoch != _sessionEpoch.value ||
+        !identical(client, _client) ||
+        owner != currentUsername ||
+        !isLoggedIn) {
+      throw const ForumRequestException(
+        ForumRequestKind.loginRequired,
+        '登录状态已变更，请重新查询',
+      );
+    }
+    _throwIfBlockedPage(response);
+    return _userProfileParser.parseLoginUsername(html_parser.parse(response));
+  }
+
   Future<UserProfile> fetchUserProfile(String url) async {
     final overview = await fetchUserProfileOverview(url);
     return fetchUserProfileDetails(overview);
@@ -1460,24 +1524,119 @@ class ForumRepository {
     return _profileCache.loadOverview(url);
   }
 
-  Future<UserProfile> fetchUserProfileDetails(UserProfile overview) async {
+  Future<UserProfile> fetchUserProfileFavorites(String url) async {
+    final overview = await fetchUserProfileOverview(url);
+    final document = await _fetchStructuredDocument(
+      _urls.relativePath(
+          _urls.userTabUrl(overview.uid, UserProfileTab.favorites)),
+      _profileDetailsDocument,
+    );
+    return _userProfileParser.appendFavorites(overview, document);
+  }
+
+  void _evictProfileDetails() {
+    _profileDetailsTimer?.cancel();
+    _profileDetailsTimer = null;
+    _profileDetailsFuture = null;
+    _profileDetailsData = null;
+    _profileDetailsUid = null;
+  }
+
+  void _clearProfileDetails() {
+    _profileDetailsGeneration++;
+    _evictProfileDetails();
+  }
+
+  UserProfile _withProfileDetails(
+    UserProfile overview,
+    _ProfileDetailsData details,
+  ) =>
+      overview.copyWith(
+        homeActivities: details.homeActivities,
+        homeReplies: details.homeReplies,
+        topics: details.topics,
+        posts: details.posts,
+        favorites: details.favorites,
+      );
+
+  Future<UserProfile> fetchUserProfileDetails(
+    UserProfile overview, {
+    bool forceReload = false,
+  }) {
+    if (forceReload) _clearProfileDetails();
+    if (_profileDetailsUid != overview.uid) _evictProfileDetails();
+    final data = _profileDetailsData;
+    if (data != null) {
+      return SynchronousFuture(_withProfileDetails(overview, data));
+    }
+    var pending = _profileDetailsFuture;
+    if (pending == null) {
+      final generation = _profileDetailsGeneration;
+      final epoch = _sessionEpoch.value;
+      final client = _client;
+      final origin = _config.baseUri.origin;
+      late Future<_ProfileDetailsData> next;
+      next = _readUserProfileDetails(overview).then((details) {
+        if (epoch != _sessionEpoch.value ||
+            !identical(client, _client) ||
+            origin != _config.baseUri.origin) {
+          throw const ForumRequestException(
+            ForumRequestKind.loginRequired,
+            '登录状态已变更，请重新加载',
+          );
+        }
+        if (generation != _profileDetailsGeneration) {
+          throw const ForumRequestException(
+            ForumRequestKind.server,
+            '用户资料已变更，请重新加载',
+          );
+        }
+        if (identical(_profileDetailsFuture, next)) {
+          _profileDetailsData = details;
+          // Reuse one UID's details for 60s; refresh, session changes and writes clear it.
+          _profileDetailsTimer = Timer(const Duration(seconds: 60), () {
+            if (identical(_profileDetailsFuture, next)) _evictProfileDetails();
+          });
+        }
+        return details;
+      }).catchError((Object error, StackTrace stack) {
+        if (identical(_profileDetailsFuture, next)) _evictProfileDetails();
+        Error.throwWithStackTrace(error, stack);
+      });
+      _profileDetailsUid = overview.uid;
+      _profileDetailsFuture = pending = next;
+    }
+    return pending.then((details) => _withProfileDetails(overview, details));
+  }
+
+  Future<_ProfileDetailsData> _readUserProfileDetails(
+      UserProfile overview) async {
     final uid = overview.uid;
-    final documents = await Future.wait([
-      _client
-          .get(_urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.home))),
-      _client.get(
-          _urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.topics))),
-      _client
-          .get(_urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.posts))),
-      _client.get(
-          _urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.favorites))),
+    final parsed = await Future.wait([
+      for (final tab in [
+        UserProfileTab.home,
+        UserProfileTab.topics,
+        UserProfileTab.posts,
+        UserProfileTab.favorites
+      ])
+        _fetchStructuredDocument(
+          _urls.relativePath(_urls.userTabUrl(uid, tab)),
+          _profileDetailsDocument,
+        ),
     ]);
-    return _userProfileParser.appendDetails(
+    final profile = _userProfileParser.appendDetails(
       overview: overview,
-      homeDocument: html_parser.parse(documents[0]),
-      topicsDocument: html_parser.parse(documents[1]),
-      postsDocument: html_parser.parse(documents[2]),
-      favoritesDocument: html_parser.parse(documents[3]),
+      homeDocument: parsed[0],
+      topicsDocument: parsed[1],
+      postsDocument: parsed[2],
+      favoritesDocument: parsed[3],
+    );
+    return (
+      homeActivities: profile.homeActivities,
+      homeReplies: profile.homeReplies,
+      topics: profile.topics,
+      posts: profile.posts,
+      favorites: profile.favorites,
     );
   }
 
@@ -1615,16 +1774,55 @@ class ForumRepository {
   ReplyResult _replyResult(String response, String successMessage) {
     final message = _responseParser.pageMessage(response);
     if (_responseParser.isReplySuccess(response, message)) {
+      _clearProfileDetails();
       return ReplyResult(success: true, message: successMessage);
     }
     _throwIfBlockedPage(response);
     return ReplyResult(success: false, message: message);
   }
 
+  Future<dom.Document> _fetchStructuredDocument(
+      String path, dom.Document Function(String) parse) async {
+    final client = _client;
+    try {
+      return parse(await client.getOnce(path));
+    } on ForumRequestException catch (error) {
+      if (error.kind != ForumRequestKind.rateLimited) rethrow;
+    }
+    // Retry one actual cooldown, never an error phrase inside admitted user data.
+    return parse(await client.getOnce(path));
+  }
+
+  dom.Document _boardDocument(String response, ForumCategory category) {
+    final document = html_parser.parse(response);
+    _throwIfBlockedText(
+        _boardThreadPageParser.validationText(document, category));
+    return document;
+  }
+
+  dom.Document _profileDetailsDocument(String response) {
+    final document = html_parser.parse(response);
+    final validation = document.clone(true);
+    for (final link in validation
+        .querySelectorAll('.u-table a[href], .u-box-wrap a[href]')) {
+      if (_urls.forumLinkTarget(link.attributes['href']!)
+          is ForumThreadLinkTarget) {
+        // Thread titles are user data; warnings outside the title still count.
+        link.nodes.clear();
+      }
+    }
+    _throwIfBlockedText('${validation.querySelector('title')?.text ?? ''}\n'
+        '${validation.body?.text ?? ''}');
+    return document;
+  }
+
   void _throwIfBlockedPage(String html) {
     final document = html_parser.parse(html);
-    final text = '${document.querySelector('title')?.text ?? ''}\n'
-        '${document.body?.text ?? ''}';
+    _throwIfBlockedText('${document.querySelector('title')?.text ?? ''}\n'
+        '${document.body?.text ?? ''}');
+  }
+
+  void _throwIfBlockedText(String text) {
     if (forumTextIsRateLimited(text)) {
       throw const ForumRequestException(
         ForumRequestKind.rateLimited,
@@ -1654,6 +1852,7 @@ class ForumRepository {
         .get(_urls.relativePath(_urls.absoluteUrl(saleBox.buyPath)));
     final message = _responseParser.pageMessage(response);
     final success = _responseParser.isPurchaseSuccess(response, message);
+    if (success) _clearProfileDetails();
     return ReplyResult(
       success: success,
       message: success ? '购买完成' : message,
@@ -1667,6 +1866,7 @@ class ForumRepository {
     );
     final message = _responseParser.ajaxMessage(response);
     final success = _responseParser.isFavoriteAddSuccess(message);
+    if (success) _clearProfileDetails();
     return FavoriteResult(
       success: success,
       message: success ? '已收藏该主题' : message,
@@ -1677,6 +1877,7 @@ class ForumRepository {
   Future<FavoriteResult> removeFavorite(ThreadFavorite favorite) async {
     final currentState = await _fetchFavoriteState(favorite.tid);
     if (currentState == ThreadFavoriteState.notFavorite) {
+      _clearProfileDetails();
       return const FavoriteResult(
         success: true,
         message: '当前没有收藏该主题',
@@ -1692,6 +1893,7 @@ class ForumRepository {
     });
     final message = _responseParser.pageMessage(response);
     final success = _responseParser.isFavoriteRemoveSuccess(response, message);
+    if (success) _clearProfileDetails();
     return FavoriteResult(
       success: success,
       message: success ? '已取消收藏' : message,

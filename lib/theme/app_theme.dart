@@ -223,6 +223,13 @@ class AppTheme {
         error: isDark ? const Color(0xFFFFB4AB) : null,
       ),
       scaffoldBackgroundColor: colors.background,
+      pageTransitionsTheme: PageTransitionsTheme(
+        builders: {
+          ...const PageTransitionsTheme().builders,
+          // The default fade fades both pages through blank between them.
+          TargetPlatform.android: const ZoomPageTransitionsBuilder(),
+        },
+      ),
       fontFamily: 'Roboto',
       extensions: [AppThemeColors(colors)],
       appBarTheme: AppBarTheme(

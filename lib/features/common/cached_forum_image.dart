@@ -467,11 +467,18 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   // Image.network sends no cookies and keeps bytes only in the in-memory
   // ImageCache, which dispose() evicts.
   Widget _privateNetworkImage() {
-    final provider = _privateProvider ??= ResizeImage.resizeIfNeeded(
-      widget.memCacheWidth,
-      widget.memCacheHeight,
-      NetworkImage(widget.url),
-    );
+    final width = widget.memCacheWidth;
+    final height = widget.memCacheHeight;
+    // Fit keeps the image's ratio inside both bounds; exact would stretch it.
+    _privateProvider ??= width == null && height == null
+        ? NetworkImage(widget.url)
+        : ResizeImage(
+            NetworkImage(widget.url),
+            width: width,
+            height: height,
+            policy: ResizeImagePolicy.fit,
+          );
+    final provider = _privateProvider!;
     return Image(
       key: ValueKey(_retry),
       image: provider,

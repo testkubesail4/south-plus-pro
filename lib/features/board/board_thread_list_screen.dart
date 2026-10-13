@@ -49,11 +49,13 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   }
 
   Future<ForumThreadPage> _fetchPage(int page) async {
+    final category = _category;
     final threadPage = await widget.repository.fetchBoardThreadPage(
-      _category,
+      category,
       page: page,
       order: _order,
     );
+    _adoptBoardName(category, threadPage);
     _rememberSubBoards(threadPage);
     final defaultSubBoard = _defaultContentSubBoard(threadPage);
     if (defaultSubBoard != null) {
@@ -77,10 +79,36 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       }
       final nextPage =
           await widget.repository.fetchBoardThreadPage(nextCategory, page: 1);
+      _adoptBoardName(nextCategory, nextPage);
       _rememberSubBoards(nextPage);
       return nextPage;
     }
     return threadPage;
+  }
+
+  // The board page's breadcrumb names the board; link text does not. A page
+  // without one keeps the known name, and a late page for a board the user
+  // has left renames nothing.
+  void _adoptBoardName(ForumCategory requested, ForumThreadPage page) {
+    final name = page.boardName?.trim() ?? '';
+    if (name.isEmpty || name == requested.name) return;
+    if (!identical(_category, requested)) return;
+    final named = ForumCategory(
+      name: name,
+      slug: requested.slug,
+      url: requested.url,
+    );
+    if (mounted) {
+      setState(() => _category = named);
+    } else {
+      _category = named;
+    }
+  }
+
+  String get _title {
+    if (_category.name.isNotEmpty) return _category.name;
+    final fid = widget.repository.searchBoardId(_category);
+    return fid == null ? '版块' : '版块 $fid';
   }
 
   void _rememberSubBoards(ForumThreadPage page) {
@@ -143,7 +171,11 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     final posted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => ThreadComposeScreen(
-          category: _category,
+          category: ForumCategory(
+            name: _title,
+            slug: _category.slug,
+            url: _category.url,
+          ),
           repository: widget.repository,
         ),
       ),
@@ -196,7 +228,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
             child: Column(
               children: [
                 _BoardHeader(
-                  title: _category.name,
+                  title: _title,
                   slug: _category.slug,
                   order: _order,
                   onCompose: _openComposer,

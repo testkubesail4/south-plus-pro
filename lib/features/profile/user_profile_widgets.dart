@@ -4,12 +4,20 @@ class _ProfileHeader extends StatelessWidget {
   const _ProfileHeader({
     required this.profile,
     this.onMessage,
-    this.onSearchTopics,
+    this.loginName,
+    this.lookingUp = false,
+    this.onShowLoginName,
+    this.onCopyLoginName,
+    this.onSearchByUser,
   });
 
   final UserProfile profile;
   final VoidCallback? onMessage;
-  final VoidCallback? onSearchTopics;
+  final String? loginName;
+  final bool lookingUp;
+  final VoidCallback? onShowLoginName;
+  final ValueChanged<String>? onCopyLoginName;
+  final VoidCallback? onSearchByUser;
 
   @override
   Widget build(BuildContext context) {
@@ -135,11 +143,33 @@ class _ProfileHeader extends StatelessWidget {
                   label: '发短消息',
                   onTap: onMessage,
                 ),
-              if (onSearchTopics != null)
+              if (onSearchByUser != null)
                 _ActionChip(
                   icon: Icons.manage_search,
-                  label: '搜索主题',
-                  onTap: onSearchTopics,
+                  label: '按人查找',
+                  onTap: lookingUp ? null : onSearchByUser,
+                ),
+              if (loginName case final name?)
+                Semantics(
+                  liveRegion: true,
+                  hint: '点按复制',
+                  child: _ActionChip(
+                    icon: Icons.badge_outlined,
+                    label: '登录名 $name',
+                    onTap: onCopyLoginName == null
+                        ? null
+                        : () => onCopyLoginName!(name),
+                  ),
+                )
+              else if (onShowLoginName != null)
+                Semantics(
+                  label: lookingUp ? '正在查询登录名' : null,
+                  child: _ActionChip(
+                    icon: Icons.badge_outlined,
+                    label: '查看登录名',
+                    busy: lookingUp,
+                    onTap: lookingUp ? null : onShowLoginName,
+                  ),
                 ),
               _MetricChip(label: 'UID', value: profile.uid),
               if (profile.level != null && profile.level!.isNotEmpty)
@@ -236,38 +266,54 @@ class _ActionChip extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.busy = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.brand,
+      color: onTap == null
+          ? AppColors.brand.withValues(alpha: .6)
+          : AppColors.brand,
       borderRadius: BorderRadius.circular(999),
       child: InkWell(
         borderRadius: BorderRadius.circular(999),
         onTap: onTap,
         child: Container(
-      constraints: const BoxConstraints(minHeight: 32),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: Colors.white),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+          constraints: const BoxConstraints(minHeight: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (busy)
+                const SizedBox.square(
+                  dimension: 15,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              else
+                Icon(icon, size: 15, color: Colors.white),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
         ),
       ),
     );

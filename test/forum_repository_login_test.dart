@@ -1372,6 +1372,9 @@ class _FakeForumClient extends ForumClient {
   String? bytesPath;
 
   @override
+  Future<String> getOnce(String path) => get(path);
+
+  @override
   Future<String> get(String path) async => html;
 
   @override
@@ -1390,6 +1393,9 @@ class _PathForumClient extends ForumClient {
 
   @override
   bool get isLoggedIn => loggedIn;
+
+  @override
+  Future<String> getOnce(String path) => get(path);
 
   @override
   Future<String> get(String path) async {

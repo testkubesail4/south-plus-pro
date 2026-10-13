@@ -2,6 +2,7 @@ enum ForumRequestKind {
   rateLimited,
   loginRequired,
   forbidden,
+  invalidInput,
   network,
   server,
 }
@@ -48,8 +49,6 @@ const _forbiddenPhrases = <String>[
 
 bool forumTextIsRateLimited(String text) => _rateLimitedText.hasMatch(text);
 
-bool forumTextNeedsLogin(String text) =>
-    _loginPhrases.any(text.contains);
+bool forumTextNeedsLogin(String text) => _loginPhrases.any(text.contains);
 
-bool forumTextIsForbidden(String text) =>
-    _forbiddenPhrases.any(text.contains);
+bool forumTextIsForbidden(String text) => _forbiddenPhrases.any(text.contains);

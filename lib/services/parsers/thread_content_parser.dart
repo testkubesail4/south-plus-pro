@@ -18,17 +18,31 @@ class ThreadContentParser {
       {bool parseRaw = true}) {
     final segments = <ThreadContentSegment>[];
     final buffer = StringBuffer();
+    // Preserve authored breaks while folding HTML source indentation.
+    final explicitBreaks = <int>[];
     var activeStyle = _styleForElement(content, inherited);
 
     void flushText() {
       if (buffer.isEmpty) return;
-      final text = buffer
-          .toString()
-          .replaceAll(RegExp(r'[ \t]+\n'), '\n')
-          .replaceAll(RegExp(r'\n{2,}'), '\n');
+      final explicitBreak = explicitBreaks.isNotEmpty;
+      var breakIndex = 0;
+      var text = buffer.toString().replaceAllMapped(
+        RegExp(r'[ \t]*\n(?:[ \t]*\n)*'),
+        (match) {
+          var count = 0;
+          while (breakIndex < explicitBreaks.length &&
+              explicitBreaks[breakIndex] < match.end) {
+            if (explicitBreaks[breakIndex] >= match.start) count++;
+            breakIndex++;
+          }
+          return '\n' * (count == 0 ? 1 : count);
+        },
+      );
       buffer.clear();
+      explicitBreaks.clear();
       if (text.trim().isEmpty) {
-        if (segments.isNotEmpty && !text.contains('\n')) return;
+        if (!explicitBreak) return;
+        text = text.replaceAll(RegExp(r'[ \t]'), '');
       }
       final segment = ThreadContentSegment.text(
         text,
@@ -60,8 +74,8 @@ class ThreadContentParser {
       if (node is! dom.Element) return;
       if ({'script', 'style', 'form', 'input', 'button', 'noscript'}
           .contains(node.localName)) return;
-      if (node.localName == 'h6' && _isCodeElement(node.nextElementSibling))
-        return;
+      if ((node.localName == 'h6' || _isServerCodeLabel(node)) &&
+          _isCodeElement(node.nextElementSibling)) return;
       if (_isCodeElement(node)) {
         flushText();
         final lines = node.classes.contains('blockquote2')
@@ -99,6 +113,11 @@ class ThreadContentParser {
         return;
       }
       if (node.localName == 'table') {
+        final code = _serverCodeTableContent(node);
+        if (code != null) {
+          walk(code, expandRaw);
+          return;
+        }
         flushText();
         final rows = <List<ThreadContentTableCell>>[];
         for (final row in node.querySelectorAll('tr')) {
@@ -168,6 +187,7 @@ class ThreadContentParser {
         return;
       }
       if (node.localName == 'br') {
+        explicitBreaks.add(buffer.length);
         buffer.write('\n');
         return;
       }
@@ -226,12 +246,21 @@ class ThreadContentParser {
     }
     flushText();
 
-    final normalizedSegments = segments
-        .where((segment) =>
-            segment.type != ThreadContentSegmentType.text ||
-            (segment.text?.trim().isNotEmpty ?? false))
-        .toList();
-    return _trimBoundaryWhitespace(normalizedSegments);
+    bool isInline(ThreadContentSegment segment) =>
+        segment.type == ThreadContentSegmentType.text || segment.isEmoji;
+    final normalized = <ThreadContentSegment>[];
+    for (var index = 0; index < segments.length; index++) {
+      final segment = segments[index];
+      if (segment.type == ThreadContentSegmentType.text &&
+          (segment.text?.trim().isEmpty ?? true) &&
+          (index == 0 ||
+              index == segments.length - 1 ||
+              ((segment.text ?? '').split('\n').length <= 2 &&
+                  (!isInline(segments[index - 1]) ||
+                      !isInline(segments[index + 1]))))) continue;
+      normalized.add(segment);
+    }
+    return _trimBoundaryWhitespace(normalized);
   }
 
   Iterable<ThreadContentSegment> _linkify(ThreadContentSegment segment) sync* {
@@ -345,6 +374,45 @@ class ThreadContentParser {
       href: segment.href,
       fontFamily: segment.fontFamily,
     );
+  }
+
+  bool _isServerCodeLabel(dom.Element node) =>
+      node.localName == 'span' &&
+      node.classes.containsAll({'f10', 's8'}) &&
+      node.children.length == 1 &&
+      node.children.single.localName == 'a' &&
+      node.children.single.children.isEmpty &&
+      _cleanText(node.text) == '复制代码';
+
+  dom.Element? _serverCodeTableContent(dom.Element table) {
+    bool hasText(dom.Element node) => node.nodes
+        .whereType<dom.Text>()
+        .any((text) => text.text.trim().isNotEmpty);
+    var cell = table;
+    for (final tag in ['tbody', 'tr', 'td']) {
+      if (hasText(cell) ||
+          cell.children.length != 1 ||
+          cell.children.single.localName != tag) return null;
+      cell = cell.children.single;
+    }
+    if (hasText(cell) || cell.children.length != 3) return null;
+    final clear = cell.children[0];
+    final label = cell.children[1];
+    final code = cell.children[2];
+    if (clear.localName != 'div' ||
+        !clear.classes.contains('c') ||
+        clear.children.isNotEmpty ||
+        clear.text.trim().isNotEmpty ||
+        !_isServerCodeLabel(label) ||
+        code.localName != 'div' ||
+        !code.classes.contains('blockquote2') ||
+        hasText(code) ||
+        code.children.length != 1 ||
+        code.children.single.localName != 'ol') return null;
+    final lines = code.children.single;
+    if (hasText(lines) || lines.children.any((line) => line.localName != 'li'))
+      return null;
+    return code;
   }
 
   bool _isCodeElement(dom.Element? node) =>

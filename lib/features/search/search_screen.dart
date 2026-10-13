@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../services/forum_search_preferences.dart';
+import '../../services/search_board_hierarchy.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../thread/thread_detail_screen.dart';
@@ -74,8 +75,10 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _timeTouched = false;
 
   List<ForumSearchBoard>? _boards;
-  // Per owner: board visibility differs between accounts.
-  final _boardLoads = <String?, Future<List<ForumSearchBoard>>>{};
+  // Per owner and session: board visibility differs between accounts, and a
+  // re-login or site switch may change it under the same name.
+  final _boardLoads = <(String?, int), Future<List<ForumSearchBoard>>>{};
+  final _sectionLoads = <(String?, int), Future<List<ForumSection>>>{};
 
   bool _filtersOpen = false;
   bool _editing = true;
@@ -87,28 +90,75 @@ class _SearchScreenState extends State<SearchScreen> {
   Object? _error;
   bool _searching = false;
   int _requestId = 0;
+  bool _resultsDropped = false;
+  // Ticks whenever earlier results stop belonging to this screen; an open
+  // board picker listens to it.
+  final _scopeChanges = ValueNotifier<int>(0);
 
   @override
   void initState() {
     super.initState();
+    widget.repository.sessionEpoch.addListener(_dropResults);
     _loadPrefs();
     // A board known only by id (e.g. from a link) gets its name from the list.
     if (_board.name.isEmpty) _loadBoards().ignore();
+  }
+
+  // Results, pages and retries belong to the session that fetched them; a
+  // request still running is dropped by the new id.
+  void _dropResults() {
+    if (!mounted) return;
+    _scopeChanges.value++;
+    setState(_clearResults);
+  }
+
+  void _clearResults() {
+    _resultsDropped = _query != null;
+    _requestId++;
+    _searching = false;
+    _query = null;
+    _page = null;
+    _error = null;
+    _lastRequest = null;
+    _editing = true;
   }
 
   String get _boardLabel =>
       _board.name.isEmpty ? '版块 ${_board.id}' : _board.name;
 
   @override
+  void didUpdateWidget(SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.repository, widget.repository)) return;
+    oldWidget.repository.sessionEpoch.removeListener(_dropResults);
+    widget.repository.sessionEpoch.addListener(_dropResults);
+    // Another repository's lists and results are not this one's.
+    _boardLoads.clear();
+    _sectionLoads.clear();
+    _boards = null;
+    // A rebuild follows; an open picker is told after this frame, since
+    // it may not rebuild during this one.
+    _clearResults();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scopeChanges.value++;
+    });
+  }
+
+  @override
   void dispose() {
+    widget.repository.sessionEpoch.removeListener(_dropResults);
     _keyword.dispose();
     _username.dispose();
     _scroll.dispose();
+    _scopeChanges.dispose();
     super.dispose();
   }
 
   // Preferences belong to the signed-in account (anonymous otherwise).
   String? get _account => widget.repository.currentUsername;
+
+  (String?, int) get _session =>
+      (_account, widget.repository.sessionEpoch.value);
 
   Future<void> _loadPrefs() async {
     final account = _account;
@@ -125,13 +175,13 @@ class _SearchScreenState extends State<SearchScreen> {
 
   // Board options cost a search.php request, so load them only when needed.
   Future<List<ForumSearchBoard>> _loadBoards() {
-    final account = _account;
-    return _boardLoads[account] ??= widget.repository.fetchSearchBoards().then(
+    final session = _session;
+    return _boardLoads[session] ??= widget.repository.fetchSearchBoards().then(
       (boards) {
         final list = boards.any((board) => board.id == _allBoards.id)
             ? boards
             : [_allBoards, ...boards];
-        if (mounted && account == _account) {
+        if (mounted && session == _session) {
           setState(() {
             _boards = list;
             if (_board.name.isEmpty) {
@@ -146,7 +196,24 @@ class _SearchScreenState extends State<SearchScreen> {
       },
       onError: (Object error) {
         // A failed load may be retried.
-        _boardLoads.remove(account);
+        _boardLoads.remove(session);
+        throw error;
+      },
+    );
+  }
+
+  // Homepage sections only group the search scopes; the picker works without.
+  Future<List<ForumSection>> _loadSections() {
+    final session = _session;
+    return _sectionLoads[session] ??=
+        widget.repository.fetchForumSections().then(
+      (sections) {
+        // An empty result may be transient; a retry must ask again.
+        if (sections.isEmpty) _sectionLoads.remove(session);
+        return sections;
+      },
+      onError: (Object error) {
+        _sectionLoads.remove(session);
         throw error;
       },
     );
@@ -197,6 +264,7 @@ class _SearchScreenState extends State<SearchScreen> {
     FocusScope.of(context).unfocus();
     setState(() {
       _formError = null;
+      _resultsDropped = false;
       _query = query;
       _page = null;
     });
@@ -213,6 +281,12 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _run(Future<ForumSearchPage> Function() request) async {
     final id = ++_requestId;
+    final repository = widget.repository;
+    final session = _session;
+    // A result counts only for the repository and session it started in;
+    // a login may change the account before notifying.
+    bool current() =>
+        identical(repository, widget.repository) && session == _session;
     setState(() {
       _searching = true;
       _error = null;
@@ -221,6 +295,10 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final page = await request();
       if (!mounted || id != _requestId) return;
+      if (!current()) {
+        _dropResults();
+        return;
+      }
       setState(() {
         _page = page;
         _searching = false;
@@ -232,6 +310,10 @@ class _SearchScreenState extends State<SearchScreen> {
       });
     } catch (error) {
       if (!mounted || id != _requestId) return;
+      if (!current()) {
+        _dropResults();
+        return;
+      }
       setState(() {
         _error = error;
         _searching = false;
@@ -260,20 +342,29 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _pickBoard() async {
     final account = _account;
+    final repository = widget.repository;
+    final session = _session;
+    bool inSession() =>
+        mounted &&
+        identical(repository, widget.repository) &&
+        session == _session;
     final picked = await showModalBottomSheet<ForumSearchBoard>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => _BoardPickerSheet(
+        sessionChanges: _scopeChanges,
+        inSession: inSession,
         selectedId: _board.id,
         loadBoards: _loadBoards,
+        loadSections: _loadSections,
         loadPinned: () async =>
             (await ForumSearchPreferences.load(account: account)).pinnedBoards,
         savePinned: (boards) =>
             ForumSearchPreferences.savePinnedBoards(boards, account: account),
       ),
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !inSession()) return;
     setState(() => _board = picked);
     // Pins may have changed inside the sheet.
     _loadPrefs();
@@ -383,6 +474,19 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildStatus() {
     final error = _error;
+    // The site rejected the username itself; retrying cannot help.
+    if (error case ForumRequestException(kind: ForumRequestKind.invalidInput)) {
+      return EmptyStateView(
+        icon: Icons.person_off_outlined,
+        title: '用户不存在',
+        message: [
+          if (_query?.username case final name? when name.isNotEmpty)
+            '用户名：“$name”',
+          '搜索需填写登录名，可能与显示昵称不同。',
+          '可在该用户的用户中心点“查看登录名”或“按人查找”。',
+        ].join('\n'),
+      );
+    }
     if (error != null) {
       return AsyncErrorView(
         title: '搜索失败',
@@ -406,6 +510,13 @@ class _SearchScreenState extends State<SearchScreen> {
           if (query.username.isNotEmpty) '用户名：“${query.username}”',
           '可尝试部分匹配、放宽时间范围或更换版块。',
         ].join('\n'),
+      );
+    }
+    if (_resultsDropped) {
+      return const EmptyStateView(
+        icon: Icons.manage_accounts_outlined,
+        title: '登录状态已变化',
+        message: '旧结果已隐藏，请重新搜索。',
       );
     }
     return const EmptyStateView(
@@ -514,7 +625,7 @@ class _SearchScreenState extends State<SearchScreen> {
           decoration: const InputDecoration(
             labelText: '用户名',
             hintText: '只看该用户的主题',
-            helperText: '可用 * 通配，例如 abc*',
+            helperText: '填写登录名（非显示昵称），可用 * 通配，例如 abc*',
             helperMaxLines: 2,
             prefixIcon: Icon(Icons.person_outline),
           ),
@@ -911,14 +1022,20 @@ class _SearchSummary extends StatelessWidget {
 
 class _BoardPickerSheet extends StatefulWidget {
   const _BoardPickerSheet({
+    required this.sessionChanges,
+    required this.inSession,
     required this.selectedId,
     required this.loadBoards,
+    required this.loadSections,
     required this.loadPinned,
     required this.savePinned,
   });
 
+  final Listenable sessionChanges;
+  final bool Function() inSession;
   final String selectedId;
   final Future<List<ForumSearchBoard>> Function() loadBoards;
+  final Future<List<ForumSection>> Function() loadSections;
   final Future<List<ForumSearchPinnedBoard>> Function() loadPinned;
   final Future<void> Function(List<ForumSearchPinnedBoard>) savePinned;
 
@@ -930,22 +1047,82 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
   final _filter = TextEditingController();
   late Future<List<ForumSearchBoard>> _boards = widget.loadBoards();
   List<ForumSearchPinnedBoard> _pinned = const [];
+  // Options, pins and choices belong to the session the sheet opened in.
+  bool _stale = false;
+  List<ForumSection>? _sections;
+  Object? _sectionsError;
+  final _expanded = <String>{};
+  // The lists the selection's ancestors were last expanded for.
+  Object? _expandedFor;
 
   @override
   void initState() {
     super.initState();
+    widget.sessionChanges.addListener(_checkSession);
     widget.loadPinned().then((pinned) {
       if (mounted) setState(() => _pinned = pinned);
     });
+    _loadSections();
+  }
+
+  void _checkSession() {
+    if (mounted && !_stale && !widget.inSession()) {
+      setState(() => _stale = true);
+    }
+  }
+
+  Future<void> _loadSections() async {
+    try {
+      final sections = await widget.loadSections();
+      if (mounted) setState(() => _sections = sections);
+    } catch (error) {
+      if (mounted) setState(() => _sectionsError = error);
+    }
+  }
+
+  void _retrySections() {
+    setState(() {
+      _sections = null;
+      _sectionsError = null;
+    });
+    _loadSections();
+  }
+
+  // The search form's options stay the only source of scopes; homepage
+  // sections only nest them.
+  List<_BoardNode> _tree(List<ForumSearchBoard> boards) {
+    final sections = _sections;
+    final roots = _BoardNode.build(
+      sections == null || sections.isEmpty
+          ? boards
+          : mergeSearchBoardHierarchy(boards, sections),
+    );
+    final source = (boards, sections);
+    if (_expandedFor != source) {
+      _expandedFor = source;
+      for (final node in _BoardNode.flatten(roots)) {
+        if (node.board.id == widget.selectedId) {
+          for (var parent = node.parent;
+              parent != null;
+              parent = parent.parent) {
+            _expanded.add(parent.key);
+          }
+        }
+      }
+    }
+    return roots;
   }
 
   @override
   void dispose() {
+    widget.sessionChanges.removeListener(_checkSession);
     _filter.dispose();
     super.dispose();
   }
 
   Future<void> _togglePin(ForumSearchBoard board) async {
+    _checkSession();
+    if (_stale) return;
     final pinned = _pinned.any((pin) => pin.id == board.id);
     List<ForumSearchPinnedBoard> next;
     if (pinned) {
@@ -955,6 +1132,8 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
       ];
     } else {
       final label = await _askLabel(board.name.trim());
+      _checkSession();
+      if (!mounted || _stale) return;
       if (label == null || label.trim().isEmpty) return;
       next = [
         ..._pinned,
@@ -974,6 +1153,18 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    if (_stale) {
+      return SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.8,
+          child: const EmptyStateView(
+            icon: Icons.manage_accounts_outlined,
+            title: '登录状态已变化',
+            message: '请关闭后重新选择版块。',
+          ),
+        ),
+      );
+    }
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -1000,6 +1191,7 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
                   future: _boards,
                   builder: (context, snapshot) {
                     final boards = snapshot.data;
+                    final roots = boards == null ? null : _tree(boards);
                     final filter = _filter.text.trim().toLowerCase();
                     final known = {
                       for (final board in boards ?? const <ForumSearchBoard>[])
@@ -1032,16 +1224,22 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
                               child: const Text('重试'),
                             ),
                           )
-                        else if (boards == null)
+                        else if (roots == null)
                           const Padding(
                             padding: EdgeInsets.all(24),
                             child: Center(child: CircularProgressIndicator()),
                           )
-                        else
-                          for (final board in boards)
-                            if (filter.isEmpty ||
-                                board.name.toLowerCase().contains(filter))
-                              _boardTile(board),
+                        else ...[
+                          _hierarchyStatus(),
+                          if (filter.isEmpty)
+                            ..._treeRows(roots)
+                          else
+                            for (final node in _BoardNode.flatten(roots))
+                              if ((node.children.isEmpty ||
+                                      node.board.selectable) &&
+                                  node.name.toLowerCase().contains(filter))
+                                _boardTile(node, level: 0, showPath: true),
+                        ],
                       ],
                     );
                   },
@@ -1085,34 +1283,160 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
     );
   }
 
-  Widget _boardTile(ForumSearchBoard board) {
-    final indent = 16.0 + 16.0 * board.depth.clamp(0, 4);
-    if (!board.selectable) {
+  Widget _hierarchyStatus() {
+    final sections = _sections;
+    if (_sectionsError == null && sections == null) {
       return Padding(
-        padding: EdgeInsets.fromLTRB(indent, 12, 16, 4),
-        child: Text(
-          board.name,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w700,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Row(
+          children: [
+            const SizedBox.square(
+              dimension: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '正在加载版块层级…',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
+            ),
+          ],
         ),
       );
     }
+    if (sections != null && sections.isNotEmpty) return const SizedBox.shrink();
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.info_outline),
+      title: const Text('未能加载版块层级，按平铺列表显示'),
+      trailing: TextButton(
+        onPressed: _retrySections,
+        child: const Text('重试'),
+      ),
+    );
+  }
+
+  List<Widget> _treeRows(List<_BoardNode> nodes) => [
+        for (final node in nodes)
+          if (node.children.isEmpty)
+            _boardTile(node, level: node.level)
+          else ...[
+            _groupTile(node),
+            if (_expanded.contains(node.key)) ...[
+              // Opening a group never selects it; searching all of it is
+              // its own row.
+              if (node.board.selectable)
+                _boardTile(
+                  node,
+                  level: node.level + 1,
+                  label: '搜索整个${node.name}',
+                ),
+              ..._treeRows(node.children),
+            ],
+          ],
+      ];
+
+  double _indent(int level) => 16.0 + 16.0 * level.clamp(0, 4);
+
+  Widget _groupTile(_BoardNode node) {
+    final open = _expanded.contains(node.key);
+    return Semantics(
+      expanded: open,
+      child: ListTile(
+        contentPadding: EdgeInsets.only(left: _indent(node.level), right: 16),
+        title: Text(
+          node.name,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        trailing: Icon(open ? Icons.expand_less : Icons.expand_more),
+        onTap: () => setState(() {
+          if (!_expanded.remove(node.key)) _expanded.add(node.key);
+        }),
+      ),
+    );
+  }
+
+  Widget _boardTile(
+    _BoardNode node, {
+    required int level,
+    String? label,
+    bool showPath = false,
+  }) {
+    final board = node.board;
+    final subtitle = [
+      if (showPath && node.parent != null) node.parent!.path,
+      if (!board.selectable) '不可搜索',
+    ].join(' · ');
+    if (!board.selectable) {
+      return ListTile(
+        enabled: false,
+        contentPadding: EdgeInsets.only(left: _indent(level), right: 16),
+        title: Text(label ?? node.name),
+        subtitle: Text(subtitle),
+      );
+    }
+    final picked = ForumSearchBoard(
+      id: board.id,
+      name: node.name,
+      depth: board.depth,
+    );
     final pinned = _pinned.any((pin) => pin.id == board.id);
     final canPin = board.id != _allBoards.id;
     return ListTile(
-      contentPadding: EdgeInsets.only(left: indent, right: 4),
-      title: Text(board.name),
+      contentPadding: EdgeInsets.only(left: _indent(level), right: 4),
+      title: Text(label ?? node.name),
+      subtitle: subtitle.isEmpty ? null : Text(subtitle),
       selected: board.id == widget.selectedId,
-      onTap: () => Navigator.of(context).pop(board),
+      onTap: () => Navigator.of(context).pop(picked),
       trailing: canPin
           ? IconButton(
               tooltip: pinned ? '删除捷径' : '存为捷径',
               icon: Icon(pinned ? Icons.bookmark : Icons.bookmark_add_outlined),
-              onPressed: () => _togglePin(board),
+              onPressed: () => _togglePin(picked),
             )
           : null,
     );
+  }
+}
+
+/// One search scope placed under its parent by the preorder depth.
+class _BoardNode {
+  _BoardNode(this.board, this.parent)
+      : level = parent == null ? 0 : parent.level + 1;
+
+  final ForumSearchBoard board;
+  final _BoardNode? parent;
+  final int level;
+  final children = <_BoardNode>[];
+
+  // Form options carry the site's '>>' and '|-' tree markers.
+  String get name =>
+      board.name.replaceFirst(RegExp(r'^\s*(?:(?:>>|\|-)\s*)+'), '').trim();
+
+  String get key => board.id.isEmpty ? 'heading:${board.name}' : board.id;
+
+  String get path => [if (parent != null) parent!.path, name].join(' › ');
+
+  static List<_BoardNode> build(List<ForumSearchBoard> boards) {
+    final roots = <_BoardNode>[];
+    final open = <_BoardNode>[];
+    for (final board in boards) {
+      while (open.isNotEmpty && open.last.board.depth >= board.depth) {
+        open.removeLast();
+      }
+      final node = _BoardNode(board, open.lastOrNull);
+      (node.parent?.children ?? roots).add(node);
+      open.add(node);
+    }
+    return roots;
+  }
+
+  static Iterable<_BoardNode> flatten(List<_BoardNode> nodes) sync* {
+    for (final node in nodes) {
+      yield node;
+      yield* flatten(node.children);
+    }
   }
 }
 

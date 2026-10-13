@@ -11,6 +11,7 @@ String forumRequestErrorText(ForumRequestKind kind) => switch (kind) {
       ForumRequestKind.rateLimited => '请求过于频繁',
       ForumRequestKind.loginRequired => '登录失效',
       ForumRequestKind.forbidden => '没有权限',
+      ForumRequestKind.invalidInput => '用户不存在，请检查实际登录名称',
       ForumRequestKind.network => '网络失败',
       ForumRequestKind.server => '服务器失败',
     };

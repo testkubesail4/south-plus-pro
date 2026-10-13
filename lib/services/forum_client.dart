@@ -255,10 +255,11 @@ class ForumClient {
         return _readText(method, path, form: form);
       }
       _throwForHttpStatus(result.status);
-      if (uri.path == '/message.php' && result.status != HttpStatus.ok) {
-        throw const ForumRequestException(
+      if ((uri.path == '/message.php' || uri.path == '/sendemail.php') &&
+          result.status != HttpStatus.ok) {
+        throw ForumRequestException(
           ForumRequestKind.server,
-          '私讯请求返回了非预期状态',
+          uri.path == '/sendemail.php' ? '登录名称查询请求返回了非预期状态' : '私讯请求返回了非预期状态',
         );
       }
       return body;
@@ -324,19 +325,23 @@ class ForumClient {
     Map<String, String>? form,
     int redirectsLeft = 5,
     bool sensitiveSearch = false,
+    bool identityLookup = false,
   }) async {
     await restoreCookies();
     final startedAt = DateTime.now();
     final isPm = uri.path == '/message.php';
+    identityLookup = identityLookup || uri.path == '/sendemail.php';
     sensitiveSearch = sensitiveSearch || _isForumSearch(uri);
-    final tracePath = isPm
-        ? 'message.php'
-        : sensitiveSearch
-            ? 'search.php'
-            : uri.toString();
+    final tracePath = identityLookup
+        ? 'sendemail.php'
+        : isPm
+            ? 'message.php'
+            : sensitiveSearch
+                ? 'search.php'
+                : uri.toString();
     ForumTraceLogger.log(
       'HTTP',
-      isPm || sensitiveSearch
+      isPm || sensitiveSearch || identityLookup
           ? '$method $tracePath'
           : method == 'POST'
               ? 'POST $uri form=${ForumTraceLogger.sanitizeForm(form ?? const {})}'
@@ -378,6 +383,12 @@ class ForumClient {
           '重定向次数过多',
         );
       }
+      if (identityLookup && !_sameOrigin(next)) {
+        throw const ForumRequestException(
+          ForumRequestKind.server,
+          '登录名称查询跳转到不安全的地址',
+        );
+      }
       if (method == 'POST' &&
           (response.statusCode == HttpStatus.temporaryRedirect ||
               response.statusCode == HttpStatus.permanentRedirect)) {
@@ -394,6 +405,7 @@ class ForumClient {
         form: keepMethod ? form : null,
         redirectsLeft: redirectsLeft - 1,
         sensitiveSearch: sensitiveSearch,
+        identityLookup: identityLookup,
       );
     }
     final bytes = Uint8List.fromList(
@@ -405,7 +417,10 @@ class ForumClient {
       'HTTP',
       '$method $tracePath -> status=${response.statusCode} bytes=${bytes.length} elapsedMs=$elapsed',
     );
-    if (!isPm && !sensitiveSearch && ForumTraceLogger.shouldLogFullBody(uri)) {
+    if (!isPm &&
+        !sensitiveSearch &&
+        !identityLookup &&
+        ForumTraceLogger.shouldLogFullBody(uri)) {
       ForumTraceLogger.logBlock(
         'HTTP',
         '$method $uri response',

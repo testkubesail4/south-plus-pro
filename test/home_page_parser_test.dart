@@ -3,6 +3,47 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:south_plus_rewrite/services/parsers/home_page_parser.dart';
 
 void main() {
+  test('HomePageParser preserves nested boards under unlinked headings', () {
+    final document = html_parser.parse('''
+      <h2>Outside the directory</h2>
+      <table>
+        <tr><th class="h"><h2>Fixture section</h2></th></tr>
+        <tr><th>
+          <h3><a href="thread.php?fid-901.html">Fixture parent</a></h3>
+          子版：<h3>
+            <a href="thread.php?fid-902.html">Shared child label</a>
+            <a href="thread_new.php?fid=903">Fixture image board</a>
+          </h3>
+        </th><td>0 / 0</td></tr>
+      </table>
+      <table>
+        <tr><th><h2><a href="index.php?cateid-904.html">Linked section</a></h2></th></tr>
+        <tr><th>
+          <h3><a href="thread.php?fid-905.html">Other parent</a></h3>
+          子版：<h3><a href="thread.php?fid-906.html">Shared child label</a></h3>
+        </th><td>1 / 2</td></tr>
+      </table>
+    ''');
+
+    final sections = HomePageParser().parseForumSections(document);
+
+    expect(sections.map((section) => section.title),
+        ['Fixture section', 'Linked section']);
+    final parent = sections.first.items.single;
+    expect(parent.name, 'Fixture parent');
+    expect(parent.topicCount, 0);
+    expect(parent.children.map((board) => board.name),
+        ['Shared child label', 'Fixture image board']);
+    expect(parent.children.map((board) => board.url), [
+      'https://south-plus.net/thread.php?fid-902.html',
+      'https://south-plus.net/thread_new.php?fid=903',
+    ]);
+    final linkedParent = sections.last.items.single;
+    expect(linkedParent.name, 'Other parent');
+    expect(linkedParent.children.single.url,
+        'https://south-plus.net/thread.php?fid-906.html');
+  });
+
   test('HomePageParser parses desktop sections with nested boards', () {
     final document = html_parser.parse('''
       <html>

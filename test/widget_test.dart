@@ -763,7 +763,8 @@ void main() {
       tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
       isFalse,
     );
-    await tester.ensureVisible(submit);
+    await tester.scrollUntilVisible(submit, 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(submit);
     await tester.pumpAndSettle();
 
@@ -1816,7 +1817,8 @@ class _FakeProfileRepository extends ForumRepository {
   Future<UserProfile> fetchUserProfileOverview(String url) async => overview;
 
   @override
-  Future<UserProfile> fetchUserProfileDetails(UserProfile overview) {
+  Future<UserProfile> fetchUserProfileDetails(UserProfile overview,
+      {bool forceReload = false}) {
     return _detailsCompleter.future;
   }
 
@@ -2502,7 +2504,8 @@ class _CachedProfileRepository extends ForumRepository {
   }
 
   @override
-  Future<UserProfile> fetchUserProfileDetails(UserProfile overview) {
+  Future<UserProfile> fetchUserProfileDetails(UserProfile overview,
+      {bool forceReload = false}) {
     return _detailsCompleter.future;
   }
 

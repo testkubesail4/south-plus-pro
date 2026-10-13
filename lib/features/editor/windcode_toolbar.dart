@@ -179,22 +179,18 @@ class WindCodeToolbar extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: actions
-              .map(
-                (action) => Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ActionChip(
-                    avatar: Icon(action.icon, size: 16),
-                    label: Text(action.label),
-                    onPressed: enabled ? action.onTap : null,
-                  ),
-                ),
-              )
-              .toList(),
-        ),
+      // Wraps so every action stays in view at any width or text size.
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final action in actions)
+            ActionChip(
+              avatar: Icon(action.icon, size: 16),
+              label: Text(action.label),
+              onPressed: enabled ? action.onTap : null,
+            ),
+        ],
       ),
     );
   }

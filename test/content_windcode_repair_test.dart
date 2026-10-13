@@ -48,6 +48,71 @@ void main() {
         isNot(contains('secret executable')));
   });
 
+  test('PM explicit line breaks survive styled runs, links and inline images',
+      () {
+    final detail = ForumPmParser(baseUri: urls.baseUri).parseDetail(
+      html.parse('''<table class="set-table2">
+        <tr><td>发件人</td><td>Fixture sender</td></tr>
+        <tr><td>标题</td><td>Fixture title</td></tr>
+        <tr><td>时间</td><td>2020-01-01</td></tr>
+        <tr><td>内容</td><td><b>First</b><br><i>Second</i><br><img src="images/post/smile/1.gif"><br><a href="https://example.invalid/fixture">Last</a></td></tr>
+        <tr><td>选项</td><td></td></tr></table>'''),
+      const ForumPmSummary(
+        box: ForumPmBox.inbox,
+        type: ForumPmType.personal,
+        id: '701',
+        peer: 'Fixture sender',
+        title: 'Fixture title',
+        time: '',
+        detailPath: 'message.php?action-read-mid-701.html',
+      ),
+    );
+    expect(detail.segments.map((segment) => segment.text ?? '').join(),
+        'First\nSecond\n\nLast');
+    expect(detail.segments.where((segment) => segment.isBold).single.text,
+        'First');
+    expect(detail.segments.where((segment) => segment.isItalic).single.text,
+        'Second');
+    expect(detail.segments.where((segment) => segment.isEmoji), hasLength(1));
+    expect(detail.segments.where((segment) => segment.href != null).single.text,
+        'Last');
+    for (final (body, expected) in [
+      ('<b>A</b><br> plain', 'A\n plain'),
+      ('plain<br><i>B</i>', 'plain\nB'),
+      ('<b>A</b><br><br><i>B</i>', 'A\n\nB'),
+      ('plain<br>\n  tail', 'plain\n tail'),
+    ]) {
+      final element =
+          html.parseFragment('<div>$body</div>').querySelector('div')!;
+      expect(
+          ThreadContentParser()
+              .extractInlineSegments(element)
+              .map((segment) => segment.text ?? '')
+              .join(),
+          expected);
+    }
+    final images = html
+        .parseFragment(
+            '<div><img src="https://example.invalid/one.png"><br><br><img src="https://example.invalid/two.png"></div>')
+        .querySelector('div')!;
+    final imageSegments = ThreadContentParser().extractInlineSegments(images);
+    expect(imageSegments.map((segment) => segment.type), [
+      ThreadContentSegmentType.image,
+      ThreadContentSegmentType.text,
+      ThreadContentSegmentType.image,
+    ]);
+    expect(imageSegments[1].text, '\n\n');
+    final indented = html
+        .parseFragment('<div><b>First</b>\n  <i>Second</i></div>')
+        .querySelector('div')!;
+    expect(
+        ThreadContentParser()
+            .extractInlineSegments(indented)
+            .map((segment) => segment.text ?? '')
+            .join(),
+        'FirstSecond');
+  });
+
   test(
       'verified raw WindCode preserves nesting, code, alphabetic list and emoji',
       () {
@@ -95,6 +160,78 @@ void main() {
     expect(text, contains('[attachment=42]'));
     expect(text, contains('Still visible'));
     expect(text, contains('[sell=5]Locked sample[/sell]'));
+  });
+
+  test('verified server copy label is chrome only beside its code container',
+      () {
+    const chrome = '<span class="f10 s8"><a>复制代码</a></span>';
+    const code =
+        '<div class="blockquote2"><ol><li>Fixture line A<br>Fixture line B</li></ol></div>';
+    const table =
+        '<table><tbody><tr><td><div class="c"></div>$chrome$code</td></tr></tbody></table>';
+    final parser = ThreadContentParser();
+    final tableCode = parser.extractInlineSegments(
+      html.parseFragment('<div>$table</div>').querySelector('div')!,
+    );
+    expect(tableCode.single.type, ThreadContentSegmentType.code);
+    expect(tableCode.single.text, 'Fixture line A\nFixture line B');
+    for (final tableControl in [
+      '<table><tr><td><div class="c"></div>Fixture prose$chrome$code</td></tr></table>',
+      '<table><tr><td><div class="c"></div>$chrome$code</td><td>Fixture second cell</td></tr></table>',
+      '<table><tr><td><div class="c">Fixture extra</div>$chrome$code</td></tr></table>',
+      '<table><caption>Fixture caption</caption><tr><td><div class="c"></div>$chrome$code</td></tr></table>',
+      '<table><thead><tr><th>Fixture header</th></tr></thead><tbody><tr><td><div class="c"></div>$chrome$code</td></tr></tbody></table>',
+      '<table><tr><td><div class="c"></div>$chrome$code<table><tr><td>Fixture nested table</td></tr></table></td></tr></table>',
+      '<table><tr><td><div class="c"></div><span class="f10 s8"><a>复制代码</a>Fixture extra label</span>$code</td></tr></table>',
+    ]) {
+      final parsed = parser.extractInlineSegments(
+        html.parseFragment('<div>$tableControl</div>').querySelector('div')!,
+      );
+      expect(parsed.single.type, ThreadContentSegmentType.table);
+    }
+    final labelWithImage = parser.extractInlineSegments(
+      html
+          .parseFragment(
+              '<div><table><tr><td><div class="c"></div><span class="f10 s8"><a>复制代码<img src="https://example.invalid/fixture.png"></a></span>$code</td></tr></table></div>')
+          .querySelector('div')!,
+    );
+    expect(labelWithImage.single.type, ThreadContentSegmentType.table);
+    expect(
+        flatten(labelWithImage)
+            .singleWhere(
+                (segment) => segment.type == ThreadContentSegmentType.image)
+            .url,
+        'https://example.invalid/fixture.png');
+    final segments = parser.extractInlineSegments(
+      html.parseFragment('<div>$chrome$code</div>').querySelector('div')!,
+    );
+    expect(segments, hasLength(1));
+    expect(segments.single.type, ThreadContentSegmentType.code);
+    expect(segments.single.text, 'Fixture line A\nFixture line B');
+    final quoted = parser
+        .extractInlineSegments(
+          html
+              .parseFragment('<div><blockquote>$table</blockquote></div>')
+              .querySelector('div')!,
+        )
+        .single;
+    expect(quoted.type, ThreadContentSegmentType.quote);
+    expect(quoted.children.single.type, ThreadContentSegmentType.code);
+    expect(quoted.children.single.text, 'Fixture line A\nFixture line B');
+    for (final (content, label) in [
+      ('$chrome<span>Fixture prose</span>', '复制代码'),
+      ('<span><a>复制代码</a></span>$code', '复制代码'),
+      (
+        '<span class="f10 s8"><a>Fixture label</a></span>$code',
+        'Fixture label'
+      ),
+    ]) {
+      final control = parser.extractInlineSegments(
+        html.parseFragment('<div>$content</div>').querySelector('div')!,
+      );
+      expect(control.first.type, ThreadContentSegmentType.text);
+      expect(control.first.text, startsWith(label));
+    }
   });
 
   test('raw code uses its first close and ignores literal opening-tag examples',
