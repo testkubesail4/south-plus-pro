@@ -71,6 +71,14 @@ enum ForumSearchTime {
   final String queryValue;
 }
 
+class ForumSearchLinkPrefill {
+  const ForumSearchLinkPrefill({this.keyword, this.username, this.boardId});
+
+  final String? keyword;
+  final String? username;
+  final String? boardId;
+}
+
 class ForumSearchQuery {
   const ForumSearchQuery({
     this.keyword = '',

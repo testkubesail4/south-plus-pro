@@ -11,6 +11,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
@@ -26,8 +27,56 @@ class MainActivity : FlutterActivity() {
     private val saveAttachmentRequestCode = 4108
     private var pendingAttachmentSave: Pair<File, MethodChannel.Result>? = null
 
+    private var incomingLinks = IncomingLinkState(0, false)
+    private var incomingLinkChannel: MethodChannel? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        incomingLinks = IncomingLinkState(
+            savedInstanceState?.getLong("incoming_link_sequence") ?: 0,
+            savedInstanceState?.getBoolean("incoming_link_consumed") ?: false
+        )
+        if (intent?.action == Intent.ACTION_VIEW) incomingLinks.restore(intent.dataString)
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action != Intent.ACTION_VIEW) return
+        setIntent(intent)
+        incomingLinks.receive(intent.dataString)
+        incomingLinkChannel?.invokeMethod("openLink", incomingLinks.pending())
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putLong("incoming_link_sequence", incomingLinks.sequence())
+        outState.putBoolean("incoming_link_consumed", incomingLinks.consumed())
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        incomingLinkChannel?.setMethodCallHandler(null)
+        incomingLinkChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        incomingLinkChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "south_plus_rewrite/incoming_links"
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "takeInitialLink" -> result.success(incomingLinks.pending())
+                    "acknowledgeLink" -> {
+                        (call.arguments as? Number)?.toLong()?.let { incomingLinks.acknowledge(it) }
+                        if (incomingLinks.consumed()) setIntent(Intent(intent).setData(null))
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "south_plus_rewrite/network_state"

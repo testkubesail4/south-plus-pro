@@ -91,6 +91,9 @@ class ForumRepository {
 
   ForumLinkTarget forumLinkTarget(String url) => _urls.forumLinkTarget(url);
 
+  ForumSearchLinkPrefill? searchLinkPrefill(String raw) =>
+      _urls.searchLinkPrefill(raw);
+
   String? searchBoardId(ForumCategory category) =>
       _urls.fidFromCategory(category);
 

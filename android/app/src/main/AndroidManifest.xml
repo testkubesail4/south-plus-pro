@@ -26,6 +26,44 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+                <data android:host="east-plus.net"/>
+                <data android:host="*.east-plus.net"/>
+                <data android:host="south-plus.net"/>
+                <data android:host="*.south-plus.net"/>
+                <data android:host="south-plus.org"/>
+                <data android:host="*.south-plus.org"/>
+                <data android:host="white-plus.net"/>
+                <data android:host="*.white-plus.net"/>
+                <data android:host="north-plus.net"/>
+                <data android:host="*.north-plus.net"/>
+                <data android:host="level-plus.net"/>
+                <data android:host="*.level-plus.net"/>
+                <data android:host="soul-plus.net"/>
+                <data android:host="*.soul-plus.net"/>
+                <data android:host="snow-plus.net"/>
+                <data android:host="*.snow-plus.net"/>
+                <data android:host="spring-plus.net"/>
+                <data android:host="*.spring-plus.net"/>
+                <data android:host="summer-plus.net"/>
+                <data android:host="*.summer-plus.net"/>
+                <data android:host="blue-plus.net"/>
+                <data android:host="*.blue-plus.net"/>
+                <data android:host="imoutolove.me"/>
+                <data android:host="*.imoutolove.me"/>
+                <data android:path="/read.php"/>
+                <data android:path="/thread.php"/>
+                <data android:path="/thread_new.php"/>
+                <data android:path="/u.php"/>
+                <data android:path="/search.php"/>
+                <data android:path="/simple/index.php"/>
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

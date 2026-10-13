@@ -92,7 +92,12 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _loadPrefs();
+    // A board known only by id (e.g. from a link) gets its name from the list.
+    if (_board.name.isEmpty) _loadBoards().ignore();
   }
+
+  String get _boardLabel =>
+      _board.name.isEmpty ? '版块 ${_board.id}' : _board.name;
 
   @override
   void dispose() {
@@ -126,7 +131,17 @@ class _SearchScreenState extends State<SearchScreen> {
         final list = boards.any((board) => board.id == _allBoards.id)
             ? boards
             : [_allBoards, ...boards];
-        if (mounted && account == _account) setState(() => _boards = list);
+        if (mounted && account == _account) {
+          setState(() {
+            _boards = list;
+            if (_board.name.isEmpty) {
+              _board = list
+                      .where((b) => b.selectable && b.id == _board.id)
+                      .firstOrNull ??
+                  _board;
+            }
+          });
+        }
         return list;
       },
       onError: (Object error) {
@@ -281,7 +296,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final ascending = query?.ascending ?? _ascending;
     final digest = query?.digest ?? _digest;
     final boardName = query == null || query.boardId == _board.id
-        ? _board.name
+        ? _boardLabel
         : _boards
                 ?.where((board) => board.id == query.boardId)
                 .firstOrNull
@@ -535,7 +550,7 @@ class _SearchScreenState extends State<SearchScreen> {
           const SizedBox(height: 12),
           _PickerTile(
             label: '版块',
-            value: _board.name,
+            value: _boardLabel,
             icon: Icons.dashboard_outlined,
             onTap: _pickBoard,
           ),

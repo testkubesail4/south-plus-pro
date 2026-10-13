@@ -402,6 +402,39 @@ void main() {
     expect(repo.queries.single.boardId, '12');
   });
 
+  testWidgets('a board known only by id shows its id, then its name',
+      (tester) async {
+    final repo = await pump(
+      tester,
+      screen: (repo) => SearchScreen(
+        repository: repo,
+        initialKeyword: 'kw',
+        initialBoard: const ForumSearchBoard(id: '11', name: ''),
+      ),
+    );
+    // The board list loads once to name the board; nothing is searched.
+    expect(repo.boardRequests, 1);
+    expect(repo.queries, isEmpty);
+    expect(
+      find.text('An unusually long fictional board name that must wrap nicely'),
+      findsOneWidget,
+    );
+    await tapVisible(tester, _submit, settle: false);
+    expect(repo.queries.single.boardId, '11');
+  });
+
+  testWidgets('an id-only board missing from the list keeps its id label',
+      (tester) async {
+    await pump(
+      tester,
+      screen: (repo) => SearchScreen(
+        repository: repo,
+        initialBoard: const ForumSearchBoard(id: '404', name: ''),
+      ),
+    );
+    expect(find.text('版块 404'), findsOneWidget);
+  });
+
   testWidgets('prefill from context does not submit; reset restores defaults',
       (tester) async {
     final repo = await pump(

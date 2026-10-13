@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../models/forum_models.dart';
 import 'forum_network_config.dart';
 
@@ -132,6 +134,47 @@ class ForumUrlResolver {
       ));
     }
     return ForumPageLinkTarget(normalized);
+  }
+
+  ForumSearchLinkPrefill? searchLinkPrefill(String raw) {
+    if (raw.length > 8192 || forumLinkTarget(raw) is! ForumPageLinkTarget)
+      return null;
+    final uri = Uri.tryParse(absoluteUrl(raw));
+    if (uri == null || uri.path != '/search.php') return null;
+    final query = _queryFields(uri, rawQuery: _rawQuery(raw));
+    if (query == null) return null;
+    final fields = Map<String, String>.of(query);
+    final hash = raw.indexOf('#');
+    final fragment = hash < 0 ? '' : raw.substring(hash + 1);
+    if (fragment.startsWith('prefill')) {
+      if (!fragment.startsWith('prefill(') || !fragment.endsWith(')'))
+        return null;
+      try {
+        final pairs = jsonDecode(
+            '[${Uri.decodeComponent(fragment.substring(8, fragment.length - 1))}]');
+        if (pairs is! List || pairs.length.isOdd) return null;
+        final seen = <String>{};
+        for (var index = 0; index < pairs.length; index += 2) {
+          final key = pairs[index];
+          final value = pairs[index + 1];
+          if (key is! String ||
+              !seen.add(key) ||
+              (value is! String && !(key == 'fid' && value is int)))
+            return null;
+          if ({'keyword', 'pwuser', 'fid'}.contains(key)) {
+            fields[key == 'fid' ? 'f_fid' : key] = value.toString();
+          }
+        }
+      } on FormatException {
+        return null;
+      }
+    }
+    final board = fields['f_fid'];
+    if (board != null &&
+        board != 'all' &&
+        !RegExp(r'^[1-9]\d*$').hasMatch(board)) return null;
+    return ForumSearchLinkPrefill(
+        keyword: fields['keyword'], username: fields['pwuser'], boardId: board);
   }
 
   String? fidFromUrl(String value) {
