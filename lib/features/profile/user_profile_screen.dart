@@ -5,6 +5,7 @@ import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
+import '../messages/pm_compose_screen.dart';
 import '../thread/thread_detail_screen.dart';
 
 part 'user_profile_widgets.dart';
@@ -111,7 +112,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 },
                 child: NestedScrollView(
                   headerSliverBuilder: (context, _) => [
-                    SliverToBoxAdapter(child: _ProfileHeader(profile: profile)),
+                    SliverToBoxAdapter(
+                      child: _ProfileHeader(
+                        profile: profile,
+                        onMessage: switch (profile.messageUrl) {
+                          final url? => () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => PmComposeScreen(
+                                    repository: widget.repository,
+                                    path: url,
+                                  ),
+                                ),
+                              ),
+                          null => null,
+                        },
+                      ),
+                    ),
                     const SliverToBoxAdapter(child: _ProfileTabs()),
                   ],
                   body: TabBarView(

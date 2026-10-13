@@ -15,6 +15,12 @@ String forumRequestErrorText(ForumRequestKind kind) => switch (kind) {
       ForumRequestKind.server => '服务器失败',
     };
 
+/// Short text for any error shown to the user.
+String forumErrorText(Object? error) => switch (error) {
+      ForumRequestException(:final kind) => forumRequestErrorText(kind),
+      _ => '$error',
+    };
+
 class AsyncErrorView extends StatelessWidget {
   const AsyncErrorView({
     super.key,

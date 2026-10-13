@@ -1,0 +1,354 @@
+import 'package:flutter/material.dart';
+
+import '../../models/forum_pm_models.dart';
+import '../../services/forum_repository.dart';
+import '../../services/forum_request_exception.dart';
+import '../../theme/app_theme.dart';
+import '../common/async_state_view.dart';
+import 'pm_compose_screen.dart';
+
+/// Returns the server result so the box can follow its refresh destination.
+class PmDetailScreen extends StatefulWidget {
+  const PmDetailScreen({
+    super.key,
+    required this.repository,
+    required this.message,
+  });
+
+  final ForumRepository repository;
+  final ForumPmSummary message;
+
+  @override
+  State<PmDetailScreen> createState() => _PmDetailScreenState();
+}
+
+class _PmDetailScreenState extends State<PmDetailScreen> {
+  late Future<ForumPmDetail> _future = _fetch();
+  bool _busy = false;
+
+  Future<ForumPmDetail> _fetch() =>
+      widget.repository.fetchPmDetail(widget.message);
+
+  void _retry() => setState(() {
+        _future = _fetch();
+      });
+
+  Future<void> _openCompose(String path) async {
+    final result = await Navigator.of(context).push<ForumPmActionResult>(
+      MaterialPageRoute(
+        builder: (_) => PmComposeScreen(
+          repository: widget.repository,
+          path: path,
+        ),
+      ),
+    );
+    if (mounted && result != null) Navigator.of(context).pop(result);
+  }
+
+  Future<void> _openChatlog(String path) async {
+    final result = await Navigator.of(context).push<ForumPmActionResult>(
+      MaterialPageRoute(
+        builder: (_) => PmChatlogScreen(
+          repository: widget.repository,
+          path: path,
+        ),
+      ),
+    );
+    if (mounted && result != null) Navigator.of(context).pop(result);
+  }
+
+  Future<void> _confirmAndRun({
+    required String title,
+    required String message,
+    required String confirmLabel,
+    required Future<ForumPmActionResult> Function() action,
+  }) async {
+    if (_busy) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await action();
+      messenger.showSnackBar(SnackBar(content: Text(result.message)));
+      if (mounted) Navigator.of(context).pop(result);
+    } on ForumRequestException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(forumErrorText(error))));
+    } on ForumRepositoryException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('短消息')),
+      body: SafeArea(
+        top: false,
+        child: FutureBuilder<ForumPmDetail>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return AsyncErrorView(
+                title: '短消息加载失败',
+                message: forumErrorText(snapshot.error),
+                onRetry: _retry,
+              );
+            }
+            if (!snapshot.hasData) return const ThreadDetailSkeleton();
+            final detail = snapshot.data!;
+            final editPath = detail.editPath ?? detail.summary.editPath;
+            final canDelete =
+                detail.deletePath != null || detail.summary.canDelete;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+              children: [
+                _PmMessageCard(
+                  sender: detail.sender,
+                  title: detail.title,
+                  time: detail.time,
+                  content: detail.content,
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (detail.replyPath case final path?)
+                      FilledButton.icon(
+                        onPressed: _busy ? null : () => _openCompose(path),
+                        icon: Icon(Icons.reply_outlined, size: 18),
+                        label: const Text('回复'),
+                      ),
+                    if (detail.forwardPath case final path?)
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : () => _openCompose(path),
+                        icon: Icon(Icons.forward_outlined, size: 18),
+                        label: const Text('转发'),
+                      ),
+                    if (editPath != null)
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : () => _openCompose(editPath),
+                        icon: Icon(Icons.edit_outlined, size: 18),
+                        label: const Text('编辑'),
+                      ),
+                    if (detail.chatlogPath case final path?)
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : () => _openChatlog(path),
+                        icon: Icon(Icons.forum_outlined, size: 18),
+                        label: const Text('通信记录'),
+                      ),
+                    if (detail.markUnreadPath != null)
+                      OutlinedButton.icon(
+                        onPressed: _busy
+                            ? null
+                            : () => _confirmAndRun(
+                                  title: '标为未读',
+                                  message: '确定将这条消息标为未读？',
+                                  confirmLabel: '标为未读',
+                                  action: () =>
+                                      widget.repository.markPmUnread(detail),
+                                ),
+                        icon: Icon(Icons.mark_email_unread_outlined, size: 18),
+                        label: const Text('标为未读'),
+                      ),
+                    if (canDelete)
+                      OutlinedButton.icon(
+                        onPressed: _busy
+                            ? null
+                            : () => _confirmAndRun(
+                                  title: '删除消息',
+                                  message: '删除后无法恢复，确定删除这条消息？',
+                                  confirmLabel: '删除',
+                                  action: () => widget.repository.deletePm(
+                                    detail.summary,
+                                    detail: detail,
+                                  ),
+                                ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Theme.of(context).colorScheme.error,
+                        ),
+                        icon: Icon(Icons.delete_outline, size: 18),
+                        label: const Text('删除'),
+                      ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class PmChatlogScreen extends StatefulWidget {
+  const PmChatlogScreen({
+    super.key,
+    required this.repository,
+    required this.path,
+  });
+
+  final ForumRepository repository;
+  final String path;
+
+  @override
+  State<PmChatlogScreen> createState() => _PmChatlogScreenState();
+}
+
+class _PmChatlogScreenState extends State<PmChatlogScreen> {
+  late String _path = widget.path;
+  late Future<ForumPmChatlog> _future = _fetch();
+
+  Future<ForumPmChatlog> _fetch() => widget.repository.fetchPmChatlog(_path);
+
+  void _load([String? path]) {
+    setState(() {
+      if (path != null) _path = path;
+      _future = _fetch();
+    });
+  }
+
+  Future<void> _compose(String path) async {
+    final result = await Navigator.of(context).push<ForumPmActionResult>(
+      MaterialPageRoute(
+        builder: (_) => PmComposeScreen(
+          repository: widget.repository,
+          path: path,
+        ),
+      ),
+    );
+    if (mounted && result != null) Navigator.of(context).pop(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('通信记录')),
+      body: SafeArea(
+        top: false,
+        child: FutureBuilder<ForumPmChatlog>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return AsyncErrorView(
+                title: '通信记录加载失败',
+                message: forumErrorText(snapshot.error),
+                onRetry: _load,
+              );
+            }
+            if (!snapshot.hasData) return const ThreadDetailSkeleton();
+            final chatlog = snapshot.data!;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+              children: [
+                if (chatlog.records.isEmpty)
+                  const EmptyStateView(
+                    icon: Icons.forum_outlined,
+                    title: '暂无通信记录',
+                  ),
+                for (final record in chatlog.records) ...[
+                  _PmMessageCard(
+                    sender: record.sender,
+                    title: record.title,
+                    time: record.time,
+                    content: record.content,
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (chatlog.pageLinks.isNotEmpty || chatlog.composePath != null)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final link in chatlog.pageLinks)
+                        OutlinedButton(
+                          onPressed: () => _load(link.path),
+                          child: Text(link.label),
+                        ),
+                      if (chatlog.composePath case final path?)
+                        FilledButton.icon(
+                          onPressed: () => _compose(path),
+                          icon: Icon(Icons.reply_outlined, size: 18),
+                          label: const Text('回复'),
+                        ),
+                    ],
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PmMessageCard extends StatelessWidget {
+  const _PmMessageCard({
+    required this.sender,
+    required this.title,
+    required this.time,
+    required this.content,
+  });
+
+  final String sender;
+  final String title;
+  final String time;
+  final String content;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectableText(
+            title,
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 17,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            [sender, time].where((part) => part.isNotEmpty).join(' · '),
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+          ),
+          Divider(height: 24, color: AppColors.border),
+          // Plain text only: PM bodies never go through the public image or
+          // link-preview caches.
+          SelectableText(
+            content,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
+      ),
+    );
+  }
+}

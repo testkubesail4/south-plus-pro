@@ -433,6 +433,46 @@ void main() {
     expect(hits.where((hit) => hit.contains('search.php')), ['POST /search.php']);
   });
 
+  test('PM requests are paced but never retry, redirect, or accept non-200',
+      () async {
+    final failure = throwsA(isA<ForumRequestException>());
+    _scripted.addAll([
+      _status(HttpStatus.tooManyRequests, '刷新不要快于 3 秒'),
+      _text('unexpected retry'),
+    ]);
+    await expectLater(
+        client.getOnce('message.php?action-unread-mid-701-verify-fixture.html'),
+        failure);
+    expect(hits, ['GET /message.php']);
+    _scripted.clear();
+    _scripted.addAll([
+      (request) {
+        request.response.statusCode = HttpStatus.found;
+        request.response.headers.set(HttpHeaders.locationHeader,
+            '/message.php?action-clear-verify-fixture.html');
+        request.response.close();
+      },
+      _text('unexpected redirect'),
+    ]);
+    await expectLater(
+      client.post('message.php', {
+        'action': 'write',
+        'touidmsg': '901',
+        'msg_title': 'fixture-pm-title-canary',
+        'atc_content': 'fixture-pm-body-canary',
+        'verify': 'fixture-pm-token-canary',
+      }),
+      failure,
+    );
+    expect(hits, ['GET /message.php', 'POST /message.php']);
+    _scripted.clear();
+    _scripted.add(_status(HttpStatus.created, '操作完成'));
+    await expectLater(client.getOnce('message.php?action=scout'), failure);
+    expect(hits, ['GET /message.php', 'POST /message.php', 'GET /message.php']);
+    expect(
+        clock.delays, [const Duration(seconds: 1), const Duration(seconds: 1)]);
+  });
+
   test('search GET cooldown retries once, then stays rateLimited', () async {
     _scripted.addAll([
       _text('<html><title>刷新不要快於 9 秒</title><body></body></html>'),

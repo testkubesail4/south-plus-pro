@@ -4,6 +4,7 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
 
 import '../models/forum_models.dart';
+import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
 import 'forum_network_config.dart';
@@ -14,6 +15,7 @@ import 'forum_url_resolver.dart';
 import 'user_profile_cache.dart';
 import 'parsers/board_thread_page_parser.dart';
 import 'parsers/forum_form_parser.dart';
+import 'parsers/forum_pm_parser.dart';
 import 'parsers/forum_response_parser.dart';
 import 'parsers/forum_tasks_parser.dart';
 import 'parsers/home_page_parser.dart';
@@ -115,6 +117,132 @@ class ForumRepository {
     _client = ForumClient(config: config);
     _currentUsername = null;
     await ForumNetworkSettings.save(config);
+  }
+
+  ForumPmParser get _pmParser => ForumPmParser(baseUri: _config.baseUri);
+
+  T _parsePm<T>(String response, T Function(dom.Document) parse) {
+    try {
+      return parse(html_parser.parse(response));
+    } on ForumRequestException {
+      // Private titles and quoted bodies can contain error-page phrases.
+      _throwIfBlockedPage(response);
+      rethrow;
+    }
+  }
+
+  Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
+    final path = _pmParser.requireRoute(
+      pagePath ?? 'message.php?action-${box.wireName}.html',
+      {box.wireName},
+    ).path;
+    final response = await _client.getOnce(path);
+    return _parsePm(response, (document) => _pmParser.parseBox(document, box));
+  }
+
+  Future<ForumPmDetail> fetchPmDetail(ForumPmSummary message) async {
+    final target = _pmParser.requireDetail(message);
+    final response = await _client.getOnce(target.path);
+    return _parsePm(
+        response, (document) => _pmParser.parseDetail(document, message));
+  }
+
+  Future<ForumPmCompose> fetchPmCompose({String? path}) async {
+    final source = _pmParser
+        .requireRoute(path ?? 'message.php?action-write.html', {'write'});
+    final response = await _client.getOnce(source.path);
+    return _parsePm(
+        response, (document) => _pmParser.parseCompose(document, source));
+  }
+
+  Future<ForumPmActionResult> submitPm({
+    required ForumPmCompose compose,
+    required String recipientUid,
+    required String title,
+    required String body,
+    bool saveToSendbox = false,
+  }) async {
+    if (!RegExp(r'^[1-9]\d*$').hasMatch(recipientUid.trim())) {
+      throw const ForumRepositoryException('请输入正整数收件人 UID');
+    }
+    if (title.trim().isEmpty || body.trim().isEmpty) {
+      throw const ForumRepositoryException('标题和内容不能为空');
+    }
+    _pmParser.validateCompose(compose);
+    final fields = <String, String>{
+      'font': '',
+      'size': '',
+      'color': '',
+      ...compose.fields,
+      'action': 'write',
+      'step': '2',
+      'touidmsg': recipientUid.trim(),
+      'msg_title': title.trim(),
+      'atc_content': body,
+    }..remove('ifsave');
+    if (saveToSendbox) fields['ifsave'] = 'Y';
+    final response = await _client.post(compose.actionPath, fields);
+    _throwIfBlockedPage(response);
+    return _pmParser.parseActionResult(html_parser.parse(response));
+  }
+
+  Future<ForumPmActionResult> markPmUnread(ForumPmDetail detail) async {
+    final message = detail.summary;
+    _pmParser.requireDetail(message);
+    final target =
+        _pmParser.requireRoute(detail.markUnreadPath ?? '', {'unread'});
+    if (message.type != ForumPmType.personal ||
+        target.fields['mid'] != message.id) {
+      throw const ForumRepositoryException('服务器未提供此消息的标记未读入口');
+    }
+    final response = await _client.getOnce(target.path);
+    return _parsePm(
+        response, (document) => _pmParser.parseUnreadResult(document, message));
+  }
+
+  Future<ForumPmActionResult> deletePm(ForumPmSummary message,
+      {ForumPmDetail? detail}) async {
+    _pmParser.requireDetail(message);
+    // shortcut: broadcast pdelid deletion is unverified, add it after protocol evidence.
+    if (message.type == ForumPmType.broadcast) {
+      throw const ForumRepositoryException('群发消息不能使用个人消息的删除入口');
+    }
+    if (detail != null &&
+        (detail.summary.box != message.box ||
+            detail.summary.type != message.type ||
+            detail.summary.id != message.id)) {
+      throw const ForumRepositoryException('私讯详情与删除目标不一致');
+    }
+    final link = detail?.deletePath;
+    String response;
+    if (link != null) {
+      final target = _pmParser.requireRoute(link, {'del'});
+      if (target.fields['towhere'] != message.box.wireName ||
+          target.fields['delids'] != message.id) {
+        throw const ForumRepositoryException('私讯删除入口与所属箱不一致');
+      }
+      response = await _client.getOnce(target.path);
+    } else {
+      if (!message.canDelete) {
+        throw const ForumRepositoryException('服务器未提供此消息的删除入口');
+      }
+      final fresh = await _client
+          .getOnce('message.php?action-${message.box.wireName}.html');
+      final fields = _parsePm(
+          fresh, (document) => _pmParser.singleDeleteFields(document, message));
+      response = await _client.post('message.php', fields);
+    }
+    _throwIfBlockedPage(response);
+    return _pmParser.parseActionResult(html_parser.parse(response));
+  }
+
+  Future<ForumPmChatlog> fetchPmChatlog(String path) async {
+    final target = _pmParser.requireRoute(path, {'chatlog'});
+    final response = await _client.getOnce(target.path);
+    return _parsePm(
+        response,
+        (document) =>
+            _pmParser.parseChatlog(document, target.fields['withuid']!));
   }
 
   Future<bool> restoreSession() async {

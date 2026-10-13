@@ -11,6 +11,7 @@ import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/cached_forum_image.dart';
+import '../messages/pm_box_screen.dart';
 import 'forum_tasks_screen.dart';
 import 'network_setup_flow_screen.dart';
 import 'network_settings_screen.dart';
@@ -250,6 +251,19 @@ class _AccountScreenState extends State<AccountScreen> {
                   ),
                 ),
               ),
+              if (widget.repository.isLoggedIn)
+                _AccountTile(
+                  icon: Icons.mail_outline,
+                  title: '短消息',
+                  subtitle: '收件箱、发件箱和消息跟踪',
+                  accent: true,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          PmBoxScreen(repository: widget.repository),
+                    ),
+                  ),
+                ),
               if (widget.repository.isLoggedIn)
                 _AccountTile(
                   icon: Icons.logout,

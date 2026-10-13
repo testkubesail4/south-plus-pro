@@ -1,9 +1,10 @@
 part of 'user_profile_screen.dart';
 
 class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({required this.profile});
+  const _ProfileHeader({required this.profile, this.onMessage});
 
   final UserProfile profile;
+  final VoidCallback? onMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -123,10 +124,11 @@ class _ProfileHeader extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              if (profile.messageUrl != null)
-                const _ActionChip(
+              if (onMessage != null)
+                _ActionChip(
                   icon: Icons.mail_outline,
-                  label: '可发短消息',
+                  label: '发短消息',
+                  onTap: onMessage,
                 ),
               _MetricChip(label: 'UID', value: profile.uid),
               if (profile.level != null && profile.level!.isNotEmpty)
@@ -222,20 +224,24 @@ class _ActionChip extends StatelessWidget {
   const _ActionChip({
     required this.icon,
     required this.label,
+    required this.onTap,
   });
 
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Material(
+      color: AppColors.brand,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
       constraints: const BoxConstraints(minHeight: 32),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.brand,
-        borderRadius: BorderRadius.circular(999),
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -250,6 +256,8 @@ class _ActionChip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }

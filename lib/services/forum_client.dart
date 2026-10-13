@@ -72,6 +72,8 @@ class ForumClient {
     return _readText('GET', path, retryCooldown: true);
   }
 
+  Future<String> getOnce(String path) => _readText('GET', path);
+
   Future<Uint8List> getBytes(String path) {
     return _readBytes(path);
   }
@@ -253,6 +255,12 @@ class ForumClient {
         return _readText(method, path, form: form);
       }
       _throwForHttpStatus(result.status);
+      if (uri.path == '/message.php' && result.status != HttpStatus.ok) {
+        throw const ForumRequestException(
+          ForumRequestKind.server,
+          '私讯请求返回了非预期状态',
+        );
+      }
       return body;
     } on ForumRequestException {
       rethrow;
@@ -317,11 +325,15 @@ class ForumClient {
   }) async {
     await restoreCookies();
     final startedAt = DateTime.now();
+    final isPm = uri.path == '/message.php';
+    final tracePath = isPm ? 'message.php' : uri.toString();
     ForumTraceLogger.log(
       'HTTP',
-      method == 'POST'
-          ? 'POST $uri form=${ForumTraceLogger.sanitizeForm(form ?? const {})}'
-          : 'GET $uri',
+      isPm
+          ? '$method message.php'
+          : method == 'POST'
+              ? 'POST $uri form=${ForumTraceLogger.sanitizeForm(form ?? const {})}'
+              : 'GET $uri',
     );
     final request = method == 'POST'
         ? await _httpClient.postUrl(uri)
@@ -345,6 +357,12 @@ class ForumClient {
     if (_redirectStatuses.contains(response.statusCode)) {
       final location = response.headers.value(HttpHeaders.locationHeader);
       await response.drain<void>();
+      if (isPm) {
+        throw const ForumRequestException(
+          ForumRequestKind.server,
+          '私讯请求不能自动跟随跳转',
+        );
+      }
       final next = location == null ? null : uri.resolve(location);
       if (redirectsLeft <= 0 || next == null) {
         throw const ForumRequestException(
@@ -375,9 +393,9 @@ class ForumClient {
     final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
     ForumTraceLogger.log(
       'HTTP',
-      '$method $uri -> status=${response.statusCode} bytes=${bytes.length} elapsedMs=$elapsed',
+      '$method $tracePath -> status=${response.statusCode} bytes=${bytes.length} elapsedMs=$elapsed',
     );
-    if (ForumTraceLogger.shouldLogFullBody(uri)) {
+    if (!isPm && ForumTraceLogger.shouldLogFullBody(uri)) {
       ForumTraceLogger.logBlock(
         'HTTP',
         '$method $uri response',
