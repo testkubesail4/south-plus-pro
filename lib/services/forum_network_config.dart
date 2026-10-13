@@ -626,71 +626,144 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
     );
   }
 
-  client.connectionFactory = (uri, proxyHost, proxyPort) async {
-    if (proxyHost != null || proxyPort != null) {
-      return Socket.startConnect(
-        proxyHost ?? uri.host,
-        proxyPort ?? uri.port,
-      );
-    }
+  client.connectionFactory = (uri, proxyHost, proxyPort) {
+    final result = Completer<Socket>();
+    final cancelledError =
+        const SocketException('Connection attempt cancelled');
+    ConnectionTask<Socket>? activeTask;
+    Socket? activeSocket;
+    var cancelled = false;
 
-    final fixedAddress = config.fixedInternetAddress;
-    if (fixedAddress != null) {
-      return _resolvedAddressConnectionTask(uri, fixedAddress);
-    }
-
-    if (config.dohEnabled) {
-      if (customResolver != null) {
-        try {
-          final addresses = await customResolver.lookup(uri.host);
-          await rememberAddresses(addresses);
-          for (final address in addresses) {
-            try {
-              return await _resolvedAddressConnectionTask(uri, address);
-            } catch (_) {
-              // Try the next custom DoH address before falling back.
-            }
-          }
-        } catch (_) {
-          // Try built-in DoH providers before falling back to system DNS.
-        }
-      }
-      for (final provider in _orderedDohProviders(config.dohProvider)) {
-        try {
-          final addresses = await resolvers[provider]!.lookup(uri.host);
-          await rememberAddresses(addresses);
-          for (final address in addresses) {
-            try {
-              return await _resolvedAddressConnectionTask(uri, address);
-            } catch (_) {
-              // Try the next DoH address, then the next DoH provider.
-            }
-          }
-        } catch (_) {
-          // Try the next DoH provider before falling back to system DNS.
-        }
+    void keepSocket(Socket socket) {
+      activeSocket = socket;
+      if (cancelled) {
+        socket.destroy();
+        throw cancelledError;
       }
     }
 
-    late Object systemError;
-    try {
-      return await _systemConnectionTask(uri);
-    } catch (error) {
-      systemError = error;
-    }
-
-    final cachedAddresses = await cachedAddressesFuture.catchError(
-      (_) => const <InternetAddress>[],
-    );
-    for (final address in cachedAddresses) {
+    Future<Socket> attempt(
+      Future<ConnectionTask<Socket>> Function() start, {
+      bool upgradeTls = false,
+    }) async {
+      if (cancelled) throw cancelledError;
+      final task = await start();
+      activeTask = task;
+      if (cancelled) task.cancel();
       try {
-        return await _resolvedAddressConnectionTask(uri, address);
+        var socket = await task.socket;
+        keepSocket(socket);
+        if (upgradeTls && uri.scheme == 'https') {
+          socket = await SecureSocket.secure(socket, host: uri.host);
+          keepSocket(socket);
+        }
+        return socket;
       } catch (_) {
-        // Try the next persisted address, then surface the system DNS failure.
+        task.cancel();
+        activeSocket?.destroy();
+        activeSocket = null;
+        rethrow;
       }
     }
 
-    throw systemError;
+    Future<Socket> connect() async {
+      if (proxyHost != null || proxyPort != null) {
+        return attempt(() => Socket.startConnect(
+              proxyHost ?? uri.host,
+              proxyPort ?? uri.port,
+            ));
+      }
+
+      final fixedAddress = config.fixedInternetAddress;
+      if (fixedAddress != null) {
+        return attempt(() => Socket.startConnect(fixedAddress, uri.port),
+            upgradeTls: true);
+      }
+
+      if (config.dohEnabled) {
+        if (customResolver != null) {
+          try {
+            final addresses = await customResolver.lookup(uri.host);
+            if (cancelled) throw cancelledError;
+            await rememberAddresses(addresses);
+            for (final address in addresses) {
+              try {
+                return await attempt(
+                    () => Socket.startConnect(address, uri.port),
+                    upgradeTls: true);
+              } catch (_) {
+                if (cancelled) rethrow;
+                // Try the next custom DoH address before falling back.
+              }
+            }
+          } catch (_) {
+            if (cancelled) rethrow;
+            // Try built-in DoH providers before falling back to system DNS.
+          }
+        }
+        for (final provider in _orderedDohProviders(config.dohProvider)) {
+          try {
+            final addresses = await resolvers[provider]!.lookup(uri.host);
+            if (cancelled) throw cancelledError;
+            await rememberAddresses(addresses);
+            for (final address in addresses) {
+              try {
+                return await attempt(
+                    () => Socket.startConnect(address, uri.port),
+                    upgradeTls: true);
+              } catch (_) {
+                if (cancelled) rethrow;
+                // Try the next DoH address, then the next DoH provider.
+              }
+            }
+          } catch (_) {
+            if (cancelled) rethrow;
+            // Try the next DoH provider before falling back to system DNS.
+          }
+        }
+      }
+
+      late Object systemError;
+      try {
+        return await attempt(() => _systemConnectionTask(uri));
+      } catch (error) {
+        if (cancelled) rethrow;
+        systemError = error;
+      }
+
+      final cachedAddresses = await cachedAddressesFuture.catchError(
+        (_) => const <InternetAddress>[],
+      );
+      for (final address in cachedAddresses) {
+        try {
+          return await attempt(() => Socket.startConnect(address, uri.port),
+              upgradeTls: true);
+        } catch (_) {
+          if (cancelled) rethrow;
+          // Try the next persisted address, then surface the system DNS failure.
+        }
+      }
+
+      throw systemError;
+    }
+
+    unawaited(connect().then((socket) {
+      if (result.isCompleted) {
+        socket.destroy();
+      } else {
+        result.complete(socket);
+      }
+    }, onError: (Object error, StackTrace stack) {
+      if (!result.isCompleted) result.completeError(error, stack);
+    }));
+    return Future.value(ConnectionTask.fromSocket(result.future, () {
+      if (cancelled || result.isCompleted) return;
+      cancelled = true;
+      activeTask?.cancel();
+      activeSocket?.destroy();
+      // shortcut: public TLS upgrades may linger; destroy late sockets until the SDK supports cancellation.
+      result.completeError(cancelledError);
+    }));
   };
   return client;
 }
@@ -700,21 +773,6 @@ List<DohProvider> _orderedDohProviders(DohProvider preferred) {
     preferred,
     ...DohProvider.values.where((provider) => provider != preferred),
   ];
-}
-
-Future<ConnectionTask<Socket>> _resolvedAddressConnectionTask(
-  Uri uri,
-  InternetAddress address,
-) async {
-  final task = await Socket.startConnect(address, uri.port);
-  if (uri.scheme != 'https') return task;
-
-  return ConnectionTask.fromSocket<Socket>(
-    task.socket.then(
-      (socket) => SecureSocket.secure(socket, host: uri.host),
-    ),
-    task.cancel,
-  );
 }
 
 Future<ConnectionTask<Socket>> _systemConnectionTask(Uri uri) async {
