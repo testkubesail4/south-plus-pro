@@ -181,7 +181,8 @@ class _NoticeChip extends StatelessWidget {
 }
 
 /// 最新讨论 and the site's other quick lists: tabs on phones, columns wider.
-/// Lists the snapshot did not include load only when the user asks.
+/// Lists the snapshot did not include load right after the home's first
+/// frame, so they never delay it.
 class _QuickLists extends StatefulWidget {
   const _QuickLists({
     super.key,
@@ -207,6 +208,17 @@ class _QuickListsState extends State<_QuickLists> {
   final _loads = <int, Future<List<ForumThread>>>{};
   var _tab = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (var i = 0; i < _lists.length; i++) {
+        _load(i);
+      }
+    });
+  }
+
   Future<List<ForumThread>>? _loaded(int index) {
     final threads = _lists[index].threads;
     return threads != null ? Future.value(threads) : _loads[index];
@@ -214,19 +226,21 @@ class _QuickListsState extends State<_QuickLists> {
 
   void _load(int index) {
     if (_loaded(index) != null) return;
+    final load = widget.repository.fetchQuickList(_lists[index]);
+    // A hidden tab has no FutureBuilder yet; its failure shows when opened.
+    load.ignore();
     setState(() {
-      _loads[index] = widget.repository.fetchQuickList(_lists[index]);
+      _loads[index] = load;
     });
   }
 
   void _retry(int index) {
-    setState(() => _loads.remove(index));
+    _loads.remove(index);
     _load(index);
   }
 
   Widget _body(int index) => _QuickListBody(
         future: _loaded(index),
-        onLoad: () => _load(index),
         onRetry: () => _retry(index),
         repository: widget.repository,
       );
@@ -253,10 +267,7 @@ class _QuickListsState extends State<_QuickLists> {
                       ChoiceChip(
                         label: Text(_lists[i].title),
                         selected: _tab == i,
-                        onSelected: (_) {
-                          setState(() => _tab = i);
-                          _load(i);
-                        },
+                        onSelected: (_) => setState(() => _tab = i),
                       ),
                   ],
                 ),
@@ -310,13 +321,11 @@ class _QuickListsState extends State<_QuickLists> {
 class _QuickListBody extends StatelessWidget {
   const _QuickListBody({
     required this.future,
-    required this.onLoad,
     required this.onRetry,
     required this.repository,
   });
 
   final Future<List<ForumThread>>? future;
-  final VoidCallback onLoad;
   final VoidCallback onRetry;
   final ForumRepository repository;
 
@@ -325,13 +334,7 @@ class _QuickListBody extends StatelessWidget {
     final pending = future;
     final Widget child;
     if (pending == null) {
-      child = Center(
-        child: TextButton.icon(
-          onPressed: onLoad,
-          icon: const Icon(Icons.download_outlined, size: 18),
-          label: const Text('点按加载'),
-        ),
-      );
+      child = const _QuickListSkeleton();
     } else {
       child = FutureBuilder<List<ForumThread>>(
         future: pending,
@@ -346,12 +349,7 @@ class _QuickListBody extends StatelessWidget {
             );
           }
           final threads = snapshot.data;
-          if (threads == null) {
-            return const Padding(
-              padding: EdgeInsets.all(12),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
+          if (threads == null) return const _QuickListSkeleton();
           if (threads.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(12),
@@ -406,6 +404,38 @@ class _QuickListBody extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: child,
+    );
+  }
+}
+
+/// Placeholder rows, as tall as loaded rows, while a list loads.
+class _QuickListSkeleton extends StatelessWidget {
+  const _QuickListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '加载中',
+      child: Column(
+        children: [
+          for (final widthFactor in const [0.8, 0.6, 0.7])
+            Container(
+              height: 48,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              alignment: Alignment.centerLeft,
+              child: FractionallySizedBox(
+                widthFactor: widthFactor,
+                child: Container(
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: AppColors.inkSoft,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

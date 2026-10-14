@@ -45,12 +45,13 @@ void main() {
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byType(NavigationRail), findsNothing);
     expect(find.text('回复提醒'), findsOneWidget);
-    expect(repo.quickListLoads, isEmpty, reason: 'nothing extra at startup');
+    expect(repo.quickListLoads, ['最新回复', '提问求物'],
+        reason: 'the other lists load on their own');
 
     expect(find.text('Latest 1'), findsOneWidget);
     await tester.tap(find.widgetWithText(ChoiceChip, '最新回复'));
     await tester.pumpAndSettle();
-    expect(repo.quickListLoads, ['最新回复']);
+    expect(repo.quickListLoads, hasLength(2), reason: 'no reload on tab');
     expect(find.text('Reply 5'), findsOneWidget);
     expect(find.text('Reply 6'), findsNothing, reason: 'five rows at most');
     expect(find.text('Latest 1'), findsNothing);
@@ -73,7 +74,25 @@ void main() {
     expect(find.text('Last topic'), findsNothing, reason: 'rows stay short');
   });
 
-  testWidgets('tablet: rail, two list columns load on tap, board cards',
+  testWidgets('a hidden list that fails offers retry when opened',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = _Repo()..failOnce.add('提问求物');
+    await tester.pumpWidget(MaterialApp(home: HomeShell(repository: repo)));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '提问求物'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('加载失败'), findsOneWidget);
+    await tester.tap(find.textContaining('加载失败'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reply 1'), findsOneWidget);
+  });
+
+  testWidgets('tablet: rail, list columns fill without buttons, board cards',
       (tester) async {
     final repo = await pumpAt(tester, 700);
     final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
@@ -81,11 +100,9 @@ void main() {
     expect(find.byType(NavigationBar), findsNothing);
 
     expect(find.text('Latest 1'), findsOneWidget);
-    expect(find.text('点按加载'), findsNWidgets(2));
-    await tester.tap(find.text('点按加载').first);
-    await tester.pumpAndSettle();
-    expect(repo.quickListLoads, ['最新回复']);
-    expect(find.text('Reply 1'), findsOneWidget);
+    expect(find.text('点按加载'), findsNothing);
+    expect(repo.quickListLoads, ['最新回复', '提问求物']);
+    expect(find.text('Reply 1'), findsNWidgets(2));
 
     await tester.scrollUntilVisible(find.text('Fixture board'), 200);
     expect(find.text('Last topic'), findsOneWidget);
@@ -164,6 +181,7 @@ void main() {
 
 class _Repo extends ForumRepository {
   final quickListLoads = <String>[];
+  final failOnce = <String>{};
 
   var loggedIn = true;
 
@@ -214,6 +232,9 @@ class _Repo extends ForumRepository {
   @override
   Future<List<ForumThread>> fetchQuickList(ForumQuickList list) async {
     quickListLoads.add(list.title);
+    if (failOnce.remove(list.title)) {
+      throw const ForumRepositoryException('fixture failure');
+    }
     return [for (var i = 1; i <= 6; i++) _thread('Reply $i')];
   }
 
