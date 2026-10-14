@@ -634,16 +634,45 @@ class ForumCategory {
   final String? url;
 }
 
+class ForumNoticeFlags {
+  const ForumNoticeFlags({this.replyNotice = false, this.unreadPm = false});
+
+  final bool replyNotice;
+  final bool unreadPm;
+}
+
+class ForumReplyNotice {
+  const ForumReplyNotice({
+    required this.tid,
+    required this.board,
+    required this.boardUrl,
+    required this.title,
+    required this.threadUrl,
+    required this.date,
+  });
+
+  final int tid;
+  final String board;
+  final String boardUrl;
+  final String title;
+  final String threadUrl;
+  final String date;
+}
+
 class ForumHomeSnapshot {
   const ForumHomeSnapshot({
     required this.latest,
     required this.hot,
     required this.sections,
+    this.hasReplyNotice = false,
+    this.hasUnreadPm = false,
   });
 
   final List<ForumThread> latest;
   final List<ForumCategory> hot;
   final List<ForumSection> sections;
+  final bool hasReplyNotice;
+  final bool hasUnreadPm;
 }
 
 enum UserProfileTab {

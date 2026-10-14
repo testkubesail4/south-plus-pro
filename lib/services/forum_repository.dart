@@ -19,6 +19,7 @@ import 'user_profile_cache.dart';
 import 'parsers/board_thread_page_parser.dart';
 import 'parsers/forum_form_parser.dart';
 import 'parsers/forum_pm_parser.dart';
+import 'parsers/forum_reply_notice_parser.dart';
 import 'parsers/forum_response_parser.dart';
 import 'parsers/forum_tasks_parser.dart';
 import 'parsers/home_page_parser.dart';
@@ -74,6 +75,8 @@ class ForumRepository {
     _sessionEpoch.addListener(_clearProfileDetails);
     _sessionEpoch.addListener(() {
       _restoredDesktopHtml = null;
+      _replyNoticeVerify = null;
+      _noticeFlags.value = const ForumNoticeFlags();
     });
   }
 
@@ -101,6 +104,11 @@ class ForumRepository {
   int _profileDetailsGeneration = 0;
   final BrowsingHistoryStore _historyStore;
   final ForumTaskStateStore _taskStateStore;
+  String? _replyNoticeVerify;
+  Future<void> _replyNoticeQueue = Future.value();
+  DateTime? _replyNoticeReadyAt;
+  final _noticeFlags = ValueNotifier(const ForumNoticeFlags());
+  ValueListenable<ForumNoticeFlags> get noticeFlags => _noticeFlags;
   final _sessionUser = ValueNotifier<String?>(null);
   final _sessionEpoch = ValueNotifier<int>(0);
 
@@ -199,6 +207,96 @@ class ForumRepository {
       // Private titles and quoted bodies can contain error-page phrases.
       _throwIfBlockedPage(response);
       rethrow;
+    }
+  }
+
+  ForumReplyNoticeParser get _replyNoticeParser =>
+      ForumReplyNoticeParser(urls: _urls);
+
+  void _captureIndexNotices(dom.Document document) {
+    _replyNoticeVerify = _replyNoticeParser.verifyToken(document);
+    _noticeFlags.value = ForumNoticeFlags(
+      replyNotice: _replyNoticeParser.hasReplyNotice(document),
+      unreadPm: _replyNoticeParser.hasUnreadPm(document),
+    );
+  }
+
+  Future<String> _postReplyNotice(Map<String, String> fields) async {
+    final epoch = _sessionEpoch.value;
+    final client = _client;
+    void requireCurrentSession() {
+      if (epoch != _sessionEpoch.value || client != _client) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变');
+      }
+    }
+
+    final previous = _replyNoticeQueue;
+    final completed = Completer<void>();
+    _replyNoticeQueue = completed.future;
+    try {
+      await previous;
+      requireCurrentSession();
+      final wait = _replyNoticeReadyAt?.difference(DateTime.now());
+      if (wait != null && !wait.isNegative) await Future<void>.delayed(wait);
+      requireCurrentSession();
+      if (_replyNoticeVerify == null) {
+        final response = await client.get('index.php');
+        requireCurrentSession();
+        _throwIfBlockedPage(response);
+        _captureIndexNotices(html_parser.parse(response));
+      }
+      final verify = _replyNoticeVerify;
+      if (verify == null) {
+        throw const ForumRequestException(
+            ForumRequestKind.server, '没有找到操作验证码，请刷新首页后重试');
+      }
+      final response = await client.post(
+        'pw_ajax.php?nowtime=${DateTime.now().millisecondsSinceEpoch}&verify=$verify',
+        fields,
+      );
+      requireCurrentSession();
+      return _responseParser.ajaxPayload(response) ?? response;
+    } finally {
+      _replyNoticeReadyAt =
+          DateTime.now().add(const Duration(milliseconds: 1500));
+      completed.complete();
+    }
+  }
+
+  Future<List<ForumReplyNotice>> fetchReplyNotices() async {
+    final response = await _postReplyNotice({'action': 'newrp'});
+    final List<ForumReplyNotice> notices;
+    if (response.trim() == '您的回复列表为空') {
+      notices = const [];
+    } else {
+      try {
+        notices = _replyNoticeParser.parse(html_parser.parse(response));
+      } on ForumRequestException {
+        _throwIfBlockedPage(response);
+        rethrow;
+      }
+    }
+    _noticeFlags.value = ForumNoticeFlags(
+      replyNotice: notices.isNotEmpty,
+      unreadPm: _noticeFlags.value.unreadPm,
+    );
+    return notices;
+  }
+
+  Future<void> deleteReplyNotice(ForumReplyNotice notice) async {
+    if (notice.tid <= 0) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '回复提醒编号无效');
+    }
+    final response = await _postReplyNotice({
+      'action': 'delnewrp',
+      'tid': '${notice.tid}',
+    });
+    _throwIfBlockedPage(response);
+    final remaining = await fetchReplyNotices();
+    if (remaining.any((item) => item.tid == notice.tid)) {
+      throw const ForumRequestException(ForumRequestKind.server, '回复提醒未删除，请重试');
     }
   }
 
@@ -459,12 +557,14 @@ class ForumRepository {
     }
     final hot = _homePageParser.parseHotCategories(document);
     var sections = _homePageParser.parseForumSections(document);
+    dom.Document? indexDocument;
     try {
       final desktopDocument = html_parser
           .parse(restoredDesktopHtml ?? await client.get('index.php'));
       final desktopSections =
           _homePageParser.parseDesktopForumSections(desktopDocument);
       if (desktopSections.isNotEmpty) sections = desktopSections;
+      indexDocument = desktopDocument;
     } catch (_) {
       // Keep the mobile/simple directory if the desktop home is unavailable.
     }
@@ -479,7 +579,14 @@ class ForumRepository {
       throw const ForumRepositoryException('没有解析到版块列表');
     }
 
-    return ForumHomeSnapshot(latest: latest, hot: hot, sections: sections);
+    if (indexDocument != null) _captureIndexNotices(indexDocument);
+    return ForumHomeSnapshot(
+      latest: latest,
+      hot: hot,
+      sections: sections,
+      hasReplyNotice: _noticeFlags.value.replyNotice,
+      hasUnreadPm: _noticeFlags.value.unreadPm,
+    );
   }
 
   Future<List<ForumThread>> fetchLatestThreads() async {
