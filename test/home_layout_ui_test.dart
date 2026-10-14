@@ -17,11 +17,12 @@ void main() {
     WidgetTester tester,
     double width, {
     double textScale = 1,
+    bool guest = false,
   }) async {
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repo = _Repo();
+    final repo = _Repo()..loggedIn = !guest;
     await tester.pumpWidget(MaterialApp(
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context)
@@ -129,6 +130,16 @@ void main() {
     });
   }
 
+  testWidgets('guests get no side panel; the feed keeps the width',
+      (tester) async {
+    await pumpAt(tester, 1200, guest: true);
+    expect(find.text('我的'), findsOneWidget, reason: 'only the rail label');
+    expect(find.text('回复提醒'), findsNothing);
+    expect(find.widgetWithText(TextButton, '登录'), findsOneWidget);
+    expect(find.text('热门版块'), findsOneWidget, reason: 'in the feed');
+    expect(tester.getSize(find.byType(ListView).first).width, greaterThan(900));
+  });
+
   testWidgets('side panel lists the boards pinned in search', (tester) async {
     await ForumSearchPreferences.savePinnedBoards(
       const [ForumSearchPinnedBoard(id: '42', label: 'Pinned board')],
@@ -156,8 +167,10 @@ void main() {
 class _Repo extends ForumRepository {
   final quickListLoads = <String>[];
 
+  var loggedIn = true;
+
   @override
-  bool get isLoggedIn => true;
+  bool get isLoggedIn => loggedIn;
 
   @override
   String? get currentUsername => 'fixture_login';

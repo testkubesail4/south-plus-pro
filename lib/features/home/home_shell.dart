@@ -274,12 +274,13 @@ class _ForumHomePageState extends State<ForumHomePage> {
   @override
   Widget build(BuildContext context) {
     // Window breakpoints: compact < 600 <= medium <= 840 < expanded. The
-    // side panel needs room beside the extended rail, so it starts at 1100.
+    // account side panel needs room beside the extended rail: 1100 and up.
     final width = MediaQuery.sizeOf(context).width;
     final compact = width < 600;
     final expanded = width > 840;
-    final sidePanel = width >= 1100;
     final loggedIn = widget.repository.isLoggedIn;
+    // Guests keep the feed full width; their login entry is in the top bar.
+    final sidePanel = width >= 1100 && loggedIn;
     return Scaffold(
       body: SafeArea(
         bottom: false,

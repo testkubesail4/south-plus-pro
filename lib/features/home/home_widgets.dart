@@ -895,7 +895,7 @@ class _BoardTile extends StatelessWidget {
   }
 }
 
-/// Wide-window side panel: account, notices, and the boards pinned in
+/// Signed-in wide-window side panel: account, notices, and the boards pinned in
 /// search (热门版块 until the user pins any).
 class _SidePanel extends StatefulWidget {
   const _SidePanel({
@@ -943,7 +943,6 @@ class _SidePanelState extends State<_SidePanel> {
   @override
   Widget build(BuildContext context) {
     final repository = widget.repository;
-    final loggedIn = repository.isLoggedIn;
     final pinned = _pinned.isNotEmpty;
     final boards = pinned
         ? [
@@ -954,36 +953,26 @@ class _SidePanelState extends State<_SidePanel> {
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 12),
       children: [
-        if (loggedIn) ...[
-          ValueListenableBuilder<ForumAccountIdentity?>(
-            valueListenable: repository.accountIdentity,
-            builder: (context, identity, _) => ListTile(
-              leading: AccountAvatar(avatarUrl: identity?.avatarUrl, size: 40),
-              title: Text(
-                accountDisplayName(identity) ??
-                    repository.currentUsername ??
-                    '已登录',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              subtitle: const Text('我的'),
-              onTap: widget.onAccountTap,
+        ValueListenableBuilder<ForumAccountIdentity?>(
+          valueListenable: repository.accountIdentity,
+          builder: (context, identity, _) => ListTile(
+            leading: AccountAvatar(avatarUrl: identity?.avatarUrl, size: 40),
+            title: Text(
+              accountDisplayName(identity) ??
+                  repository.currentUsername ??
+                  '已登录',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
+            subtitle: const Text('我的'),
+            onTap: widget.onAccountTap,
           ),
-          _NoticeChips(
-            repository: repository,
-            onMessagesTap: widget.onMessagesTap,
-          ),
-        ] else
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: FilledButton.icon(
-              onPressed: () => openLogin(context, repository),
-              icon: const Icon(Icons.login),
-              label: const Text('登录南+账号'),
-            ),
-          ),
+        ),
+        _NoticeChips(
+          repository: repository,
+          onMessagesTap: widget.onMessagesTap,
+        ),
         if (boards.isNotEmpty) ...[
           const SizedBox(height: 16),
           Padding(
