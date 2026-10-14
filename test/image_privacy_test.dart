@@ -484,7 +484,7 @@ void main() {
     );
 
     testWidgets(
-      'the full viewer decodes a very tall image within its bound '
+      'the full viewer keeps a very tall image\'s full width for reading '
       '(private: $private)',
       (tester) async {
         addTearDown(tester.view.reset);
@@ -510,8 +510,9 @@ void main() {
                 matching: decodedImages,
               ))
               .image!;
-          // The viewer's bound: 0.92 of the long side, 1.2x for zoom.
-          expect(image.height, lessThanOrEqualTo((800 * 0.92 * 1.2).ceil()));
+          // Width stays sharp at fit-width zoom; height keeps a texture cap.
+          expect(image.width, 200);
+          expect(image.height, lessThanOrEqualTo(8192));
           expect(image.width / image.height, closeTo(1 / 40, 0.002));
           await tester.pumpWidget(const SizedBox());
         });

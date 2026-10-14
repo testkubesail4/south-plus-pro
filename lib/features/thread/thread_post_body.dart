@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/perf_trace.dart';
 import '../../theme/app_theme.dart';
+import 'thread_image_viewer.dart';
 import 'thread_rich_content.dart';
 import 'thread_render_models.dart';
 import 'thread_sale_box_view.dart';
@@ -57,44 +58,49 @@ class ThreadPostBody extends StatelessWidget {
             .toList();
 
         return SelectionArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (saleBoxesFirst && !renderModelHasSaleBoxes) ...saleBoxWidgets,
-              if (quote != null && segments.isEmpty) ...[
-                _QuoteView(text: quote!),
-                if (content.isNotEmpty) const SizedBox(height: 12),
-              ],
-              if (!renderModel.isEmpty)
-                ThreadRichContent.renderModel(
-                  renderModel: renderModel,
-                  buyingSaleBoxes: buyingSaleBoxes,
-                  onBuySaleBox: onBuySaleBox,
-                  onOpenLink: onOpenLink,
-                )
-              else if (content.isNotEmpty)
-                Text(content, style: Theme.of(context).textTheme.bodyMedium),
-              if (images.isNotEmpty) ...[
-                if (content.isNotEmpty || quote != null)
-                  const SizedBox(height: 12),
-                ...images.map(
-                  (image) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: ThreadInlineImage(
-                      image: image,
-                      onOpenLink: onOpenLink,
+          child: ThreadImageGallery(
+            renderModel: renderModel,
+            extraImages: images,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (saleBoxesFirst && !renderModelHasSaleBoxes)
+                  ...saleBoxWidgets,
+                if (quote != null && segments.isEmpty) ...[
+                  _QuoteView(text: quote!),
+                  if (content.isNotEmpty) const SizedBox(height: 12),
+                ],
+                if (!renderModel.isEmpty)
+                  ThreadRichContent.renderModel(
+                    renderModel: renderModel,
+                    buyingSaleBoxes: buyingSaleBoxes,
+                    onBuySaleBox: onBuySaleBox,
+                    onOpenLink: onOpenLink,
+                  )
+                else if (content.isNotEmpty)
+                  Text(content, style: Theme.of(context).textTheme.bodyMedium),
+                if (images.isNotEmpty) ...[
+                  if (content.isNotEmpty || quote != null)
+                    const SizedBox(height: 12),
+                  ...images.map(
+                    (image) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: ThreadInlineImage(
+                        image: image,
+                        onOpenLink: onOpenLink,
+                      ),
                     ),
                   ),
-                ),
+                ],
+                if (!saleBoxesFirst &&
+                    saleBoxes.isNotEmpty &&
+                    !renderModelHasSaleBoxes) ...[
+                  if (content.isNotEmpty || images.isNotEmpty)
+                    const SizedBox(height: 12),
+                  ...saleBoxWidgets,
+                ],
               ],
-              if (!saleBoxesFirst &&
-                  saleBoxes.isNotEmpty &&
-                  !renderModelHasSaleBoxes) ...[
-                if (content.isNotEmpty || images.isNotEmpty)
-                  const SizedBox(height: 12),
-                ...saleBoxWidgets,
-              ],
-            ],
+            ),
           ),
         );
       },

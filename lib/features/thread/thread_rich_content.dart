@@ -4,13 +4,12 @@ import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
-import '../../services/image_saver.dart';
-import '../../services/image_loading_settings.dart';
 import '../../services/perf_trace.dart';
 import '../../services/whats_link_preview_service.dart';
 import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
 import '../common/forum_emoji_assets.dart';
+import 'thread_image_viewer.dart';
 import 'thread_render_models.dart';
 import 'thread_sale_box_view.dart';
 
@@ -68,7 +67,7 @@ class ThreadRichContent extends StatelessWidget {
           alignment,
         );
 
-        return Column(
+        final column = Column(
           crossAxisAlignment: switch (alignment) {
             ThreadContentAlignment.center => CrossAxisAlignment.center,
             ThreadContentAlignment.end => CrossAxisAlignment.end,
@@ -77,6 +76,10 @@ class ThreadRichContent extends StatelessWidget {
           },
           children: children,
         );
+        // The outermost content owns the gallery; nested parts reuse it.
+        return ThreadImageGallery.maybeOf(context) == null
+            ? ThreadImageGallery(renderModel: renderModel, child: column)
+            : column;
       },
       arguments: {'blocks': renderModel.blocks.length},
     );
@@ -1254,7 +1257,7 @@ class _RichQuoteBlock extends StatelessWidget {
   }
 }
 
-class ThreadInlineImage extends StatefulWidget {
+class ThreadInlineImage extends StatelessWidget {
   const ThreadInlineImage({
     super.key,
     required this.image,
@@ -1274,139 +1277,28 @@ class ThreadInlineImage extends StatefulWidget {
   /// Link wrapping the image; tap still opens the viewer.
   final String? href;
 
-  @override
-  State<ThreadInlineImage> createState() => _ThreadInlineImageState();
-}
-
-class _ThreadInlineImageState extends State<ThreadInlineImage> {
-  bool _saving = false;
-
-  Future<void> _saveImage() async {
-    final mode = await ImageLoadingSettings.loadMode();
-    if (!mounted || _saving || mode == ImageLoadMode.noImages) return;
-
-    setState(() {
-      _saving = true;
-    });
-
-    try {
-      final file = await ForumImageCache.manager.getSingleFile(
-        widget.image.url,
-      );
-      final bytes = await file.readAsBytes();
-      await ImageSaver.saveImage(bytes, sourceUrl: widget.image.url);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('图片已保存到相册')),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存图片失败：$error')),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        _saving = false;
-      });
-    }
-  }
-
-  void _openImageViewer() {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        final size = MediaQuery.sizeOf(dialogContext);
-        // A square bound fits either orientation. The shared cache decodes
-        // to both memory bounds exactly, stretching the image, so memory
-        // gets the width and the disk copy the height (its resize ignores
-        // the height once a width is given). The private path has no disk
-        // copy and fits both bounds instead.
-        final spec = ForumImageDecodeSpec.forDisplay(
-          logicalSize: Size.square(size.longestSide * 0.92),
-          devicePixelRatio: MediaQuery.devicePixelRatioOf(dialogContext),
-          memoryScale: 1.2,
-          diskScale: 1.2,
-          maxLongEdge: 2600,
-        );
-        return Dialog(
-          child: SizedBox(
-            width: size.width * 0.92,
-            height: size.height * 0.82,
-            child: Column(
-              children: [
-                Expanded(
-                  child: InteractiveViewer(
-                    child: CachedForumImage(
-                      url: widget.image.url,
-                      fit: BoxFit.contain,
-                      memCacheWidth: spec.memCacheWidth,
-                      memCacheHeight:
-                          widget.privateMedia ? spec.memCacheHeight : null,
-                      maxHeightDiskCache: spec.maxHeightDiskCache,
-                      bypassLoadPolicy: true,
-                      privateMemoryOnly: widget.privateMedia,
-                      errorWidget: (context) => ThreadImageFailurePlaceholder(
-                        url: widget.image.url,
-                        onOpen: () => _openContentLink(
-                          context,
-                          widget.image.url,
-                          '',
-                          widget.onOpenLink,
-                        ),
-                        onCopy: () =>
-                            _copyDownloadLink(context, widget.image.url),
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white70,
-                      ),
-                    ),
-                  ),
-                ),
-                if (!widget.privateMedia || widget.href != null) ...[
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-                    child: Wrap(
-                      alignment: WrapAlignment.end,
-                      spacing: 8,
-                      children: [
-                        if (widget.href case final href?)
-                          TextButton.icon(
-                            onPressed: () {
-                              Navigator.of(dialogContext).pop();
-                              _openContentLink(
-                                context,
-                                href,
-                                '',
-                                widget.onOpenLink,
-                              );
-                            },
-                            icon: const Icon(Icons.open_in_new),
-                            label: const Text('打开链接'),
-                          ),
-                        if (!widget.privateMedia)
-                          ValueListenableBuilder<ImageLoadMode?>(
-                            valueListenable: ImageLoadingSettings.notifier,
-                            builder: (context, mode, _) => TextButton.icon(
-                              onPressed:
-                                  mode == null || mode == ImageLoadMode.noImages
-                                      ? null
-                                      : _saveImage,
-                              icon: const Icon(Icons.download_outlined),
-                              label: const Text('保存图片'),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
-      },
+  void _openImageViewer(BuildContext context) {
+    final gallery = ThreadImageGallery.maybeOf(context)?.images ?? const [];
+    // This occurrence: the same URL may repeat with another link around it.
+    final index = gallery.indexWhere((item) => identical(item.image, image));
+    showThreadImageViewer(
+      context,
+      images: index < 0 ? [ThreadImageRenderBlock(image, href: href)] : gallery,
+      initialIndex: index < 0 ? 0 : index,
+      privateMedia: privateMedia,
+      onOpen: _openFrom(context),
+      onCopy: _copyDownloadLink,
     );
   }
+
+  // A closed viewer's context falls back to the post's for link feedback.
+  ForumImageLinkAction _openFrom(BuildContext postContext) =>
+      (context, url) => _openContentLink(
+            context.mounted ? context : postContext,
+            url,
+            '',
+            onOpenLink,
+          );
 
   @override
   Widget build(BuildContext context) {
@@ -1416,16 +1308,21 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
         return SelectionContainer.disabled(
           child: InkWell(
             borderRadius: BorderRadius.circular(8),
-            onTap: _openImageViewer,
-            onLongPress: switch (widget.href) {
+            onTap: () => _openImageViewer(context),
+            onLongPress: switch (href) {
               // A linked image's long press shows its destination first.
               final href? => () => _showLinkSheet(
                     context,
                     href,
-                    () =>
-                        _openContentLink(context, href, '', widget.onOpenLink),
+                    () => _openContentLink(context, href, '', onOpenLink),
                   ),
-              null => widget.privateMedia ? null : _saveImage,
+              null => () => showForumImageMenu(
+                    context,
+                    url: image.url,
+                    privateMedia: privateMedia,
+                    onOpen: _openFrom(context),
+                    onCopy: _copyDownloadLink,
+                  ),
             },
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
@@ -1445,13 +1342,13 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                     );
 
                     return CachedForumImage(
-                      url: widget.image.url,
+                      url: image.url,
                       fit: BoxFit.scaleDown,
                       memCacheWidth: spec.memCacheWidth,
                       memCacheHeight: spec.memCacheHeight,
                       maxWidthDiskCache: spec.maxWidthDiskCache,
                       maxHeightDiskCache: spec.maxHeightDiskCache,
-                      privateMemoryOnly: widget.privateMedia,
+                      privateMemoryOnly: privateMedia,
                       placeholder: (context) {
                         return const SizedBox(
                           height: 160,
@@ -1459,15 +1356,14 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
                         );
                       },
                       errorWidget: (context) => ThreadImageFailurePlaceholder(
-                        url: widget.image.url,
+                        url: image.url,
                         onOpen: () => _openContentLink(
                           context,
-                          widget.image.url,
+                          image.url,
                           '',
-                          widget.onOpenLink,
+                          onOpenLink,
                         ),
-                        onCopy: () =>
-                            _copyDownloadLink(context, widget.image.url),
+                        onCopy: () => _copyDownloadLink(context, image.url),
                       ),
                     );
                   },
@@ -1478,7 +1374,7 @@ class _ThreadInlineImageState extends State<ThreadInlineImage> {
         );
       },
       // Private image URLs stay out of timeline traces.
-      arguments: widget.privateMedia ? null : {'url': widget.image.url},
+      arguments: privateMedia ? null : {'url': image.url},
     );
   }
 }
