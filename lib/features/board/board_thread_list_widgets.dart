@@ -760,10 +760,10 @@ class _ThreadRow extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        ForumTitleText(
                           thread.title,
+                          titleStyle: thread.titleStyle,
                           maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: thread.isSticky
                                 ? AppColors.brandDark

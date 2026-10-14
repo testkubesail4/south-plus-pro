@@ -7,6 +7,7 @@ import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/forum_title_text.dart';
 import '../common/cached_forum_image.dart';
 import '../profile/user_profile_screen.dart';
 import '../search/search_screen.dart';

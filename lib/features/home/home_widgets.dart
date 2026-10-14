@@ -143,10 +143,10 @@ class _LatestThreads extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    ForumTitleText(
                       thread.title,
+                      titleStyle: thread.titleStyle,
                       maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppColors.text,
                         fontSize: 15,

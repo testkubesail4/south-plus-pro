@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
+import '../common/forum_title_text.dart';
 import '../messages/pm_box_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';

@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/forum_title_text.dart';
 import '../thread/thread_detail_screen.dart';
 
 class BrowsingHistoryScreen extends StatefulWidget {
@@ -225,10 +226,10 @@ class _HistoryItem extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Text(
+                    child: ForumTitleText(
                       thread.title,
+                      titleStyle: thread.titleStyle,
                       maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: AppColors.text,
                         fontSize: 15.5,

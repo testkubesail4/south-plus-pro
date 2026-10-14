@@ -7,6 +7,7 @@ import '../../services/forum_search_preferences.dart';
 import '../../services/search_board_hierarchy.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/forum_title_text.dart';
 import '../thread/thread_detail_screen.dart';
 
 const _allBoards = ForumSearchBoard(id: 'all', name: '全部版块');
@@ -1520,10 +1521,10 @@ class _SearchResultTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              ForumTitleText(
                 thread.title,
+                titleStyle: thread.titleStyle,
                 maxLines: 3,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: AppColors.text,
                   fontSize: 16,
