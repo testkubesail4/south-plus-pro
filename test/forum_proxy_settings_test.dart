@@ -119,9 +119,52 @@ void main() {
         {'forum_network_proxy_v1': '{invalid'});
     await tester.pumpWidget(const MaterialApp(home: SessionGate()));
     await tester.pumpAndSettle();
-    expect(find.textContaining('代理设置无效'), findsOneWidget);
+    expect(find.text('代理设置无法使用'), findsOneWidget);
     expect(find.text('先浏览公开内容'), findsNothing);
-    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('保存并重试'), findsOneWidget);
+  });
+
+  testWidgets('startup repair saves the replacement before retrying',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'forum_network_proxy_v1': '{invalid',
+      'forum_network_setup_completed_v1': true
+    });
+    await tester.pumpWidget(const MaterialApp(home: SessionGate()));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, '主机'), 'proxy.fixture.invalid');
+    await tester.enterText(find.widgetWithText(TextField, '端口'), '8080');
+    await tester.tap(find.text('保存并重试'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect((await ForumNetworkSettings.load()).proxy?.host,
+        'proxy.fixture.invalid');
+    expect(find.text('代理设置无法使用'), findsNothing);
+  });
+
+  testWidgets('startup repair disables proxy only after confirmation',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'forum_network_proxy_v1': '{invalid',
+      'forum_network_setup_completed_v1': true
+    });
+    await tester.pumpWidget(const MaterialApp(home: SessionGate()));
+    await tester.pumpAndSettle();
+    final disable = find.widgetWithText(OutlinedButton, '停用代理，改为直接连接');
+    await tester.ensureVisible(disable);
+    await tester.tap(disable);
+    await tester.pumpAndSettle();
+    await expectLater(ForumNetworkSettings.load(), throwsFormatException);
+    await tester.tap(find.widgetWithText(TextButton, '停用代理，改为直接连接'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    final config = await ForumNetworkSettings.load();
+    expect(config.proxy, isNull);
+    expect(config.dohEnabled, isFalse);
+    expect(find.text('代理设置无法使用'), findsNothing);
   });
 
   for (final choice in ForumNetworkSetupChoice.values) {

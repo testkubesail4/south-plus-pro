@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'features/common/forum_link_opener.dart';
 import 'features/home/home_shell.dart';
 import 'features/profile/network_setup_flow_screen.dart';
+import 'features/profile/proxy_form.dart';
 import 'features/search/search_screen.dart';
 import 'models/forum_models.dart';
 import 'services/forum_incoming_link_service.dart';
@@ -236,6 +237,18 @@ class _SessionGateState extends State<SessionGate> {
         _setReady(result?.repository);
 
         if (snapshot.hasError) {
+          if (_repository == null) {
+            return ProxyRepairScreen(
+              onSaveProxy: (proxy) async {
+                await ForumNetworkSettings.saveProxy(proxy);
+                if (mounted) _retry();
+              },
+              onDisableProxy: () async {
+                await ForumNetworkSettings.disableProxy();
+                if (mounted) _retry();
+              },
+            );
+          }
           return _SessionError(
             message: '${snapshot.error}',
             onRetry: _retry,
