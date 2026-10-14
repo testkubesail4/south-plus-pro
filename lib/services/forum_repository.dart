@@ -17,6 +17,7 @@ import 'forum_task_state_store.dart';
 import 'forum_trace_logger.dart';
 import 'forum_url_resolver.dart';
 import 'user_profile_cache.dart';
+import 'thread_read_position_store.dart';
 import 'parsers/board_thread_page_parser.dart';
 import 'parsers/forum_form_parser.dart';
 import 'parsers/forum_pm_parser.dart';
@@ -116,6 +117,7 @@ class ForumRepository {
   Timer? _profileDetailsTimer;
   int _profileDetailsGeneration = 0;
   final BrowsingHistoryStore _historyStore;
+  final _readPositions = ThreadReadPositionStore();
   final ForumTaskStateStore _taskStateStore;
   int _homeGeneration = 0;
   Set<ForumQuickList> _homeQuickLists = {};
@@ -1471,8 +1473,33 @@ class ForumRepository {
     return _historyStore.recent(limit: limit);
   }
 
-  Future<void> clearBrowsingHistory() {
-    return _historyStore.clear();
+  Future<void> clearBrowsingHistory() async {
+    await _historyStore.clear();
+    await _readPositions.clear();
+  }
+
+  String? firstThreadPageUrl(ForumThread thread) =>
+      _urls.threadBoundaryUrl(thread.url, last: false);
+
+  String? latestThreadPageUrl(ForumThread thread) =>
+      _urls.threadBoundaryUrl(thread.url, last: true);
+
+  String? _threadReadKey(ForumThread thread) {
+    final tid = _urls.tidFromUrl(thread.url);
+    if (tid == null) return null;
+    return '$tid:${_urls.uidFromUrl(thread.url) ?? ''}';
+  }
+
+  Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread thread) {
+    final key = _threadReadKey(thread);
+    return key == null ? SynchronousFuture(null) : _readPositions.load(key);
+  }
+
+  Future<void> saveThreadReadPosition(
+      ForumThread thread, ThreadReadPosition position) {
+    final key = _threadReadKey(thread);
+    if (key == null) return Future.error(ArgumentError('Invalid thread URL'));
+    return _readPositions.save(key, position);
   }
 
   Future<List<ForumCategory>> fetchHotCategories() async {

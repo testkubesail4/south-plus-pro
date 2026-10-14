@@ -337,6 +337,16 @@ class ForumUrlResolver {
     return 'thread_new.php?fid-$fid-orderway-${order.queryValue}-asc-DESC-page-$normalizedPage.html';
   }
 
+  String? threadBoundaryUrl(String url, {required bool last}) {
+    final tid = tidFromUrl(url);
+    if (tid == null) return null;
+    final uid = uidFromUrl(url);
+    final filter = uid == null ? '' : '-uid-$uid';
+    final page = last ? 'e' : '1';
+    final anchor = last ? '' : '#tpc';
+    return absoluteUrl('read.php?tid-$tid$filter-page-$page.html$anchor');
+  }
+
   String threadDetailPath(String url, {int page = 1}) {
     final uri = Uri.tryParse(url);
     final isForum = isForumUrl(url);

@@ -218,6 +218,13 @@ class ForumThread {
   }
 }
 
+class ThreadReadPosition {
+  const ThreadReadPosition({required this.page, this.anchor});
+
+  final int page;
+  final String? anchor;
+}
+
 class BrowsingHistoryEntry {
   const BrowsingHistoryEntry({
     required this.thread,
