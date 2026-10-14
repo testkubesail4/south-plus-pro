@@ -2,6 +2,7 @@ package com.example.south_plus_rewrite
 
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -14,6 +15,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -92,6 +94,8 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "saveImage" -> handleSaveImage(call, result)
+                "shareImage" -> handleShareImage(call, result)
+                "shareText" -> handleShareText(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -257,6 +261,47 @@ class MainActivity : FlutterActivity() {
         }
 
         saveImageAsync(bytes, fileName, result)
+    }
+
+    // Only files inside the forum image cache are shared, through a read grant.
+    private fun handleShareImage(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val path = call.argument<String>("path") ?: throw IllegalArgumentException("图片路径为空")
+            val file = File(path).canonicalFile
+            val images = File(cacheDir, "southPlusForumImages").canonicalFile
+            if (!file.path.startsWith(images.path + File.separator) || !file.isFile || file.length() == 0L) {
+                throw IllegalArgumentException("图片缓存文件无效")
+            }
+            val uri = FileProvider.getUriForFile(this, "$packageName.images", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = mimeTypeFor(file.name)
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri(null, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, null))
+            result.success(true)
+        } catch (error: Exception) {
+            result.error("share_failed", error.localizedMessage ?: "分享失败", null)
+        }
+    }
+
+    private fun handleShareText(call: MethodCall, result: MethodChannel.Result) {
+        val text = call.argument<String>("text")?.trim()
+        if (text.isNullOrEmpty()) {
+            result.error("empty_text", "分享内容为空", null)
+            return
+        }
+        try {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            startActivity(Intent.createChooser(send, null))
+            result.success(true)
+        } catch (error: Exception) {
+            result.error("share_failed", error.localizedMessage ?: "分享失败", null)
+        }
     }
 
     private fun handleOpenLink(call: MethodCall, result: MethodChannel.Result) {

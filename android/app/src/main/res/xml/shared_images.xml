@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The forum image cache only; see MainActivity.handleShareImage. -->
+<paths>
+    <cache-path name="images" path="southPlusForumImages/" />
+</paths>

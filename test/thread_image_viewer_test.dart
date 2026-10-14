@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_linux/path_provider_linux.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
+import 'package:south_plus_rewrite/features/thread/thread_image_viewer.dart';
 import 'package:south_plus_rewrite/features/thread/thread_rich_content.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/image_loading_settings.dart';
@@ -241,6 +242,36 @@ void main() {
     });
   });
 
+  testWidgets('no-images policy shares no public image bytes', (tester) async {
+    await tester.runAsync(() async {
+      const channel = MethodChannel('south_plus_rewrite/image_saver');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      final calls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return true;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      await openViewer(tester);
+      await ImageLoadingSettings.saveMode(ImageLoadMode.noImages);
+      addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
+      await settle(tester);
+      await tester.tap(find.byTooltip('更多'));
+      await settle(tester);
+      expect(find.text('复制图片链接'), findsOneWidget);
+      expect(find.text('分享图片'), findsNothing);
+
+      // A share started before the switch still checks the latest policy.
+      const unseen = 'https://fixture.invalid/never-fetched.png';
+      final context = tester.element(find.text('复制图片链接'));
+      await shareForumImage(context, unseen, privateMedia: false);
+      expect(calls, isEmpty);
+      expect(fixture.requests, isNot(contains(unseen)));
+      expect(await ForumImageCache.manager.getFileFromCache(unseen), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
   for (final private in [false, true]) {
     testWidgets('long press offers image actions (private: $private)',
         (tester) async {
@@ -270,6 +301,36 @@ void main() {
         await tester.tap(find.text('复制图片链接'));
         await settle(tester);
         expect(copied, _long);
+
+        // Public images share the cached file; private ones only the link.
+        final shared = <MethodCall>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('south_plus_rewrite/image_saver'),
+          (call) async {
+            shared.add(call);
+            return true;
+          },
+        );
+        addTearDown(() => tester.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+                const MethodChannel('south_plus_rewrite/image_saver'), null));
+        final press2 = await tester.startGesture(
+          tester.getCenter(find.byType(InteractiveViewer)),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        await tester.pump(const Duration(milliseconds: 600));
+        await press2.up();
+        await settle(tester);
+        await tester.tap(find.text(private ? '分享图片链接' : '分享图片'));
+        await settle(tester);
+        expect(shared.single.method, private ? 'shareText' : 'shareImage');
+        final args = shared.single.arguments as Map;
+        if (private) {
+          expect(args['text'], _long);
+        } else {
+          final file = await ForumImageCache.manager.getFileFromCache(_long);
+          expect(args['path'], file!.file.path);
+        }
         await tester.pumpWidget(const SizedBox());
       });
     });

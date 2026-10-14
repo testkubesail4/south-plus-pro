@@ -1,9 +1,31 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class ImageSaver {
   ImageSaver._();
 
   static const _channel = MethodChannel('south_plus_rewrite/image_saver');
+
+  /// Sharing goes through the Android share sheet only.
+  static bool get canShare => defaultTargetPlatform == TargetPlatform.android;
+
+  /// Shares a file from the forum image cache directory.
+  static Future<void> shareImageFile(String path) =>
+      _share('shareImage', {'path': path});
+
+  /// Shares [text] (a link) as plain text.
+  static Future<void> shareText(String text) =>
+      _share('shareText', {'text': text});
+
+  static Future<void> _share(String method, Map<String, String> args) async {
+    try {
+      await _channel.invokeMethod<bool>(method, args);
+    } on MissingPluginException {
+      throw const ImageSaveException('当前平台不支持分享');
+    } on PlatformException catch (error) {
+      throw ImageSaveException(error.message ?? '分享失败');
+    }
+  }
 
   static Future<void> saveImage(
     Uint8List bytes, {

@@ -87,7 +87,33 @@ Future<void> saveForumImage(BuildContext context, String url) async {
   }
 }
 
-/// Long-press actions for one image: save, copy, open, and its link.
+/// Shares a forum image from the cache; private images share only the link,
+/// so their bytes never reach the disk cache.
+Future<void> shareForumImage(
+  BuildContext context,
+  String url, {
+  required bool privateMedia,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    if (privateMedia) {
+      await ImageSaver.shareText(url);
+    } else {
+      // The strict policy forbids fetching or caching image bytes.
+      if (await ImageLoadingSettings.loadMode() == ImageLoadMode.noImages) {
+        return;
+      }
+      final file = await ForumImageCache.manager.getSingleFile(url);
+      await ImageSaver.shareImageFile(file.path);
+    }
+  } catch (error) {
+    if (messenger.mounted) {
+      messenger.showSnackBar(SnackBar(content: Text('分享失败：$error')));
+    }
+  }
+}
+
+/// Long-press actions for one image: save, share, copy, open, and its link.
 /// [context] opens the sheet and receives the actions' feedback.
 void showForumImageMenu(
   BuildContext context, {
@@ -115,6 +141,19 @@ void showForumImageMenu(
                 leading: const Icon(Icons.download_outlined),
                 title: const Text('保存图片'),
                 onTap: () => run(() => saveForumImage(context, url)),
+              ),
+            if (ImageSaver.canShare &&
+                (privateMedia ||
+                    ImageLoadingSettings.notifier.value !=
+                        ImageLoadMode.noImages))
+              ListTile(
+                leading: const Icon(Icons.share_outlined),
+                title: Text(privateMedia ? '分享图片链接' : '分享图片'),
+                onTap: () => run(() => shareForumImage(
+                      context,
+                      url,
+                      privateMedia: privateMedia,
+                    )),
               ),
             ListTile(
               leading: const Icon(Icons.copy_outlined),
