@@ -71,6 +71,58 @@ void main() {
     expect(repository.pages, [1, 2]);
   });
 
+  testWidgets('the resume notice auto-hides and closes with the thread',
+      (tester) async {
+    await _FakeRepository().saveThreadReadPosition(
+      _thread,
+      const ThreadReadPosition(page: 2, anchor: '1040'),
+    );
+    await pumpThread(tester);
+    expect(find.textContaining('已回到上次阅读位置'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已回到上次阅读位置'), findsNothing);
+  });
+
+  testWidgets(
+      'the resume notice stays with its thread, even behind another notice',
+      (tester) async {
+    await _FakeRepository().saveThreadReadPosition(
+      _thread,
+      const ThreadReadPosition(page: 2, anchor: '1040'),
+    );
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: navigator,
+      home: const Scaffold(body: Text('home')),
+    ));
+    // A long-lived notice from the previous screen is still up.
+    ScaffoldMessenger.of(navigator.currentContext!).showSnackBar(
+      const SnackBar(content: Text('home notice'), duration: Duration(days: 1)),
+    );
+    await tester.pumpAndSettle();
+
+    navigator.currentState!.push(MaterialPageRoute<void>(
+      builder: (_) =>
+          ThreadDetailScreen(repository: _FakeRepository(), thread: _thread),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已回到上次阅读位置'), findsOneWidget);
+
+    // Leaving at once neither throws nor touches the other notice.
+    navigator.currentState!.push(MaterialPageRoute<void>(
+      builder: (_) => const Scaffold(body: Text('elsewhere')),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('elsewhere'), findsOneWidget);
+    expect(find.textContaining('已回到上次阅读位置'), findsNothing);
+    navigator.currentState!.pop();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('home notice'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('reading to the end appends the following pages', (tester) async {
     final repository = await pumpThread(tester);
     expect(repository.pages, [1], reason: 'opening loads one page');

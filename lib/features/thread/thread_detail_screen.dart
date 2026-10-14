@@ -106,11 +106,20 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _pendingAnchor = position.anchor;
     await _loadPage(position.page);
     if (!mounted || _detail == null) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    _messenger.showSnackBar(SnackBar(
       content: Text('已回到上次阅读位置（第 ${position.page} 页）'),
       action: SnackBarAction(label: '从头看', onPressed: _jumpToFirst),
+      // An action alone would keep it on screen until dismissed.
+      persist: false,
     ));
   }
+
+  // The thread's own messenger: its notices stay on this screen, never
+  // queue behind or follow the reader to other screens.
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
+
+  ScaffoldMessengerState get _messenger =>
+      _messengerKey.currentState ?? ScaffoldMessenger.of(context);
 
   static String? _fragmentOf(String url) {
     final fragment = Uri.tryParse(url)?.fragment ?? '';
@@ -195,7 +204,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _loading = false;
       });
       if (_detail != null && showSnackBarOnError) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        _messenger.showSnackBar(
           SnackBar(content: Text('页面加载失败：$error')),
         );
       }
@@ -236,7 +245,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       ));
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    _messenger.showSnackBar(
       const SnackBar(content: Text('未找到指定楼层，已显示所在页')),
     );
   }
@@ -483,7 +492,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   Future<void> _showOriginalPosterPosts(ForumThread thread) async {
     final url = widget.repository.originalPosterPostsUrl(thread);
     if (url == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messenger.showSnackBar(
         const SnackBar(content: Text('无法只看楼主：缺少楼主身份')),
       );
       return;
@@ -698,7 +707,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     } catch (error) {
       if (!mounted) return;
       _replyKey.currentState?.insertContent(_localQuoteDraft(reply));
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messenger.showSnackBar(
         SnackBar(content: Text('引用加载失败，已使用本地引用：$error')),
       );
     } finally {
@@ -711,7 +720,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   }
 
   Future<void> _handleReplySubmitted(String result) async {
-    ScaffoldMessenger.of(context).showSnackBar(
+    _messenger.showSnackBar(
       SnackBar(content: Text('$result，已刷新当前页')),
     );
     await _refresh();
@@ -726,7 +735,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     try {
       final result = await widget.repository.buySaleBox(saleBox);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messenger.showSnackBar(
         SnackBar(
           content: Text(
             result.success ? '${result.message}，已刷新当前页' : result.message,
@@ -738,7 +747,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messenger.showSnackBar(
         SnackBar(content: Text('购买失败：$error')),
       );
     } finally {
@@ -767,7 +776,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           ? await widget.repository.removeFavorite(effective)
           : await widget.repository.addFavorite(effective);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messenger.showSnackBar(
         SnackBar(content: Text(result.message)),
       );
       if (result.success) {
@@ -777,7 +786,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messenger.showSnackBar(
         SnackBar(content: Text('收藏操作失败：$error')),
       );
     } finally {
@@ -812,7 +821,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
     if (_savingAttachment) return;
     _savingAttachment = true;
-    final messenger = ScaffoldMessenger.of(context);
+    final messenger = _messenger;
     messenger.clearSnackBars();
     messenger.removeCurrentSnackBar();
     final progress = messenger.showSnackBar(const SnackBar(
@@ -845,7 +854,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       await ExternalLinkLauncher.open(link.url);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      _messenger.showSnackBar(
         SnackBar(content: Text('$error')),
       );
     }
@@ -858,121 +867,125 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     return PerfTrace.span(
       'ThreadDetailScreen.build',
       () {
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(
-              '南+ / ${detail?.thread.section ?? widget.thread.section}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+        return ScaffoldMessenger(
+          key: _messengerKey,
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(
+                '南+ / ${detail?.thread.section ?? widget.thread.section}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              centerTitle: true,
+              actions: [
+                IconButton(
+                  tooltip: '搜索同名主题',
+                  // Loaded title only; the pre-load title can be a placeholder.
+                  onPressed:
+                      detail == null || detail.thread.title.trim().isEmpty
+                          ? null
+                          : () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => SearchScreen(
+                                    repository: widget.repository,
+                                    initialKeyword: detail.thread.title.trim(),
+                                  ),
+                                ),
+                              ),
+                  icon: const Icon(Icons.manage_search),
+                ),
+                IconButton(
+                  tooltip: '回复',
+                  onPressed: () => _scrollToReply(),
+                  icon: Icon(Icons.reply_outlined),
+                ),
+              ],
             ),
-            centerTitle: true,
-            actions: [
-              IconButton(
-                tooltip: '搜索同名主题',
-                // Loaded title only; the pre-load title can be a placeholder.
-                onPressed: detail == null || detail.thread.title.trim().isEmpty
-                    ? null
-                    : () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SearchScreen(
-                              repository: widget.repository,
-                              initialKeyword: detail.thread.title.trim(),
+            floatingActionButton: FloatingActionButton.small(
+              backgroundColor: AppColors.brand,
+              foregroundColor: Colors.white,
+              onPressed: () => _scrollToReply(),
+              child: Icon(Icons.edit_outlined),
+            ),
+            // Floor navigation in its own strip, so it never covers a post.
+            bottomNavigationBar: detail == null
+                ? null
+                : BottomAppBar(
+                    height: 48,
+                    padding: EdgeInsets.zero,
+                    child: Row(
+                      children: [
+                        for (final (tooltip, icon, action)
+                            in <(String, IconData, VoidCallback)>[
+                          ('首楼', Icons.first_page, _jumpToFirst),
+                          (
+                            '回到顶部',
+                            Icons.arrow_upward,
+                            () => _scrollToEdge(top: true)
+                          ),
+                          (
+                            '到底部',
+                            Icons.arrow_downward,
+                            () => _scrollToEdge(top: false)
+                          ),
+                          ('最新回复', Icons.last_page, _jumpToLatest),
+                        ])
+                          Expanded(
+                            child: IconButton(
+                              tooltip: tooltip,
+                              onPressed: action,
+                              icon: Icon(icon),
                             ),
                           ),
-                        ),
-                icon: const Icon(Icons.manage_search),
-              ),
-              IconButton(
-                tooltip: '回复',
-                onPressed: () => _scrollToReply(),
-                icon: Icon(Icons.reply_outlined),
-              ),
-            ],
-          ),
-          floatingActionButton: FloatingActionButton.small(
-            backgroundColor: AppColors.brand,
-            foregroundColor: Colors.white,
-            onPressed: () => _scrollToReply(),
-            child: Icon(Icons.edit_outlined),
-          ),
-          // Floor navigation in its own strip, so it never covers a post.
-          bottomNavigationBar: detail == null
-              ? null
-              : BottomAppBar(
-                  height: 48,
-                  padding: EdgeInsets.zero,
-                  child: Row(
-                    children: [
-                      for (final (tooltip, icon, action)
-                          in <(String, IconData, VoidCallback)>[
-                        ('首楼', Icons.first_page, _jumpToFirst),
-                        (
-                          '回到顶部',
-                          Icons.arrow_upward,
-                          () => _scrollToEdge(top: true)
-                        ),
-                        (
-                          '到底部',
-                          Icons.arrow_downward,
-                          () => _scrollToEdge(top: false)
-                        ),
-                        ('最新回复', Icons.last_page, _jumpToLatest),
-                      ])
-                        Expanded(
-                          child: IconButton(
-                            tooltip: tooltip,
-                            onPressed: action,
-                            icon: Icon(icon),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-          body: detail == null
-              ? _InitialThreadState(
-                  error: _loadError,
-                  onRetry: _refresh,
-                )
-              : NotificationListener<ScrollNotification>(
-                  onNotification: _onScroll,
-                  child: Listener(
-                    onPointerSignal: _onPointerSignal,
-                    child: _ThreadDetailContent(
-                      detail: detail,
-                      onPostMounted: _postMounted,
-                      onRetryLoadMore: _retryLoadMore,
-                      entries: _detailEntries,
-                      loading: _loading,
-                      onlyOriginalPosterActive: _onlyOriginalPosterActive,
-                      authorFilterName: _authorFilterActive
-                          ? _authorFilterName ?? '该作者'
-                          : null,
-                      visibleFloorCount: _visibleFloorCount,
-                      favorite: detail.favorite == null
-                          ? null
-                          : _effectiveFavorite(detail.favorite!),
-                      favoriteBusy: _favoriteBusy,
-                      buyingSaleBoxes: _buyingSaleBoxes,
-                      loadingQuoteDrafts: _loadingQuoteDrafts,
-                      scrollController: _scrollController,
-                      replyKey: _replyKey,
-                      onRefresh: _refresh,
-                      onAuthorTap: _openUserProfile,
-                      onFavorite: _handleFavorite,
-                      onShowOriginalPosterPosts: _showOriginalPosterPosts,
-                      onShowAuthorPosts: _showAuthorPosts,
-                      onClearAuthorFilter: _clearAuthorFilter,
-                      onQuoteReply: _quoteReply,
-                      onBuySaleBox: _handleBuySaleBox,
-                      onReplySubmitted: _handleReplySubmitted,
-                      onPageSelected: _goToPage,
-                      onThreadLink: _openThreadLink,
-                      onExternalLink: _openExternalLink,
-                      onOpenLink: _openContentLink,
-                      repository: widget.repository,
+                      ],
                     ),
                   ),
-                ),
+            body: detail == null
+                ? _InitialThreadState(
+                    error: _loadError,
+                    onRetry: _refresh,
+                  )
+                : NotificationListener<ScrollNotification>(
+                    onNotification: _onScroll,
+                    child: Listener(
+                      onPointerSignal: _onPointerSignal,
+                      child: _ThreadDetailContent(
+                        detail: detail,
+                        onPostMounted: _postMounted,
+                        onRetryLoadMore: _retryLoadMore,
+                        entries: _detailEntries,
+                        loading: _loading,
+                        onlyOriginalPosterActive: _onlyOriginalPosterActive,
+                        authorFilterName: _authorFilterActive
+                            ? _authorFilterName ?? '该作者'
+                            : null,
+                        visibleFloorCount: _visibleFloorCount,
+                        favorite: detail.favorite == null
+                            ? null
+                            : _effectiveFavorite(detail.favorite!),
+                        favoriteBusy: _favoriteBusy,
+                        buyingSaleBoxes: _buyingSaleBoxes,
+                        loadingQuoteDrafts: _loadingQuoteDrafts,
+                        scrollController: _scrollController,
+                        replyKey: _replyKey,
+                        onRefresh: _refresh,
+                        onAuthorTap: _openUserProfile,
+                        onFavorite: _handleFavorite,
+                        onShowOriginalPosterPosts: _showOriginalPosterPosts,
+                        onShowAuthorPosts: _showAuthorPosts,
+                        onClearAuthorFilter: _clearAuthorFilter,
+                        onQuoteReply: _quoteReply,
+                        onBuySaleBox: _handleBuySaleBox,
+                        onReplySubmitted: _handleReplySubmitted,
+                        onPageSelected: _goToPage,
+                        onThreadLink: _openThreadLink,
+                        onExternalLink: _openExternalLink,
+                        onOpenLink: _openContentLink,
+                        repository: widget.repository,
+                      ),
+                    ),
+                  ),
+          ),
         );
       },
       arguments: {
