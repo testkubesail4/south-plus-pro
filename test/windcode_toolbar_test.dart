@@ -19,17 +19,26 @@ void main() {
         .controller;
   }
 
+  // Taps a toolbar action, through 更多 when it did not fit the row.
   Future<void> tapAction(WidgetTester tester, String label) async {
-    await tester.ensureVisible(find.text(label));
+    await tester.ensureVisible(find.byType(WindCodeToolbar));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(label));
+    if (find.byTooltip(label).evaluate().isEmpty) {
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label));
+    } else {
+      await tester.tap(find.byTooltip(label));
+    }
     await tester.pumpAndSettle();
   }
 
   testWidgets('PM composer offers the site formats but no sale insertion',
       (tester) async {
     final body = await pumpPmCompose(tester);
-    expect(find.text('出售'), findsNothing);
+    // Wide enough for every action, so none hides under 更多.
+    expect(find.byTooltip('更多'), findsNothing);
+    expect(find.byTooltip('出售'), findsNothing);
 
     body.value = const TextEditingValue(
       text: 'say hi now',
@@ -110,7 +119,7 @@ void main() {
       // A keyboard covering about half of a phone screen.
       for (final keyboard in [0.0, size.height * 0.45]) {
         testWidgets(
-            'every action is in view and tappable: $size, text x$scale, '
+            'actions fit one row, the rest under 更多: $size, text x$scale, '
             'keyboard $keyboard', (tester) async {
           tester.view.physicalSize = size;
           tester.view.devicePixelRatio = 1;
@@ -140,27 +149,38 @@ void main() {
             scrollable: list,
           );
           await tester.pumpAndSettle();
-          Finder chip(String label) => find.ancestor(
-              of: find.text(label), matching: find.byType(ActionChip));
-          for (final label in labels) {
-            final rect = tester.getRect(chip(label));
-            expect(rect.left, greaterThanOrEqualTo(0), reason: label);
-            expect(rect.right, lessThanOrEqualTo(size.width), reason: label);
-          }
-          for (final label in labels) {
-            await tester.ensureVisible(chip(label));
-            await tester.pumpAndSettle();
-            expect(tester.getSize(chip(label)).height, greaterThanOrEqualTo(48),
+          final toolbar = tester.getRect(find.byType(WindCodeToolbar));
+          expect(toolbar.height, lessThanOrEqualTo(48 + 2), reason: 'one row');
+          final inRow = [
+            for (final label in labels)
+              if (find.byTooltip(label).evaluate().isNotEmpty) label,
+          ];
+          for (final label in [...inRow, '更多']) {
+            final button = find.byTooltip(label);
+            if (button.evaluate().isEmpty) continue;
+            final rect = tester.getRect(button);
+            expect(rect.left, greaterThanOrEqualTo(toolbar.left),
                 reason: label);
-            expect(chip(label).hitTestable(), findsOneWidget, reason: label);
+            expect(rect.right, lessThanOrEqualTo(toolbar.right), reason: label);
+            expect(rect.height, greaterThanOrEqualTo(48), reason: label);
+            expect(button.hitTestable(), findsOneWidget, reason: label);
           }
-          // The rightmost action reaches the message body.
+          final overflow = labels.where((l) => !inRow.contains(l)).toList();
+          if (overflow.isNotEmpty) {
+            await tester.tap(find.byTooltip('更多'));
+            await tester.pumpAndSettle();
+            for (final label in overflow) {
+              expect(find.text(label), findsOneWidget, reason: label);
+            }
+            await tester.tapAt(Offset.zero);
+            await tester.pumpAndSettle();
+          }
+          // The last action reaches the message body.
           final controller = tester
               .widget<WindCodeToolbar>(find.byType(WindCodeToolbar))
               .controller;
-          await tester.tap(chip('图片'));
-          await tester.pumpAndSettle();
-          expect(controller.text, '[img]图片地址[/img]');
+          await tapAction(tester, '代码');
+          expect(controller.text, '[code]代码[/code]');
           expect(tester.takeException(), isNull);
         });
       }
@@ -173,8 +193,8 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(body: WindCodeToolbar(controller: controller)),
     ));
-    await tester.ensureVisible(find.text('出售'));
-    expect(find.text('出售'), findsOneWidget);
+    await tapAction(tester, '出售');
+    expect(find.text('出售选中内容'), findsOneWidget);
   });
 }
 

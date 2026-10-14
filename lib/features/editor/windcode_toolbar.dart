@@ -173,27 +173,58 @@ class WindCodeToolbar extends StatelessWidget {
     ];
 
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
         color: AppColors.surfaceTint,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
-      // Wraps so every action stays in view at any width or text size.
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          for (final action in actions)
-            ActionChip(
-              avatar: Icon(action.icon, size: 16),
-              label: Text(action.label),
-              onPressed: enabled ? action.onTap : null,
-            ),
-        ],
+      // One row of 48dp buttons; whatever does not fit goes into 更多.
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final slots = (constraints.maxWidth / 48).floor();
+          final shown = actions.length <= slots
+              ? actions.length
+              : (slots - 1).clamp(0, actions.length);
+          return Row(
+            children: [
+              for (final action in actions.take(shown))
+                IconButton(
+                  style: _buttonStyle,
+                  tooltip: action.label,
+                  icon: Icon(action.icon),
+                  onPressed: enabled ? action.onTap : null,
+                ),
+              if (shown < actions.length)
+                PopupMenuButton<_WindCodeAction>(
+                  style: _buttonStyle,
+                  tooltip: '更多',
+                  icon: const Icon(Icons.more_horiz),
+                  enabled: enabled,
+                  onSelected: (action) => action.onTap(),
+                  itemBuilder: (context) => [
+                    for (final action in actions.skip(shown))
+                      PopupMenuItem(
+                        value: action,
+                        child: Row(
+                          children: [
+                            Icon(action.icon, size: 20),
+                            const SizedBox(width: 12),
+                            Text(action.label),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+            ],
+          );
+        },
       ),
     );
   }
+
+  static final _buttonStyle =
+      IconButton.styleFrom(minimumSize: const Size.square(48));
 
   void _wrapSelection(String prefix, String suffix, String placeholder) {
     _wrapRange(
