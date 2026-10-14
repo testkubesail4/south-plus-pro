@@ -17,6 +17,8 @@ class FixtureServerTest(unittest.TestCase):
             for path, expected in [('/simple/index.php', b'Fixture thread'),
                                    ('/index.php', b'Fixture board'),
                                    ('/read.php?tid-900001.html', b'Fixture post body'),
+                                   ('/thread_new.php?fid-900.html', b'#FF00FF'),
+                                   ('/message.php?action-write.html', b'Fixture message'),
                                    ('/fixture.png', b'\x89PNG\r\n\x1a\n')]:
                 with urlopen(base + path) as response:
                     self.assertEqual(response.status, 200)

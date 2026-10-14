@@ -17,10 +17,23 @@ THREAD = b'''<!doctype html><html><head><meta charset="utf-8"></head><body>
 </body></html>'''
 
 
-def image():
+BOARD = '''<!doctype html><html><body>
+<div id="breadcrumbs"><a href="/thread.php?fid-900.html">Fixture board</a></div>
+<ul class="stream"><li class="dcsns-li">
+<div class="section-title"><a href="/read.php?tid-900002.html"><b><font color="#FF00FF">Fixture highlighted title</font></b></a></div>
+<div class="section-intro">Fixture author 2026-01-01</div>
+<p>回复 / 人气: 1 / 20</p></li></ul><div class="pages">Pages: 1/1</div>
+</body></html>'''.encode('utf-8')
+COMPOSE = b'''<html><body><form method="post" action="/message.php">
+<input name="action" value="write"><input name="step" value="2">
+<input name="verify" value="synthetic123"><input name="touidmsg" value="900001">
+<input name="msg_title" value="Fixture message"><textarea name="atc_content">Fixture message body</textarea>
+</form></body></html>'''
+
+
+def image(width=320, height=180):
     def chunk(kind, data):
         return struct.pack('!I', len(data)) + kind + data + struct.pack('!I', zlib.crc32(kind + data))
-    width, height = 320, 180
     return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B', width, height, 8, 2, 0, 0, 0))
             + chunk(b'IDAT', zlib.compress((b'\x00' + b'\x36\x85\xb5' * width) * height)) + chunk(b'IEND', b''))
 
@@ -31,11 +44,16 @@ class FixtureHandler(BaseHTTPRequestHandler):
         routes = {'/simple/index.php': (HOME, 'text/html; charset=utf-8'),
                   '/index.php': (HOME, 'text/html; charset=utf-8'),
                   '/read.php': (THREAD, 'text/html; charset=utf-8'),
-                  '/fixture.png': (image(), 'image/png')}
+                  '/thread_new.php': (BOARD, 'text/html; charset=utf-8'),
+                  '/message.php': (COMPOSE, 'text/html; charset=utf-8'),
+                  '/fixture.png': (image(), 'image/png'),
+                  '/portrait.png': (image(240, 480), 'image/png')}
         if path not in routes:
             self.send_error(404)
             return
         body, content_type = routes[path]
+        if path == '/read.php' and '900002' in self.path:
+            body = THREAD.replace(b'/fixture.png', b'/portrait.png')
         self.send_response(200)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))

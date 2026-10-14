@@ -5,9 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
+import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
+import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
+import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
+import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/image_loading_settings.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Reuse the app's repository injection; local HTTP stays out of production config.
@@ -20,44 +25,137 @@ class _FixtureSite extends ForumSite {
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  late ForumRepository repository;
+  late String window;
 
-  testWidgets('Linux launches, loads home, opens a thread and captures it',
-      (tester) async {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({
       ForumNetworkSetupStore.completedKey: true,
     });
-    final repository = ForumRepository(
+    await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+    await AppThemeController.setMode(ThemeMode.light);
+    repository = ForumRepository(
       config: const ForumNetworkConfig(
         site: _FixtureSite(),
         dohEnabled: false,
         dohProvider: ForumNetworkConfig.defaultProvider,
       ),
     );
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: SessionGate(repository: repository),
-    ));
+  });
 
-    Future<void> waitFor(Finder finder) async {
-      final deadline = DateTime.now().add(const Duration(seconds: 30));
-      while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      expect(finder, findsWidgets);
+  Widget app(Widget Function() home) => ValueListenableBuilder<ThemeMode>(
+        valueListenable: AppThemeController.notifier,
+        builder: (context, mode, _) => MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: mode,
+          home: home(),
+        ),
+      );
+
+  Future<void> screenshot(String name) async {
+    // Let the native compositor present the Flutter frame before X reads it.
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    final search = await Process.run('xdotool',
+        ['search', '--onlyvisible', '--name', r'^south_plus_rewrite$']);
+    expect(search.exitCode, 0, reason: '${search.stderr}');
+    window = '${search.stdout}'.trim().split('\n').first;
+    // Linux integration_test has no native screenshot implementation.
+    final result = await Process.run('import', [
+      '-window',
+      window,
+      '/output/$name.png',
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stderr}');
+    expect(File('/output/$name.png').lengthSync(), greaterThan(1000));
+  }
+
+  Future<void> waitFor(WidgetTester tester, Finder finder) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
+      await tester.pump(const Duration(milliseconds: 100));
     }
+    if (finder.evaluate().isEmpty) await screenshot('failure');
+    expect(finder, findsWidgets);
+  }
 
-    await waitFor(find.text('Fixture thread'));
+  testWidgets('Linux launches, loads home, opens a thread and captures it',
+      (tester) async {
+    await tester.pumpWidget(app(() => SessionGate(repository: repository)));
+    await waitFor(tester, find.text('Fixture thread'));
     await tester.tap(find.text('Fixture thread').first);
-    await waitFor(find.textContaining('Fixture post body', findRichText: true));
+    await waitFor(
+        tester, find.textContaining('Fixture post body', findRichText: true));
     expect(find.text('Fixture author'), findsWidgets);
     await tester.pumpAndSettle();
-    // Linux integration_test has no native screenshot implementation.
-    final screenshot = await Process.run('import', [
-      '-window',
-      'root',
-      '/output/thread-smoke.png',
-    ]);
-    expect(screenshot.exitCode, 0, reason: '${screenshot.stderr}');
-    expect(File('/output/thread-smoke.png').lengthSync(), greaterThan(1000));
+    await screenshot('thread-smoke');
+  });
+
+  testWidgets('board highlights, stable portrait image and single-row composer',
+      (tester) async {
+    await tester.pumpWidget(app(() => BoardThreadListScreen(
+          repository: repository,
+          category: const ForumCategory(
+            name: 'Fixture board',
+            slug: 'f900',
+            url: 'http://127.0.0.1:8765/thread.php?fid-900.html',
+          ),
+        )));
+    final title = find.text('Fixture highlighted title');
+    await waitFor(tester, title);
+    final style = tester.widget<Text>(title).style!;
+    expect(style.fontWeight, FontWeight.w800);
+    expect(HSVColor.fromColor(style.color!).hue, closeTo(300, 1));
+    await screenshot('board-highlight-light');
+    await AppThemeController.setMode(ThemeMode.dark);
+    await tester.pumpAndSettle();
+    expect(Theme.of(tester.element(title)).brightness, Brightness.dark);
+    final darkStyle = tester.widget<Text>(title).style!;
+    expect(darkStyle.fontWeight, FontWeight.w800);
+    expect(HSVColor.fromColor(darkStyle.color!).hue, closeTo(300, 1));
+    await screenshot('board-highlight-dark');
+    await AppThemeController.setMode(ThemeMode.light);
+
+    final resize =
+        await Process.run('xdotool', ['windowsize', window, '400', '800']);
+    expect(resize.exitCode, 0, reason: '${resize.stderr}');
+    await tester.pumpAndSettle();
+    await tester.tap(title);
+    await waitFor(
+        tester, find.textContaining('Fixture post body', findRichText: true));
+    final loadedImage = find.byWidgetPredicate(
+        (widget) => widget is RawImage && widget.image != null);
+    await waitFor(tester, loadedImage);
+    final imageRect = tester.getRect(loadedImage.first);
+    expect(imageRect.height, greaterThan(imageRect.width));
+    // Sample from the first decoded frame, including the placeholder fade.
+    for (var frame = 1; frame <= 13; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      final rect = tester.getRect(loadedImage.first);
+      expect(rect.left, imageRect.left, reason: 'image x at ${frame * 100}ms');
+      expect(rect.width, imageRect.width);
+      if (frame == 3) await screenshot('portrait-image-loaded');
+      if (frame == 13) await screenshot('portrait-image-after-1s');
+    }
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(app(() => PmComposeScreen(repository: repository)));
+    await waitFor(tester, find.byType(WindCodeToolbar));
+    await tester.ensureVisible(find.byType(WindCodeToolbar));
+    await tester.pumpAndSettle();
+    expect(MediaQuery.sizeOf(tester.element(find.byType(WindCodeToolbar))),
+        const Size(400, 800));
+    final more = find.byTooltip('更多');
+    expect(more, findsOneWidget);
+    final buttons = find.descendant(
+        of: find.byType(WindCodeToolbar), matching: find.byType(IconButton));
+    final y = tester.getCenter(more).dy;
+    for (final button in buttons.evaluate()) {
+      expect(tester.getCenter(find.byWidget(button.widget)).dy, y);
+    }
+    await screenshot('composer-portrait');
+    await tester.tap(more);
+    await tester.pumpAndSettle();
+    expect(find.text('代码'), findsOneWidget);
   });
 }
