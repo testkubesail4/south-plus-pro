@@ -313,8 +313,11 @@ class ForumRepository {
     try {
       await previous;
       requireCurrentSession();
-      final wait = _replyNoticeReadyAt?.difference(DateTime.now());
-      if (wait != null && !wait.isNegative) await Future<void>.delayed(wait);
+      var wait = _replyNoticeReadyAt?.difference(DateTime.now());
+      while (wait != null && wait > Duration.zero) {
+        await Future<void>.delayed(wait);
+        wait = _replyNoticeReadyAt?.difference(DateTime.now());
+      }
       requireCurrentSession();
       if (_replyNoticeVerify == null) {
         final response = await client.get('index.php');

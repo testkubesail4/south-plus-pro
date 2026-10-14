@@ -23,35 +23,48 @@ void main() {
 
   test('notice list and delete use index verification and confirm removal',
       () async {
-    final client = _NoticeClient();
-    final repository = ForumRepository(client: client);
-    final notices = await repository.fetchReplyNotices();
-    expect(notices.single.tid, 123);
-    expect(notices.single.title, 'Fixture title..');
-    expect(notices.single.board, 'Fixture board');
-    expect(notices.single.date, '2026-01-01');
-    expect(notices.single.threadUrl, endsWith('read.php?tid=123'));
-    expect(client.gets, ['index.php']);
-    expect(repository.noticeFlags.value.replyNotice, isTrue);
-    expect(repository.noticeFlags.value.unreadPm, isTrue);
-    await repository.deleteReplyNotice(notices.single);
-    expect(repository.noticeFlags.value.replyNotice, isFalse);
-    expect(repository.noticeFlags.value.unreadPm, isTrue);
-    expect(client.forms, [
-      {'action': 'newrp'},
-      {'action': 'delnewrp', 'tid': '123'},
-      {'action': 'newrp'},
-    ]);
-    for (var i = 1; i < client.postTimes.length; i++) {
-      expect(client.postTimes[i].difference(client.postTimes[i - 1]),
-          greaterThanOrEqualTo(const Duration(milliseconds: 1500)));
-    }
-    for (final path in client.posts) {
-      final uri = Uri.parse(path);
-      expect(uri.path, 'pw_ajax.php');
-      expect(uri.queryParameters['verify'], 'a1b2c3d4');
-      expect(int.tryParse(uri.queryParameters['nowtime']!), isNotNull);
-    }
+    await runZoned(() async {
+      final client = _NoticeClient();
+      final repository = ForumRepository(client: client);
+      final notices = await repository.fetchReplyNotices();
+      expect(notices.single.tid, 123);
+      expect(notices.single.title, 'Fixture title..');
+      expect(notices.single.board, 'Fixture board');
+      expect(notices.single.date, '2026-01-01');
+      expect(notices.single.threadUrl, endsWith('read.php?tid=123'));
+      expect(client.gets, ['index.php']);
+      expect(repository.noticeFlags.value.replyNotice, isTrue);
+      expect(repository.noticeFlags.value.unreadPm, isTrue);
+      await repository.deleteReplyNotice(notices.single);
+      expect(repository.noticeFlags.value.replyNotice, isFalse);
+      expect(repository.noticeFlags.value.unreadPm, isTrue);
+      expect(client.forms, [
+        {'action': 'newrp'},
+        {'action': 'delnewrp', 'tid': '123'},
+        {'action': 'newrp'},
+      ]);
+      for (var i = 1; i < client.postTimes.length; i++) {
+        expect(client.postTimes[i].difference(client.postTimes[i - 1]),
+            greaterThanOrEqualTo(const Duration(milliseconds: 1500)));
+      }
+      for (final path in client.posts) {
+        final uri = Uri.parse(path);
+        expect(uri.path, 'pw_ajax.php');
+        expect(uri.queryParameters['verify'], 'a1b2c3d4');
+        expect(int.tryParse(uri.queryParameters['nowtime']!), isNotNull);
+      }
+    },
+        zoneSpecification: ZoneSpecification(
+          // Model an early timer wake without weakening the minimum wire interval.
+          createTimer: (self, parent, zone, duration, callback) =>
+              parent.createTimer(
+            zone,
+            duration > const Duration(milliseconds: 100)
+                ? duration - const Duration(milliseconds: 50)
+                : duration,
+            callback,
+          ),
+        ));
   });
 
   test('home publishes unread flags and reuses its verification token',
