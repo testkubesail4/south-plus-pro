@@ -72,9 +72,13 @@ class ForumRepository {
         _historyStore = historyStore ?? BrowsingHistoryStore(),
         _taskStateStore = taskStateStore ?? const ForumTaskStateStore() {
     _sessionEpoch.addListener(_clearProfileDetails);
+    _sessionEpoch.addListener(() {
+      _restoredDesktopHtml = null;
+    });
   }
 
   ForumClient _client;
+  String? _restoredDesktopHtml;
   ForumNetworkConfig _config;
   ForumUrlResolver _urls;
   late BoardThreadPageParser _boardThreadPageParser =
@@ -320,13 +324,19 @@ class ForumRepository {
       return false;
     }
 
-    final username = await _fetchLoggedInUsername();
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final header = await _fetchSessionHeader();
+    if (!identical(client, _client) || epoch != _sessionEpoch.value)
+      return false;
+    final username = header.username;
     if (username == null) {
       await clearSession();
       return false;
     }
     if (username != currentUsername) _sessionEpoch.value++;
     _sessionUser.value = username;
+    _restoredDesktopHtml = header.desktopHtml;
     return true;
   }
 
@@ -431,18 +441,27 @@ class ForumRepository {
   }
 
   Future<ForumHomeSnapshot> fetchHome() async {
-    final html = await _client.get('simple/index.php');
+    // Consume session verification once; refreshes still fetch a fresh directory.
+    final restoredDesktopHtml = _restoredDesktopHtml;
+    _restoredDesktopHtml = null;
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final html = await client.get('simple/index.php');
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
     final document = html_parser.parse(html);
     var latest = _homePageParser.parseLatestThreads(document);
     final latestScriptUrl = _homePageParser.latestThreadsScriptUrl(document);
     if (latest.isEmpty && latestScriptUrl != null) {
-      final script = await _client.get(_urls.relativePath(latestScriptUrl));
+      final script = await client.get(_urls.relativePath(latestScriptUrl));
       latest = _homePageParser.parseLatestThreadsFromScript(script);
     }
     final hot = _homePageParser.parseHotCategories(document);
     var sections = _homePageParser.parseForumSections(document);
     try {
-      final desktopDocument = html_parser.parse(await _client.get('index.php'));
+      final desktopDocument = html_parser
+          .parse(restoredDesktopHtml ?? await client.get('index.php'));
       final desktopSections =
           _homePageParser.parseDesktopForumSections(desktopDocument);
       if (desktopSections.isNotEmpty) sections = desktopSections;
@@ -450,6 +469,9 @@ class ForumRepository {
       // Keep the mobile/simple directory if the desktop home is unavailable.
     }
 
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
     if (latest.isEmpty) {
       throw const ForumRepositoryException('没有解析到最新讨论');
     }
@@ -1901,13 +1923,24 @@ class ForumRepository {
     );
   }
 
-  Future<String?> _fetchLoggedInUsername() async {
+  Future<String?> _fetchLoggedInUsername() async =>
+      (await _fetchSessionHeader()).username;
+
+  Future<({String? username, String? desktopHtml})>
+      _fetchSessionHeader() async {
+    final client = _client;
     try {
-      return _responseParser.loggedInUsername(await _client.get('index.php')) ??
-          _responseParser
-              .loggedInUsername(await _client.get('simple/index.php'));
+      final desktopHtml = await client.get('index.php');
+      final username = _responseParser.loggedInUsername(desktopHtml);
+      if (username != null)
+        return (username: username, desktopHtml: desktopHtml);
+      return (
+        username: _responseParser
+            .loggedInUsername(await client.get('simple/index.php')),
+        desktopHtml: null,
+      );
     } catch (_) {
-      return null;
+      return (username: null, desktopHtml: null);
     }
   }
 

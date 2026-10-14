@@ -51,11 +51,17 @@ void main() {
       expect(transport.hits, [
         if (signedIn) 'GET /index.php',
         'GET /simple/index.php',
-        'GET /index.php',
+        if (!signedIn) 'GET /index.php',
       ]);
-      // Rebuilding the shell must not start another fetch.
-      await tester.pump();
-      expect(transport.hits.length, signedIn ? 3 : 2);
+      // Rebuild the parent while keeping the existing SessionGate state.
+      await tester
+          .pumpWidget(MaterialApp(home: SessionGate(repository: repository)));
+      await tester.pumpAndSettle();
+      expect(transport.hits.length, 2);
+      // The session response is consumed once; explicit refresh stays fresh.
+      await repository.fetchHome();
+      expect(
+          transport.hits.skip(2), ['GET /simple/index.php', 'GET /index.php']);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
@@ -82,6 +88,70 @@ void main() {
       'GET /fixture-latest.js',
       'GET /index.php',
     ]);
+  });
+
+  test('logout discards the pending authenticated home response', () async {
+    await ForumSessionStore().saveCookies({
+      'fixture': const ForumStoredCookie(
+        name: 'fixture_winduser',
+        value: 'synthetic-session',
+        domain: 'south-plus.net',
+        path: '/',
+      ),
+    });
+    final transport = _InventoryTransport({
+      '/simple/index.php': _simple,
+      '/index.php': _desktop,
+    });
+    final repository = _repository(transport);
+    expect(await repository.restoreSession(), isTrue);
+    await repository.clearSession();
+    transport.responses['/index.php'] =
+        _directory.replaceAll('Fixture board', 'Fresh board');
+    final home = await repository.fetchHome();
+    expect(home.sections.single.items.single.name, 'Fresh board');
+    expect(transport.hits,
+        ['GET /index.php', 'GET /simple/index.php', 'GET /index.php']);
+  });
+
+  test('session change during home loading aborts the old request', () async {
+    final transport = _InventoryTransport({
+      '/simple/index.php': _simple,
+      '/index.php': _desktop,
+    });
+    final repository = _repository(transport);
+    transport.beforeGet = (_) => repository.clearSession();
+    await expectLater(
+        repository.fetchHome(), throwsA(isA<ForumRepositoryException>()));
+    expect(transport.hits, ['GET /simple/index.php']);
+  });
+
+  test('logout during the latest script cannot return restored account HTML',
+      () async {
+    await ForumSessionStore().saveCookies({
+      'fixture': const ForumStoredCookie(
+        name: 'fixture_winduser',
+        value: 'synthetic-session',
+        domain: 'south-plus.net',
+        path: '/',
+      ),
+    });
+    final transport = _InventoryTransport({
+      '/index.php': _desktop,
+      '/simple/index.php':
+          '<div class="carousel-item active"><script src="/fixture-latest.js"></script></div>$_directory',
+      '/fixture-latest.js':
+          '''document.write("<a href='read.php?tid-900001.html'>Fixture discussion</a>");''',
+    });
+    final repository = _repository(transport);
+    expect(await repository.restoreSession(), isTrue);
+    transport.beforeGet = (uri) async {
+      if (uri.path == '/fixture-latest.js') await repository.clearSession();
+    };
+    await expectLater(
+        repository.fetchHome(), throwsA(isA<ForumRepositoryException>()));
+    expect(transport.hits,
+        ['GET /index.php', 'GET /simple/index.php', 'GET /fixture-latest.js']);
   });
 
   test('board page visit requests only its own page', () async {
@@ -113,6 +183,7 @@ class _InventoryTransport implements HttpClient {
   _InventoryTransport(this.responses);
   final Map<String, String> responses;
   final hits = <String>[];
+  Future<void> Function(Uri)? beforeGet;
 
   @override
   Future<HttpClientRequest> getUrl(Uri uri) async {
@@ -120,6 +191,7 @@ class _InventoryTransport implements HttpClient {
     final body = responses[path];
     if (body == null) throw StateError('Unscripted request: $path');
     hits.add('GET $path');
+    await beforeGet?.call(uri);
     return _Request(uri, body);
   }
 
