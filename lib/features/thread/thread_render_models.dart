@@ -456,6 +456,8 @@ enum ThreadDetailListEntryType {
   authorFilterChip,
   emptyState,
   reply,
+  pageDivider,
+  loadMore,
   composer,
 }
 
@@ -474,8 +476,33 @@ class ThreadDetailTopSpacingEntry extends ThreadDetailListEntry {
 }
 
 class ThreadDetailPaginationEntry extends ThreadDetailListEntry {
-  const ThreadDetailPaginationEntry({Key? key})
+  const ThreadDetailPaginationEntry({this.pagination, Key? key})
       : super(ThreadDetailListEntryType.pagination, key: key);
+
+  /// The page it pages from; null for the first loaded page.
+  final ThreadPagination? pagination;
+}
+
+/// Marks where an automatically appended page starts.
+class ThreadDetailPageDividerEntry extends ThreadDetailListEntry {
+  const ThreadDetailPageDividerEntry(this.page, {Key? key})
+      : super(ThreadDetailListEntryType.pageDivider, key: key);
+
+  final int page;
+}
+
+/// The state of loading the next page at the end of the list.
+class ThreadDetailLoadMoreEntry extends ThreadDetailListEntry {
+  const ThreadDetailLoadMoreEntry({
+    required this.hasMore,
+    required this.loading,
+    required this.failed,
+    Key? key,
+  }) : super(ThreadDetailListEntryType.loadMore, key: key);
+
+  final bool hasMore;
+  final bool loading;
+  final bool failed;
 }
 
 class ThreadDetailOpeningPostEntry extends ThreadDetailListEntry {

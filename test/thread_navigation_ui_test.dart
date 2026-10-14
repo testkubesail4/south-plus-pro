@@ -1,0 +1,236 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
+import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_repository.dart';
+
+// Synthetic fixtures only: fictional host, tid, pids and authors.
+const _url = 'https://south-plus.net/read.php?tid-7.html';
+const _thread = ForumThread(title: 'nav', url: _url, replies: 0, section: '');
+
+void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  Future<_FakeRepository> pumpThread(
+    WidgetTester tester, {
+    String url = _url,
+    _FakeRepository? repository,
+  }) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    repository ??= _FakeRepository();
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadDetailScreen(
+        repository: repository,
+        thread: _thread.copyWith(url: url),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    return repository;
+  }
+
+  ScrollPosition list(WidgetTester tester) =>
+      tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+
+  Future<void> scrollBy(WidgetTester tester, double dy) async {
+    await tester.drag(find.byType(Scrollable).first, Offset(0, -dy));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('reading to the end appends the following pages', (tester) async {
+    final repository = await pumpThread(tester);
+    expect(repository.pages, [1], reason: 'opening loads one page');
+
+    for (var i = 0; i < 40 && repository.pages.length < 2; i++) {
+      await scrollBy(tester, 2000);
+    }
+    expect(repository.pages, [1, 2]);
+    await tester.scrollUntilVisible(find.text('第 2 页'), -300);
+    await tester.scrollUntilVisible(find.text('[B31F]'), 300);
+
+    for (var i = 0; i < 60 && find.text('已到最后一页').evaluate().isEmpty; i++) {
+      await scrollBy(tester, 2000);
+    }
+    expect(repository.pages, [1, 2, 3]);
+    expect(find.text('已到最后一页'), findsOneWidget);
+  });
+
+  testWidgets('stopping saves the post at the top; reopening resumes there',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await tester.scrollUntilVisible(find.text('[B12F]'), 300);
+    // Align B12F's header with the top edge; its post is the top one.
+    await Scrollable.ensureVisible(tester.element(find.text('[B12F]')));
+    await tester.pumpAndSettle();
+    final saved = await repository.loadThreadReadPosition(_thread);
+    expect(saved?.page, 1);
+    expect(saved?.anchor, '1012');
+
+    await tester.pumpWidget(const SizedBox());
+    final reopened = _FakeRepository();
+    await pumpThread(tester, repository: reopened);
+    expect(reopened.urls, [_url]);
+    expect(find.text('[B12F]').hitTestable(), findsOneWidget);
+    expect(find.textContaining('已回到上次阅读位置'), findsOneWidget);
+  });
+
+  testWidgets('a saved later page resumes there and 从头看 returns to the start',
+      (tester) async {
+    await _FakeRepository().saveThreadReadPosition(
+      _thread,
+      const ThreadReadPosition(page: 2, anchor: '1040'),
+    );
+    final repository = await pumpThread(tester);
+    expect(repository.pages, [2]);
+    expect(find.text('[B40F]').hitTestable(), findsOneWidget);
+
+    await tester.tap(find.text('从头看'));
+    await tester.pumpAndSettle();
+    expect(repository.pages, [2, 1]);
+    expect(Uri.parse(repository.urls.last).fragment, 'tpc');
+    expect(find.text('[楼主]').hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('links to a floor or page ignore the saved position',
+      (tester) async {
+    await _FakeRepository().saveThreadReadPosition(
+      _thread,
+      const ThreadReadPosition(page: 2, anchor: '1040'),
+    );
+    final repository = await pumpThread(tester, url: '$_url#fl-20');
+    expect(repository.pages, [1]);
+    expect(find.text('[B20F]').hitTestable(), findsOneWidget);
+    expect(find.textContaining('已回到上次阅读位置'), findsNothing);
+
+    for (final url in [
+      'https://south-plus.net/read.php?tid-7-page-1.html',
+      'https://south-plus.net/read.php?tid=7&page=2',
+    ]) {
+      await tester.pumpWidget(const SizedBox());
+      final explicit = await pumpThread(tester, url: url);
+      expect(explicit.urls, [url], reason: url);
+      expect(find.textContaining('已回到上次阅读位置'), findsNothing);
+    }
+  });
+
+  testWidgets('a failed reload does not leave the next page stuck',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    repository.hold = true;
+    // The in-flight spinner never settles; pump fixed frames instead.
+    for (var i = 0; i < 40 && repository.held.isEmpty; i++) {
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
+      await tester.pump(const Duration(seconds: 1));
+    }
+    expect(repository.pages, [1, 2], reason: 'append of page 2 in flight');
+
+    // The reader jumps to the latest page while page 2 loads; that fails.
+    await tester.tap(find.byTooltip('最新回复'));
+    await tester.pump();
+    repository.held.last.completeError(StateError('offline'));
+    await tester.pumpAndSettle();
+    // The superseded append answers late and is dropped.
+    repository.held.first.complete(repository.page(2));
+    await tester.pumpAndSettle();
+
+    repository.hold = false;
+    await scrollBy(tester, 400);
+    expect(repository.pages, [1, 2, 3, 2], reason: 'page 2 requested again');
+    await tester.scrollUntilVisible(find.text('第 2 页'), -300);
+  });
+
+  testWidgets('the bottom pager returns to the first loaded page',
+      (tester) async {
+    final repository =
+        await pumpThread(tester, repository: _FakeRepository(totalPages: 2));
+    for (var i = 0; i < 40 && repository.pages.length < 2; i++) {
+      await scrollBy(tester, 2000);
+    }
+    await tester.scrollUntilVisible(find.byTooltip('上一页'), 300);
+    await tester.tap(find.byTooltip('上一页').last);
+    await tester.pumpAndSettle();
+    expect(list(tester).pixels, 0);
+    expect(repository.pages, [1, 2]);
+  });
+
+  testWidgets('bottom bar: latest reply, first floor, top and bottom',
+      (tester) async {
+    final repository = await pumpThread(tester);
+
+    await tester.tap(find.byTooltip('最新回复'));
+    await tester.pumpAndSettle();
+    expect(repository.urls.last, contains('page-e'));
+    expect(find.text('[B90F]').hitTestable(), findsOneWidget);
+
+    await tester.tap(find.byTooltip('回到顶部'));
+    await tester.pumpAndSettle();
+    expect(list(tester).pixels, 0);
+
+    await tester.tap(find.byTooltip('到底部'));
+    await tester.pumpAndSettle();
+    expect(list(tester).pixels, list(tester).maxScrollExtent);
+
+    await tester.tap(find.byTooltip('首楼'));
+    await tester.pumpAndSettle();
+    expect(repository.pages.last, 1);
+    expect(find.text('[楼主]').hitTestable(), findsOneWidget);
+  });
+}
+
+class _FakeRepository extends ForumRepository {
+  _FakeRepository({this.totalPages = 3});
+
+  final int totalPages;
+  final urls = <String>[];
+  final pages = <int>[];
+
+  /// While set, requests wait in [held] until the test answers them.
+  bool hold = false;
+  final held = <Completer<ThreadDetail>>[];
+
+  @override
+  Future<ThreadDetail> fetchThreadDetail(
+    ForumThread thread, {
+    int page = 1,
+  }) async {
+    urls.add(thread.url);
+    final current = thread.url.contains('page-e') && page == 1 ? 3 : page;
+    pages.add(current);
+    if (hold) {
+      final answer = Completer<ThreadDetail>();
+      held.add(answer);
+      return answer.future;
+    }
+    return this.page(current, url: thread.url);
+  }
+
+  ThreadDetail page(int current, {String url = _url}) {
+    final first = (current - 1) * 30;
+    return ThreadDetail(
+      thread: ForumThread(
+        title: 'nav',
+        url: url,
+        replies: 90,
+        section: 'synthetic',
+        author: 'op',
+      ),
+      body: current == 1 ? 'opening body' : '',
+      bodyAnchors: current == 1 ? const ['tpc', 'fl-0'] : const [],
+      pagination:
+          ThreadPagination(currentPage: current, totalPages: totalPages),
+      replies: [
+        for (var floor = first + 1; floor <= first + 30; floor++)
+          ThreadReply(
+            author: 'user$floor',
+            content: 'reply body $floor ' * 6,
+            floor: 'B${floor}F',
+            anchors: ['${1000 + floor}', 'read_${1000 + floor}', 'fl-$floor'],
+          ),
+      ],
+    );
+  }
+}

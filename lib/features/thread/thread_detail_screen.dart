@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
@@ -60,13 +61,53 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   String? _pendingAnchor;
   Object? _anchorTarget;
   final _anchorKey = GlobalKey(debugLabel: 'thread-anchor-target');
+  // One-shot: reveal the last reply after the next load (最新回复).
+  bool _pendingLatest = false;
+  // Pages appended below the loaded page by scrolling to the end.
+  final _morePages = <ThreadDetail>[];
+  bool _loadingMore = false;
+  bool _loadMoreFailed = false;
+  final _replyPages = Map<ThreadReply, int>.identity();
+  // Mounted posts (ThreadDetail = opening post, or a ThreadReply) for
+  // finding the post at the top of the screen.
+  final _mountedPosts = Map<Object, BuildContext>.identity();
 
   @override
   void initState() {
     super.initState();
     _thread = widget.thread;
     _pendingAnchor = _fragmentOf(widget.thread.url);
-    _loadPage(1);
+    _openAtSavedPosition();
+  }
+
+  static final _explicitPage = RegExp(r'(?:^|[?&\-])page[-=](\d+|e)');
+
+  /// A plain thread link resumes where the reader stopped last time; links
+  /// to a page or floor open exactly what they point to.
+  Future<void> _openAtSavedPosition() async {
+    final page = _explicitPage.firstMatch(widget.thread.url)?.group(1);
+    ThreadReadPosition? position;
+    if (_pendingAnchor == null && page == null) {
+      try {
+        position = await widget.repository.loadThreadReadPosition(_thread);
+      } catch (_) {
+        // An unreadable saved position just opens the first page.
+      }
+    }
+    if (!mounted) return;
+    final resumes = position != null &&
+        (position.page > 1 || (position.anchor ?? 'tpc') != 'tpc');
+    if (!resumes) {
+      await _loadPage(1);
+      return;
+    }
+    _pendingAnchor = position.anchor;
+    await _loadPage(position.page);
+    if (!mounted || _detail == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('已回到上次阅读位置（第 ${position.page} 页）'),
+      action: SnackBarAction(label: '从头看', onPressed: _jumpToFirst),
+    ));
   }
 
   static String? _fragmentOf(String url) {
@@ -84,6 +125,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _page = 1;
     _pendingAnchor = _fragmentOf(widget.thread.url);
     _anchorTarget = null;
+    _morePages.clear();
     _resetDetailRenderState();
     _loadPage(1);
   }
@@ -102,6 +144,10 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     setState(() {
       _loading = true;
       _loadError = null;
+      // A replacement load supersedes any page being appended.
+      _loadingMore = false;
+      _loadMoreFailed = false;
+      if (_detail != null) _recomputeDetailRenderState();
     });
     try {
       final detail = await widget.repository.fetchThreadDetail(
@@ -110,16 +156,27 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       );
       if (!mounted || runId != _loadRunId) return;
       final anchor = _pendingAnchor;
+      final latest = _pendingLatest;
       setState(() {
         _detail = detail;
         _thread = detail.thread;
         _page = detail.pagination.currentPage;
         _loading = false;
         _pendingAnchor = null;
-        _anchorTarget = anchor == null ? null : _anchorTargetIn(detail, anchor);
+        _pendingLatest = false;
+        _morePages.clear();
+        _loadingMore = false;
+        _loadMoreFailed = false;
+        _anchorTarget = latest
+            ? (detail.replies.isEmpty ? detail : detail.replies.last)
+            : anchor == null
+                ? null
+                : _anchorTargetIn(detail, anchor);
         _recomputeDetailRenderState();
       });
-      if (anchor != null) {
+      if (anchor != null || latest) {
+        // The reveal steps down from the top of the newly loaded page.
+        if (_scrollController.hasClients) _scrollController.jumpTo(0);
         _revealAnchor();
       } else if (scrollToTop && _scrollController.hasClients) {
         await _scrollController.animateTo(
@@ -130,6 +187,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       }
     } catch (error) {
       if (!mounted || runId != _loadRunId) return;
+      _pendingLatest = false;
       setState(() {
         _loadError = error;
         _loading = false;
@@ -181,11 +239,221 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     );
   }
 
+  ThreadDetail? get _lastLoaded =>
+      _morePages.isEmpty ? _detail : _morePages.last;
+
+  void _maybeLoadMore() {
+    final last = _lastLoaded;
+    if (last == null ||
+        _loading ||
+        _loadingMore ||
+        _loadMoreFailed ||
+        !last.pagination.hasNext ||
+        !_scrollController.hasClients) {
+      return;
+    }
+    final position = _scrollController.position;
+    if (position.extentAfter < position.viewportDimension * 1.5) {
+      _loadMore();
+    }
+  }
+
+  /// Appends the page after the last loaded one.
+  Future<void> _loadMore() async {
+    final last = _lastLoaded;
+    if (last == null || _loadingMore) return;
+    final runId = _loadRunId;
+    final page = last.pagination.currentPage + 1;
+    setState(() {
+      _loadingMore = true;
+      _loadMoreFailed = false;
+      _recomputeDetailRenderState();
+    });
+    try {
+      final detail = await widget.repository.fetchThreadDetail(
+        _thread,
+        page: page,
+      );
+      if (!mounted || runId != _loadRunId) return;
+      setState(() {
+        _loadingMore = false;
+        // A short or redirected answer must not repeat a loaded page.
+        if (detail.pagination.currentPage > last.pagination.currentPage) {
+          _addRenderModels(detail, idPrefix: 'p$page:');
+          _morePages.add(detail);
+        } else {
+          _loadMoreFailed = true;
+        }
+        _recomputeDetailRenderState();
+      });
+    } catch (_) {
+      if (!mounted || runId != _loadRunId) return;
+      setState(() {
+        _loadingMore = false;
+        _loadMoreFailed = true;
+        _recomputeDetailRenderState();
+      });
+    }
+  }
+
+  void _retryLoadMore() {
+    _loadMoreFailed = false;
+    _loadMore();
+  }
+
+  void _addRenderModels(ThreadDetail detail, {String idPrefix = ''}) {
+    for (var index = 0; index < detail.replies.length; index++) {
+      final reply = detail.replies[index];
+      final stableId = '$idPrefix${threadReplyStableId(reply, index: index)}';
+      _replyStableIds[reply] = stableId;
+      _replyRenderModels[stableId] =
+          ThreadPostRenderModel.fromSegments(reply.segments);
+      _replyPages[reply] = detail.pagination.currentPage;
+    }
+  }
+
+  /// First floor: the opening post on page 1.
+  Future<void> _jumpToFirst() async {
+    if (_detail?.pagination.currentPage == 1) {
+      await _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    final url = widget.repository.firstThreadPageUrl(_thread);
+    if (url == null) return;
+    _thread = _thread.copyWith(url: url);
+    _pendingAnchor = _fragmentOf(url);
+    await _loadPage(1);
+  }
+
+  /// Latest floor: the last reply on the last page.
+  Future<void> _jumpToLatest() async {
+    final last = _lastLoaded;
+    if (last != null && !last.pagination.hasNext) {
+      setState(() {
+        _anchorTarget = last.replies.isEmpty ? last : last.replies.last;
+        _recomputeDetailRenderState();
+      });
+      await _revealAnchor();
+      return;
+    }
+    final url = widget.repository.latestThreadPageUrl(_thread);
+    if (url == null) return;
+    _thread = _thread.copyWith(url: url);
+    _pendingLatest = true;
+    await _loadPage(1);
+  }
+
+  Future<void> _scrollToEdge({required bool top}) async {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (top) {
+      await position.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    // The lazy list's end grows as rows on the way get laid out.
+    for (var i = 0; i < 8 && position.pixels < position.maxScrollExtent; i++) {
+      await position.animateTo(
+        position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  // Only the reader's own scrolling loads more; opening a thread or jumping
+  // to a floor never requests extra pages.
+  bool _userScrolling = false;
+
+  bool _onScroll(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    switch (notification) {
+      case UserScrollNotification(:final direction):
+        _userScrolling = direction != ScrollDirection.idle;
+      // Pulling at the very end overscrolls instead of updating.
+      case ScrollUpdateNotification() || OverscrollNotification()
+          when _userScrolling:
+        _maybeLoadMore();
+      case ScrollEndNotification():
+        _saveReadPosition(notification);
+      default:
+    }
+    return false;
+  }
+
+  /// Remembers the post at the top of the list once scrolling stops.
+  void _saveReadPosition(ScrollEndNotification notification) {
+    // A jump notifies before the new layout; measure after the next frame.
+    final scrollable = notification.context;
+    WidgetsBinding.instance
+      ..addPostFrameCallback((_) {
+        if (mounted && scrollable != null && scrollable.mounted) {
+          _saveTopPost(scrollable);
+        }
+      })
+      ..ensureVisualUpdate();
+  }
+
+  void _saveTopPost(BuildContext scrollable) {
+    final listBox = scrollable.findRenderObject();
+    if (listBox is! RenderBox || !listBox.attached) return;
+    final top = listBox.localToGlobal(Offset.zero).dy;
+    Object? first;
+    var firstY = double.infinity;
+    _mountedPosts.forEach((post, context) {
+      final box = context.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return;
+      final y = box.localToGlobal(Offset.zero).dy;
+      if (y + box.size.height > top && y < firstY) {
+        first = post;
+        firstY = y;
+      }
+    });
+    final position = switch (first) {
+      final ThreadDetail detail => ThreadReadPosition(
+          page: detail.pagination.currentPage,
+          anchor: detail.bodyAnchors.contains('tpc') ? 'tpc' : null,
+        ),
+      final ThreadReply reply when _replyPages[reply] != null =>
+        ThreadReadPosition(
+          page: _replyPages[reply]!,
+          // Native post ids only; read_/fl- aliases are not stored.
+          anchor:
+              reply.anchors.where(RegExp(r'^[1-9]\d*$').hasMatch).firstOrNull,
+        ),
+      _ => null,
+    };
+    if (position != null) {
+      widget.repository
+          .saveThreadReadPosition(_thread, position)
+          .catchError((Object _) {});
+    }
+  }
+
+  void _postMounted(Object post, BuildContext context, bool mounted) {
+    if (mounted) {
+      _mountedPosts[post] = context;
+    } else if (identical(_mountedPosts[post], context)) {
+      _mountedPosts.remove(post);
+    }
+  }
+
   Future<void> _goToPage(int page) async {
     final detail = _detail;
     if (detail != null) {
       final target = page.clamp(1, detail.pagination.totalPages).toInt();
-      if (target == _page) return;
+      if (target == _page) {
+        // Appended pages may sit below: return to this page's top.
+        if (_morePages.isNotEmpty) await _scrollToEdge(top: true);
+        return;
+      }
       await _loadPage(target, scrollToTop: true);
       return;
     }
@@ -237,6 +505,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   void _resetDetailRenderState() {
     _compiledDetail = null;
+    _replyPages.clear();
     _openingPostRenderModel = ThreadPostRenderModel.empty;
     _replyStableIds = <ThreadReply, String>{};
     _replyRenderModels = <String, ThreadPostRenderModel>{};
@@ -258,18 +527,10 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _openingPostRenderModel = ThreadPostRenderModel.fromSegments(
         detail.bodySegments,
       );
-      final nextReplyStableIds = <ThreadReply, String>{};
-      final nextReplyRenderModels = <String, ThreadPostRenderModel>{};
-      for (var index = 0; index < detail.replies.length; index++) {
-        final reply = detail.replies[index];
-        final stableId = threadReplyStableId(reply, index: index);
-        nextReplyStableIds[reply] = stableId;
-        nextReplyRenderModels[stableId] = ThreadPostRenderModel.fromSegments(
-          reply.segments,
-        );
-      }
-      _replyStableIds = nextReplyStableIds;
-      _replyRenderModels = nextReplyRenderModels;
+      _replyStableIds = <ThreadReply, String>{};
+      _replyRenderModels = <String, ThreadPostRenderModel>{};
+      _replyPages.clear();
+      _addRenderModels(detail);
     }
 
     // Filter state comes from the validated uid in the loaded URL, not names.
@@ -285,6 +546,19 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         detail.bodyLinks.isNotEmpty ||
         detail.bodySaleBoxes.isNotEmpty;
     _visibleFloorCount = visibleReplies.length + (hasOpeningPost ? 1 : 0);
+
+    final last = _lastLoaded!;
+    ThreadDetailReplyEntry replyEntry(ThreadReply reply) =>
+        ThreadDetailReplyEntry(
+          key: identical(_anchorTarget, reply)
+              ? _anchorKey
+              : ValueKey(
+                  'thread-reply-${_replyStableIds[reply] ?? reply.floor ?? reply.author}',
+                ),
+          reply: reply,
+          renderModel: _replyRenderModels[_replyStableIds[reply]] ??
+              ThreadPostRenderModel.empty,
+        );
 
     final entries = <ThreadDetailListEntry>[
       const ThreadDetailTopSpacingEntry(12),
@@ -315,20 +589,25 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           title: '没有该作者内容',
           message: '当前筛选结果没有可展示的楼层。',
         ),
-      for (final reply in visibleReplies)
-        ThreadDetailReplyEntry(
-          key: identical(_anchorTarget, reply)
-              ? _anchorKey
-              : ValueKey(
-                  'thread-reply-${_replyStableIds[reply] ?? reply.floor ?? reply.author}',
-                ),
-          reply: reply,
-          renderModel: _replyRenderModels[_replyStableIds[reply]] ??
-              ThreadPostRenderModel.empty,
+      for (final reply in visibleReplies) replyEntry(reply),
+      for (final page in _morePages) ...[
+        ThreadDetailPageDividerEntry(
+          page.pagination.currentPage,
+          key: ValueKey('thread-page-${page.pagination.currentPage}'),
+        ),
+        for (final reply in page.replies) replyEntry(reply),
+      ],
+      if (last.pagination.totalPages > 1)
+        ThreadDetailLoadMoreEntry(
+          key: const ValueKey('thread-load-more'),
+          hasMore: last.pagination.hasNext,
+          loading: _loadingMore,
+          failed: _loadMoreFailed,
         ),
       ThreadDetailPaginationEntry(
+        pagination: last.pagination,
         key: ValueKey(
-          'thread-pagination-bottom-${detail.thread.url}-${detail.pagination.currentPage}',
+          'thread-pagination-bottom-${detail.thread.url}-${last.pagination.currentPage}',
         ),
       ),
       const ThreadDetailTopSpacingEntry(12),
@@ -604,41 +883,79 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
             onPressed: () => _scrollToReply(),
             child: Icon(Icons.edit_outlined),
           ),
+          // Floor navigation in its own strip, so it never covers a post.
+          bottomNavigationBar: detail == null
+              ? null
+              : BottomAppBar(
+                  height: 48,
+                  padding: EdgeInsets.zero,
+                  child: Row(
+                    children: [
+                      for (final (tooltip, icon, action)
+                          in <(String, IconData, VoidCallback)>[
+                        ('首楼', Icons.first_page, _jumpToFirst),
+                        (
+                          '回到顶部',
+                          Icons.arrow_upward,
+                          () => _scrollToEdge(top: true)
+                        ),
+                        (
+                          '到底部',
+                          Icons.arrow_downward,
+                          () => _scrollToEdge(top: false)
+                        ),
+                        ('最新回复', Icons.last_page, _jumpToLatest),
+                      ])
+                        Expanded(
+                          child: IconButton(
+                            tooltip: tooltip,
+                            onPressed: action,
+                            icon: Icon(icon),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
           body: detail == null
               ? _InitialThreadState(
                   error: _loadError,
                   onRetry: _refresh,
                 )
-              : _ThreadDetailContent(
-                  detail: detail,
-                  entries: _detailEntries,
-                  loading: _loading,
-                  onlyOriginalPosterActive: _onlyOriginalPosterActive,
-                  authorFilterName:
-                      _authorFilterActive ? _authorFilterName ?? '该作者' : null,
-                  visibleFloorCount: _visibleFloorCount,
-                  favorite: detail.favorite == null
-                      ? null
-                      : _effectiveFavorite(detail.favorite!),
-                  favoriteBusy: _favoriteBusy,
-                  buyingSaleBoxes: _buyingSaleBoxes,
-                  loadingQuoteDrafts: _loadingQuoteDrafts,
-                  scrollController: _scrollController,
-                  replyKey: _replyKey,
-                  onRefresh: _refresh,
-                  onAuthorTap: _openUserProfile,
-                  onFavorite: _handleFavorite,
-                  onShowOriginalPosterPosts: _showOriginalPosterPosts,
-                  onShowAuthorPosts: _showAuthorPosts,
-                  onClearAuthorFilter: _clearAuthorFilter,
-                  onQuoteReply: _quoteReply,
-                  onBuySaleBox: _handleBuySaleBox,
-                  onReplySubmitted: _handleReplySubmitted,
-                  onPageSelected: _goToPage,
-                  onThreadLink: _openThreadLink,
-                  onExternalLink: _openExternalLink,
-                  onOpenLink: _openContentLink,
-                  repository: widget.repository,
+              : NotificationListener<ScrollNotification>(
+                  onNotification: _onScroll,
+                  child: _ThreadDetailContent(
+                    detail: detail,
+                    onPostMounted: _postMounted,
+                    onRetryLoadMore: _retryLoadMore,
+                    entries: _detailEntries,
+                    loading: _loading,
+                    onlyOriginalPosterActive: _onlyOriginalPosterActive,
+                    authorFilterName:
+                        _authorFilterActive ? _authorFilterName ?? '该作者' : null,
+                    visibleFloorCount: _visibleFloorCount,
+                    favorite: detail.favorite == null
+                        ? null
+                        : _effectiveFavorite(detail.favorite!),
+                    favoriteBusy: _favoriteBusy,
+                    buyingSaleBoxes: _buyingSaleBoxes,
+                    loadingQuoteDrafts: _loadingQuoteDrafts,
+                    scrollController: _scrollController,
+                    replyKey: _replyKey,
+                    onRefresh: _refresh,
+                    onAuthorTap: _openUserProfile,
+                    onFavorite: _handleFavorite,
+                    onShowOriginalPosterPosts: _showOriginalPosterPosts,
+                    onShowAuthorPosts: _showAuthorPosts,
+                    onClearAuthorFilter: _clearAuthorFilter,
+                    onQuoteReply: _quoteReply,
+                    onBuySaleBox: _handleBuySaleBox,
+                    onReplySubmitted: _handleReplySubmitted,
+                    onPageSelected: _goToPage,
+                    onThreadLink: _openThreadLink,
+                    onExternalLink: _openExternalLink,
+                    onOpenLink: _openContentLink,
+                    repository: widget.repository,
+                  ),
                 ),
         );
       },
@@ -676,6 +993,8 @@ class _InitialThreadState extends StatelessWidget {
 class _ThreadDetailContent extends StatelessWidget {
   const _ThreadDetailContent({
     required this.detail,
+    required this.onPostMounted,
+    required this.onRetryLoadMore,
     required this.entries,
     required this.loading,
     required this.onlyOriginalPosterActive,
@@ -704,6 +1023,11 @@ class _ThreadDetailContent extends StatelessWidget {
   });
 
   final ThreadDetail detail;
+
+  /// Reports each post's mount and unmount, for read positions.
+  final void Function(Object post, BuildContext context, bool mounted)
+      onPostMounted;
+  final VoidCallback onRetryLoadMore;
   final List<ThreadDetailListEntry> entries;
   final bool loading;
   final bool onlyOriginalPosterActive;
@@ -786,7 +1110,8 @@ class _ThreadDetailContent extends StatelessWidget {
         return _entryWithKey(
           key: entry.key,
           child: _ThreadPaginationBar(
-            pagination: detail.pagination,
+            pagination: (entry as ThreadDetailPaginationEntry).pagination ??
+                detail.pagination,
             onPageSelected: loading ? null : onPageSelected,
           ),
         );
@@ -826,6 +1151,7 @@ class _ThreadDetailContent extends StatelessWidget {
         }
         return _entryWithKey(
           key: entry.key,
+          post: detail,
           child: _FloorCard(
             title: detail.thread.title,
             author: detail.thread.author ?? '楼主',
@@ -884,6 +1210,7 @@ class _ThreadDetailContent extends StatelessWidget {
         final reply = replyEntry.reply;
         return _entryWithKey(
           key: entry.key,
+          post: reply,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _FloorCard(
@@ -916,6 +1243,57 @@ class _ThreadDetailContent extends StatelessWidget {
             ),
           ),
         );
+      case ThreadDetailListEntryType.pageDivider:
+        final page = (entry as ThreadDetailPageDividerEntry).page;
+        return _entryWithKey(
+          key: entry.key,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                const Expanded(child: Divider()),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Text(
+                    '第 $page 页',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+                const Expanded(child: Divider()),
+              ],
+            ),
+          ),
+        );
+      case ThreadDetailListEntryType.loadMore:
+        final state = entry as ThreadDetailLoadMoreEntry;
+        return _entryWithKey(
+          key: entry.key,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Center(
+              child: state.failed
+                  ? TextButton.icon(
+                      onPressed: onRetryLoadMore,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('下一页加载失败，点按重试'),
+                    )
+                  : state.loading
+                      ? const SizedBox.square(
+                          dimension: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : state.hasMore
+                          ? TextButton(
+                              onPressed: onRetryLoadMore,
+                              child: const Text('加载下一页'),
+                            )
+                          : Text(
+                              '已到最后一页',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+            ),
+          ),
+        );
       case ThreadDetailListEntryType.composer:
         return _entryWithKey(
           key: entry.key,
@@ -932,10 +1310,59 @@ class _ThreadDetailContent extends StatelessWidget {
   Widget _entryWithKey({
     required Widget child,
     Key? key,
+    Object? post,
   }) {
+    if (post != null) {
+      child = _PostMountReporter(
+        post: post,
+        onMounted: onPostMounted,
+        child: child,
+      );
+    }
     if (key == null) return child;
     return KeyedSubtree(key: key, child: child);
   }
+}
+
+class _PostMountReporter extends StatefulWidget {
+  const _PostMountReporter({
+    required this.post,
+    required this.onMounted,
+    required this.child,
+  });
+
+  final Object post;
+  final void Function(Object post, BuildContext context, bool mounted)
+      onMounted;
+  final Widget child;
+
+  @override
+  State<_PostMountReporter> createState() => _PostMountReporterState();
+}
+
+class _PostMountReporterState extends State<_PostMountReporter> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onMounted(widget.post, context, true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PostMountReporter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.post, widget.post)) return;
+    widget.onMounted(oldWidget.post, context, false);
+    widget.onMounted(widget.post, context, true);
+  }
+
+  @override
+  void dispose() {
+    widget.onMounted(widget.post, context, false);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _ThreadHeaderCard extends StatelessWidget {

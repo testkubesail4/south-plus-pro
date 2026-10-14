@@ -38,6 +38,9 @@ import 'package:south_plus_rewrite/services/parsers/thread_content_parser.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 void main() {
+  // Saved thread read positions must not leak between tests.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('app boots to simple home screen', (tester) async {
     SharedPreferences.setMockInitialValues({
       ForumNetworkSetupStore.completedKey: true,
@@ -1520,6 +1523,10 @@ void main() {
 
   testWidgets('thread detail shows avatar fallback and page controls',
       (tester) async {
+    // Tall enough to build both the top and the bottom page controls.
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final repository = _FakeThreadRepository();
 
     await tester.pumpWidget(
