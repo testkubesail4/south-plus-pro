@@ -376,42 +376,62 @@ class ForumNetworkSettings {
 
   static Future<void> save(ForumNetworkConfig config) async {
     final prefs = await SharedPreferences.getInstance();
-    if (config.proxy == null) {
-      await prefs.remove(_proxyKey);
-    } else {
-      await prefs.setString(_proxyKey, jsonEncode(config.proxy!.toJson()));
-    }
-    await prefs.setString(_siteHostKey, config.site.host);
-    await prefs.setBool(_dohEnabledKey, config.dohEnabled);
-    await prefs.setString(_dohProviderKey, config.dohProvider.name);
+    await _checkedWrite(prefs, prefs.setString(_siteHostKey, config.site.host));
+    await _checkedWrite(
+        prefs, prefs.setBool(_dohEnabledKey, config.dohEnabled));
+    await _checkedWrite(
+        prefs, prefs.setString(_dohProviderKey, config.dohProvider.name));
     final customDohUri = config.normalizedCustomDohUri;
     if (customDohUri == null) {
-      await prefs.remove(_customDohUriKey);
+      await _checkedWrite(prefs, prefs.remove(_customDohUriKey));
     } else {
-      await prefs.setString(_customDohUriKey, customDohUri);
+      await _checkedWrite(
+          prefs, prefs.setString(_customDohUriKey, customDohUri));
     }
     final fixedAddress = _normalizeAddress(config.fixedAddress);
     if (fixedAddress == null) {
-      await prefs.remove(_fixedAddressKey);
+      await _checkedWrite(prefs, prefs.remove(_fixedAddressKey));
     } else {
-      await prefs.setString(_fixedAddressKey, fixedAddress);
+      await _checkedWrite(
+          prefs, prefs.setString(_fixedAddressKey, fixedAddress));
+    }
+    // Commit the proxy selection last so an earlier write failure cannot disable it.
+    if (config.proxy == null) {
+      await _checkedWrite(prefs, prefs.remove(_proxyKey));
+    } else {
+      await _checkedWrite(prefs,
+          prefs.setString(_proxyKey, jsonEncode(config.proxy!.toJson())));
     }
   }
 
   static Future<void> saveProxy(ForumProxy proxy) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_proxyKey, jsonEncode(proxy.toJson()));
-    await prefs.setBool(_dohEnabledKey, false);
-    await prefs.remove(_fixedAddressKey);
-    await prefs.remove(_customDohUriKey);
+    await _checkedWrite(prefs, prefs.setBool(_dohEnabledKey, false));
+    await _checkedWrite(prefs, prefs.remove(_fixedAddressKey));
+    await _checkedWrite(prefs, prefs.remove(_customDohUriKey));
+    await _checkedWrite(
+        prefs, prefs.setString(_proxyKey, jsonEncode(proxy.toJson())));
   }
 
   static Future<void> disableProxy() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_dohEnabledKey, false);
-    await prefs.remove(_fixedAddressKey);
-    await prefs.remove(_customDohUriKey);
-    await prefs.remove(_proxyKey);
+    await _checkedWrite(prefs, prefs.setBool(_dohEnabledKey, false));
+    await _checkedWrite(prefs, prefs.remove(_fixedAddressKey));
+    await _checkedWrite(prefs, prefs.remove(_customDohUriKey));
+    await _checkedWrite(prefs, prefs.remove(_proxyKey));
+  }
+
+  static Future<void> _checkedWrite(
+      SharedPreferences prefs, Future<bool> write) async {
+    try {
+      if (!await write) throw Exception('网络设置保存失败，请重试');
+    } catch (_) {
+      // The plugin updates its memory cache before acknowledging disk writes.
+      try {
+        await prefs.reload();
+      } catch (_) {/* Preserve the write failure. */}
+      rethrow;
+    }
   }
 
   static Future<List<ForumSite>> loadCustomSites() async {

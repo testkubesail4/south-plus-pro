@@ -204,6 +204,7 @@ class ForumRepository {
 
   Future<void> updateNetworkConfig(ForumNetworkConfig config) async {
     if (config == _config) return;
+    await ForumNetworkSettings.save(config);
     _sessionEpoch.value++;
     _client.close(force: true);
     _config = config;
@@ -220,7 +221,6 @@ class ForumRepository {
     _profileCache = UserProfileCache(urls: _urls);
     _client = ForumClient(config: config);
     _sessionUser.value = null;
-    await ForumNetworkSettings.save(config);
   }
 
   ForumPmParser get _pmParser => ForumPmParser(baseUri: _config.baseUri);
