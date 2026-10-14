@@ -52,35 +52,36 @@ class _TopBar extends StatelessWidget {
               onTap: onAccountTap,
               child: Container(
                 constraints: const BoxConstraints(minHeight: 44),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: const EdgeInsets.fromLTRB(6, 0, 10, 0),
                 decoration: BoxDecoration(
                   color: AppColors.brandSoft,
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(color: AppColors.border),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.account_circle_outlined,
-                      color: AppColors.brand,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 5),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 120),
-                      child: Text(
-                        repository.currentUsername ?? '已登录',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.brand,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
+                child: ValueListenableBuilder<ForumAccountIdentity?>(
+                  valueListenable: repository.accountIdentity,
+                  builder: (context, identity, _) => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AccountAvatar(avatarUrl: identity?.avatarUrl, size: 24),
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 120),
+                        child: Text(
+                          accountDisplayName(identity) ??
+                              repository.currentUsername ??
+                              '已登录',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.brand,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             )

@@ -47,6 +47,13 @@ class AccountScreen extends StatefulWidget {
 /// The 我的 tab: who is signed in and everything that belongs to them.
 /// Device settings live one level deeper in [SettingsScreen].
 class _AccountScreenState extends State<AccountScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // The nickname is optional; the system name shows until it arrives.
+    widget.repository.loadAccountNickname().ignore();
+  }
+
   Future<void> _logout() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -115,10 +122,26 @@ class _AccountScreenState extends State<AccountScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          _AccountHeader(
-            title: widget.repository.currentUsername ?? '未登录',
-            subtitle: loggedIn ? '南+账号已连接' : '登录后可查看个人内容、收藏和短消息',
-            loggedIn: loggedIn,
+          ValueListenableBuilder<ForumAccountIdentity?>(
+            valueListenable: widget.repository.accountIdentity,
+            builder: (context, identity, _) {
+              final name = accountDisplayName(identity);
+              // A nickname is shown first; the system name stays visible below.
+              final nicknameShown =
+                  identity != null && name != identity.systemName;
+              return _AccountHeader(
+                title: !loggedIn
+                    ? '未登录'
+                    : name ?? widget.repository.currentUsername ?? '已登录',
+                subtitle: !loggedIn
+                    ? '登录后可查看个人内容、收藏和短消息'
+                    : nicknameShown
+                        ? identity.systemName
+                        : '南+账号已连接',
+                avatarUrl: loggedIn ? identity?.avatarUrl : null,
+                loggedIn: loggedIn,
+              );
+            },
           ),
           if (!loggedIn) ...[
             const SizedBox(height: 12),
@@ -251,11 +274,13 @@ class _AccountHeader extends StatelessWidget {
   const _AccountHeader({
     required this.title,
     required this.subtitle,
+    required this.avatarUrl,
     required this.loggedIn,
   });
 
   final String title;
   final String subtitle;
+  final String? avatarUrl;
   final bool loggedIn;
 
   @override
@@ -276,20 +301,7 @@ class _AccountHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.brandSoft,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFFFD6DB)),
-            ),
-            child: Icon(
-              Icons.account_circle_outlined,
-              color: AppColors.brand,
-              size: 30,
-            ),
-          ),
+          AccountAvatar(avatarUrl: avatarUrl, size: 56),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -311,6 +323,46 @@ class _AccountHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The account's nickname when set, otherwise its system name.
+String? accountDisplayName(ForumAccountIdentity? identity) {
+  final nickname = identity?.nickname?.trim() ?? '';
+  return nickname.isNotEmpty ? nickname : identity?.systemName;
+}
+
+/// The signed-in user's avatar in a circle, or a person icon without one.
+class AccountAvatar extends StatelessWidget {
+  const AccountAvatar({super.key, required this.avatarUrl, required this.size});
+
+  final String? avatarUrl;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = avatarUrl;
+    Widget icon(BuildContext context) => Icon(
+          Icons.account_circle_outlined,
+          color: AppColors.brand,
+          size: size * 0.6,
+        );
+    return CircleAvatar(
+      radius: size / 2,
+      backgroundColor: AppColors.brandSoft,
+      child: url == null
+          ? icon(context)
+          : ClipOval(
+              child: CachedForumImage(
+                url: url,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                bypassLoadPolicy: true,
+                errorWidget: icon,
+              ),
+            ),
     );
   }
 }
