@@ -634,6 +634,20 @@ class ForumCategory {
   final String? url;
 }
 
+class ForumAccountIdentity {
+  const ForumAccountIdentity({
+    required this.systemName,
+    this.uid,
+    this.nickname,
+    this.avatarUrl,
+  });
+
+  final String systemName;
+  final String? uid;
+  final String? nickname;
+  final String? avatarUrl;
+}
+
 class ForumNoticeFlags {
   const ForumNoticeFlags({this.replyNotice = false, this.unreadPm = false});
 

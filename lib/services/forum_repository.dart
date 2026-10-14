@@ -77,6 +77,16 @@ class ForumRepository {
       _restoredDesktopHtml = null;
       _replyNoticeVerify = null;
       _noticeFlags.value = const ForumNoticeFlags();
+      _accountIdentity.value = null;
+      _accountNicknameFuture = null;
+    });
+    _sessionUser.addListener(() {
+      final name = currentUsername;
+      if (name == null) {
+        _accountIdentity.value = null;
+      } else if (_accountIdentity.value?.systemName != name) {
+        _accountIdentity.value = ForumAccountIdentity(systemName: name);
+      }
     });
   }
 
@@ -104,6 +114,11 @@ class ForumRepository {
   int _profileDetailsGeneration = 0;
   final BrowsingHistoryStore _historyStore;
   final ForumTaskStateStore _taskStateStore;
+  final _accountIdentity = ValueNotifier<ForumAccountIdentity?>(null);
+  Future<void>? _accountNicknameFuture;
+  ValueListenable<ForumAccountIdentity?> get accountIdentity =>
+      _accountIdentity;
+
   String? _replyNoticeVerify;
   Future<void> _replyNoticeQueue = Future.value();
   DateTime? _replyNoticeReadyAt;
@@ -208,6 +223,57 @@ class ForumRepository {
       _throwIfBlockedPage(response);
       rethrow;
     }
+  }
+
+  void _captureAccountIdentity(dom.Document document) {
+    final identity = _userProfileParser.parseAccountIdentity(document);
+    if (identity == null) return;
+    final previous = _accountIdentity.value;
+    _accountIdentity.value = ForumAccountIdentity(
+      systemName: identity.systemName,
+      uid: identity.uid,
+      nickname: identity.uid != null && identity.uid == previous?.uid
+          ? previous?.nickname
+          : null,
+      avatarUrl: identity.avatarUrl,
+    );
+  }
+
+  Future<void> loadAccountNickname() {
+    final uid = _accountIdentity.value?.uid;
+    if (!isLoggedIn || uid == null) return SynchronousFuture(null);
+    return _accountNicknameFuture ??= _loadAccountNickname(uid);
+  }
+
+  Future<void> _loadAccountNickname(String uid) async {
+    final epoch = _sessionEpoch.value;
+    final profileUrl = _urls.userTabUrl(uid, UserProfileTab.profile);
+    try {
+      var profile = await _profileCache.loadOverview(profileUrl);
+      if (epoch != _sessionEpoch.value) return;
+      if (profile?.uid != uid) profile = null;
+      profile ??= await fetchUserProfileOverview(profileUrl);
+      if (epoch != _sessionEpoch.value) return;
+      _applyAccountProfile(profile);
+    } catch (_) {
+      // Optional nickname loading keeps the verified header identity on failure.
+    }
+  }
+
+  void _applyAccountProfile(UserProfile profile) {
+    final identity = _accountIdentity.value;
+    if (identity == null || identity.uid != profile.uid) return;
+    final nickname = profile.info
+        .where((field) => field.label.trim() == '昵称')
+        .firstOrNull
+        ?.value
+        .trim();
+    _accountIdentity.value = ForumAccountIdentity(
+      systemName: identity.systemName,
+      uid: identity.uid,
+      nickname: nickname == null || nickname.isEmpty ? null : nickname,
+      avatarUrl: profile.avatarUrl ?? identity.avatarUrl,
+    );
   }
 
   ForumReplyNoticeParser get _replyNoticeParser =>
@@ -435,6 +501,9 @@ class ForumRepository {
     if (username != currentUsername) _sessionEpoch.value++;
     _sessionUser.value = username;
     _restoredDesktopHtml = header.desktopHtml;
+    if (header.desktopHtml != null) {
+      _captureAccountIdentity(html_parser.parse(header.desktopHtml!));
+    }
     return true;
   }
 
@@ -529,6 +598,7 @@ class ForumRepository {
       _sessionUser.value = _responseParser.loggedInUsername(response) ??
           await _fetchLoggedInUsername() ??
           username.trim();
+      _captureAccountIdentity(html_parser.parse(response));
       return const LoginResult(success: true, message: '登录成功');
     }
 
@@ -579,7 +649,10 @@ class ForumRepository {
       throw const ForumRepositoryException('没有解析到版块列表');
     }
 
-    if (indexDocument != null) _captureIndexNotices(indexDocument);
+    if (indexDocument != null) {
+      _captureIndexNotices(indexDocument);
+      _captureAccountIdentity(indexDocument);
+    }
     return ForumHomeSnapshot(
       latest: latest,
       hot: hot,
@@ -1633,19 +1706,30 @@ class ForumRepository {
   }
 
   Future<UserProfile> fetchUserProfileOverview(String url) async {
+    final epoch = _sessionEpoch.value;
+    final client = _client;
     final profileUrl = _urls.absoluteUrl(url);
     final uid = await _uidFromProfileUrl(profileUrl);
+    if (epoch != _sessionEpoch.value) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变');
+    }
     final profileDocument = html_parser.parse(
-      await _client.get(
+      await client.get(
         _urls.relativePath(_urls.userTabUrl(uid, UserProfileTab.profile)),
       ),
     );
+    if (epoch != _sessionEpoch.value) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变');
+    }
     final profile = _userProfileParser.parseOverview(
       uid: uid,
       profileUrl: profileUrl,
       profileDocument: profileDocument,
     );
     await _profileCache.saveOverview(url, profile);
+    if (epoch == _sessionEpoch.value) _applyAccountProfile(profile);
     return profile;
   }
 
@@ -2030,8 +2114,15 @@ class ForumRepository {
     );
   }
 
-  Future<String?> _fetchLoggedInUsername() async =>
-      (await _fetchSessionHeader()).username;
+  Future<String?> _fetchLoggedInUsername() async {
+    final epoch = _sessionEpoch.value;
+    final header = await _fetchSessionHeader();
+    if (epoch != _sessionEpoch.value) return null;
+    if (header.desktopHtml != null) {
+      _captureAccountIdentity(html_parser.parse(header.desktopHtml!));
+    }
+    return header.username;
+  }
 
   Future<({String? username, String? desktopHtml})>
       _fetchSessionHeader() async {

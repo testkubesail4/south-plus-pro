@@ -10,6 +10,38 @@ class UserProfileParser {
 
   final ForumUrlResolver urls;
 
+  ForumAccountIdentity? parseAccountIdentity(dom.Document document) {
+    final name =
+        document.querySelector('#user-login > a[href="u.php"]')?.text.trim();
+    if (name == null || name.isEmpty) return null;
+    String? uid;
+    for (final link
+        in document.querySelectorAll('#menu_profile .ul2 a[href]')) {
+      final match = RegExp(r'^u\.php\?action-show-uid-([1-9]\d*)\.html$')
+          .firstMatch(link.attributes['href']!);
+      if (match != null) {
+        uid = match.group(1);
+        break;
+      }
+    }
+    uid ??= RegExp(r'\bUID:\s*([1-9]\d*)\b')
+        .firstMatch(
+            document.querySelector('#showface .user-infoWraptwo')?.text ?? '')
+        ?.group(1);
+    final src = document
+        .querySelector('#user_info > a[href="u.php"] > img')
+        ?.attributes['src'];
+    final avatar = src == null ? null : Uri.tryParse(urls.absoluteUrl(src));
+    return ForumAccountIdentity(
+      systemName: name,
+      uid: uid,
+      avatarUrl: avatar != null &&
+              (avatar.scheme == 'https' || avatar.scheme == 'http')
+          ? avatar.toString()
+          : null,
+    );
+  }
+
   String parseLoginUsername(dom.Document document) {
     var name = document
             .querySelector('input[name="sendtoname"]')
