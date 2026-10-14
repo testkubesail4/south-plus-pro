@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
+import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
@@ -53,13 +54,17 @@ void main() {
         ),
       );
 
-  Future<void> screenshot(String name) async {
-    // Let the native compositor present the Flutter frame before X reads it.
-    await Future<void>.delayed(const Duration(milliseconds: 150));
+  Future<void> findWindow() async {
     final search = await Process.run('xdotool',
         ['search', '--onlyvisible', '--name', r'^south_plus_rewrite$']);
     expect(search.exitCode, 0, reason: '${search.stderr}');
     window = '${search.stdout}'.trim().split('\n').first;
+  }
+
+  Future<void> screenshot(String name) async {
+    // Let the native compositor present the Flutter frame before X reads it.
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await findWindow();
     // Linux integration_test has no native screenshot implementation.
     final result = await Process.run('import', [
       '-window',
@@ -157,5 +162,70 @@ void main() {
     await tester.tap(more);
     await tester.pumpAndSettle();
     expect(find.text('代码'), findsOneWidget);
+  });
+
+  testWidgets('home adapts to four native window sizes in both themes',
+      (tester) async {
+    for (final size in const [
+      Size(400, 800),
+      Size(800, 600),
+      Size(1280, 800),
+      Size(1920, 1080),
+    ]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await findWindow();
+      final resize = await Process.run('xdotool', [
+        'windowsize',
+        window,
+        '${size.width.toInt()}',
+        '${size.height.toInt()}',
+      ]);
+      expect(resize.exitCode, 0, reason: '${resize.stderr}');
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(app(() => SessionGate(
+            repository: repository,
+            onToggleTheme: AppThemeController.toggle,
+          )));
+      await waitFor(tester, find.text('Fixture thread'));
+      await tester.pumpAndSettle();
+      expect(MediaQuery.sizeOf(tester.element(find.byType(HomeShell))), size);
+      if (size.width < 600) {
+        expect(find.byType(NavigationBar), findsOneWidget);
+        expect(find.byType(NavigationRail), findsNothing);
+      } else {
+        expect(find.byType(NavigationBar), findsNothing);
+        expect(
+            tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
+            size.width > 840);
+      }
+      for (final mode in [ThemeMode.light, ThemeMode.dark]) {
+        await AppThemeController.setMode(mode);
+        await tester.pumpAndSettle();
+        expect(Theme.of(tester.element(find.text('Fixture thread'))).brightness,
+            mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+        await screenshot(
+            'home-${size.width.toInt()}x${size.height.toInt()}-${mode.name}');
+        final scrollElement = tester.element(find
+            .ancestor(
+              of: find.text('Fixture thread'),
+              matching: find.byType(Scrollable),
+            )
+            .first);
+        final scrollable = find
+            .byElementPredicate((element) => identical(element, scrollElement));
+        await tester.scrollUntilVisible(find.text('Fixture section 3'), 300,
+            scrollable: scrollable);
+        if (find.text('Fixture board 3.3').evaluate().isEmpty) {
+          await tester.tap(find.text('Fixture section 3'));
+          await tester.pumpAndSettle();
+        }
+        await tester.scrollUntilVisible(find.text('Fixture board 3.3'), 200,
+            scrollable: scrollable);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+        await tester.pumpAndSettle();
+      }
+    }
   });
 }

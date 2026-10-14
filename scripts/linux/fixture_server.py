@@ -9,11 +9,35 @@ from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-HOME = b'''<!doctype html><html><head><meta charset="utf-8"></head><body>
-<div class="carousel-item active"><a href="/read.php?tid-900001.html">Fixture thread</a></div>
-<table><tr><th><h2>Fixture section</h2></th></tr>
-<tr><th><h3><a href="/thread.php?fid-900.html">Fixture board</a></h3></th><td>1 / 1</td></tr></table>
-</body></html>'''
+def home():
+    lists = []
+    for group, title in enumerate(['最新讨论', '最新回复', '热门主题', '求物区']):
+        links = []
+        for row in range(3):
+            label = 'Fixture thread' if group == row == 0 else f'Fixture topic {group + 1}.{row + 1}'
+            links.append(f'<a href="/read.php?tid-{900001 + group * 5 + row}.html">'
+                         f'<b><font color="#FF00FF">{label}</font></b></a><br>')
+        active = ' active' if group == 0 else ''
+        lists.append(f'<div class="carousel-item{active}"><div>{title}</div>'
+                     + ''.join(links) + '</div>')
+    sections = []
+    for section in range(3):
+        rows = []
+        for board in range(3):
+            fid = 900 + section * 10 + board
+            name = 'Fixture board' if section == board == 0 else f'Fixture board {section + 1}.{board + 1}'
+            rows.append(f'''<tr><th><h3><a href="/thread.php?fid-{fid}.html">{name}</a></h3>
+(2) Fixture board description 子版：<h3>
+<a href="/thread.php?fid-{fid + 100}.html">Fixture child A</a>
+<a href="/thread.php?fid-{fid + 200}.html">Fixture child B</a></h3></th>
+<td>12 / 34</td><td>2026-01-01 12:00</td></tr>''')
+        sections.append(f'<table><tr><th><h2>Fixture section {section + 1}</h2></th></tr>'
+                        + ''.join(rows) + '</table>')
+    return ('<!doctype html><html><head><meta charset="utf-8"></head><body>'
+            + ''.join(lists + sections) + '</body></html>').encode('utf-8')
+
+
+HOME = home()
 THREAD = b'''<!doctype html><html><head><meta charset="utf-8"></head><body>
 <h1 id="subject_tpc">Fixture thread</h1><div class="pages">Pages: 1/1</div>
 <table class="js-post"><tr><th class="r_two"><a href="/u.php?action-show-uid-900001.html"><strong>Fixture author</strong></a></th>
