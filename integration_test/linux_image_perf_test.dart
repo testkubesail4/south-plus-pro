@@ -121,7 +121,8 @@ void main() {
             title: 'Fixture performance thread',
             replies: 49,
             section: 'Fixture board',
-            url: 'http://127.0.0.1:8765/read.php?tid-900004.html',
+            // An explicit page bypasses resume so every sample starts alike.
+            url: 'http://127.0.0.1:8765/read.php?tid-900004-page-1.html',
           ),
         ),
       ));
