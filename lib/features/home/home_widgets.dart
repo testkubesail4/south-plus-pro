@@ -102,6 +102,83 @@ class _TopBar extends StatelessWidget {
   }
 }
 
+/// Reply-notice and short-message shortcuts, each dotted while unread.
+class _NoticeChips extends StatelessWidget {
+  const _NoticeChips({required this.repository, this.onMessagesTap});
+
+  final ForumRepository repository;
+  final VoidCallback? onMessagesTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ForumNoticeFlags>(
+      valueListenable: repository.noticeFlags,
+      builder: (context, flags, _) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _NoticeChip(
+              icon: Icons.mark_chat_unread_outlined,
+              label: '回复提醒',
+              unread: flags.replyNotice,
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ReplyNoticesScreen(repository: repository),
+                ),
+              ),
+            ),
+            _NoticeChip(
+              icon: Icons.mail_outline,
+              label: '短消息',
+              unread: flags.unreadPm,
+              onPressed: onMessagesTap,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NoticeChip extends StatelessWidget {
+  const _NoticeChip({
+    required this.icon,
+    required this.label,
+    required this.unread,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool unread;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      value: unread ? '有新提醒' : null,
+      child: ActionChip(
+        avatar: Badge(
+          isLabelVisible: unread,
+          child: Icon(icon, size: 18, color: AppColors.brand),
+        ),
+        label: Text(label),
+        labelStyle: TextStyle(
+          color: AppColors.text,
+          fontWeight: unread ? FontWeight.w800 : FontWeight.w600,
+        ),
+        side: BorderSide(
+          color: unread ? AppColors.brand : AppColors.border,
+        ),
+        backgroundColor: unread ? AppColors.brandSoft : AppColors.surface,
+        onPressed: onPressed,
+      ),
+    );
+  }
+}
+
 class _LatestThreads extends StatelessWidget {
   const _LatestThreads({
     required this.threads,

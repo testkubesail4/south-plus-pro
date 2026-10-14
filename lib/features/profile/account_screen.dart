@@ -14,6 +14,7 @@ import '../auth/login_screen.dart';
 import '../common/cached_forum_image.dart';
 import '../history/browsing_history_screen.dart';
 import '../messages/pm_box_screen.dart';
+import '../messages/reply_notices_screen.dart';
 import 'forum_tasks_screen.dart';
 import 'network_setup_flow_screen.dart';
 import 'network_settings_screen.dart';
@@ -171,6 +172,18 @@ class _AccountScreenState extends State<AccountScreen> {
                   accent: true,
                   onTap: () =>
                       _push(PmBoxScreen(repository: widget.repository)),
+                ),
+              if (loggedIn)
+                ValueListenableBuilder<ForumNoticeFlags>(
+                  valueListenable: widget.repository.noticeFlags,
+                  builder: (context, flags, _) => _AccountTile(
+                    icon: Icons.mark_chat_unread_outlined,
+                    title: '回复提醒',
+                    subtitle: flags.replyNotice ? '有新的回复提醒' : '我的主题收到的回复',
+                    accent: flags.replyNotice,
+                    onTap: () => _push(
+                        ReplyNoticesScreen(repository: widget.repository)),
+                  ),
                 ),
               _AccountTile(
                 icon: Icons.fact_check_outlined,

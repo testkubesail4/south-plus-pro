@@ -11,6 +11,7 @@ import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
 import '../common/forum_title_text.dart';
 import '../messages/pm_box_screen.dart';
+import '../messages/reply_notices_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';
 import '../profile/forum_tasks_screen.dart';
@@ -77,6 +78,7 @@ class _HomeShellState extends State<HomeShell> {
                   () => ForumHomePage(
                     repository: _repository,
                     onAccountTap: () => _select(4),
+                    onMessagesTap: () => _select(3),
                     onToggleTheme: widget.onToggleTheme,
                   ),
                 ),
@@ -106,38 +108,48 @@ class _HomeShellState extends State<HomeShell> {
                 ),
               ],
             ),
-            bottomNavigationBar: NavigationBar(
-              selectedIndex: _index,
-              onDestinationSelected: _select,
-              labelBehavior: compactLabels
-                  ? NavigationDestinationLabelBehavior.onlyShowSelected
-                  : NavigationDestinationLabelBehavior.alwaysShow,
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
-                  label: '首页',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.star_border_rounded),
-                  selectedIcon: Icon(Icons.star_rounded),
-                  label: '收藏',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.search),
-                  label: '搜索',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.mail_outline),
-                  selectedIcon: Icon(Icons.mail),
-                  label: '消息',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.person_outline),
-                  selectedIcon: Icon(Icons.person),
-                  label: '我的',
-                ),
-              ],
+            bottomNavigationBar: ValueListenableBuilder<ForumNoticeFlags>(
+              valueListenable: _repository.noticeFlags,
+              builder: (context, flags, _) => NavigationBar(
+                selectedIndex: _index,
+                onDestinationSelected: _select,
+                labelBehavior: compactLabels
+                    ? NavigationDestinationLabelBehavior.onlyShowSelected
+                    : NavigationDestinationLabelBehavior.alwaysShow,
+                destinations: [
+                  const NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    selectedIcon: Icon(Icons.home),
+                    label: '首页',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.star_border_rounded),
+                    selectedIcon: Icon(Icons.star_rounded),
+                    label: '收藏',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.search),
+                    label: '搜索',
+                  ),
+                  NavigationDestination(
+                    icon: Badge(
+                      isLabelVisible: flags.unreadPm,
+                      child: const Icon(Icons.mail_outline),
+                    ),
+                    selectedIcon: Badge(
+                      isLabelVisible: flags.unreadPm,
+                      child: const Icon(Icons.mail),
+                    ),
+                    label: '消息',
+                    tooltip: flags.unreadPm ? '消息，有未读短消息' : null,
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.person_outline),
+                    selectedIcon: Icon(Icons.person),
+                    label: '我的',
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -151,6 +163,7 @@ class ForumHomePage extends StatefulWidget {
     super.key,
     required this.repository,
     this.onAccountTap,
+    this.onMessagesTap,
     this.onToggleTheme,
   });
 
@@ -158,6 +171,9 @@ class ForumHomePage extends StatefulWidget {
 
   /// Shows the signed-in user's 我的 tab.
   final VoidCallback? onAccountTap;
+
+  /// Shows the 消息 (short messages) tab.
+  final VoidCallback? onMessagesTap;
   final VoidCallback? onToggleTheme;
 
   @override
@@ -225,6 +241,11 @@ class _ForumHomePageState extends State<ForumHomePage> {
                     onAccountTap: widget.onAccountTap,
                     onToggleTheme: widget.onToggleTheme,
                   ),
+                  if (widget.repository.isLoggedIn)
+                    _NoticeChips(
+                      repository: widget.repository,
+                      onMessagesTap: widget.onMessagesTap,
+                    ),
                   if (snapshot.hasError)
                     AsyncErrorView(
                       title: '主页加载失败',
