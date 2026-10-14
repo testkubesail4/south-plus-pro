@@ -8,6 +8,7 @@ import 'forum_proxy_connection.dart';
 class ForumHttpRouting {
   ForumHttpRouting._();
   static ForumProxy? _proxy;
+  static bool get proxyEnabled => _proxy != null;
   static final _clients = <_RoutedClient>{};
 
   static void install() => HttpOverrides.global = ForumHttpOverrides();

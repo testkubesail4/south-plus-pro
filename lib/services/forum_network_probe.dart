@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'forum_network_config.dart';
+import 'forum_http_routing.dart';
 
 class ForumNetworkProbe {
   const ForumNetworkProbe({
@@ -17,6 +18,13 @@ class ForumNetworkProbe {
     String? customDohUri,
     String? fixedAddress,
   }) async {
+    if (ForumHttpRouting.proxyEnabled) {
+      return ForumSiteProbeResult(
+          site: site,
+          elapsed: Duration.zero,
+          success: false,
+          message: '停用代理后再优化网络');
+    }
     final config = ForumNetworkConfig(
       site: site,
       dohEnabled: dohEnabled,
@@ -92,6 +100,13 @@ class ForumNetworkProbe {
   }
 
   Future<DohProbeResult> _testDohResolver(DohResolver resolver) async {
+    if (ForumHttpRouting.proxyEnabled) {
+      return const DohProbeResult(
+          elapsed: Duration.zero,
+          success: false,
+          message: '停用代理后再优化网络',
+          addresses: []);
+    }
     final watch = Stopwatch()..start();
     try {
       final addresses = await resolver
