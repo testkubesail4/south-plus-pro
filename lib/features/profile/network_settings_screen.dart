@@ -8,6 +8,7 @@ import '../../services/forum_network_probe.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import 'network_setup_flow_screen.dart';
+import 'proxy_form.dart';
 
 class NetworkSettingsScreen extends StatefulWidget {
   const NetworkSettingsScreen({
@@ -122,6 +123,66 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
     }
   }
 
+  /// Saves or clears the proxy. Errors propagate so [ProxyForm] can show a
+  /// generic message without echoing credentials.
+  Future<void> _applyProxy(ForumProxy? proxy) async {
+    await widget.repository.updateNetworkConfig(proxy == null
+        ? _config.copyWith(clearProxy: true)
+        : _config.copyWith(proxy: proxy));
+    if (!mounted) return;
+    setState(() => _config = widget.repository.networkConfig);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(proxy == null ? '已停用代理' : '代理已保存')),
+    );
+  }
+
+  Future<void> _openProxyPage(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (pageContext) {
+          void close() {
+            if (pageContext.mounted) Navigator.of(pageContext).pop();
+          }
+
+          return Scaffold(
+            appBar: AppBar(title: const Text('代理')),
+            body: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                ProxyForm(
+                  initial: _config.proxy,
+                  submitLabel: '保存代理',
+                  onSubmit: (proxy) async {
+                    await _applyProxy(proxy);
+                    close();
+                  },
+                ),
+                if (_config.proxy != null) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: () async {
+                      if (!await confirmDisableProxy(pageContext)) return;
+                      try {
+                        await _applyProxy(null);
+                        close();
+                      } catch (_) {
+                        if (!pageContext.mounted) return;
+                        ScaffoldMessenger.of(pageContext).showSnackBar(
+                          const SnackBar(content: Text('停用代理失败，请稍后重试')),
+                        );
+                      }
+                    },
+                    child: const Text('停用代理，改为直接连接'),
+                  ),
+                ],
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _testSite(ForumSite site) async {
     if (_testingSites.contains(site.host)) return;
     setState(() => _testingSites.add(site.host));
@@ -204,19 +265,26 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final proxy = _config.proxy;
     final fixedAddress = _config.fixedInternetAddress?.address;
-    final priorityTitle = fixedAddress != null
-        ? '专属线路'
-        : _config.dohEnabled
-            ? '加密 DNS'
-            : '系统默认解析';
-    final priorityStatus = _priorityStatus;
-    final primaryLabel = fixedAddress != null
-        ? '线路选择'
-        : (_config.dohEnabled ? '加密 DNS' : '解析方式');
-    final primaryValue = fixedAddress != null
-        ? ForumNetworkConfig.routeLabelForAddress(fixedAddress, 1)
-        : (_config.dohEnabled ? _config.dohLabel : '系统默认解析');
+    final priorityTitle = proxy != null
+        ? '代理'
+        : fixedAddress != null
+            ? '专属线路'
+            : _config.dohEnabled
+                ? '加密 DNS'
+                : '系统默认解析';
+    final priorityStatus = proxy != null ? null : _priorityStatus;
+    final primaryLabel = proxy != null
+        ? '代理服务器'
+        : fixedAddress != null
+            ? '线路选择'
+            : (_config.dohEnabled ? '加密 DNS' : '解析方式');
+    final primaryValue = proxy != null
+        ? proxyLabel(proxy)
+        : fixedAddress != null
+            ? ForumNetworkConfig.routeLabelForAddress(fixedAddress, 1)
+            : (_config.dohEnabled ? _config.dohLabel : '系统默认解析');
 
     return Scaffold(
       appBar: AppBar(
@@ -226,6 +294,21 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
             onPressed: _saving
                 ? null
                 : () async {
+                    // Optimization and a proxy are exclusive: the proxy goes
+                    // first, explicitly, before any optimization probe runs.
+                    if (_config.proxy != null) {
+                      if (!await confirmDisableProxy(context)) return;
+                      try {
+                        await _applyProxy(null);
+                      } catch (_) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('停用代理失败，请稍后重试')),
+                        );
+                        return;
+                      }
+                      if (!context.mounted) return;
+                    }
                     await Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => NetworkSetupFlowScreen(
@@ -257,24 +340,43 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
             stable: priorityStatus?.success ?? true,
           ),
           const SizedBox(height: 14),
-          _ConnectionSwitchCard(
-            value: _config.dohEnabled,
-            saving: _saving,
-            onChanged: (value) => _save(_config.copyWith(dohEnabled: value)),
-          ),
-          const SizedBox(height: 10),
           _ConnectionEntryTile(
-            icon: Icons.route_outlined,
-            title: '线路选择',
-            subtitle: fixedAddress == null
-                ? '智能优选（推荐）'
-                : ForumNetworkConfig.routeLabelForAddress(fixedAddress, 1),
-            status: _fixedAddressStatus,
-            active: true,
-            badgeLabel: fixedAddress == null ? '智能' : '专属',
-            onTap: () => _openFixedAddressPage(context),
+            icon: Icons.vpn_lock_outlined,
+            title: '代理',
+            subtitle: proxy == null ? '未使用' : proxyLabel(proxy),
+            active: proxy != null,
+            badgeLabel: proxy == null ? '已关闭' : '已启用',
+            onTap: () => _openProxyPage(context),
           ),
           const SizedBox(height: 10),
+          if (proxy != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+              child: Text(
+                '使用代理时，加密 DNS 与线路选择不可用；停用代理后可重新开启。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            )
+          else ...[
+            _ConnectionSwitchCard(
+              value: _config.dohEnabled,
+              saving: _saving,
+              onChanged: (value) => _save(_config.copyWith(dohEnabled: value)),
+            ),
+            const SizedBox(height: 10),
+            _ConnectionEntryTile(
+              icon: Icons.route_outlined,
+              title: '线路选择',
+              subtitle: fixedAddress == null
+                  ? '智能优选（推荐）'
+                  : ForumNetworkConfig.routeLabelForAddress(fixedAddress, 1),
+              status: _fixedAddressStatus,
+              active: true,
+              badgeLabel: fixedAddress == null ? '智能' : '专属',
+              onTap: () => _openFixedAddressPage(context),
+            ),
+            const SizedBox(height: 10),
+          ],
           _ConnectionEntryTile(
             icon: Icons.language,
             title: '访问入口',
@@ -285,15 +387,16 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
             onTap: () => _openSitePage(context),
           ),
           const SizedBox(height: 10),
-          _ConnectionEntryTile(
-            icon: Icons.shield_outlined,
-            title: '加密 DNS',
-            subtitle: _config.dohEnabled ? _config.dohLabel : '系统默认解析',
-            status: _dohStatus,
-            active: true,
-            badgeLabel: _config.dohEnabled ? '已启用' : '已关闭',
-            onTap: () => _openDohPage(context),
-          ),
+          if (proxy == null)
+            _ConnectionEntryTile(
+              icon: Icons.shield_outlined,
+              title: '加密 DNS',
+              subtitle: _config.dohEnabled ? _config.dohLabel : '系统默认解析',
+              status: _dohStatus,
+              active: true,
+              badgeLabel: _config.dohEnabled ? '已启用' : '已关闭',
+              onTap: () => _openDohPage(context),
+            ),
         ],
       ),
     );

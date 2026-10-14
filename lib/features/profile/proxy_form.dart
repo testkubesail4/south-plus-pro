@@ -3,6 +3,34 @@ import 'package:flutter/material.dart';
 import '../../services/forum_network_config.dart';
 import '../../theme/app_theme.dart';
 
+/// "SOCKS5 [::1]:1080"-style summary; credentials are never included.
+String proxyLabel(ForumProxy proxy) {
+  final host = proxy.host.contains(':') ? '[${proxy.host}]' : proxy.host;
+  return '${proxy.type.name.toUpperCase()} $host:${proxy.port}';
+}
+
+/// Asks before turning the proxy off, since requests then go out directly.
+Future<bool> confirmDisableProxy(BuildContext context) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('停用代理？'),
+      content: const Text('之后所有请求将不经代理，直接连接论坛。'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('停用代理，改为直接连接'),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
 /// Proxy type, host, port and optional credentials. [ForumProxy] validates;
 /// its message is shown as-is so the form and the model never disagree.
 class ProxyForm extends StatefulWidget {
@@ -175,24 +203,7 @@ class ProxyRepairScreen extends StatelessWidget {
   final Future<void> Function() onDisableProxy;
 
   Future<void> _confirmDisable(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('停用代理？'),
-        content: const Text('之后所有请求将不经代理，直接连接论坛。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('停用代理，改为直接连接'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    if (!await confirmDisableProxy(context)) return;
     try {
       await onDisableProxy();
     } catch (_) {

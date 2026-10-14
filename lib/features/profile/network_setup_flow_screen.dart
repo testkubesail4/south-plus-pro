@@ -11,9 +11,11 @@ import '../../services/forum_network_probe.dart';
 import '../../services/forum_network_setup_store.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import 'proxy_form.dart';
 
 enum _SetupStep {
   mode,
+  proxy,
   encrypted,
   entrance,
   route,
@@ -53,6 +55,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
   late _SetupStep _step =
       widget.allowSkip ? _SetupStep.mode : _SetupStep.encrypted;
   late bool _optimizeEnabled = widget.allowSkip ? _draft.dohEnabled : true;
+  late bool _useProxy = widget.allowSkip && _draft.proxy != null;
   int _probeRunId = 0;
   bool _probing = false;
   bool _saving = false;
@@ -71,6 +74,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
     return _SetupFlowPlan.steps(
       allowSkip: widget.allowSkip,
       optimizeEnabled: _optimizeEnabled,
+      useProxy: _useProxy,
     );
   }
 
@@ -93,6 +97,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
     setState(() => _probing = true);
     switch (_step) {
       case _SetupStep.mode:
+      case _SetupStep.proxy:
         break;
       case _SetupStep.encrypted:
         await _probeEncrypted(runId);
@@ -187,13 +192,24 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
   void _selectMode({required bool optimize}) {
     setState(() {
       _optimizeEnabled = optimize;
+      _useProxy = false;
       _draft = _draft.copyWith(
         dohEnabled: optimize,
         clearFixedAddress: true,
+        clearProxy: true,
       );
       _step = optimize ? _SetupStep.encrypted : _SetupStep.entrance;
     });
     unawaited(_probeCurrentStep());
+  }
+
+  // A proxy replaces network optimization; the model also clears DoH.
+  void _selectProxyMode() {
+    setState(() {
+      _useProxy = true;
+      _optimizeEnabled = false;
+      _step = _SetupStep.proxy;
+    });
   }
 
   void _selectSite(ForumSite site) {
@@ -221,7 +237,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
 
   Future<void> _goNext() async {
     if (_step == _SetupStep.summary) {
-      await _finish(skipSave: false);
+      await _finish(skipped: false);
       return;
     }
     final steps = _steps;
@@ -230,23 +246,43 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
     unawaited(_probeCurrentStep());
   }
 
+  // Skipping means no optimization and no proxy: a plain direct setup.
   Future<void> _skip() async {
-    await _finish(skipSave: true);
+    _draft = _draft.copyWith(
+      dohEnabled: false,
+      clearFixedAddress: true,
+      clearCustomDohUri: true,
+      clearProxy: true,
+    );
+    await _finish(skipped: true);
   }
 
-  Future<void> _finish({required bool skipSave}) async {
+  Future<void> _finish({required bool skipped}) async {
     if (_saving) return;
     setState(() => _saving = true);
     try {
-      if (!skipSave) {
-        await widget.repository.updateNetworkConfig(_draft);
-      }
-      await ForumNetworkSetupStore.markCompleted();
+      await widget.repository.updateNetworkConfig(_draft);
+      await ForumNetworkSetupStore.markCompleted(
+        choice: skipped
+            ? ForumNetworkSetupChoice.skip
+            : _useProxy
+                ? ForumNetworkSetupChoice.proxy
+                : _optimizeEnabled
+                    ? ForumNetworkSetupChoice.optimize
+                    : ForumNetworkSetupChoice.skip,
+      );
       await widget.onFinished?.call();
       if (!mounted) return;
       if (Navigator.of(context).canPop()) {
-        Navigator.of(context).pop(!skipSave);
+        Navigator.of(context).pop(!skipped);
       }
+    } catch (_) {
+      // Setup stays incomplete and retryable; the error may carry proxy
+      // credentials, so it is never shown.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('保存网络设置失败，请重试')),
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -348,7 +384,10 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
                   nextLabel: _step == _SetupStep.summary ? '开始使用' : '下一步',
                   saving: _saving,
                   onBack: _saving ? null : _goBack,
-                  onNext: _saving ? null : _goNext,
+                  onNext: _saving ||
+                          (_step == _SetupStep.proxy && _draft.proxy == null)
+                      ? null
+                      : _goNext,
                 ),
               ],
             ),
@@ -362,6 +401,15 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
     switch (_step) {
       case _SetupStep.mode:
         return _buildModeStep();
+      case _SetupStep.proxy:
+        return ProxyForm(
+          initial: _draft.proxy,
+          submitLabel: '使用此代理',
+          onSubmit: (proxy) async {
+            setState(() => _draft = _draft.copyWith(proxy: proxy));
+            await _goNext();
+          },
+        );
       case _SetupStep.encrypted:
         return _buildEncryptedStep();
       case _SetupStep.entrance:
@@ -416,17 +464,26 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
           icon: Icons.auto_fix_high_outlined,
           title: '开启网络优化',
           subtitle: '自动探测解析线路、访问入口和专属线路。',
-          selected: _optimizeEnabled,
+          selected: _optimizeEnabled && !_useProxy,
           recommended: true,
           onTap: () => _selectMode(optimize: true),
+        ),
+        const SizedBox(height: 12),
+        _SetupOptionCard(
+          icon: Icons.vpn_lock_outlined,
+          title: '使用代理',
+          subtitle: '所有请求经由你的 HTTP、HTTPS 或 SOCKS5 代理发送。',
+          selected: _useProxy,
+          statusLabel: _useProxy ? '已选择' : null,
+          onTap: _selectProxyMode,
         ),
         const SizedBox(height: 12),
         _SetupOptionCard(
           icon: Icons.router_outlined,
           title: '系统默认解析',
           subtitle: '能够直接访问，无需网络优化。',
-          selected: !_optimizeEnabled,
-          statusLabel: !_optimizeEnabled ? '已选择' : null,
+          selected: !_optimizeEnabled && !_useProxy,
+          statusLabel: !_optimizeEnabled && !_useProxy ? '已选择' : null,
           onTap: () => _selectMode(optimize: false),
         ),
       ],
@@ -527,6 +584,24 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
 
   Widget _buildSummaryStep() {
     final fixedAddress = _draft.fixedAddress;
+    final proxy = _draft.proxy;
+    if (proxy != null) {
+      return Column(
+        children: [
+          _SummaryPanel(
+            rows: [
+              _SummaryRow(label: '连接方式', value: proxyLabel(proxy)),
+              _SummaryRow(label: '访问入口', value: _draft.site.host),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const _ConfidencePanel(
+            title: '连接方案已准备好',
+            subtitle: '所有请求都会经由代理发送，代理不可用时不会改为直接连接。',
+          ),
+        ],
+      );
+    }
     return Column(
       children: [
         _SummaryPanel(
@@ -581,6 +656,7 @@ class _SetupFlowPlan {
   static List<_SetupStep> steps({
     required bool allowSkip,
     required bool optimizeEnabled,
+    required bool useProxy,
   }) {
     if (!allowSkip) {
       return const [
@@ -589,6 +665,9 @@ class _SetupFlowPlan {
         _SetupStep.route,
         _SetupStep.summary,
       ];
+    }
+    if (useProxy) {
+      return const [_SetupStep.mode, _SetupStep.proxy, _SetupStep.summary];
     }
     if (!optimizeEnabled) {
       return const [
@@ -614,6 +693,11 @@ extension _SetupStepMeta on _SetupStep {
         return const _StepMeta(
           '网络优化',
           '如果当前网络能直接访问，可以只选择访问入口。',
+        );
+      case _SetupStep.proxy:
+        return const _StepMeta(
+          '设置代理',
+          '所有请求都将经由你的代理发送，网络优化会关闭。',
         );
       case _SetupStep.encrypted:
         return const _StepMeta(
