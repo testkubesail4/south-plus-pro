@@ -603,6 +603,10 @@ class ForumBoard {
     this.subtitle,
     this.topicCount,
     this.postCount,
+    this.todayCount,
+    this.lastPostTitle,
+    this.lastPostTime,
+    this.hasNew = false,
     this.children = const [],
   });
 
@@ -612,6 +616,10 @@ class ForumBoard {
   final String? subtitle;
   final int? topicCount;
   final int? postCount;
+  final int? todayCount;
+  final String? lastPostTitle;
+  final String? lastPostTime;
+  final bool hasNew;
   final List<ForumBoard> children;
 
   String get slug {
@@ -673,6 +681,14 @@ class ForumReplyNotice {
   final String date;
 }
 
+class ForumQuickList {
+  const ForumQuickList({required this.title, this.threads, this.scriptUrl});
+
+  final String title;
+  final List<ForumThread>? threads;
+  final String? scriptUrl;
+}
+
 class ForumHomeSnapshot {
   const ForumHomeSnapshot({
     required this.latest,
@@ -680,6 +696,7 @@ class ForumHomeSnapshot {
     required this.sections,
     this.hasReplyNotice = false,
     this.hasUnreadPm = false,
+    this.quickLists = const [],
   });
 
   final List<ForumThread> latest;
@@ -687,6 +704,7 @@ class ForumHomeSnapshot {
   final List<ForumSection> sections;
   final bool hasReplyNotice;
   final bool hasUnreadPm;
+  final List<ForumQuickList> quickLists;
 }
 
 enum UserProfileTab {

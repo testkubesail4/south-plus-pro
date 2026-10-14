@@ -20,10 +20,46 @@ class HomePageParser {
   String? latestThreadsScriptUrl(dom.Document document) {
     final container =
         document.querySelector('.carousel-item.active') ?? document.body;
-    final scriptSrc =
-        container?.querySelector('script[src]')?.attributes['src'];
-    if (scriptSrc == null || scriptSrc.isEmpty) return null;
-    return urls.absoluteUrl(scriptSrc);
+    return _scriptUrl(document, container);
+  }
+
+  String? _scriptUrl(dom.Document document, dom.Element? container) {
+    final src = container?.querySelector('script[src]')?.attributes['src'];
+    if (src == null || src.isEmpty) return null;
+    final scriptUri = Uri.tryParse(src);
+    if (scriptUri == null) return null;
+    var base = urls.baseUri.resolve('simple/index.php');
+    final href = document.querySelector('base[href]')?.attributes['href'];
+    if (href != null && urls.isForumUrl(href)) base = base.resolve(href);
+    final resolved = base.resolveUri(scriptUri).toString();
+    return urls.isForumUrl(resolved) ? urls.absoluteUrl(resolved) : null;
+  }
+
+  List<ForumQuickList> parseQuickLists(
+      dom.Document document, List<ForumThread> activeThreads) {
+    final lists = <ForumQuickList>[];
+    for (final item in document.querySelectorAll('.carousel-item')) {
+      final title = _cleanText(item.children
+              .where((child) => child.localName == 'div')
+              .firstOrNull
+              ?.text ??
+          '');
+      if (title.isEmpty) continue;
+      final inline = _threadsFromLinks(item.querySelectorAll('a[href]'));
+      final script = _scriptUrl(document, item);
+      lists.add(ForumQuickList(
+        title: title,
+        threads: item.classes.contains('active')
+            ? activeThreads
+            : inline.isNotEmpty || script == null
+                ? inline
+                : null,
+        scriptUrl: script,
+      ));
+    }
+    return lists.isEmpty
+        ? [ForumQuickList(title: '最新讨论', threads: activeThreads)]
+        : lists;
   }
 
   List<ForumThread> parseLatestThreadsFromScript(String script) {
@@ -233,6 +269,20 @@ class HomePageParser {
       subtitle: _desktopBoardSubtitle(titleCell, mainName),
       topicCount: counts?.$1,
       postCount: counts?.$2,
+      todayCount: int.tryParse(RegExp(r'^\((\d+)\)$')
+              .firstMatch(_cleanText(
+                  titleCell.querySelector('span.s3.f10')?.text ?? ''))
+              ?.group(1) ??
+          ''),
+      lastPostTitle: row.querySelector('a.a2[href*="read.php"]')?.text.trim(),
+      lastPostTime: row
+          .querySelector('.gray2 .f9')
+          ?.text
+          .trim()
+          .replaceAll(RegExp(r'^\[|\]$'), ''),
+      hasNew: row.querySelectorAll('td.icon img[src]').any((image) =>
+          Uri.tryParse(image.attributes['src']!)?.path.split('/').last ==
+          'new.gif'),
       children: children,
     );
   }

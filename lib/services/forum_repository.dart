@@ -79,6 +79,7 @@ class ForumRepository {
       _noticeFlags.value = const ForumNoticeFlags();
       _accountIdentity.value = null;
       _accountNicknameFuture = null;
+      _invalidateQuickLists();
     });
     _sessionUser.addListener(() {
       final name = currentUsername;
@@ -114,6 +115,10 @@ class ForumRepository {
   int _profileDetailsGeneration = 0;
   final BrowsingHistoryStore _historyStore;
   final ForumTaskStateStore _taskStateStore;
+  int _homeGeneration = 0;
+  Set<ForumQuickList> _homeQuickLists = {};
+  final _quickListRequests = <ForumQuickList, Future<List<ForumThread>>>{};
+
   final _accountIdentity = ValueNotifier<ForumAccountIdentity?>(null);
   Future<void>? _accountNicknameFuture;
   ValueListenable<ForumAccountIdentity?> get accountIdentity =>
@@ -608,7 +613,46 @@ class ForumRepository {
     );
   }
 
+  void _invalidateQuickLists() {
+    _homeGeneration++;
+    _homeQuickLists = {};
+    _quickListRequests.clear();
+  }
+
+  Future<List<ForumThread>> fetchQuickList(ForumQuickList list) async {
+    if (!_homeQuickLists.contains(list)) {
+      throw const ForumRepositoryException('首页已更新，请重新打开列表');
+    }
+    if (list.threads != null) return list.threads!;
+    final cached = _quickListRequests[list];
+    if (cached != null) return cached;
+    final generation = _homeGeneration;
+    final client = _client;
+    final script = list.scriptUrl;
+    if (script == null || !_urls.isForumUrl(script)) {
+      throw const ForumRepositoryException('没有找到讨论列表');
+    }
+    final request = client.get(_urls.relativePath(script)).then((response) {
+      if (generation != _homeGeneration || !identical(client, _client)) {
+        throw const ForumRepositoryException('首页已更新，请重新打开列表');
+      }
+      final threads = _homePageParser.parseLatestThreadsFromScript(response);
+      if (threads.isEmpty) throw const ForumRepositoryException('没有解析到讨论列表');
+      return threads;
+    });
+    _quickListRequests[list] = request;
+    try {
+      return await request;
+    } catch (_) {
+      if (identical(_quickListRequests[list], request))
+        _quickListRequests.remove(list);
+      rethrow;
+    }
+  }
+
   Future<ForumHomeSnapshot> fetchHome() async {
+    _invalidateQuickLists();
+    final generation = _homeGeneration;
     // Consume session verification once; refreshes still fetch a fresh directory.
     final restoredDesktopHtml = _restoredDesktopHtml;
     _restoredDesktopHtml = null;
@@ -649,6 +693,11 @@ class ForumRepository {
       throw const ForumRepositoryException('没有解析到版块列表');
     }
 
+    if (generation != _homeGeneration) {
+      throw const ForumRepositoryException('首页已更新，请重试');
+    }
+    final quickLists = _homePageParser.parseQuickLists(document, latest);
+    _homeQuickLists = quickLists.toSet();
     if (indexDocument != null) {
       _captureIndexNotices(indexDocument);
       _captureAccountIdentity(indexDocument);
@@ -659,6 +708,7 @@ class ForumRepository {
       sections: sections,
       hasReplyNotice: _noticeFlags.value.replyNotice,
       hasUnreadPm: _noticeFlags.value.unreadPm,
+      quickLists: quickLists,
     );
   }
 
