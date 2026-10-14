@@ -239,25 +239,19 @@ class _SessionGateState extends State<SessionGate> {
           return _SessionError(
             message: '${snapshot.error}',
             onRetry: _retry,
-            onContinue: () {
-              setState(() {
-                _repository ??= widget.repository ??
-                    ForumRepository(
-                      config: const ForumNetworkConfig(
-                        site: ForumNetworkConfig.defaultSite,
-                        dohEnabled: true,
-                        dohProvider: ForumNetworkConfig.defaultProvider,
-                      ),
-                    );
-                _restoreFuture = Future<_SessionGateResult>.value(
-                  _SessionGateResult(
-                    repository: _repository!,
-                    needsNetworkSetup: false,
-                    restored: false,
-                  ),
-                );
-              });
-            },
+            onContinue: _repository == null
+                ? null
+                : () {
+                    setState(() {
+                      _restoreFuture = Future<_SessionGateResult>.value(
+                        _SessionGateResult(
+                          repository: _repository!,
+                          needsNetworkSetup: false,
+                          restored: false,
+                        ),
+                      );
+                    });
+                  },
           );
         }
 
@@ -412,7 +406,7 @@ class _SessionError extends StatelessWidget {
 
   final String message;
   final VoidCallback onRetry;
-  final VoidCallback onContinue;
+  final VoidCallback? onContinue;
 
   @override
   Widget build(BuildContext context) {
@@ -438,10 +432,11 @@ class _SessionError extends StatelessWidget {
                   label: const Text('重试'),
                 ),
                 const SizedBox(height: 10),
-                OutlinedButton(
-                  onPressed: onContinue,
-                  child: const Text('先浏览公开内容'),
-                ),
+                if (onContinue != null)
+                  OutlinedButton(
+                    onPressed: onContinue,
+                    child: const Text('先浏览公开内容'),
+                  ),
               ],
             ),
           ),

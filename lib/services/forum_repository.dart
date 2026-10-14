@@ -10,6 +10,7 @@ import '../models/forum_models.dart';
 import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
+import 'forum_http_routing.dart';
 import 'forum_network_config.dart';
 import 'forum_request_exception.dart';
 import 'forum_task_state_store.dart';
@@ -72,6 +73,7 @@ class ForumRepository {
             ),
         _historyStore = historyStore ?? BrowsingHistoryStore(),
         _taskStateStore = taskStateStore ?? const ForumTaskStateStore() {
+    ForumHttpRouting.updateProxy(_config.proxy);
     _sessionEpoch.addListener(_clearProfileDetails);
     _sessionEpoch.addListener(() {
       _restoredDesktopHtml = null;
@@ -203,6 +205,7 @@ class ForumRepository {
     _sessionEpoch.value++;
     _client.close(force: true);
     _config = config;
+    ForumHttpRouting.updateProxy(config.proxy);
     _urls = ForumUrlResolver(baseUri: config.baseUri);
     _boardThreadPageParser = BoardThreadPageParser(urls: _urls);
     _homePageParser = HomePageParser(urls: _urls);

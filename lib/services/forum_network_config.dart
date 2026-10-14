@@ -6,6 +6,8 @@ import 'dart:typed_data';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'forum_http_routing.dart';
+
 class ForumSite {
   const ForumSite(this.host);
 
@@ -34,6 +36,25 @@ class ForumProxy {
     String? username,
     String? password,
   }) {
+    final error = validationError(
+        type: type,
+        host: host,
+        port: port,
+        username: username,
+        password: password);
+    if (error != null) throw FormatException(error);
+    username = username?.isEmpty == true ? null : username;
+    return ForumProxy._(type, host.trim(), port, username,
+        username == null ? null : password ?? '');
+  }
+
+  static String? validationError({
+    required ForumProxyType type,
+    required String host,
+    required int port,
+    String? username,
+    String? password,
+  }) {
     host = host.trim();
     var validHost = false;
     try {
@@ -47,11 +68,11 @@ class ForumProxy {
               ).hasMatch(label));
     }
     if (!validHost || port < 1 || port > 65535) {
-      throw const FormatException('请输入有效的代理主机和端口');
+      return '请输入有效的代理主机和端口';
     }
     username = username?.isEmpty == true ? null : username;
     if (username == null && password != null && password.isNotEmpty) {
-      throw const FormatException('代理密码需要用户名');
+      return '代理密码需要用户名';
     }
     if (username != null) {
       password ??= '';
@@ -59,15 +80,13 @@ class ForumProxy {
           (utf8.encode(username).length > 255 ||
               utf8.encode(password).isEmpty ||
               utf8.encode(password).length > 255)) {
-        throw const FormatException('SOCKS5 用户名和密码必须为 1–255 字节');
+        return 'SOCKS5 用户名和密码必须为 1–255 字节';
       }
       if (type != ForumProxyType.socks5 && username.contains(':')) {
-        throw const FormatException('HTTP 代理用户名不能包含冒号');
+        return 'HTTP 代理用户名不能包含冒号';
       }
-    } else {
-      password = null;
     }
-    return ForumProxy._(type, host, port, username, password);
+    return null;
   }
 
   const ForumProxy._(
@@ -377,6 +396,22 @@ class ForumNetworkSettings {
     } else {
       await prefs.setString(_fixedAddressKey, fixedAddress);
     }
+  }
+
+  static Future<void> saveProxy(ForumProxy proxy) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_proxyKey, jsonEncode(proxy.toJson()));
+    await prefs.setBool(_dohEnabledKey, false);
+    await prefs.remove(_fixedAddressKey);
+    await prefs.remove(_customDohUriKey);
+  }
+
+  static Future<void> disableProxy() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_dohEnabledKey, false);
+    await prefs.remove(_fixedAddressKey);
+    await prefs.remove(_customDohUriKey);
+    await prefs.remove(_proxyKey);
   }
 
   static Future<List<ForumSite>> loadCustomSites() async {
@@ -733,7 +768,11 @@ class DohResolver {
 }
 
 HttpClient createForumHttpClient(ForumNetworkConfig config) {
-  final client = HttpClient();
+  final client = createUnroutedHttpClient();
+  if (config.proxy != null) {
+    configureForumProxy(client, config.proxy!);
+    return client;
+  }
   client.findProxy = (_) => 'DIRECT';
 
   final resolvers = {
