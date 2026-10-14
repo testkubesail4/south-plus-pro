@@ -24,14 +24,113 @@ class ForumSite {
   int get hashCode => host.hashCode;
 }
 
+enum ForumProxyType { http, https, socks5 }
+
+class ForumProxy {
+  factory ForumProxy({
+    required ForumProxyType type,
+    required String host,
+    required int port,
+    String? username,
+    String? password,
+  }) {
+    host = host.trim();
+    var validHost = false;
+    try {
+      InternetAddress(host);
+      validHost = true;
+    } on ArgumentError {
+      validHost = host.isNotEmpty &&
+          host.length <= 253 &&
+          host.split('.').every((label) => RegExp(
+                r'^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$',
+              ).hasMatch(label));
+    }
+    if (!validHost || port < 1 || port > 65535) {
+      throw const FormatException('请输入有效的代理主机和端口');
+    }
+    username = username?.isEmpty == true ? null : username;
+    if (username == null && password != null && password.isNotEmpty) {
+      throw const FormatException('代理密码需要用户名');
+    }
+    if (username != null) {
+      password ??= '';
+      if (type == ForumProxyType.socks5 &&
+          (utf8.encode(username).length > 255 ||
+              utf8.encode(password).isEmpty ||
+              utf8.encode(password).length > 255)) {
+        throw const FormatException('SOCKS5 用户名和密码必须为 1–255 字节');
+      }
+      if (type != ForumProxyType.socks5 && username.contains(':')) {
+        throw const FormatException('HTTP 代理用户名不能包含冒号');
+      }
+    } else {
+      password = null;
+    }
+    return ForumProxy._(type, host, port, username, password);
+  }
+
+  const ForumProxy._(
+      this.type, this.host, this.port, this.username, this.password);
+  final ForumProxyType type;
+  final String host;
+  final int port;
+  final String? username;
+  final String? password;
+
+  Map<String, Object?> toJson() => {
+        'type': type.name,
+        'host': host,
+        'port': port,
+        'username': username,
+        'password': password,
+      };
+
+  factory ForumProxy.fromJson(Object? value) {
+    if (value is! Map<String, dynamic> ||
+        value['host'] is! String ||
+        value['port'] is! int ||
+        (value['username'] != null && value['username'] is! String) ||
+        (value['password'] != null && value['password'] is! String)) {
+      throw const FormatException('代理设置无效，请重新配置代理');
+    }
+    final type = ForumProxyType.values
+        .where((type) => type.name == value['type'])
+        .firstOrNull;
+    if (type == null) throw const FormatException('代理类型无效');
+    return ForumProxy(
+        type: type,
+        host: value['host'] as String,
+        port: value['port'] as int,
+        username: value['username'] as String?,
+        password: value['password'] as String?);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ForumProxy &&
+      type == other.type &&
+      host == other.host &&
+      port == other.port &&
+      username == other.username &&
+      password == other.password;
+  @override
+  int get hashCode => Object.hash(type, host, port, username, password);
+  @override
+  String toString() => 'ForumProxy(${type.name}, $host:$port)';
+}
+
 class ForumNetworkConfig {
   const ForumNetworkConfig({
     required this.site,
-    required this.dohEnabled,
+    required bool dohEnabled,
     required this.dohProvider,
-    this.fixedAddress,
-    this.customDohUri,
-  });
+    String? fixedAddress,
+    String? customDohUri,
+    this.proxy,
+  })  : dohEnabled = proxy == null && dohEnabled,
+        fixedAddress = proxy == null ? fixedAddress : null,
+        customDohUri = proxy == null ? customDohUri : null;
 
   static const defaultSite = ForumSite('south-plus.net');
   static const defaultProvider = DohProvider.doh090227Sb;
@@ -72,6 +171,7 @@ class ForumNetworkConfig {
   final DohProvider dohProvider;
   final String? fixedAddress;
   final String? customDohUri;
+  final ForumProxy? proxy;
 
   Uri get baseUri => site.baseUri;
 
@@ -113,11 +213,12 @@ class ForumNetworkConfig {
           dohEnabled == other.dohEnabled &&
           dohProvider == other.dohProvider &&
           fixedAddress == other.fixedAddress &&
-          customDohUri == other.customDohUri;
+          customDohUri == other.customDohUri &&
+          proxy == other.proxy;
 
   @override
-  int get hashCode =>
-      Object.hash(site, dohEnabled, dohProvider, fixedAddress, customDohUri);
+  int get hashCode => Object.hash(
+      site, dohEnabled, dohProvider, fixedAddress, customDohUri, proxy);
 
   ForumNetworkConfig copyWith({
     ForumSite? site,
@@ -127,8 +228,18 @@ class ForumNetworkConfig {
     String? customDohUri,
     bool clearFixedAddress = false,
     bool clearCustomDohUri = false,
+    ForumProxy? proxy,
+    bool clearProxy = false,
   }) {
+    final selectedProxy = proxy ??
+        (clearProxy ||
+                dohEnabled == true ||
+                fixedAddress != null ||
+                customDohUri != null
+            ? null
+            : this.proxy);
     return ForumNetworkConfig(
+      proxy: selectedProxy,
       site: site ?? this.site,
       dohEnabled: dohEnabled ?? this.dohEnabled,
       dohProvider: dohProvider ?? this.dohProvider,
@@ -214,6 +325,7 @@ enum DohProvider {
 class ForumNetworkSettings {
   ForumNetworkSettings._();
 
+  static const _proxyKey = 'forum_network_proxy_v1';
   static const _siteHostKey = 'forum_network_site_host_v1';
   static const _dohEnabledKey = 'forum_network_doh_enabled_v1';
   static const _dohProviderKey = 'forum_network_doh_provider_v1';
@@ -224,7 +336,16 @@ class ForumNetworkSettings {
 
   static Future<ForumNetworkConfig> load() async {
     final prefs = await SharedPreferences.getInstance();
+    final proxyJson = prefs.getString(_proxyKey);
+    ForumProxy? proxy;
+    try {
+      if (proxyJson != null) proxy = ForumProxy.fromJson(jsonDecode(proxyJson));
+    } on FormatException {
+      // Never expose credential-bearing JSON through a parser exception.
+      throw const FormatException('代理设置无效，请重新配置代理');
+    }
     return ForumNetworkConfig(
+      proxy: proxy,
       site: ForumNetworkConfig.siteForHost(prefs.getString(_siteHostKey)),
       dohEnabled: prefs.getBool(_dohEnabledKey) ?? true,
       dohProvider: DohProvider.fromName(prefs.getString(_dohProviderKey)),
@@ -236,6 +357,11 @@ class ForumNetworkSettings {
 
   static Future<void> save(ForumNetworkConfig config) async {
     final prefs = await SharedPreferences.getInstance();
+    if (config.proxy == null) {
+      await prefs.remove(_proxyKey);
+    } else {
+      await prefs.setString(_proxyKey, jsonEncode(config.proxy!.toJson()));
+    }
     await prefs.setString(_siteHostKey, config.site.host);
     await prefs.setBool(_dohEnabledKey, config.dohEnabled);
     await prefs.setString(_dohProviderKey, config.dohProvider.name);
