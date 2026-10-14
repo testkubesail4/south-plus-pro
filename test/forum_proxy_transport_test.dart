@@ -234,6 +234,58 @@ void main() {
     }
   });
 
+  test('HTTPS proxy encrypts CONNECT and tunnels HTTP and HTTPS origins',
+      () async {
+    await fixture.close();
+    fixture = await _ProxyFixture.start(secureProxy: true);
+    fixture.requireAuth = true;
+    await HttpOverrides.runWithHttpOverrides(() async {
+      ForumHttpRouting.updateProxy(ForumProxy(
+          type: ForumProxyType.https,
+          host: 'localhost',
+          port: fixture.proxy.port,
+          username: 'fixture',
+          password: 'synthetic-secret'));
+      final client = HttpClient();
+      try {
+        for (final url in [
+          'http://fixture.invalid/index.php',
+          'https://api.github.com/final'
+        ]) {
+          final response = await (await client.getUrl(Uri.parse(url))).close();
+          expect(response.statusCode, 200);
+          await response.drain<void>();
+        }
+        expect(fixture.proxyHits.map((hit) => hit.$1),
+            ['fixture.invalid:80', 'api.github.com:443']);
+        expect(fixture.originAuth, everyElement(isNull));
+      } finally {
+        client.close(force: true);
+      }
+    }, _TrustedOverrides(fixture.trust));
+  });
+
+  test('HTTPS proxy certificate hostname mismatch is never accepted', () async {
+    await fixture.close();
+    fixture = await _ProxyFixture.start(secureProxy: true);
+    await HttpOverrides.runWithHttpOverrides(() async {
+      ForumHttpRouting.updateProxy(ForumProxy(
+          type: ForumProxyType.https,
+          host: '127.0.0.1',
+          port: fixture.proxy.port));
+      final client = HttpClient();
+      try {
+        await expectLater(
+            client.getUrl(Uri.parse('https://fixture.invalid/blocked')),
+            throwsA(isA<HandshakeException>()));
+        expect(fixture.proxyHits, isEmpty);
+        expect(fixture.originHits, isEmpty);
+      } finally {
+        client.close(force: true);
+      }
+    }, _TrustedOverrides(fixture.trust));
+  });
+
   test('unreachable proxy never falls back to a reachable origin', () async {
     final unused = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     final port = unused.port;
@@ -287,14 +339,17 @@ class _ProxyFixture {
   bool requireAuth = false;
   final sockets = <Socket>[];
 
-  static Future<_ProxyFixture> start() async {
+  static Future<_ProxyFixture> start({bool secureProxy = false}) async {
     final context = SecurityContext()
       ..useCertificateChain('test/support/proxy_fixture_cert.pem')
       ..usePrivateKey('test/support/proxy_fixture_key.pem');
     final trust = SecurityContext()
       ..setTrustedCertificates('test/support/proxy_fixture_cert.pem');
     final fixture = _ProxyFixture(
-      await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+      secureProxy
+          ? await HttpServer.bindSecure(
+              InternetAddress.loopbackIPv4, 0, context)
+          : await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
       await HttpServer.bindSecure(InternetAddress.loopbackIPv4, 0, context),
       await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
       trust,

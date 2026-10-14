@@ -27,10 +27,10 @@ Future<ConnectionTask<Socket>> connectForumProxy(
   Future<void> connect() async {
     try {
       if (cancelled) return;
-      if (proxy.type == ForumProxyType.https) {
-        throw const SocketException('此代理类型暂不可用');
-      }
-      connecting = await Socket.startConnect(proxy.host, proxy.port);
+      connecting = proxy.type == ForumProxyType.https
+          ? await SecureSocket.startConnect(proxy.host, proxy.port,
+              context: context)
+          : await Socket.startConnect(proxy.host, proxy.port);
       if (cancelled) connecting!.cancel();
       final socket = active = await connecting!.socket;
       if (cancelled) {
