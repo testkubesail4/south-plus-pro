@@ -26,7 +26,8 @@ Future<ConnectionTask<Socket>> connectForumProxy(
   final timer = Timer(timeout, cancel);
   Future<void> connect() async {
     try {
-      if (proxy.type != ForumProxyType.http) {
+      if (cancelled) return;
+      if (proxy.type == ForumProxyType.https) {
         throw const SocketException('此代理类型暂不可用');
       }
       connecting = await Socket.startConnect(proxy.host, proxy.port);
@@ -37,19 +38,23 @@ Future<ConnectionTask<Socket>> connectForumProxy(
         return;
       }
       final reader = _HandshakeReader(socket);
-      final authority =
-          '${target.host.contains(':') ? '[${target.host}]' : target.host}:${target.port}';
-      final auth = proxy.username == null
-          ? ''
-          : 'Proxy-Authorization: Basic ${base64Encode(utf8.encode('${proxy.username}:${proxy.password}'))}\r\n';
-      socket.write(
-          'CONNECT $authority HTTP/1.1\r\nHost: $authority\r\n${auth}Proxy-Connection: Keep-Alive\r\n\r\n');
-      await socket.flush();
-      final header = await reader.header();
-      final match =
-          RegExp(r'^HTTP/1\.[01] ([0-9]{3})(?: |\r)').firstMatch(header);
-      if (match == null || match.group(1) != '200') {
-        throw SocketException(match?.group(1) == '407' ? '代理认证失败' : '代理拒绝连接');
+      if (proxy.type == ForumProxyType.socks5) {
+        await _socksConnect(proxy, target, reader);
+      } else {
+        final authority =
+            '${target.host.contains(':') ? '[${target.host}]' : target.host}:${target.port}';
+        final auth = proxy.username == null
+            ? ''
+            : 'Proxy-Authorization: Basic ${base64Encode(utf8.encode('${proxy.username}:${proxy.password}'))}\r\n';
+        socket.write(
+            'CONNECT $authority HTTP/1.1\r\nHost: $authority\r\n${auth}Proxy-Connection: Keep-Alive\r\n\r\n');
+        await socket.flush();
+        final header = await reader.header();
+        final match =
+            RegExp(r'^HTTP/1\.[01] ([0-9]{3})(?: |\r)').firstMatch(header);
+        if (match == null || match.group(1) != '200') {
+          throw SocketException(match?.group(1) == '407' ? '代理认证失败' : '代理拒绝连接');
+        }
       }
       reader.pause();
       Socket tunnel;
@@ -74,13 +79,64 @@ Future<ConnectionTask<Socket>> connectForumProxy(
     }
   }
 
-  unawaited(connect());
+  unawaited(Future<void>(connect));
   return ConnectionTask.fromSocket(result.future, cancel);
+}
+
+Future<void> _socksConnect(
+    ForumProxy proxy, Uri target, _HandshakeReader reader) async {
+  final socket = reader.socket;
+  final authenticated = proxy.username != null;
+  socket.add(authenticated ? [5, 2, 0, 2] : [5, 1, 0]);
+  await socket.flush();
+  final method = await reader.read(2);
+  if (method[0] != 5 ||
+      !(method[1] == 0 || (authenticated && method[1] == 2))) {
+    throw const SocketException('SOCKS5 认证方式无效');
+  }
+  if (method[1] == 2) {
+    final user = utf8.encode(proxy.username!);
+    final password = utf8.encode(proxy.password!);
+    socket.add([1, user.length, ...user, password.length, ...password]);
+    await socket.flush();
+    final auth = await reader.read(2);
+    if (auth[0] != 1 || auth[1] != 0) throw const SocketException('代理认证失败');
+  }
+  final host = utf8.encode(target.host);
+  if (host.isEmpty || host.length > 255)
+    throw const SocketException('SOCKS5 目标主机无效');
+  socket.add(
+      [5, 1, 0, 3, host.length, ...host, target.port >> 8, target.port & 255]);
+  await socket.flush();
+  final reply = await reader.read(4);
+  if (reply[0] != 5 || reply[1] != 0 || reply[2] != 0) {
+    throw const SocketException('SOCKS5 代理拒绝连接');
+  }
+  final int length;
+  switch (reply[3]) {
+    case 1:
+      length = 4;
+    case 4:
+      length = 16;
+    case 3:
+      length = (await reader.read(1)).single;
+      if (length == 0) throw const SocketException('SOCKS5 响应地址无效');
+    default:
+      throw const SocketException('SOCKS5 响应地址类型无效');
+  }
+  await reader.read(length + 2);
+  if (reader._bytes.isNotEmpty) throw const SocketException('SOCKS5 响应无效');
 }
 
 class _HandshakeReader {
   _HandshakeReader(this.socket) {
     subscription = socket.listen((data) {
+      if (_bytes.length + data.length > 16384) {
+        _error = const SocketException('代理响应过大');
+        socket.destroy();
+        _wake();
+        return;
+      }
       _bytes.addAll(data);
       _changed?.complete();
       _changed = null;
@@ -100,6 +156,17 @@ class _HandshakeReader {
   void _wake() {
     _changed?.complete();
     _changed = null;
+  }
+
+  Future<List<int>> read(int count) async {
+    if (_error != null) throw _error!;
+    while (_bytes.length < count) {
+      if (_error != null) throw _error!;
+      await (_changed ??= Completer<void>()).future;
+    }
+    final result = _bytes.take(count).toList();
+    _bytes.removeRange(0, count);
+    return result;
   }
 
   Future<String> header() async {
@@ -131,11 +198,17 @@ class _TunnelSocket extends Stream<Uint8List> implements Socket {
       {Function? onError, void Function()? onDone, bool? cancelOnError}) {
     if (_listened) throw StateError('Socket already listened to');
     _listened = true;
-    subscription.onData(onData);
-    subscription.onError(onError);
-    subscription.onDone(onDone);
-    subscription.resume();
-    return subscription;
+    final stream = StreamController<Uint8List>(
+        sync: true,
+        onListen: subscription.resume,
+        onPause: subscription.pause,
+        onResume: subscription.resume,
+        onCancel: subscription.cancel);
+    subscription.onData(stream.add);
+    subscription.onError(stream.addError);
+    subscription.onDone(stream.close);
+    return stream.stream.listen(onData,
+        onError: onError, onDone: onDone, cancelOnError: cancelOnError);
   }
 
   @override
