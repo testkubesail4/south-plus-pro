@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-output=${1:?Usage: bash scripts/linux/run.sh OUTPUT_DIRECTORY}
+output=${1:?Usage: bash scripts/linux/run.sh OUTPUT_DIRECTORY [CONTAINER_COMMAND...]}
+shift
 mkdir -p "$output"
 output=$(cd "$output" && pwd)
 # Git Bash requires Windows paths for bind mounts, and no argument rewriting.
@@ -15,4 +16,4 @@ MSYS_NO_PATHCONV=1 docker run --rm \
     --mount "type=bind,source=$repo,target=/source,readonly" \
     --mount "type=bind,source=$output,target=/output" \
     --mount type=volume,source=spp-pub-cache,target=/root/.pub-cache \
-    south-plus-linux-e2e
+    south-plus-linux-e2e "$@"

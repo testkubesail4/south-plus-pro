@@ -1,3 +1,5 @@
+import json
+import struct
 import threading
 import unittest
 from urllib.error import HTTPError
@@ -23,6 +25,19 @@ class FixtureServerTest(unittest.TestCase):
                 with urlopen(base + path) as response:
                     self.assertEqual(response.status, 200)
                     self.assertIn(expected, response.read())
+            with urlopen(base + '/perf/stats') as response:
+                before = json.load(response).get('/perf/image/0.png', {'count': 0, 'bytes': 0})
+            for _ in range(2):
+                with urlopen(base + '/perf/image/0.png') as response:
+                    png = response.read()
+                    self.assertEqual(struct.unpack('!2I', png[16:24]), (1600, 4000))
+            with urlopen(base + '/perf/stats') as response:
+                after = json.load(response)['/perf/image/0.png']
+            self.assertEqual(after['count'] - before['count'], 2)
+            self.assertEqual(after['bytes'] - before['bytes'], 2 * len(png))
+            for page, count in [(1, 17), (2, 17), (3, 16)]:
+                with urlopen(base + f'/read.php?tid-900004-page-{page}.html') as response:
+                    self.assertEqual(response.read().count(b'class="js-post"'), count)
             with self.assertRaises(HTTPError) as error:
                 urlopen(base + '/unknown')
             self.assertEqual(error.exception.code, 404)
