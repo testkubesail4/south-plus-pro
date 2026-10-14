@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,6 +42,35 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('a wheel turn at the very end appends the next page',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    // Reach the end without the reader scrolling, as a programmatic jump does.
+    final position = list(tester);
+    for (var i = 0;
+        i < 100 && position.pixels != position.maxScrollExtent;
+        i++) {
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+    }
+    expect(repository.pages, [1]);
+    expect(position.pixels, position.maxScrollExtent);
+    // At the end the wheel moves nothing, yet asks for more.
+    tester.binding.handlePointerEvent(PointerScrollEvent(
+      position: tester.getCenter(find.byType(Scrollable).first),
+      scrollDelta: const Offset(0, 300),
+    ));
+    await tester.pumpAndSettle();
+    expect(repository.pages, [1, 2]);
+  });
+
+  testWidgets('到底部 appends the next page', (tester) async {
+    final repository = await pumpThread(tester);
+    await tester.tap(find.byTooltip('到底部'));
+    await tester.pumpAndSettle();
+    expect(repository.pages, [1, 2]);
+  });
+
   testWidgets('reading to the end appends the following pages', (tester) async {
     final repository = await pumpThread(tester);
     expect(repository.pages, [1], reason: 'opening loads one page');
@@ -48,7 +78,8 @@ void main() {
     for (var i = 0; i < 40 && repository.pages.length < 2; i++) {
       await scrollBy(tester, 2000);
     }
-    expect(repository.pages, [1, 2]);
+    // A fling may carry on into page 2's own end zone.
+    expect(repository.pages.take(2), [1, 2]);
     await tester.scrollUntilVisible(find.text('第 2 页'), -300);
     await tester.scrollUntilVisible(find.text('[B31F]'), 300);
 
@@ -128,18 +159,25 @@ void main() {
     }
     expect(repository.pages, [1, 2], reason: 'append of page 2 in flight');
 
+    final staleAppend = repository.held.single;
+
     // The reader jumps to the latest page while page 2 loads; that fails.
     await tester.tap(find.byTooltip('最新回复'));
     await tester.pump();
+    expect(repository.pages.last, 3);
     repository.held.last.completeError(StateError('offline'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
     // The superseded append answers late and is dropped.
-    repository.held.first.complete(repository.page(2));
-    await tester.pumpAndSettle();
+    staleAppend.complete(repository.page(2));
+    await tester.pump(const Duration(seconds: 1));
 
+    // Appends started since are answered; page 2 arrives again.
     repository.hold = false;
+    for (final answer in repository.held.skip(2)) {
+      answer.complete(repository.page(2));
+    }
     await scrollBy(tester, 400);
-    expect(repository.pages, [1, 2, 3, 2], reason: 'page 2 requested again');
+    expect(repository.pages.skip(3), contains(2), reason: 'page 2 again');
     await tester.scrollUntilVisible(find.text('第 2 页'), -300);
   });
 

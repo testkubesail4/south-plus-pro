@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 
@@ -365,6 +367,16 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
+    }
+    // Reaching the end on request is reading to the end.
+    if (mounted) _maybeLoadMore();
+  }
+
+  // A wheel turned at the very end moves nothing, so no scroll notification
+  // follows; the turn itself asks for more.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent && event.scrollDelta.dy > 0) {
+      _maybeLoadMore();
     }
   }
 
@@ -923,38 +935,42 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                 )
               : NotificationListener<ScrollNotification>(
                   onNotification: _onScroll,
-                  child: _ThreadDetailContent(
-                    detail: detail,
-                    onPostMounted: _postMounted,
-                    onRetryLoadMore: _retryLoadMore,
-                    entries: _detailEntries,
-                    loading: _loading,
-                    onlyOriginalPosterActive: _onlyOriginalPosterActive,
-                    authorFilterName:
-                        _authorFilterActive ? _authorFilterName ?? '该作者' : null,
-                    visibleFloorCount: _visibleFloorCount,
-                    favorite: detail.favorite == null
-                        ? null
-                        : _effectiveFavorite(detail.favorite!),
-                    favoriteBusy: _favoriteBusy,
-                    buyingSaleBoxes: _buyingSaleBoxes,
-                    loadingQuoteDrafts: _loadingQuoteDrafts,
-                    scrollController: _scrollController,
-                    replyKey: _replyKey,
-                    onRefresh: _refresh,
-                    onAuthorTap: _openUserProfile,
-                    onFavorite: _handleFavorite,
-                    onShowOriginalPosterPosts: _showOriginalPosterPosts,
-                    onShowAuthorPosts: _showAuthorPosts,
-                    onClearAuthorFilter: _clearAuthorFilter,
-                    onQuoteReply: _quoteReply,
-                    onBuySaleBox: _handleBuySaleBox,
-                    onReplySubmitted: _handleReplySubmitted,
-                    onPageSelected: _goToPage,
-                    onThreadLink: _openThreadLink,
-                    onExternalLink: _openExternalLink,
-                    onOpenLink: _openContentLink,
-                    repository: widget.repository,
+                  child: Listener(
+                    onPointerSignal: _onPointerSignal,
+                    child: _ThreadDetailContent(
+                      detail: detail,
+                      onPostMounted: _postMounted,
+                      onRetryLoadMore: _retryLoadMore,
+                      entries: _detailEntries,
+                      loading: _loading,
+                      onlyOriginalPosterActive: _onlyOriginalPosterActive,
+                      authorFilterName: _authorFilterActive
+                          ? _authorFilterName ?? '该作者'
+                          : null,
+                      visibleFloorCount: _visibleFloorCount,
+                      favorite: detail.favorite == null
+                          ? null
+                          : _effectiveFavorite(detail.favorite!),
+                      favoriteBusy: _favoriteBusy,
+                      buyingSaleBoxes: _buyingSaleBoxes,
+                      loadingQuoteDrafts: _loadingQuoteDrafts,
+                      scrollController: _scrollController,
+                      replyKey: _replyKey,
+                      onRefresh: _refresh,
+                      onAuthorTap: _openUserProfile,
+                      onFavorite: _handleFavorite,
+                      onShowOriginalPosterPosts: _showOriginalPosterPosts,
+                      onShowAuthorPosts: _showAuthorPosts,
+                      onClearAuthorFilter: _clearAuthorFilter,
+                      onQuoteReply: _quoteReply,
+                      onBuySaleBox: _handleBuySaleBox,
+                      onReplySubmitted: _handleReplySubmitted,
+                      onPageSelected: _goToPage,
+                      onThreadLink: _openThreadLink,
+                      onExternalLink: _openExternalLink,
+                      onOpenLink: _openContentLink,
+                      repository: widget.repository,
+                    ),
                   ),
                 ),
         );
