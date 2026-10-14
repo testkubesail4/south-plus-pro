@@ -53,30 +53,8 @@ void main() {
     // limiter spaces those sends by at least 1s; let that timer finish.
     await tester.pump(const Duration(seconds: 1));
 
-    expect(find.text('southplus'), findsOneWidget);
+    expect(find.text('欢迎来到南+'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
-  });
-
-  testWidgets('home exposes a light and dark mode toggle', (tester) async {
-    SharedPreferences.setMockInitialValues({
-      ForumNetworkSetupStore.completedKey: true,
-    });
-
-    await tester.pumpWidget(const SouthPlusApp());
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.byTooltip('切换为暗黑模式'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('切换为暗黑模式'));
-    await tester.pumpAndSettle();
-
-    expect(find.byTooltip('切换为白天模式'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('切换为白天模式'));
-    await tester.pumpAndSettle();
-
-    expect(find.byTooltip('切换为暗黑模式'), findsOneWidget);
   });
 
   testWidgets('skeleton card fits compact three-line layouts', (tester) async {
@@ -366,43 +344,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('home renders nested boards as mobile-friendly child chips',
-      (tester) async {
-    final repository = _FakeHomeRepository();
-
-    // A phone-width window: board sections start collapsed.
-    tester.view.physicalSize = const Size(360, 780);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    await tester.pumpWidget(
-      MaterialApp(home: ForumHomePage(repository: repository)),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('漫区特设'), findsOneWidget);
-
-    await tester.tap(find.text('漫区特设'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('旧物仓库'), findsOneWidget);
-    expect(find.text('C103'), findsOneWidget);
-    expect(find.text('C102'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-
-    await tester.tap(find.text('C103'));
-    await tester.pumpAndSettle();
-
-    expect(repository.requestedCategoryUrls, [
-      'https://south-plus.net/thread.php?fid-218.html',
-    ]);
-  });
-
   testWidgets('home passes parent board children into board pages',
       (tester) async {
     final repository = _FakeHomeRepository();
 
-    // A phone-width window: board sections start collapsed.
     tester.view.physicalSize = const Size(360, 780);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -412,8 +357,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('漫区特设'));
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('旧物仓库'), 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('旧物仓库'));
     await tester.pumpAndSettle();
 
@@ -729,8 +674,7 @@ void main() {
     await tester.pumpWidget(const SouthPlusApp());
     await tester.pump();
     await tester.pump();
-    final scaler =
-        MediaQuery.textScalerOf(tester.element(find.text('southplus')));
+    final scaler = MediaQuery.textScalerOf(tester.element(find.text('欢迎来到南+')));
     expect(scaler.scale(10), closeTo(10 * 1.5 * 1.15, 0.001));
     // Let the home page's paced request timer finish before teardown.
     await tester.pump(const Duration(seconds: 2));

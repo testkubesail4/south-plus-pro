@@ -24,29 +24,31 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   bool dotted(WidgetTester tester, Finder near) => tester
-      .widget<Badge>(find.ancestor(of: near, matching: find.byType(Badge)))
+      .widget<Badge>(find.descendant(of: near, matching: find.byType(Badge)))
       .isLabelVisible;
 
   testWidgets('home dots unread notices and PMs; notices open and delete',
       (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final repo =
         _Repo(const ForumNoticeFlags(replyNotice: true, unreadPm: true));
     await tester.pumpWidget(MaterialApp(home: HomeShell(repository: repo)));
     await tester.pump();
 
-    expect(
-        dotted(tester, find.byIcon(Icons.mark_chat_unread_outlined)), isTrue);
-    expect(dotted(tester, find.byIcon(Icons.mail_outline).first), isTrue);
-    expect(dotted(tester, find.byIcon(Icons.mail_outline).last), isTrue,
+    expect(dotted(tester, find.byTooltip('回复提醒，有未读')), isTrue);
+    expect(dotted(tester, find.byTooltip('短消息，有未读')), isTrue);
+    expect(dotted(tester, find.byType(NavigationBar)), isTrue,
         reason: '消息 tab in the navigation bar');
 
     repo.flags.value = const ForumNoticeFlags();
     await tester.pump();
-    expect(
-        dotted(tester, find.byIcon(Icons.mark_chat_unread_outlined)), isFalse);
-    expect(dotted(tester, find.byIcon(Icons.mail_outline).last), isFalse);
+    expect(dotted(tester, find.byTooltip('回复提醒')), isFalse);
+    expect(dotted(tester, find.byTooltip('短消息')), isFalse);
+    expect(dotted(tester, find.byType(NavigationBar)), isFalse);
 
-    await tester.tap(find.text('回复提醒'));
+    await tester.tap(find.byTooltip('回复提醒'));
     await tester.pumpAndSettle();
     expect(find.text('Fixture topic 1'), findsOneWidget);
     expect(find.text('Board 2 · 2026-01-02'), findsOneWidget);

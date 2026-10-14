@@ -168,15 +168,6 @@ class AppThemeController {
 
   static ThemeMode get themeMode => notifier.value;
 
-  static Brightness get effectiveBrightness =>
-      AppColors.effectiveBrightness(themeMode);
-
-  static bool get isDark => effectiveBrightness == Brightness.dark;
-
-  static void toggle() {
-    setMode(isDark ? ThemeMode.light : ThemeMode.dark);
-  }
-
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final name = prefs.getString(_prefKey);

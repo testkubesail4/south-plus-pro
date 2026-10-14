@@ -182,10 +182,7 @@ void main() {
       ]);
       expect(resize.exitCode, 0, reason: '${resize.stderr}');
       await tester.pumpAndSettle();
-      await tester.pumpWidget(app(() => SessionGate(
-            repository: repository,
-            onToggleTheme: AppThemeController.toggle,
-          )));
+      await tester.pumpWidget(app(() => SessionGate(repository: repository)));
       await waitFor(tester, find.text('Fixture thread'));
       await tester.pumpAndSettle();
       expect(MediaQuery.sizeOf(tester.element(find.byType(HomeShell))), size);
@@ -196,7 +193,7 @@ void main() {
         expect(find.byType(NavigationBar), findsNothing);
         expect(
             tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
-            size.width > 840);
+            isFalse);
       }
       for (final mode in [ThemeMode.light, ThemeMode.dark]) {
         await AppThemeController.setMode(mode);

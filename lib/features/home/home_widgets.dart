@@ -1,150 +1,184 @@
 part of 'home_shell.dart';
 
-class _TopBar extends StatelessWidget {
-  const _TopBar({
-    required this.repository,
-    this.onAccountTap,
-    this.onToggleTheme,
-  });
+// Home layout: a centred column (max 1200) of plain section titles on the
+// background, each over one soft surface. Red dots appear only on reply
+// notices and unread short messages.
 
-  final ForumRepository repository;
-  final VoidCallback? onAccountTap;
-  final VoidCallback? onToggleTheme;
+const _homeMaxWidth = 1200.0;
+const _noticeDot = Color(0xFFE5484D);
+
+TextStyle _sectionTitleStyle() => TextStyle(
+      color: AppColors.text,
+      fontSize: 20,
+      height: 1.3,
+      fontWeight: FontWeight.w600,
+    );
+
+BoxDecoration _surface(BuildContext context) => BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: Theme.of(context).brightness == Brightness.dark
+          ? null
+          : [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 2),
+              ),
+            ],
+    );
+
+/// Section title, with an optional muted note and a trailing action.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title, {this.note, this.trailing});
+
+  final String title;
+  final String? note;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    final nextThemeLabel = AppThemeController.isDark ? '切换为白天模式' : '切换为暗黑模式';
-    return Container(
-      height: 58,
-      padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
-      decoration: BoxDecoration(
-        color: AppColors.header,
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              'southplus',
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 21,
-                fontWeight: FontWeight.w800,
-                fontStyle: FontStyle.italic,
-                letterSpacing: 0,
-              ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                // Flexible so large system text wraps instead of overflowing.
+                Flexible(child: Text(title, style: _sectionTitleStyle())),
+                if (note != null) ...[
+                  const SizedBox(width: 10),
+                  Text(
+                    note!,
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                  ),
+                ],
+              ],
             ),
           ),
-          if (onToggleTheme != null)
-            IconButton(
-              tooltip: nextThemeLabel,
-              onPressed: onToggleTheme,
-              icon: Icon(
-                AppThemeController.isDark
-                    ? Icons.light_mode_outlined
-                    : Icons.dark_mode_outlined,
-                color: AppColors.text,
-              ),
-            ),
-          if (repository.isLoggedIn)
-            InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: onAccountTap,
-              child: Container(
-                constraints: const BoxConstraints(minHeight: 44),
-                padding: const EdgeInsets.fromLTRB(6, 0, 10, 0),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSoft,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: ValueListenableBuilder<ForumAccountIdentity?>(
-                  valueListenable: repository.accountIdentity,
-                  builder: (context, identity, _) => Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      AccountAvatar(avatarUrl: identity?.avatarUrl, size: 24),
-                      const SizedBox(width: 6),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 120),
-                        child: Text(
-                          accountDisplayName(identity) ??
-                              repository.currentUsername ??
-                              '已登录',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.brand,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            )
-          else
-            TextButton(
-              onPressed: () => openLogin(context, repository),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.brand,
-                minimumSize: const Size(56, 44),
-              ),
-              child: const Text(
-                '登录',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-              ),
-            ),
+          if (trailing != null) trailing!,
         ],
       ),
     );
   }
 }
 
-/// Reply-notice and short-message shortcuts, each dotted while unread.
-class _NoticeChips extends StatelessWidget {
-  const _NoticeChips({required this.repository, this.onMessagesTap});
+String _displayName(
+        ForumRepository repository, ForumAccountIdentity? identity) =>
+    accountDisplayName(identity) ?? repository.currentUsername ?? '已登录';
+
+void _openReplyNotices(BuildContext context, ForumRepository repository) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ReplyNoticesScreen(repository: repository),
+    ),
+  );
+}
+
+/// Phone header: one 56px row. Signed in: avatar, name and the two notice
+/// buttons; guests: the S+ mark, a welcome and 登录.
+class _CompactHeader extends StatelessWidget {
+  const _CompactHeader({
+    required this.repository,
+    this.onAccountTap,
+    this.onMessagesTap,
+  });
 
   final ForumRepository repository;
+  final VoidCallback? onAccountTap;
   final VoidCallback? onMessagesTap;
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ForumNoticeFlags>(
-      valueListenable: repository.noticeFlags,
-      builder: (context, flags, _) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 8,
+    final nameStyle = TextStyle(
+      color: AppColors.text,
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+    );
+    if (!repository.isLoggedIn) {
+      return SizedBox(
+        height: 56,
+        child: Row(
           children: [
-            _NoticeChip(
-              icon: Icons.mark_chat_unread_outlined,
-              label: '回复提醒',
-              unread: flags.replyNotice,
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ReplyNoticesScreen(repository: repository),
-                ),
+            const _BrandMark(size: 32),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '欢迎来到南+',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: nameStyle,
               ),
             ),
-            _NoticeChip(
-              icon: Icons.mail_outline,
-              label: '短消息',
-              unread: flags.unreadPm,
-              onPressed: onMessagesTap,
+            FilledButton(
+              onPressed: () => openLogin(context, repository),
+              child: const Text('登录'),
             ),
           ],
         ),
+      );
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 56),
+      child: Row(
+        children: [
+          Expanded(
+            child: ValueListenableBuilder<ForumAccountIdentity?>(
+              valueListenable: repository.accountIdentity,
+              builder: (context, identity, _) => InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: onAccountTap,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: Row(
+                    children: [
+                      AccountAvatar(avatarUrl: identity?.avatarUrl, size: 32),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          _displayName(repository, identity),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: nameStyle,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          ValueListenableBuilder<ForumNoticeFlags>(
+            valueListenable: repository.noticeFlags,
+            builder: (context, flags, _) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _NoticeIconButton(
+                  icon: Icons.alternate_email_rounded,
+                  label: '回复提醒',
+                  unread: flags.replyNotice,
+                  onPressed: () => _openReplyNotices(context, repository),
+                ),
+                _NoticeIconButton(
+                  icon: Icons.mail_outline_rounded,
+                  label: '短消息',
+                  unread: flags.unreadPm,
+                  onPressed: onMessagesTap,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _NoticeChip extends StatelessWidget {
-  const _NoticeChip({
+class _NoticeIconButton extends StatelessWidget {
+  const _NoticeIconButton({
     required this.icon,
     required this.label,
     required this.unread,
@@ -158,29 +192,226 @@ class _NoticeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      value: unread ? '有新提醒' : null,
-      child: ActionChip(
-        avatar: Badge(
-          isLabelVisible: unread,
-          child: Icon(icon, size: 18, color: AppColors.brand),
+    return IconButton(
+      tooltip: unread ? '$label，有未读' : label,
+      onPressed: onPressed,
+      icon: Badge(
+        isLabelVisible: unread,
+        smallSize: 8,
+        backgroundColor: _noticeDot,
+        child: Icon(icon, color: AppColors.textMuted),
+      ),
+    );
+  }
+}
+
+/// Wide header: a softly tinted band with the account and notices, or a
+/// welcome and 登录 for guests.
+class _WideHeader extends StatelessWidget {
+  const _WideHeader({
+    required this.repository,
+    this.onAccountTap,
+    this.onMessagesTap,
+  });
+
+  final ForumRepository repository;
+  final VoidCallback? onAccountTap;
+  final VoidCallback? onMessagesTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final chipColor =
+        dark ? Colors.white.withValues(alpha: 0.07) : AppColors.surface;
+    final nameStyle = TextStyle(
+      color: AppColors.text,
+      fontSize: 20,
+      fontWeight: FontWeight.w600,
+    );
+    final Widget content;
+    if (repository.isLoggedIn) {
+      content = Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 12,
+        children: [
+          ValueListenableBuilder<ForumAccountIdentity?>(
+            valueListenable: repository.accountIdentity,
+            builder: (context, identity, _) => InkWell(
+              borderRadius: BorderRadius.circular(28),
+              onTap: onAccountTap,
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 48),
+                padding: const EdgeInsets.only(right: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AccountAvatar(avatarUrl: identity?.avatarUrl, size: 44),
+                    const SizedBox(width: 16),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 360),
+                      child: Text(
+                        _displayName(repository, identity),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: nameStyle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          ValueListenableBuilder<ForumNoticeFlags>(
+            valueListenable: repository.noticeFlags,
+            builder: (context, flags, _) => Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _NoticeChip(
+                  icon: Icons.alternate_email_rounded,
+                  label: '回复提醒',
+                  unread: flags.replyNotice,
+                  color: chipColor,
+                  onPressed: () => _openReplyNotices(context, repository),
+                ),
+                _NoticeChip(
+                  icon: Icons.mail_outline_rounded,
+                  label: '短消息',
+                  unread: flags.unreadPm,
+                  color: chipColor,
+                  onPressed: onMessagesTap,
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    } else {
+      content = Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('欢迎来到南+', style: nameStyle),
+                const SizedBox(height: 4),
+                Text(
+                  '登录后可以查看回复提醒、短消息和收藏的帖子',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          FilledButton(
+            onPressed: () => openLogin(context, repository),
+            child: const Text('登录'),
+          ),
+        ],
+      );
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          colors: dark
+              ? const [Color(0xFF221C23), Color(0xFF1B1E28)]
+              : const [Color(0xFFFFF2F3), Color(0xFFF2F3FC)],
         ),
-        label: Text(label),
+      ),
+      child: content,
+    );
+  }
+}
+
+class _NoticeChip extends StatelessWidget {
+  const _NoticeChip({
+    required this.icon,
+    required this.label,
+    required this.unread,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool unread;
+  final Color color;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      value: unread ? '有未读' : null,
+      child: ActionChip(
+        avatar: Icon(icon, size: 18, color: AppColors.textMuted),
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label),
+            if (unread) ...[
+              const SizedBox(width: 8),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: _noticeDot,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ],
+        ),
         labelStyle: TextStyle(
           color: AppColors.text,
-          fontWeight: unread ? FontWeight.w800 : FontWeight.w600,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
         ),
-        side: BorderSide(
-          color: unread ? AppColors.brand : AppColors.border,
-        ),
-        backgroundColor: unread ? AppColors.brandSoft : AppColors.surface,
+        side: BorderSide.none,
+        shape: const StadiumBorder(),
+        backgroundColor: color,
         onPressed: onPressed,
       ),
     );
   }
 }
 
-/// 最新讨论 and the site's other quick lists: tabs on phones, columns wider.
+class _BrandMark extends StatelessWidget {
+  const _BrandMark({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.brand,
+          borderRadius: BorderRadius.circular(size * 0.3),
+        ),
+        child: Text(
+          'S+',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: size * 0.4,
+            fontWeight: FontWeight.w800,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 最新讨论 and the site's other quick lists: side-by-side columns of
+/// one-line rows when there is room, tabs of up to two-line rows otherwise.
 /// Lists the snapshot did not include load right after the home's first
 /// frame, so they never delay it.
 class _QuickLists extends StatefulWidget {
@@ -194,12 +425,18 @@ class _QuickLists extends StatefulWidget {
 
   final List<ForumQuickList> lists;
   final List<ForumThread> latest;
-  final int columns;
+  final bool columns;
   final ForumRepository repository;
 
   @override
   State<_QuickLists> createState() => _QuickListsState();
 }
+
+const _quickListIcons = {
+  '最新讨论': Icons.forum_outlined,
+  '最新回复': Icons.mode_comment_outlined,
+  '提问求物': Icons.help_outline_rounded,
+};
 
 class _QuickListsState extends State<_QuickLists> {
   late final _lists = widget.lists.isEmpty
@@ -239,80 +476,129 @@ class _QuickListsState extends State<_QuickLists> {
     _load(index);
   }
 
-  Widget _body(int index) => _QuickListBody(
+  Widget _body(int index, {required int maxLines}) => _QuickListBody(
         future: _loaded(index),
+        maxLines: maxLines,
         onRetry: () => _retry(index),
         repository: widget.repository,
       );
 
   @override
   Widget build(BuildContext context) {
-    final shortcut = _TaskShortcut(repository: widget.repository);
-    if (widget.columns == 1) {
-      return _SimpleSection(
-        title: _lists.length == 1 ? _lists.single.title : '速览',
-        icon: Icons.subject_outlined,
-        trailing: shortcut,
+    final labelStyle = TextStyle(
+      color: AppColors.textMuted,
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+    );
+    if (!widget.columns || _lists.length == 1) {
+      return Container(
+        decoration: _surface(context),
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (_lists.length > 1)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (var i = 0; i < _lists.length; i++)
-                      ChoiceChip(
-                        label: Text(_lists[i].title),
-                        selected: _tab == i,
-                        onSelected: (_) => setState(() => _tab = i),
-                      ),
-                  ],
-                ),
+              Wrap(
+                children: [
+                  for (var i = 0; i < _lists.length; i++)
+                    _QuickListTab(
+                      title: _lists[i].title,
+                      selected: _tab == i,
+                      onTap: () => setState(() => _tab = i),
+                    ),
+                ],
               ),
-            _body(_tab),
+            _body(_tab, maxLines: 2),
           ],
         ),
       );
     }
-    return _SimpleSection(
-      title: '速览',
-      icon: Icons.subject_outlined,
-      trailing: shortcut,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final columns = widget.columns.clamp(1, _lists.length);
-          final width = (constraints.maxWidth - 12 * (columns - 1)) / columns;
-          return Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (var i = 0; i < _lists.length; i++)
-                SizedBox(
-                  width: width,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          _lists[i].title,
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
+    return Container(
+      decoration: _surface(context),
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < _lists.length; i++) ...[
+            if (i > 0) const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _quickListIcons[_lists[i].title] ??
+                              Icons.subject_outlined,
+                          size: 16,
+                          color: AppColors.textMuted,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _lists[i].title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: labelStyle,
                           ),
                         ),
-                      ),
-                      _body(i),
-                    ],
+                      ],
+                    ),
                   ),
+                  _body(i, maxLines: 1),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickListTab extends StatelessWidget {
+  const _QuickListTab({
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  width: 2,
+                  color: selected ? AppColors.text : Colors.transparent,
                 ),
-            ],
-          );
-        },
+              ),
+            ),
+            child: Text(
+              title,
+              style: TextStyle(
+                color: selected ? AppColors.text : AppColors.textMuted,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -321,89 +607,78 @@ class _QuickListsState extends State<_QuickLists> {
 class _QuickListBody extends StatelessWidget {
   const _QuickListBody({
     required this.future,
+    required this.maxLines,
     required this.onRetry,
     required this.repository,
   });
 
   final Future<List<ForumThread>>? future;
+  final int maxLines;
   final VoidCallback onRetry;
   final ForumRepository repository;
 
   @override
   Widget build(BuildContext context) {
     final pending = future;
-    final Widget child;
-    if (pending == null) {
-      child = const _QuickListSkeleton();
-    } else {
-      child = FutureBuilder<List<ForumThread>>(
-        future: pending,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: TextButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh, size: 18),
-                label: Text('加载失败：${forumErrorText(snapshot.error)}'),
-              ),
-            );
-          }
-          final threads = snapshot.data;
-          if (threads == null) return const _QuickListSkeleton();
-          if (threads.isEmpty) {
-            return Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
-            );
-          }
-          return Column(
-            children: [
-              for (final (i, thread) in threads.take(5).indexed) ...[
-                if (i > 0) Divider(height: 1, color: AppColors.border),
-                InkWell(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ThreadDetailScreen(
-                        thread: thread,
-                        repository: repository,
-                      ),
-                    ),
-                  ),
-                  child: Container(
-                    width: double.infinity,
-                    constraints: const BoxConstraints(minHeight: 48),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    child: ForumTitleText(
-                      thread.title,
-                      titleStyle: thread.titleStyle,
-                      maxLines: 2,
-                      style: TextStyle(
-                        color: AppColors.text,
-                        fontSize: 14.5,
-                        height: 1.35,
-                        fontWeight: FontWeight.w600,
-                      ),
+    if (pending == null) return const _QuickListSkeleton();
+    return FutureBuilder<List<ForumThread>>(
+      future: pending,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: Text('加载失败：${forumErrorText(snapshot.error)}'),
+            ),
+          );
+        }
+        final threads = snapshot.data;
+        if (threads == null) return const _QuickListSkeleton();
+        if (threads.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
+          );
+        }
+        return Column(
+          children: [
+            for (final thread in threads.take(5))
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ThreadDetailScreen(
+                      thread: thread,
+                      repository: repository,
                     ),
                   ),
                 ),
-              ],
-            ],
-          );
-        },
-      );
-    }
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: child,
+                child: Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(minHeight: 48),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  alignment: Alignment.centerLeft,
+                  child: ForumTitleText(
+                    thread.title,
+                    titleStyle: thread.titleStyle,
+                    maxLines: maxLines,
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 15,
+                      height: 1.45,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -435,6 +710,269 @@ class _QuickListSkeleton extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// 常用版块 (boards pinned in search) for signed-in users, otherwise the
+/// site's 热门版块, as a row of chips.
+class _BoardChips extends StatefulWidget {
+  const _BoardChips({
+    required this.repository,
+    required this.hotBoards,
+    required this.scroll,
+    required this.onOpen,
+  });
+
+  final ForumRepository repository;
+  final List<ForumCategory> hotBoards;
+  final bool scroll;
+  final ValueChanged<ForumCategory> onOpen;
+
+  @override
+  State<_BoardChips> createState() => _BoardChipsState();
+}
+
+class _BoardChipsState extends State<_BoardChips> {
+  List<ForumSearchPinnedBoard> _pinned = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPins();
+  }
+
+  // Home stays alive in the tab stack; re-read pins whenever it rebuilds
+  // (tab switch, refresh) so pins changed in search show up.
+  @override
+  void didUpdateWidget(_BoardChips oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _loadPins();
+  }
+
+  void _loadPins() {
+    if (!widget.repository.isLoggedIn) return;
+    ForumSearchPreferences.load(account: widget.repository.currentUsername)
+        .then((prefs) {
+      if (mounted) setState(() => _pinned = prefs.pinnedBoards);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pinned = widget.repository.isLoggedIn && _pinned.isNotEmpty;
+    final boards = pinned
+        ? [
+            for (final pin in _pinned)
+              ForumCategory(name: pin.label, slug: 'fid-${pin.id}'),
+          ]
+        : widget.hotBoards;
+    if (boards.isEmpty) return const SizedBox.shrink();
+    final chips = [
+      for (final board in boards)
+        ActionChip(
+          label: Text(board.name),
+          labelStyle: TextStyle(
+            color: AppColors.text,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+          shape: const StadiumBorder(),
+          side: BorderSide(color: AppColors.border),
+          backgroundColor: AppColors.surface,
+          onPressed: () => widget.onOpen(board),
+        ),
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(top: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(pinned ? '常用版块' : '热门版块'),
+          if (!widget.scroll)
+            Wrap(spacing: 8, runSpacing: 4, children: chips)
+          else
+            // A trailing fade shows the row continues past the edge.
+            ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (rect) => LinearGradient(
+                colors: const [Colors.black, Colors.black, Colors.transparent],
+                stops: [0, 1 - 24 / rect.width, 1],
+              ).createShader(rect),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(right: 24),
+                child: Row(
+                  children: [
+                    for (final (i, chip) in chips.indexed) ...[
+                      if (i > 0) const SizedBox(width: 8),
+                      chip,
+                    ],
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Boards of one section on one surface: a list on phones, a grid of
+/// [columns] wider. Each board shows its name, today's count, the last post
+/// and its time with the topic total.
+class _BoardGrid extends StatelessWidget {
+  const _BoardGrid({
+    required this.boards,
+    required this.columns,
+    required this.onOpen,
+  });
+
+  final List<ForumBoard> boards;
+  final int columns;
+  final ValueChanged<ForumBoard> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    if (columns == 1) {
+      return Container(
+        decoration: _surface(context),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            for (final (i, board) in boards.indexed) ...[
+              if (i > 0)
+                Divider(
+                  height: 1,
+                  indent: 16,
+                  endIndent: 16,
+                  color: AppColors.border.withValues(alpha: 0.6),
+                ),
+              _BoardTile(
+                board: board,
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                onOpen: onOpen,
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+    return Container(
+      decoration: _surface(context),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          for (var start = 0; start < boards.length; start += columns)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var c = 0; c < columns; c++) ...[
+                  if (c > 0) const SizedBox(width: 8),
+                  Expanded(
+                    child: start + c < boards.length
+                        ? _BoardTile(
+                            board: boards[start + c],
+                            padding: const EdgeInsets.all(12),
+                            onOpen: onOpen,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+String _thousands(int value) => value
+    .toString()
+    .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
+
+class _BoardTile extends StatelessWidget {
+  const _BoardTile({
+    required this.board,
+    required this.padding,
+    required this.onOpen,
+  });
+
+  final ForumBoard board;
+  final EdgeInsets padding;
+  final ValueChanged<ForumBoard> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final today = board.todayCount ?? 0;
+    final lastPostTitle = board.lastPostTitle;
+    final meta = [
+      if (board.lastPostTime != null) board.lastPostTime!,
+      if (board.topicCount != null) '${_thousands(board.topicCount!)} 主题',
+    ];
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => onOpen(board),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: padding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Flexible(
+                  child: Text(
+                    board.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (today > 0) ...[
+                  const SizedBox(width: 10),
+                  Text(
+                    '今日 $today',
+                    style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (lastPostTitle != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                lastPostTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Color.lerp(AppColors.textMuted, AppColors.text, 0.35),
+                  fontSize: 13,
+                ),
+              ),
+            ],
+            if (meta.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                meta.join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -572,11 +1110,10 @@ class _TaskShortcutState extends State<_TaskShortcut> {
                     ? '已自动签到'
                     : '已签到'
                 : cooldownLabel ?? '任务奖励';
-    final foreground = success ? AppColors.success : AppColors.brand;
-    final border = success ? AppColors.successBorder : AppColors.brandSoft;
+    final foreground = success ? AppColors.success : AppColors.textMuted;
     final icon = success ? Icons.check_circle_outline : Icons.redeem_outlined;
 
-    return OutlinedButton.icon(
+    return TextButton.icon(
       onPressed: _running ? null : _claimRewards,
       icon: _running
           ? SizedBox(
@@ -589,19 +1126,9 @@ class _TaskShortcutState extends State<_TaskShortcut> {
             )
           : Icon(icon, size: 18),
       label: Text(label),
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 40),
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      style: TextButton.styleFrom(
         foregroundColor: foreground,
-        side: BorderSide(color: border),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        textStyle: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w800,
-        ),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -618,507 +1145,5 @@ class _TaskShortcutState extends State<_TaskShortcut> {
     final hours = cooldowns.first.inHours;
     if (hours <= 0) return '待刷新';
     return '${hours}h 后';
-  }
-}
-
-class _ForumGroup extends StatelessWidget {
-  const _ForumGroup({
-    required this.title,
-    required this.children,
-    this.initiallyExpanded = true,
-    this.icon,
-  });
-
-  final String title;
-  final List<Widget> children;
-  final bool initiallyExpanded;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: Container(
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: ExpansionTile(
-            initiallyExpanded: initiallyExpanded,
-            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-            childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-            collapsedIconColor: AppColors.brand,
-            iconColor: AppColors.brand,
-            leading: icon == null
-                ? null
-                : Icon(icon, color: AppColors.brand, size: 20),
-            title: Text(
-              title,
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            children: children,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ForumLink extends StatelessWidget {
-  const _ForumLink({required this.title, required this.subtitle, this.onTap});
-
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      minVerticalPadding: 10,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      leading: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: AppColors.brandSoft,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(Icons.tag_outlined, color: AppColors.brand, size: 18),
-      ),
-      title: Text(
-        title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: AppColors.text,
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-      ),
-      trailing: Icon(Icons.chevron_right, color: AppColors.textMuted),
-      onTap: onTap,
-    );
-  }
-}
-
-/// Boards of one section: rows on phones, [columns] of cards wider.
-class _BoardGrid extends StatelessWidget {
-  const _BoardGrid({
-    required this.boards,
-    required this.columns,
-    required this.showCounts,
-    required this.onOpen,
-  });
-
-  final List<ForumBoard> boards;
-  final int columns;
-  final bool showCounts;
-  final ValueChanged<ForumBoard> onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    if (columns == 1) {
-      return Column(
-        children: [
-          for (final board in boards)
-            _BoardTile(
-                board: board,
-                card: false,
-                showCounts: showCounts,
-                onOpen: onOpen),
-        ],
-      );
-    }
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = (constraints.maxWidth - 8 * (columns - 1)) / columns;
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final board in boards)
-              SizedBox(
-                width: width,
-                child: _BoardTile(
-                  board: board,
-                  card: true,
-                  showCounts: showCounts,
-                  onOpen: onOpen,
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _BoardTile extends StatelessWidget {
-  const _BoardTile({
-    required this.board,
-    required this.card,
-    required this.showCounts,
-    required this.onOpen,
-  });
-
-  final ForumBoard board;
-  final bool card;
-  final bool showCounts;
-  final ValueChanged<ForumBoard> onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final today = board.todayCount ?? 0;
-    final subtitle = board.subtitle;
-    final lastPostTitle = board.lastPostTitle;
-    final meta = [
-      if (board.lastPostTime != null) board.lastPostTime!,
-      if (showCounts && board.topicCount != null && board.postCount != null)
-        '${board.topicCount} 主题 / ${board.postCount} 文章',
-    ];
-    final muted = TextStyle(color: AppColors.textMuted, fontSize: 12);
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            // No new-post dot: red dots are reserved for notices and PMs.
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.brandSoft,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(Icons.tag_outlined, color: AppColors.brand, size: 18),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          board.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.text,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      if (today > 0) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandSoft,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            '今日 $today',
-                            style: TextStyle(
-                              color: AppColors.brand,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (card && subtitle != null && subtitle.isNotEmpty)
-                    Text(subtitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: muted),
-                  if (card && lastPostTitle != null)
-                    Text(
-                      lastPostTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: AppColors.text, fontSize: 13),
-                    ),
-                  if (meta.isNotEmpty)
-                    Text(meta.join(' · '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: muted),
-                ],
-              ),
-            ),
-            if (!card) Icon(Icons.chevron_right, color: AppColors.textMuted),
-          ],
-        ),
-        if (board.children.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(46, 8, 0, 0),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final child in board.children)
-                  ActionChip(
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    side: BorderSide(color: AppColors.border),
-                    backgroundColor: AppColors.surfaceTint,
-                    label: Text(
-                      child.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.link,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    onPressed: () => onOpen(child),
-                  ),
-              ],
-            ),
-          ),
-      ],
-    );
-    return Material(
-      color: card ? AppColors.surface : Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: card ? BorderSide(color: AppColors.border) : BorderSide.none,
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: () => onOpen(board),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
-          child: content,
-        ),
-      ),
-    );
-  }
-}
-
-/// Signed-in wide-window side panel: account, notices, and the boards pinned in
-/// search (热门版块 until the user pins any).
-class _SidePanel extends StatefulWidget {
-  const _SidePanel({
-    required this.repository,
-    required this.hotBoards,
-    required this.onOpenBoard,
-    this.onAccountTap,
-    this.onMessagesTap,
-  });
-
-  final ForumRepository repository;
-  final List<ForumCategory> hotBoards;
-  final ValueChanged<ForumCategory> onOpenBoard;
-  final VoidCallback? onAccountTap;
-  final VoidCallback? onMessagesTap;
-
-  @override
-  State<_SidePanel> createState() => _SidePanelState();
-}
-
-class _SidePanelState extends State<_SidePanel> {
-  List<ForumSearchPinnedBoard> _pinned = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPins();
-  }
-
-  // Home stays alive in the tab stack; re-read pins whenever it rebuilds
-  // (tab switch, refresh) so pins changed in search show up.
-  @override
-  void didUpdateWidget(_SidePanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _loadPins();
-  }
-
-  void _loadPins() {
-    ForumSearchPreferences.load(account: widget.repository.currentUsername)
-        .then((prefs) {
-      if (mounted) setState(() => _pinned = prefs.pinnedBoards);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final repository = widget.repository;
-    final pinned = _pinned.isNotEmpty;
-    final boards = pinned
-        ? [
-            for (final pin in _pinned)
-              ForumCategory(name: pin.label, slug: 'fid-${pin.id}'),
-          ]
-        : widget.hotBoards;
-    return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      children: [
-        ValueListenableBuilder<ForumAccountIdentity?>(
-          valueListenable: repository.accountIdentity,
-          builder: (context, identity, _) => ListTile(
-            leading: AccountAvatar(avatarUrl: identity?.avatarUrl, size: 40),
-            title: Text(
-              accountDisplayName(identity) ??
-                  repository.currentUsername ??
-                  '已登录',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            subtitle: const Text('我的'),
-            onTap: widget.onAccountTap,
-          ),
-        ),
-        _NoticeChips(
-          repository: repository,
-          onMessagesTap: widget.onMessagesTap,
-        ),
-        if (boards.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-            child: Row(
-              children: [
-                Icon(
-                  pinned
-                      ? Icons.push_pin_outlined
-                      : Icons.local_fire_department_outlined,
-                  color: AppColors.brand,
-                  size: 20,
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  pinned ? '常用版块' : '热门版块',
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Column(
-              children: [
-                for (final board in boards)
-                  _ForumLink(
-                    title: board.name,
-                    subtitle: board.slug,
-                    onTap: () => widget.onOpenBoard(board),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _SimpleSection extends StatelessWidget {
-  const _SimpleSection({
-    required this.title,
-    required this.child,
-    this.icon,
-    this.trailing,
-  });
-
-  final String title;
-  final Widget child;
-  final IconData? icon;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Row(
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, color: AppColors.brand, size: 20),
-                  const SizedBox(width: 7),
-                ],
-                // Expanded so large system text wraps instead of overflowing.
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      color: AppColors.text,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                if (trailing != null) trailing!,
-              ],
-            ),
-          ),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-class _DesktopLink extends StatelessWidget {
-  const _DesktopLink();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 14, bottom: 10),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.desktop_windows_outlined,
-                  size: 17, color: AppColors.brand),
-              const SizedBox(width: 6),
-              Text(
-                '桌面版',
-                style: TextStyle(color: AppColors.brand, fontSize: 14),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Powered by SP Project v1.0',
-            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-          ),
-        ],
-      ),
-    );
   }
 }

@@ -16,10 +16,11 @@ void main() {
   Future<_Repo> pumpAt(
     WidgetTester tester,
     double width, {
+    double height = 900,
     double textScale = 1,
     bool guest = false,
   }) async {
-    tester.view.physicalSize = Size(width, 900);
+    tester.view.physicalSize = Size(width, height);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final repo = _Repo()..loggedIn = !guest;
@@ -35,43 +36,60 @@ void main() {
     return repo;
   }
 
-  Finder boardCard() => find
+  Finder boardTile() => find
       .ancestor(of: find.text('Fixture board'), matching: find.byType(InkWell))
       .first;
 
-  testWidgets('phone: bottom bar, notice chips, tabbed lists, board rows',
+  Future<void> showBoard(WidgetTester tester) =>
+      tester.scrollUntilVisible(find.text('Fixture board'), 200,
+          scrollable: find.byType(Scrollable).first);
+
+  testWidgets('phone: bottom bar, one-row header, tabbed lists, board rows',
       (tester) async {
     final repo = await pumpAt(tester, 360);
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byType(NavigationRail), findsNothing);
-    expect(find.text('回复提醒'), findsOneWidget);
+    expect(find.text('Fixture user'), findsOneWidget);
+    for (final label in ['回复提醒', '短消息']) {
+      final button = find.ancestor(
+          of: find.byTooltip(label), matching: find.byType(IconButton));
+      expect(tester.getSize(button).width, greaterThanOrEqualTo(48));
+      expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+    }
+    final account = find
+        .ancestor(of: find.text('Fixture user'), matching: find.byType(InkWell))
+        .first;
+    expect(tester.getSize(account).height, greaterThanOrEqualTo(48));
+    repo.flags.value =
+        const ForumNoticeFlags(replyNotice: true, unreadPm: true);
+    await tester.pump();
+    expect(find.byTooltip('回复提醒，有未读'), findsOneWidget);
+    expect(find.byTooltip('短消息，有未读'), findsOneWidget);
+    repo.flags.value = const ForumNoticeFlags();
+    await tester.pump();
     expect(repo.quickListLoads, ['最新回复', '提问求物'],
         reason: 'the other lists load on their own');
 
     expect(find.text('Latest 1'), findsOneWidget);
-    await tester.tap(find.widgetWithText(ChoiceChip, '最新回复'));
+    await tester.tap(find.text('最新回复'));
     await tester.pumpAndSettle();
     expect(repo.quickListLoads, hasLength(2), reason: 'no reload on tab');
     expect(find.text('Reply 5'), findsOneWidget);
     expect(find.text('Reply 6'), findsNothing, reason: 'five rows at most');
     expect(find.text('Latest 1'), findsNothing);
 
-    // Sections start collapsed on phones.
-    expect(find.text('Fixture board'), findsNothing);
-    await tester.scrollUntilVisible(find.text('Fixture section'), 200);
-    await tester.tap(find.text('Fixture section'));
-    await tester.pumpAndSettle();
-    expect(find.text('Fixture board'), findsOneWidget);
+    await showBoard(tester);
     expect(find.text('今日 2'), findsOneWidget);
-    expect(find.text('2026-01-01 10:00'), findsOneWidget);
+    expect(find.text('Last topic'), findsOneWidget);
+    expect(find.text('2026-01-01 10:00 · 1,234 主题'), findsOneWidget);
     expect(
-      find.descendant(of: boardCard(), matching: find.byType(Badge)),
+      find.descendant(of: boardTile(), matching: find.byType(Badge)),
       findsNothing,
       reason: 'a board with new posts gets no dot',
     );
     expect(find.bySemanticsLabel('有新帖'), findsNothing);
-    expect(find.text('Child board'), findsOneWidget);
-    expect(find.text('Last topic'), findsNothing, reason: 'rows stay short');
+    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    expect(find.textContaining('fid-'), findsNothing, reason: 'no slugs');
   });
 
   testWidgets('a hidden list that fails offers retry when opened',
@@ -84,7 +102,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, '提问求物'));
+    await tester.tap(find.text('提问求物'));
     await tester.pumpAndSettle();
     expect(find.textContaining('加载失败'), findsOneWidget);
     await tester.tap(find.textContaining('加载失败'));
@@ -92,70 +110,74 @@ void main() {
     expect(find.text('Reply 1'), findsOneWidget);
   });
 
-  testWidgets('tablet: rail, list columns fill without buttons, board cards',
+  testWidgets('desktop: slim rail, centred column, list columns, board grid',
       (tester) async {
-    final repo = await pumpAt(tester, 700);
+    await pumpAt(tester, 1440);
     final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
     expect(rail.extended, isFalse);
+    expect(rail.labelType, NavigationRailLabelType.all);
     expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('回复提醒'), findsOneWidget, reason: 'header chips');
+    final account = find
+        .ancestor(of: find.text('Fixture user'), matching: find.byType(InkWell))
+        .first;
+    expect(tester.getSize(account).height, greaterThanOrEqualTo(48));
+    for (final label in ['回复提醒', '短消息']) {
+      final chip = find.ancestor(
+          of: find.text(label), matching: find.byType(ActionChip));
+      expect(tester.getSize(chip).height, greaterThanOrEqualTo(48));
+    }
 
-    expect(find.text('Latest 1'), findsOneWidget);
-    expect(find.text('点按加载'), findsNothing);
-    expect(repo.quickListLoads, ['最新回复', '提问求物']);
+    // All three lists side by side, already loaded.
+    for (final title in ['最新讨论', '最新回复', '提问求物']) {
+      expect(find.text(title), findsOneWidget);
+    }
     expect(find.text('Reply 1'), findsNWidgets(2));
+    expect(find.text('点按加载'), findsNothing);
+    final rowHeight = tester
+        .getSize(find
+            .ancestor(of: find.text('Latest 1'), matching: find.byType(InkWell))
+            .first)
+        .height;
+    expect(rowHeight, greaterThanOrEqualTo(48));
 
-    await tester.scrollUntilVisible(find.text('Fixture board'), 200);
-    expect(find.text('Last topic'), findsOneWidget);
-    expect(find.textContaining('主题 /'), findsNothing);
+    // Content is centred at most 1200 wide.
+    final header = tester.getRect(find.text('速览'));
+    expect(header.left, (1440 - 81 - 1200) / 2 + 81);
+
+    await showBoard(tester);
+    expect(tester.getSize(boardTile()).width, closeTo((1200 - 24 - 16) / 3, 1));
+    expect(find.text('Child board'), findsNothing);
+    expect(find.textContaining('fid-'), findsNothing, reason: 'no slugs');
   });
 
-  testWidgets('desktop: extended rail, side panel, counts on cards',
-      (tester) async {
-    await pumpAt(tester, 1200);
-    final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
-    expect(rail.extended, isTrue);
-    expect(find.text('热门版块'), findsOneWidget, reason: 'in the side panel');
-    expect(find.text('Hot board'), findsOneWidget);
-    expect(find.text('回复提醒'), findsOneWidget);
-
-    await tester.scrollUntilVisible(find.text('Fixture board'), 200,
-        scrollable: find.byType(Scrollable).last);
-    expect(find.text('2026-01-01 10:00 · 6 主题 / 156 文章'), findsOneWidget);
-  });
-
-  testWidgets('expanded boundary keeps the feed usable without side panel',
-      (tester) async {
-    await pumpAt(tester, 841);
-    expect(
-      tester.widget<NavigationRail>(find.byType(NavigationRail)).extended,
-      isTrue,
-    );
-    expect(find.text('回复提醒'), findsOneWidget, reason: 'chips in the feed');
-    await tester.scrollUntilVisible(find.text('Fixture board'), 200);
-    expect(tester.getSize(boardCard()).width, greaterThanOrEqualTo(260));
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final width in [600.0, 841.0, 1100.0]) {
-    testWidgets('large text fits at ${width.toInt()}px', (tester) async {
-      await pumpAt(tester, width, textScale: 2);
-      await tester.scrollUntilVisible(find.text('Fixture board'), 200,
-          scrollable: find.byType(Scrollable).last);
+  for (final size in const [Size(400, 800), Size(900, 700), Size(1440, 900)]) {
+    testWidgets(
+        'text scale 2 fits at ${size.width.toInt()}x${size.height.toInt()}',
+        (tester) async {
+      await pumpAt(tester, size.width, height: size.height, textScale: 2);
+      expect(tester.takeException(), isNull);
+      await showBoard(tester);
       expect(tester.takeException(), isNull);
     });
   }
 
-  testWidgets('guests get no side panel; the feed keeps the width',
-      (tester) async {
-    await pumpAt(tester, 1200, guest: true);
-    expect(find.text('我的'), findsOneWidget, reason: 'only the rail label');
+  testWidgets('guests: welcome and 登录, hot boards, no notices', (tester) async {
+    await pumpAt(tester, 1440, guest: true);
+    expect(find.text('欢迎来到南+'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '登录'), findsOneWidget);
     expect(find.text('回复提醒'), findsNothing);
-    expect(find.widgetWithText(TextButton, '登录'), findsOneWidget);
-    expect(find.text('热门版块'), findsOneWidget, reason: 'in the feed');
-    expect(tester.getSize(find.byType(ListView).first).width, greaterThan(900));
+    expect(find.text('热门版块'), findsOneWidget);
+    expect(find.widgetWithText(ActionChip, 'Hot board'), findsOneWidget);
+
+    await pumpAt(tester, 400, guest: true);
+    expect(find.text('欢迎来到南+'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '登录'), findsOneWidget);
+    expect(find.byTooltip('回复提醒'), findsNothing);
   });
 
-  testWidgets('side panel lists the boards pinned in search', (tester) async {
+  testWidgets('pinned boards from search replace the hot boards',
+      (tester) async {
     await ForumSearchPreferences.savePinnedBoards(
       const [ForumSearchPinnedBoard(id: '42', label: 'Pinned board')],
       account: 'fixture_login',
@@ -191,6 +213,15 @@ class _Repo extends ForumRepository {
   @override
   String? get currentUsername => 'fixture_login';
 
+  final flags = ValueNotifier(const ForumNoticeFlags());
+
+  @override
+  ValueNotifier<ForumNoticeFlags> get noticeFlags => flags;
+
+  @override
+  final accountIdentity = ValueNotifier(const ForumAccountIdentity(
+      systemName: 'fixture_login', nickname: 'Fixture user'));
+
   @override
   Future<ForumHomeSnapshot> fetchHome() async => ForumHomeSnapshot(
         latest: [_thread('Latest 1')],
@@ -210,7 +241,7 @@ class _Repo extends ForumRepository {
                 name: 'Fixture board',
                 url: 'https://south-plus.net/thread.php?fid-42.html',
                 section: 'Fixture section',
-                topicCount: 6,
+                topicCount: 1234,
                 postCount: 156,
                 todayCount: 2,
                 lastPostTitle: 'Last topic',

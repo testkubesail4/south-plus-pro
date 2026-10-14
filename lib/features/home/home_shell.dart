@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -22,14 +23,10 @@ import '../thread/thread_detail_screen.dart';
 part 'home_widgets.dart';
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({
-    super.key,
-    ForumRepository? repository,
-    this.onToggleTheme,
-  }) : repository = repository;
+  const HomeShell({super.key, ForumRepository? repository})
+      : repository = repository;
 
   final ForumRepository? repository;
-  final VoidCallback? onToggleTheme;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -83,7 +80,6 @@ class _HomeShellState extends State<HomeShell> {
                       repository: _repository,
                       onAccountTap: () => _select(4),
                       onMessagesTap: () => _select(3),
-                      onToggleTheme: widget.onToggleTheme,
                     ),
                   ),
                   tab(1, () => FavoriteThreadsPage(repository: _repository)),
@@ -141,7 +137,6 @@ class _HomeShellState extends State<HomeShell> {
               ];
               // Rail on tablets and desktop windows; bottom bar on phones.
               final rail = width >= 600;
-              final extended = width > 840;
               return Scaffold(
                 body: Row(
                   children: [
@@ -149,12 +144,14 @@ class _HomeShellState extends State<HomeShell> {
                       SafeArea(
                         right: false,
                         child: NavigationRail(
-                          extended: extended,
                           selectedIndex: _index,
                           onDestinationSelected: _select,
-                          labelType: extended
-                              ? NavigationRailLabelType.none
-                              : NavigationRailLabelType.all,
+                          minWidth: 80,
+                          labelType: NavigationRailLabelType.all,
+                          leading: const Padding(
+                            padding: EdgeInsets.only(top: 4, bottom: 12),
+                            child: _BrandMark(size: 40),
+                          ),
                           destinations: [
                             for (final (icon, selected, label) in destinations)
                               NavigationRailDestination(
@@ -207,7 +204,6 @@ class ForumHomePage extends StatefulWidget {
     required this.repository,
     this.onAccountTap,
     this.onMessagesTap,
-    this.onToggleTheme,
   });
 
   final ForumRepository repository;
@@ -217,7 +213,6 @@ class ForumHomePage extends StatefulWidget {
 
   /// Shows the 消息 (short messages) tab.
   final VoidCallback? onMessagesTap;
-  final VoidCallback? onToggleTheme;
 
   @override
   State<ForumHomePage> createState() => _ForumHomePageState();
@@ -273,116 +268,93 @@ class _ForumHomePageState extends State<ForumHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Window breakpoints: compact < 600 <= medium <= 840 < expanded. The
-    // account side panel needs room beside the extended rail: 1100 and up.
-    final width = MediaQuery.sizeOf(context).width;
-    final compact = width < 600;
-    final expanded = width > 840;
-    final loggedIn = widget.repository.isLoggedIn;
-    // Guests keep the feed full width; their login entry is in the top bar.
-    final sidePanel = width >= 1100 && loggedIn;
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: FutureBuilder<ForumHomeSnapshot>(
-          future: _future,
-          builder: (context, snapshot) {
-            final data = snapshot.data;
-            final hot = [
-              for (final category in data?.hot ?? const <ForumCategory>[])
-                _ForumLink(
-                  title: category.name,
-                  subtitle: category.slug,
-                  onTap: () => _openCategory(category),
-                ),
-            ];
-            // Columns follow the feed's own width so cards never get cramped.
-            final feed = LayoutBuilder(
-              builder: (context, constraints) => RefreshIndicator(
-                color: AppColors.brand,
-                onRefresh: _refresh,
-                child: ListView(
-                  padding: const EdgeInsets.only(bottom: 20),
-                  children: [
-                    _TopBar(
-                      repository: widget.repository,
-                      onAccountTap: widget.onAccountTap,
-                      onToggleTheme: widget.onToggleTheme,
-                    ),
-                    if (loggedIn && !sidePanel)
-                      _NoticeChips(
-                        repository: widget.repository,
-                        onMessagesTap: widget.onMessagesTap,
-                      ),
-                    if (snapshot.hasError)
-                      AsyncErrorView(
-                        title: '主页加载失败',
-                        message: '${snapshot.error}',
-                        onRetry: _refresh,
-                      )
-                    else if (data == null)
-                      const HomeSkeleton()
-                    else ...[
-                      const SizedBox(height: 18),
-                      _QuickLists(
-                        // Lazy lists reload with the snapshot they came from.
-                        key: ObjectKey(data),
-                        lists: data.quickLists,
-                        latest: data.latest,
-                        columns: compact
-                            ? 1
-                            : (constraints.maxWidth / 240).floor().clamp(2, 4),
-                        repository: widget.repository,
-                      ),
-                      const SizedBox(height: 14),
-                      if (!sidePanel && hot.isNotEmpty)
-                        _ForumGroup(
-                          title: '热门版块',
-                          icon: Icons.local_fire_department_outlined,
-                          children: hot,
-                        ),
-                      for (final section in data.sections)
-                        _ForumGroup(
-                          title: section.title,
-                          initiallyExpanded: !compact,
-                          children: [
-                            _BoardGrid(
-                              boards: section.items,
-                              columns: compact
-                                  ? 1
-                                  : (constraints.maxWidth / 300)
-                                      .floor()
-                                      .clamp(2, 4),
-                              showCounts: expanded,
-                              onOpen: _openBoard,
-                            ),
-                          ],
-                        ),
-                      const _DesktopLink(),
-                    ],
-                  ],
-                ),
-              ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // A centred column at most _homeMaxWidth wide; phones (< 600)
+            // get a compact header and single-column lists.
+            final width = constraints.maxWidth;
+            final compact = width < 600;
+            final gutter = math.max(
+              compact ? 16.0 : 32.0,
+              (width - _homeMaxWidth) / 2,
             );
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (sidePanel) ...[
-                  SizedBox(
-                    width: 300,
-                    child: _SidePanel(
-                      repository: widget.repository,
-                      onAccountTap: widget.onAccountTap,
-                      onMessagesTap: widget.onMessagesTap,
-                      onOpenBoard: _openCategory,
-                      hotBoards: data?.hot ?? const [],
+            final inner = width - 2 * gutter;
+            return RefreshIndicator(
+              color: AppColors.brand,
+              onRefresh: _refresh,
+              child: FutureBuilder<ForumHomeSnapshot>(
+                future: _future,
+                builder: (context, snapshot) {
+                  final data = snapshot.data;
+                  return ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      gutter,
+                      compact ? 4 : 24,
+                      gutter,
+                      32,
                     ),
-                  ),
-                  VerticalDivider(width: 1, color: AppColors.border),
-                ],
-                // Keyed so crossing a breakpoint keeps scroll and lazy lists.
-                Expanded(key: const ValueKey('feed'), child: feed),
-              ],
+                    children: [
+                      if (compact)
+                        _CompactHeader(
+                          repository: widget.repository,
+                          onAccountTap: widget.onAccountTap,
+                          onMessagesTap: widget.onMessagesTap,
+                        )
+                      else
+                        _WideHeader(
+                          repository: widget.repository,
+                          onAccountTap: widget.onAccountTap,
+                          onMessagesTap: widget.onMessagesTap,
+                        ),
+                      SizedBox(height: compact ? 16 : 32),
+                      if (snapshot.hasError)
+                        AsyncErrorView(
+                          title: '主页加载失败',
+                          message: '${snapshot.error}',
+                          onRetry: _refresh,
+                        )
+                      else if (data == null)
+                        const HomeSkeleton()
+                      else ...[
+                        _SectionHeader(
+                          '速览',
+                          trailing:
+                              _TaskShortcut(repository: widget.repository),
+                        ),
+                        _QuickLists(
+                          // Lazy lists reload with the snapshot they came from.
+                          key: ObjectKey(data),
+                          lists: data.quickLists,
+                          latest: data.latest,
+                          columns: inner >= 840,
+                          repository: widget.repository,
+                        ),
+                        _BoardChips(
+                          repository: widget.repository,
+                          hotBoards: data.hot,
+                          scroll: compact,
+                          onOpen: _openCategory,
+                        ),
+                        for (final section in data.sections) ...[
+                          const SizedBox(height: 32),
+                          _SectionHeader(
+                            section.title,
+                            note: '${section.items.length} 个版块',
+                          ),
+                          _BoardGrid(
+                            boards: section.items,
+                            columns: inner >= 960 ? 3 : (inner >= 600 ? 2 : 1),
+                            onOpen: _openBoard,
+                          ),
+                        ],
+                      ],
+                    ],
+                  );
+                },
+              ),
             );
           },
         ),

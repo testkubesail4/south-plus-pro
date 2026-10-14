@@ -55,7 +55,7 @@ class _SouthPlusAppState extends State<SouthPlusApp> {
               },
             );
           },
-          home: SessionGate(onToggleTheme: AppThemeController.toggle),
+          home: const SessionGate(),
         );
       },
     );
@@ -87,14 +87,10 @@ class _ScaledTextScaler extends TextScaler {
 }
 
 class SessionGate extends StatefulWidget {
-  const SessionGate({
-    super.key,
-    ForumRepository? repository,
-    this.onToggleTheme,
-  }) : repository = repository;
+  const SessionGate({super.key, ForumRepository? repository})
+      : repository = repository;
 
   final ForumRepository? repository;
-  final VoidCallback? onToggleTheme;
 
   @override
   State<SessionGate> createState() => _SessionGateState();
@@ -285,10 +281,7 @@ class _SessionGateState extends State<SessionGate> {
           );
         }
 
-        return HomeShell(
-          repository: result.repository,
-          onToggleTheme: widget.onToggleTheme,
-        );
+        return HomeShell(repository: result.repository);
       },
     );
   }
