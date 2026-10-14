@@ -601,7 +601,6 @@ String _orderLabel(ForumThreadOrder order) => switch (order) {
 class _BoardHeader extends StatelessWidget {
   const _BoardHeader({
     required this.title,
-    required this.slug,
     required this.order,
     required this.onCompose,
     required this.onOrderSelected,
@@ -609,7 +608,6 @@ class _BoardHeader extends StatelessWidget {
   });
 
   final String title;
-  final String slug;
   final ForumThreadOrder order;
   final VoidCallback onCompose;
   final VoidCallback? onSearch;
@@ -692,10 +690,6 @@ class _BoardHeader extends StatelessWidget {
                   color: AppColors.link,
                   fontWeight: FontWeight.w800,
                 ),
-              ),
-              Text(
-                ' / $slug',
-                style: TextStyle(color: AppColors.textMuted),
               ),
             ],
                 ),

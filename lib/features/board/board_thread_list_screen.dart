@@ -230,7 +230,6 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
               children: [
                 _BoardHeader(
                   title: _title,
-                  slug: _category.slug,
                   order: _order,
                   onCompose: _openComposer,
                   onSearch: switch (

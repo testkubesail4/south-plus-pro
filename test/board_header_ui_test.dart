@@ -105,6 +105,8 @@ void main() {
     repo.pages.single.complete(_page());
     await tester.pumpAndSettle();
     expect(headerTitle(tester), 'Known');
+    expect(find.textContaining('f42'), findsNothing,
+        reason: 'no internal board id after the name');
 
     final unnamed = await openLink(tester);
     unnamed.pages.single.complete(_page());
