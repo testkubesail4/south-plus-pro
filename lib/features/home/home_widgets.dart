@@ -766,21 +766,15 @@ class _BoardTile extends StatelessWidget {
       children: [
         Row(
           children: [
-            Semantics(
-              label: board.hasNew ? '有新帖' : null,
-              child: Badge(
-                isLabelVisible: board.hasNew,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: AppColors.brandSoft,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.tag_outlined,
-                      color: AppColors.brand, size: 18),
-                ),
+            // No new-post dot: red dots are reserved for notices and PMs.
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.brandSoft,
+                borderRadius: BorderRadius.circular(8),
               ),
+              child: Icon(Icons.tag_outlined, color: AppColors.brand, size: 18),
             ),
             const SizedBox(width: 10),
             Expanded(

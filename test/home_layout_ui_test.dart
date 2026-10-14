@@ -39,13 +39,6 @@ void main() {
       .ancestor(of: find.text('Fixture board'), matching: find.byType(InkWell))
       .first;
 
-  bool newDot(WidgetTester tester) => tester
-      .widget<Badge>(find.ancestor(
-        of: find.byIcon(Icons.tag_outlined).last, // hot boards come first
-        matching: find.byType(Badge),
-      ))
-      .isLabelVisible;
-
   testWidgets('phone: bottom bar, notice chips, tabbed lists, board rows',
       (tester) async {
     final repo = await pumpAt(tester, 360);
@@ -70,7 +63,12 @@ void main() {
     expect(find.text('Fixture board'), findsOneWidget);
     expect(find.text('今日 2'), findsOneWidget);
     expect(find.text('2026-01-01 10:00'), findsOneWidget);
-    expect(newDot(tester), isTrue);
+    expect(
+      find.descendant(of: boardCard(), matching: find.byType(Badge)),
+      findsNothing,
+      reason: 'a board with new posts gets no dot',
+    );
+    expect(find.bySemanticsLabel('有新帖'), findsNothing);
     expect(find.text('Child board'), findsOneWidget);
     expect(find.text('Last topic'), findsNothing, reason: 'rows stay short');
   });
