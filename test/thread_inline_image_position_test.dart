@@ -22,7 +22,11 @@ void main() {
   setUpAll(() async {
     oldOverrides = HttpOverrides.current;
     fixture = await ImageHttpFixture.start(
-      images: {_portraitUrl: await _png(400, 1200)},
+      images: {
+        _portraitUrl: await _png(400, 1200),
+        for (final (url, width, height, _) in _decodeCases)
+          url: await _png(width, height),
+      },
     );
     HttpOverrides.global = fixture;
     PathProviderLinux.registerWith();
@@ -32,6 +36,53 @@ void main() {
     HttpOverrides.global = oldOverrides;
     await fixture.close();
   });
+
+  // Decoded pixels match the painted size × DPR, whichever side bounds it.
+  for (final (url, width, height, box) in _decodeCases) {
+    testWidgets(
+        'a ${width}x$height post image in a $box-wide post decodes '
+        'at its on-screen size', (tester) async {
+      tester.view.devicePixelRatio = 2;
+      tester.view.physicalSize = const Size(1600, 1200);
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      await tester.runAsync(() async {
+        await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              // A post column: full width offered, image keeps its own size.
+              child: SizedBox(
+                width: box,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ThreadInlineImage(image: ThreadImage(url: url)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ));
+        final decoded = find.byWidgetPredicate(
+          (widget) => widget is RawImage && widget.image != null,
+        );
+        for (var i = 0; i < 200 && decoded.evaluate().isEmpty; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        final image = tester.widget<RawImage>(decoded).image!;
+        final shown = tester.getSize(decoded);
+        expect(
+          Size(image.width.toDouble(), image.height.toDouble()),
+          _within(shown * 2),
+          reason: 'decoded ${image.width}x${image.height} for $shown on screen',
+        );
+        await tester.pumpWidget(const SizedBox());
+      });
+    });
+  }
 
   testWidgets('a narrow post image keeps its left edge while it loads in',
       (tester) async {
@@ -76,6 +127,20 @@ void main() {
     });
   });
 }
+
+// (url, source width, source height, post width); posts cap images at 360.
+const _decodeCases = [
+  ('https://fixture.invalid/decode-landscape.png', 1200, 900, 800.0),
+  ('https://fixture.invalid/decode-portrait.png', 400, 1200, 800.0),
+  ('https://fixture.invalid/decode-panorama.png', 3000, 375, 320.0),
+];
+
+Matcher _within(Size size) => predicate<Size>(
+      (s) =>
+          (s.width - size.width).abs() <= 2 &&
+          (s.height - size.height).abs() <= 2,
+      'within 2px of $size',
+    );
 
 Future<List<int>> _png(int width, int height) async {
   final recorder = ui.PictureRecorder();

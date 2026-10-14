@@ -1337,13 +1337,14 @@ class ThreadInlineImage extends StatelessWidget {
                     final spec = ForumImageDecodeSpec.forDisplay(
                       logicalSize: Size(logicalWidth, 360),
                       devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                      includeMemHeight: false,
                       maxLongEdge: 1600,
                     );
 
                     return CachedForumImage(
                       url: image.url,
                       fit: BoxFit.scaleDown,
+                      // Width- or height-bound alike, decode what is shown.
+                      decodeToFit: true,
                       memCacheWidth: spec.memCacheWidth,
                       memCacheHeight: spec.memCacheHeight,
                       maxWidthDiskCache: spec.maxWidthDiskCache,

@@ -204,6 +204,7 @@ class CachedForumImage extends StatelessWidget {
     this.maxHeightDiskCache,
     this.bypassLoadPolicy = false,
     this.privateMemoryOnly = false,
+    this.decodeToFit = false,
   });
 
   final String url;
@@ -225,10 +226,15 @@ class CachedForumImage extends StatelessWidget {
   /// from the in-memory image cache when the widget goes away.
   final bool privateMemoryOnly;
 
+  /// Decodes to fit inside both memory bounds, keeping the image's ratio
+  /// (the default stretches to both bounds when both are given).
+  final bool decodeToFit;
+
   @override
   Widget build(BuildContext context) {
     return _PolicyAwareCachedImage(
       privateMemoryOnly: privateMemoryOnly,
+      decodeToFit: decodeToFit,
       url: url,
       assetName: assetName,
       width: width,
@@ -264,6 +270,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
     this.maxHeightDiskCache,
     required this.bypassLoadPolicy,
     required this.privateMemoryOnly,
+    required this.decodeToFit,
   });
 
   final String url;
@@ -281,6 +288,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
   final int? maxHeightDiskCache;
   final bool bypassLoadPolicy;
   final bool privateMemoryOnly;
+  final bool decodeToFit;
 
   @override
   State<_PolicyAwareCachedImage> createState() =>
@@ -423,6 +431,11 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
           'disk=${widget.maxWidthDiskCache}x${widget.maxHeightDiskCache} '
           'retry=$_retry cacheManager=${ForumImageCache.manager.runtimeType}',
     );
+    final fitWidth = widget.memCacheWidth;
+    final fitHeight = widget.memCacheHeight;
+    if (widget.decodeToFit && fitWidth != null && fitHeight != null) {
+      return _fittedNetworkImage(fitWidth, fitHeight);
+    }
     return CachedNetworkImage(
       key: ValueKey('${widget.url}.$_retry'),
       imageUrl: widget.url,
@@ -464,6 +477,45 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
               );
               return widget.errorWidget!(context);
             },
+    );
+  }
+
+  // Same cache and disk bounds as CachedNetworkImage, decoded with the fit
+  // policy that CachedNetworkImage's own memory resize does not offer.
+  Widget _fittedNetworkImage(int width, int height) {
+    return Image(
+      key: ValueKey('${widget.url}.$_retry'),
+      image: ResizeImage(
+        CachedNetworkImageProvider(
+          widget.url,
+          cacheManager: ForumImageCache.manager,
+          maxWidth: widget.maxWidthDiskCache,
+          maxHeight: widget.maxHeightDiskCache,
+        ),
+        width: width,
+        height: height,
+        policy: ResizeImagePolicy.fit,
+      ),
+      width: widget.width,
+      height: widget.height,
+      fit: widget.fit,
+      alignment: widget.alignment,
+      frameBuilder: widget.placeholder == null
+          ? null
+          : (context, child, frame, _) =>
+              frame == null ? widget.placeholder!(context) : child,
+      errorBuilder: (context, error, stackTrace) {
+        ForumTraceLogger.log(
+          'ImageLoad',
+          'error url=${widget.url} error=${error.runtimeType}: $error',
+        );
+        return widget.errorWidget?.call(context) ??
+            _ImageErrorPlaceholder(
+              width: widget.width,
+              height: widget.height,
+              onRetry: _loadNow,
+            );
+      },
     );
   }
 

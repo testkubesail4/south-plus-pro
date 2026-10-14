@@ -1127,8 +1127,10 @@ void main() {
     );
 
     expect(inlineImageContainer.color, isNull);
+    // Both bounds, fitted: the 360 width and the 360 height cap at DPR 3.
     expect(forumImage.memCacheWidth, 1080);
-    expect(forumImage.memCacheHeight, isNull);
+    expect(forumImage.memCacheHeight, 1080);
+    expect(forumImage.decodeToFit, isTrue);
     expect(tester.getSize(find.byType(ThreadInlineImage)).height, 160);
     expect(find.byIcon(Icons.download_outlined), findsNothing);
   });
