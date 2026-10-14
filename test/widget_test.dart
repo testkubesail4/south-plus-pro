@@ -747,7 +747,8 @@ void main() {
     expect(body.textScaler.scale(10), closeTo(10 * 1.5 * 1.15, 0.001));
   });
 
-  testWidgets('compose sends reply notice only when checked', (tester) async {
+  testWidgets('compose defaults reply notice on and permits opting out',
+      (tester) async {
     SharedPreferences.setMockInitialValues({});
     final repository = _FakeComposeRepository();
     await tester.pumpWidget(MaterialApp(
@@ -761,7 +762,7 @@ void main() {
 
     expect(
       tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
-      isFalse,
+      isTrue,
     );
     await tester.scrollUntilVisible(submit, 200,
         scrollable: find.byType(Scrollable).first);
@@ -775,7 +776,7 @@ void main() {
     await tester.tap(submit);
     await tester.pumpAndSettle();
 
-    expect(repository.replyNotices, [false, true]);
+    expect(repository.replyNotices, [true, false]);
   });
 
   testWidgets('account screen exposes app version and update check',

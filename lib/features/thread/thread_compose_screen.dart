@@ -27,7 +27,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   final _content = TextEditingController();
   bool _submitting = false;
   bool _draftLoaded = false;
-  bool _replyNotice = false;
+  bool _replyNotice = true;
   String? _error;
 
   String get _draftTitleKey => 'draft.thread.${widget.category.slug}.title';
