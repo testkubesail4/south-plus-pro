@@ -436,6 +436,9 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
       memCacheHeight: widget.memCacheHeight,
       maxWidthDiskCache: widget.maxWidthDiskCache,
       maxHeightDiskCache: widget.maxHeightDiskCache,
+      // A fading placeholder stays in the image's centering Stack and sizes
+      // it, so a narrower image would sit centered and then jump left.
+      fadeOutDuration: Duration.zero,
       placeholder: widget.placeholder == null
           ? null
           : (context, url) {
