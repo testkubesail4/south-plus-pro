@@ -180,104 +180,232 @@ class _NoticeChip extends StatelessWidget {
   }
 }
 
-class _LatestThreads extends StatelessWidget {
-  const _LatestThreads({
-    required this.threads,
+/// 最新讨论 and the site's other quick lists: tabs on phones, columns wider.
+/// Lists the snapshot did not include load only when the user asks.
+class _QuickLists extends StatefulWidget {
+  const _QuickLists({
+    super.key,
+    required this.lists,
+    required this.latest,
+    required this.columns,
     required this.repository,
   });
 
-  final List<ForumThread> threads;
+  final List<ForumQuickList> lists;
+  final List<ForumThread> latest;
+  final int columns;
+  final ForumRepository repository;
+
+  @override
+  State<_QuickLists> createState() => _QuickListsState();
+}
+
+class _QuickListsState extends State<_QuickLists> {
+  late final _lists = widget.lists.isEmpty
+      ? [ForumQuickList(title: '最新讨论', threads: widget.latest)]
+      : widget.lists;
+  final _loads = <int, Future<List<ForumThread>>>{};
+  var _tab = 0;
+
+  Future<List<ForumThread>>? _loaded(int index) {
+    final threads = _lists[index].threads;
+    return threads != null ? Future.value(threads) : _loads[index];
+  }
+
+  void _load(int index) {
+    if (_loaded(index) != null) return;
+    setState(() {
+      _loads[index] = widget.repository.fetchQuickList(_lists[index]);
+    });
+  }
+
+  void _retry(int index) {
+    setState(() => _loads.remove(index));
+    _load(index);
+  }
+
+  Widget _body(int index) => _QuickListBody(
+        future: _loaded(index),
+        onLoad: () => _load(index),
+        onRetry: () => _retry(index),
+        repository: widget.repository,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final shortcut = _TaskShortcut(repository: widget.repository);
+    if (widget.columns == 1) {
+      return _SimpleSection(
+        title: _lists.length == 1 ? _lists.single.title : '速览',
+        icon: Icons.subject_outlined,
+        trailing: shortcut,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_lists.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (var i = 0; i < _lists.length; i++)
+                      ChoiceChip(
+                        label: Text(_lists[i].title),
+                        selected: _tab == i,
+                        onSelected: (_) {
+                          setState(() => _tab = i);
+                          _load(i);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            _body(_tab),
+          ],
+        ),
+      );
+    }
+    return _SimpleSection(
+      title: '速览',
+      icon: Icons.subject_outlined,
+      trailing: shortcut,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = widget.columns.clamp(1, _lists.length);
+          final width = (constraints.maxWidth - 12 * (columns - 1)) / columns;
+          return Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (var i = 0; i < _lists.length; i++)
+                SizedBox(
+                  width: width,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          _lists[i].title,
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      _body(i),
+                    ],
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _QuickListBody extends StatelessWidget {
+  const _QuickListBody({
+    required this.future,
+    required this.onLoad,
+    required this.onRetry,
+    required this.repository,
+  });
+
+  final Future<List<ForumThread>>? future;
+  final VoidCallback onLoad;
+  final VoidCallback onRetry;
   final ForumRepository repository;
 
   @override
   Widget build(BuildContext context) {
-    return _SimpleSection(
-      title: '最新讨论',
-      icon: Icons.subject_outlined,
-      trailing: _TaskShortcut(repository: repository),
-      child: Column(
-        children: threads.take(8).map((thread) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ThreadDetailScreen(
-                    thread: thread,
-                    repository: repository,
-                  ),
-                ),
+    final pending = future;
+    final Widget child;
+    if (pending == null) {
+      child = Center(
+        child: TextButton.icon(
+          onPressed: onLoad,
+          icon: const Icon(Icons.download_outlined, size: 18),
+          label: const Text('点按加载'),
+        ),
+      );
+    } else {
+      child = FutureBuilder<List<ForumThread>>(
+        future: pending,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: TextButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: Text('加载失败：${forumErrorText(snapshot.error)}'),
               ),
-              child: Container(
-                width: double.infinity,
-                constraints: const BoxConstraints(minHeight: 92),
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ForumTitleText(
+            );
+          }
+          final threads = snapshot.data;
+          if (threads == null) {
+            return const Padding(
+              padding: EdgeInsets.all(12),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (threads.isEmpty) {
+            return Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
+            );
+          }
+          return Column(
+            children: [
+              for (final (i, thread) in threads.take(5).indexed) ...[
+                if (i > 0) Divider(height: 1, color: AppColors.border),
+                InkWell(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ThreadDetailScreen(
+                        thread: thread,
+                        repository: repository,
+                      ),
+                    ),
+                  ),
+                  child: Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(minHeight: 48),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: ForumTitleText(
                       thread.title,
                       titleStyle: thread.titleStyle,
                       maxLines: 2,
                       style: TextStyle(
                         color: AppColors.text,
-                        fontSize: 15,
+                        fontSize: 14.5,
                         height: 1.35,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (thread.bodyPreview != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        thread.bodyPreview!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.forum_outlined,
-                          color: AppColors.textMuted,
-                          size: 15,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            thread.section,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          '[${thread.replies}]',
-                          style: TextStyle(
-                            color: AppColors.link,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
+              ],
+            ],
           );
-        }).toList(),
+        },
+      );
+    }
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
       ),
+      clipBehavior: Clip.antiAlias,
+      child: child,
     );
   }
 }
@@ -557,73 +685,346 @@ class _ForumLink extends StatelessWidget {
   }
 }
 
-class _ForumBoardLink extends StatelessWidget {
-  const _ForumBoardLink({
-    required this.board,
-    required this.onTap,
-    required this.onChildTap,
+/// Boards of one section: rows on phones, [columns] of cards wider.
+class _BoardGrid extends StatelessWidget {
+  const _BoardGrid({
+    required this.boards,
+    required this.columns,
+    required this.showCounts,
+    required this.onOpen,
   });
 
-  final ForumBoard board;
-  final VoidCallback onTap;
-  final ValueChanged<ForumBoard> onChildTap;
+  final List<ForumBoard> boards;
+  final int columns;
+  final bool showCounts;
+  final ValueChanged<ForumBoard> onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final children = board.children;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    if (columns == 1) {
+      return Column(
         children: [
-          _ForumLink(
-            title: board.name,
-            subtitle: _boardSubtitle(board),
-            onTap: onTap,
-          ),
-          if (children.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(52, 0, 8, 8),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
+          for (final board in boards)
+            _BoardTile(
+                board: board,
+                card: false,
+                showCounts: showCounts,
+                onOpen: onOpen),
+        ],
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = (constraints.maxWidth - 8 * (columns - 1)) / columns;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final board in boards)
+              SizedBox(
+                width: width,
+                child: _BoardTile(
+                  board: board,
+                  card: true,
+                  showCounts: showCounts,
+                  onOpen: onOpen,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _BoardTile extends StatelessWidget {
+  const _BoardTile({
+    required this.board,
+    required this.card,
+    required this.showCounts,
+    required this.onOpen,
+  });
+
+  final ForumBoard board;
+  final bool card;
+  final bool showCounts;
+  final ValueChanged<ForumBoard> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final today = board.todayCount ?? 0;
+    final subtitle = board.subtitle;
+    final lastPostTitle = board.lastPostTitle;
+    final meta = [
+      if (board.lastPostTime != null) board.lastPostTime!,
+      if (showCounts && board.topicCount != null && board.postCount != null)
+        '${board.topicCount} 主题 / ${board.postCount} 文章',
+    ];
+    final muted = TextStyle(color: AppColors.textMuted, fontSize: 12);
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Semantics(
+              label: board.hasNew ? '有新帖' : null,
+              child: Badge(
+                isLabelVisible: board.hasNew,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.brandSoft,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.tag_outlined,
+                      color: AppColors.brand, size: 18),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final child in children)
-                    ActionChip(
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      side: BorderSide(color: AppColors.border),
-                      backgroundColor: AppColors.surfaceTint,
-                      label: Text(
-                        child.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.link,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          board.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
-                      onPressed: () => onChildTap(child),
+                      if (today > 0) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandSoft,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '今日 $today',
+                            style: TextStyle(
+                              color: AppColors.brand,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (card && subtitle != null && subtitle.isNotEmpty)
+                    Text(subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: muted),
+                  if (card && lastPostTitle != null)
+                    Text(
+                      lastPostTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppColors.text, fontSize: 13),
                     ),
+                  if (meta.isNotEmpty)
+                    Text(meta.join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: muted),
                 ],
               ),
             ),
-        ],
+            if (!card) Icon(Icons.chevron_right, color: AppColors.textMuted),
+          ],
+        ),
+        if (board.children.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(46, 8, 0, 0),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final child in board.children)
+                  ActionChip(
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    side: BorderSide(color: AppColors.border),
+                    backgroundColor: AppColors.surfaceTint,
+                    label: Text(
+                      child.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.link,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    onPressed: () => onOpen(child),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+    return Material(
+      color: card ? AppColors.surface : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: card ? BorderSide(color: AppColors.border) : BorderSide.none,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => onOpen(board),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+          child: content,
+        ),
       ),
     );
   }
+}
 
-  String _boardSubtitle(ForumBoard board) {
-    final stats = board.topicCount == null || board.postCount == null
-        ? null
-        : '${board.topicCount} 主题 / ${board.postCount} 文章';
-    final subtitle = board.subtitle;
-    if (subtitle == null || subtitle.isEmpty) {
-      return stats ?? board.section;
-    }
-    return stats == null ? subtitle : '$subtitle · $stats';
+/// Wide-window side panel: account, notices, and the boards pinned in
+/// search (热门版块 until the user pins any).
+class _SidePanel extends StatefulWidget {
+  const _SidePanel({
+    required this.repository,
+    required this.hotBoards,
+    required this.onOpenBoard,
+    this.onAccountTap,
+    this.onMessagesTap,
+  });
+
+  final ForumRepository repository;
+  final List<ForumCategory> hotBoards;
+  final ValueChanged<ForumCategory> onOpenBoard;
+  final VoidCallback? onAccountTap;
+  final VoidCallback? onMessagesTap;
+
+  @override
+  State<_SidePanel> createState() => _SidePanelState();
+}
+
+class _SidePanelState extends State<_SidePanel> {
+  List<ForumSearchPinnedBoard> _pinned = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPins();
+  }
+
+  // Home stays alive in the tab stack; re-read pins whenever it rebuilds
+  // (tab switch, refresh) so pins changed in search show up.
+  @override
+  void didUpdateWidget(_SidePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _loadPins();
+  }
+
+  void _loadPins() {
+    ForumSearchPreferences.load(account: widget.repository.currentUsername)
+        .then((prefs) {
+      if (mounted) setState(() => _pinned = prefs.pinnedBoards);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final repository = widget.repository;
+    final loggedIn = repository.isLoggedIn;
+    final pinned = _pinned.isNotEmpty;
+    final boards = pinned
+        ? [
+            for (final pin in _pinned)
+              ForumCategory(name: pin.label, slug: 'fid-${pin.id}'),
+          ]
+        : widget.hotBoards;
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      children: [
+        if (loggedIn) ...[
+          ValueListenableBuilder<ForumAccountIdentity?>(
+            valueListenable: repository.accountIdentity,
+            builder: (context, identity, _) => ListTile(
+              leading: AccountAvatar(avatarUrl: identity?.avatarUrl, size: 40),
+              title: Text(
+                accountDisplayName(identity) ??
+                    repository.currentUsername ??
+                    '已登录',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text('我的'),
+              onTap: widget.onAccountTap,
+            ),
+          ),
+          _NoticeChips(
+            repository: repository,
+            onMessagesTap: widget.onMessagesTap,
+          ),
+        ] else
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: FilledButton.icon(
+              onPressed: () => openLogin(context, repository),
+              icon: const Icon(Icons.login),
+              label: const Text('登录南+账号'),
+            ),
+          ),
+        if (boards.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: Row(
+              children: [
+                Icon(
+                  pinned
+                      ? Icons.push_pin_outlined
+                      : Icons.local_fire_department_outlined,
+                  color: AppColors.brand,
+                  size: 20,
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  pinned ? '常用版块' : '热门版块',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Column(
+              children: [
+                for (final board in boards)
+                  _ForumLink(
+                    title: board.name,
+                    subtitle: board.slug,
+                    onTap: () => widget.onOpenBoard(board),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
 

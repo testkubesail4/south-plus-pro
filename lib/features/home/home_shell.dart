@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/forum_search_preferences.dart';
 import '../../services/forum_trace_logger.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
@@ -69,88 +70,130 @@ class _HomeShellState extends State<HomeShell> {
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) _select(0);
           },
-          child: Scaffold(
-            body: IndexedStack(
-              index: _index,
-              children: [
-                tab(
-                  0,
-                  () => ForumHomePage(
-                    repository: _repository,
-                    onAccountTap: () => _select(4),
-                    onMessagesTap: () => _select(3),
-                    onToggleTheme: widget.onToggleTheme,
+          child: ValueListenableBuilder<ForumNoticeFlags>(
+            valueListenable: _repository.noticeFlags,
+            builder: (context, flags, _) {
+              final width = MediaQuery.sizeOf(context).width;
+              final pages = IndexedStack(
+                index: _index,
+                children: [
+                  tab(
+                    0,
+                    () => ForumHomePage(
+                      repository: _repository,
+                      onAccountTap: () => _select(4),
+                      onMessagesTap: () => _select(3),
+                      onToggleTheme: widget.onToggleTheme,
+                    ),
                   ),
-                ),
-                tab(1, () => FavoriteThreadsPage(repository: _repository)),
-                tab(2, () => SearchScreen(repository: _repository)),
-                tab(
-                  3,
-                  () => _repository.isLoggedIn
-                      ? PmBoxScreen(repository: _repository)
-                      : Scaffold(
-                          appBar: AppBar(title: const Text('短消息')),
-                          body: LoginPrompt(
-                            icon: Icons.mail_outline,
-                            title: '短消息',
-                            message: '登录后可以查看收件箱、发件箱和消息跟踪。',
-                            onLogin: () => openLogin(context, _repository),
+                  tab(1, () => FavoriteThreadsPage(repository: _repository)),
+                  tab(2, () => SearchScreen(repository: _repository)),
+                  tab(
+                    3,
+                    () => _repository.isLoggedIn
+                        ? PmBoxScreen(repository: _repository)
+                        : Scaffold(
+                            appBar: AppBar(title: const Text('短消息')),
+                            body: LoginPrompt(
+                              icon: Icons.mail_outline,
+                              title: '短消息',
+                              message: '登录后可以查看收件箱、发件箱和消息跟踪。',
+                              onLogin: () => openLogin(context, _repository),
+                            ),
                           ),
-                        ),
-                ),
-                tab(
-                  4,
-                  () => AccountScreen(
-                    repository: _repository,
-                    onLoggedOut: _showHome,
-                    onBrowseHome: _showHome,
                   ),
-                ),
-              ],
-            ),
-            bottomNavigationBar: ValueListenableBuilder<ForumNoticeFlags>(
-              valueListenable: _repository.noticeFlags,
-              builder: (context, flags, _) => NavigationBar(
-                selectedIndex: _index,
-                onDestinationSelected: _select,
-                labelBehavior: compactLabels
-                    ? NavigationDestinationLabelBehavior.onlyShowSelected
-                    : NavigationDestinationLabelBehavior.alwaysShow,
-                destinations: [
-                  const NavigationDestination(
-                    icon: Icon(Icons.home_outlined),
-                    selectedIcon: Icon(Icons.home),
-                    label: '首页',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.star_border_rounded),
-                    selectedIcon: Icon(Icons.star_rounded),
-                    label: '收藏',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.search),
-                    label: '搜索',
-                  ),
-                  NavigationDestination(
-                    icon: Badge(
-                      isLabelVisible: flags.unreadPm,
-                      child: const Icon(Icons.mail_outline),
+                  tab(
+                    4,
+                    () => AccountScreen(
+                      repository: _repository,
+                      onLoggedOut: _showHome,
+                      onBrowseHome: _showHome,
                     ),
-                    selectedIcon: Badge(
-                      isLabelVisible: flags.unreadPm,
-                      child: const Icon(Icons.mail),
-                    ),
-                    label: '消息',
-                    tooltip: flags.unreadPm ? '消息，有未读短消息' : null,
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.person_outline),
-                    selectedIcon: Icon(Icons.person),
-                    label: '我的',
                   ),
                 ],
-              ),
-            ),
+              );
+              final pmIcon = Badge(
+                isLabelVisible: flags.unreadPm,
+                child: const Icon(Icons.mail_outline),
+              );
+              final pmSelectedIcon = Badge(
+                isLabelVisible: flags.unreadPm,
+                child: const Icon(Icons.mail),
+              );
+              final destinations = [
+                (
+                  const Icon(Icons.home_outlined),
+                  const Icon(Icons.home),
+                  '首页',
+                ),
+                (
+                  const Icon(Icons.star_border_rounded),
+                  const Icon(Icons.star_rounded),
+                  '收藏',
+                ),
+                (const Icon(Icons.search), const Icon(Icons.search), '搜索'),
+                (pmIcon, pmSelectedIcon, '消息'),
+                (
+                  const Icon(Icons.person_outline),
+                  const Icon(Icons.person),
+                  '我的',
+                ),
+              ];
+              // Rail on tablets and desktop windows; bottom bar on phones.
+              final rail = width >= 600;
+              final extended = width > 840;
+              return Scaffold(
+                body: Row(
+                  children: [
+                    if (rail) ...[
+                      SafeArea(
+                        right: false,
+                        child: NavigationRail(
+                          extended: extended,
+                          selectedIndex: _index,
+                          onDestinationSelected: _select,
+                          labelType: extended
+                              ? NavigationRailLabelType.none
+                              : NavigationRailLabelType.all,
+                          destinations: [
+                            for (final (icon, selected, label) in destinations)
+                              NavigationRailDestination(
+                                icon: icon,
+                                selectedIcon: selected,
+                                label: Text(label),
+                              ),
+                          ],
+                        ),
+                      ),
+                      VerticalDivider(width: 1, color: AppColors.border),
+                    ],
+                    // Keyed so resizing across breakpoints keeps every tab.
+                    Expanded(key: const ValueKey('pages'), child: pages),
+                  ],
+                ),
+                bottomNavigationBar: rail
+                    ? null
+                    : NavigationBar(
+                        selectedIndex: _index,
+                        onDestinationSelected: _select,
+                        labelBehavior: compactLabels
+                            ? NavigationDestinationLabelBehavior
+                                .onlyShowSelected
+                            : NavigationDestinationLabelBehavior.alwaysShow,
+                        destinations: [
+                          for (final (icon, selected, label) in destinations)
+                            NavigationDestination(
+                              icon: icon,
+                              selectedIcon: selected,
+                              label: label,
+                              tooltip: identical(icon, pmIcon) && flags.unreadPm
+                                  ? '消息，有未读短消息'
+                                  : null,
+                            ),
+                        ],
+                      ),
+              );
+            },
           ),
         );
       },
@@ -205,137 +248,6 @@ class _ForumHomePageState extends State<ForumHomePage> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => BoardThreadListScreen(
-          category: _categoryFromBoard(board),
-          repository: widget.repository,
-          initialSubBoards: board.children,
-        ),
-      ),
-    );
-  }
-
-  ForumCategory _categoryFromBoard(ForumBoard board) {
-    return ForumCategory(
-      name: board.name,
-      slug: board.slug,
-      url: board.url,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: FutureBuilder<ForumHomeSnapshot>(
-          future: _future,
-          builder: (context, snapshot) {
-            final data = snapshot.data;
-            return RefreshIndicator(
-              color: AppColors.brand,
-              onRefresh: _refresh,
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 20),
-                children: [
-                  _TopBar(
-                    repository: widget.repository,
-                    onAccountTap: widget.onAccountTap,
-                    onToggleTheme: widget.onToggleTheme,
-                  ),
-                  if (widget.repository.isLoggedIn)
-                    _NoticeChips(
-                      repository: widget.repository,
-                      onMessagesTap: widget.onMessagesTap,
-                    ),
-                  if (snapshot.hasError)
-                    AsyncErrorView(
-                      title: '主页加载失败',
-                      message: '${snapshot.error}',
-                      onRetry: _refresh,
-                    )
-                  else if (data == null)
-                    const HomeSkeleton()
-                  else ...[
-                    const SizedBox(height: 18),
-                    _LatestThreads(
-                      threads: data.latest,
-                      repository: widget.repository,
-                    ),
-                    const SizedBox(height: 14),
-                    _ForumGroup(
-                      title: '热门版块',
-                      icon: Icons.local_fire_department_outlined,
-                      children: data.hot
-                          .map(
-                            (category) => _ForumLink(
-                              title: category.name,
-                              subtitle: category.slug,
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => BoardThreadListScreen(
-                                    category: category,
-                                    repository: widget.repository,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                    ...data.sections.map(
-                      (section) => _ForumGroup(
-                        title: section.title,
-                        initiallyExpanded: false,
-                        children: section.items
-                            .map(
-                              (board) => _ForumBoardLink(
-                                board: board,
-                                onTap: () => _openBoard(board),
-                                onChildTap: _openBoard,
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                    const _DesktopLink(),
-                  ],
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class BoardDirectoryPage extends StatefulWidget {
-  const BoardDirectoryPage({super.key, required this.repository});
-
-  final ForumRepository repository;
-
-  @override
-  State<BoardDirectoryPage> createState() => _BoardDirectoryPageState();
-}
-
-class _BoardDirectoryPageState extends State<BoardDirectoryPage> {
-  late Future<ForumHomeSnapshot> _future = widget.repository.fetchHome();
-
-  Future<void> _refresh() async {
-    final next = widget.repository.fetchHome();
-    setState(() {
-      _future = next;
-    });
-    try {
-      await next;
-    } catch (_) {
-      // FutureBuilder renders the error state.
-    }
-  }
-
-  void _openBoard(ForumBoard board) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => BoardThreadListScreen(
           category: ForumCategory(
             name: board.name,
             slug: board.slug,
@@ -348,75 +260,131 @@ class _BoardDirectoryPageState extends State<BoardDirectoryPage> {
     );
   }
 
+  void _openCategory(ForumCategory category) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BoardThreadListScreen(
+          category: category,
+          repository: widget.repository,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: FutureBuilder<ForumHomeSnapshot>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return AsyncErrorView(
-              title: '版块加载失败',
-              message: '${snapshot.error}',
-              onRetry: _refresh,
-            );
-          }
-          final data = snapshot.data;
-          if (data == null) return const HomeSkeleton();
-
-          return RefreshIndicator(
-            color: AppColors.brand,
-            onRefresh: _refresh,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              children: [
-                Text('版块', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 6),
-                Text(
-                  '按源站分区组织，常用版块放在顶部。',
-                  style: Theme.of(context).textTheme.bodySmall,
+    // Window breakpoints: compact < 600 <= medium <= 840 < expanded. The
+    // side panel needs room beside the extended rail, so it starts at 1100.
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < 600;
+    final expanded = width > 840;
+    final sidePanel = width >= 1100;
+    final loggedIn = widget.repository.isLoggedIn;
+    return Scaffold(
+      body: SafeArea(
+        bottom: false,
+        child: FutureBuilder<ForumHomeSnapshot>(
+          future: _future,
+          builder: (context, snapshot) {
+            final data = snapshot.data;
+            final hot = [
+              for (final category in data?.hot ?? const <ForumCategory>[])
+                _ForumLink(
+                  title: category.name,
+                  subtitle: category.slug,
+                  onTap: () => _openCategory(category),
                 ),
-                const SizedBox(height: 16),
-                _ForumGroup(
-                  title: '热门版块',
-                  icon: Icons.local_fire_department_outlined,
-                  children: data.hot
-                      .map(
-                        (category) => _ForumLink(
-                          title: category.name,
-                          subtitle: category.slug,
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => BoardThreadListScreen(
-                                category: category,
-                                repository: widget.repository,
-                              ),
-                            ),
-                          ),
-                        ),
+            ];
+            // Columns follow the feed's own width so cards never get cramped.
+            final feed = LayoutBuilder(
+              builder: (context, constraints) => RefreshIndicator(
+                color: AppColors.brand,
+                onRefresh: _refresh,
+                child: ListView(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  children: [
+                    _TopBar(
+                      repository: widget.repository,
+                      onAccountTap: widget.onAccountTap,
+                      onToggleTheme: widget.onToggleTheme,
+                    ),
+                    if (loggedIn && !sidePanel)
+                      _NoticeChips(
+                        repository: widget.repository,
+                        onMessagesTap: widget.onMessagesTap,
+                      ),
+                    if (snapshot.hasError)
+                      AsyncErrorView(
+                        title: '主页加载失败',
+                        message: '${snapshot.error}',
+                        onRetry: _refresh,
                       )
-                      .toList(),
+                    else if (data == null)
+                      const HomeSkeleton()
+                    else ...[
+                      const SizedBox(height: 18),
+                      _QuickLists(
+                        // Lazy lists reload with the snapshot they came from.
+                        key: ObjectKey(data),
+                        lists: data.quickLists,
+                        latest: data.latest,
+                        columns: compact
+                            ? 1
+                            : (constraints.maxWidth / 240).floor().clamp(2, 4),
+                        repository: widget.repository,
+                      ),
+                      const SizedBox(height: 14),
+                      if (!sidePanel && hot.isNotEmpty)
+                        _ForumGroup(
+                          title: '热门版块',
+                          icon: Icons.local_fire_department_outlined,
+                          children: hot,
+                        ),
+                      for (final section in data.sections)
+                        _ForumGroup(
+                          title: section.title,
+                          initiallyExpanded: !compact,
+                          children: [
+                            _BoardGrid(
+                              boards: section.items,
+                              columns: compact
+                                  ? 1
+                                  : (constraints.maxWidth / 300)
+                                      .floor()
+                                      .clamp(2, 4),
+                              showCounts: expanded,
+                              onOpen: _openBoard,
+                            ),
+                          ],
+                        ),
+                      const _DesktopLink(),
+                    ],
+                  ],
                 ),
-                ...data.sections.map(
-                  (section) => _ForumGroup(
-                    title: section.title,
-                    initiallyExpanded: false,
-                    children: section.items
-                        .map(
-                          (board) => _ForumBoardLink(
-                            board: board,
-                            onTap: () => _openBoard(board),
-                            onChildTap: _openBoard,
-                          ),
-                        )
-                        .toList(),
+              ),
+            );
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (sidePanel) ...[
+                  SizedBox(
+                    width: 300,
+                    child: _SidePanel(
+                      repository: widget.repository,
+                      onAccountTap: widget.onAccountTap,
+                      onMessagesTap: widget.onMessagesTap,
+                      onOpenBoard: _openCategory,
+                      hotBoards: data?.hot ?? const [],
+                    ),
                   ),
-                ),
+                  VerticalDivider(width: 1, color: AppColors.border),
+                ],
+                // Keyed so crossing a breakpoint keeps scroll and lazy lists.
+                Expanded(key: const ValueKey('feed'), child: feed),
               ],
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

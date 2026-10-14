@@ -367,8 +367,10 @@ void main() {
       (tester) async {
     final repository = _FakeHomeRepository();
 
-    await tester.binding.setSurfaceSize(const Size(360, 780));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    // A phone-width window: board sections start collapsed.
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
       MaterialApp(home: ForumHomePage(repository: repository)),
@@ -397,8 +399,10 @@ void main() {
       (tester) async {
     final repository = _FakeHomeRepository();
 
-    await tester.binding.setSurfaceSize(const Size(360, 780));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    // A phone-width window: board sections start collapsed.
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
       MaterialApp(home: ForumHomePage(repository: repository)),
