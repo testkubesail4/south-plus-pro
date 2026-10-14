@@ -140,6 +140,20 @@ class ForumSearchPageLink {
   final int page;
 }
 
+class ForumTitleStyle {
+  const ForumTitleStyle({
+    this.bold = false,
+    this.italic = false,
+    this.underline = false,
+    this.colorValue,
+  });
+
+  final bool bold;
+  final bool italic;
+  final bool underline;
+  final int? colorValue;
+}
+
 class ForumThread {
   const ForumThread({
     required this.title,
@@ -154,6 +168,7 @@ class ForumThread {
     this.authorPostsUrl,
     this.previewImageUrl,
     this.isSticky = false,
+    this.titleStyle,
   });
 
   final String title;
@@ -168,6 +183,7 @@ class ForumThread {
   final String? authorPostsUrl;
   final String? previewImageUrl;
   final bool isSticky;
+  final ForumTitleStyle? titleStyle;
 
   ForumThread copyWith({
     String? title,
@@ -182,6 +198,7 @@ class ForumThread {
     String? authorPostsUrl,
     String? previewImageUrl,
     bool? isSticky,
+    ForumTitleStyle? titleStyle,
   }) {
     return ForumThread(
       title: title ?? this.title,
@@ -196,6 +213,7 @@ class ForumThread {
       authorPostsUrl: authorPostsUrl ?? this.authorPostsUrl,
       previewImageUrl: previewImageUrl ?? this.previewImageUrl,
       isSticky: isSticky ?? this.isSticky,
+      titleStyle: titleStyle ?? this.titleStyle,
     );
   }
 }

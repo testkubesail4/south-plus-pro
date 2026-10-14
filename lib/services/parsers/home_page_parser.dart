@@ -3,6 +3,7 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
+import 'thread_title_style_parser.dart';
 
 class HomePageParser {
   HomePageParser({ForumUrlResolver? urls}) : urls = urls ?? ForumUrlResolver();
@@ -122,6 +123,7 @@ class HomePageParser {
       threads.add(
         ForumThread(
           title: title,
+          titleStyle: parseThreadTitleStyle(link),
           url: urls.absoluteUrl(href),
           replies: 0,
           section: '最新讨论',

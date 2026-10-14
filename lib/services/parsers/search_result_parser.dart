@@ -3,6 +3,7 @@ import 'package:html/dom.dart' as dom;
 import '../../models/forum_models.dart';
 import '../forum_request_exception.dart';
 import '../forum_url_resolver.dart';
+import 'thread_title_style_parser.dart';
 
 class SearchResultParser {
   SearchResultParser({ForumUrlResolver? urls})
@@ -104,6 +105,7 @@ class SearchResultParser {
       threads.add(
         ForumThread(
           title: title,
+          titleStyle: parseThreadTitleStyle(threadLink),
           url: urls.absoluteUrl(href),
           replies: _firstInt(_cleanText(repliesCell?.text ?? '')) ?? 0,
           section: section.isEmpty ? '搜索结果' : section,

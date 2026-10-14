@@ -2,6 +2,7 @@ import 'package:html/dom.dart' as dom;
 
 import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
+import 'thread_title_style_parser.dart';
 
 class BoardThreadPageParser {
   BoardThreadPageParser({ForumUrlResolver? urls})
@@ -74,6 +75,7 @@ class BoardThreadPageParser {
       threads.add(
         ForumThread(
           title: title,
+          titleStyle: parseThreadTitleStyle(threadLink),
           url: urls.absoluteUrl(href),
           replies: int.tryParse(metrics?.group(1) ?? '') ?? 0,
           section: category.name,
@@ -201,6 +203,7 @@ class BoardThreadPageParser {
 
     return ForumThread(
       title: title,
+      titleStyle: parseThreadTitleStyle(threadLink),
       url: urls.absoluteUrl(href),
       replies: int.tryParse(metrics.group(1)!) ?? 0,
       section: category.name,
