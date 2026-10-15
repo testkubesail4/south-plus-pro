@@ -161,7 +161,7 @@ void showForumImageMenu(
               onTap: () => run(() => onCopy(context, url)),
             ),
             ListTile(
-              leading: const Icon(Icons.public),
+              leading: const Icon(Icons.public_outlined),
               title: const Text('在浏览器打开图片'),
               onTap: () => run(() => onOpen(context, url)),
             ),

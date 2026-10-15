@@ -1750,7 +1750,7 @@ class _ActiveAuthorFilterChip extends StatelessWidget {
           Icon(
             Icons.person_search_outlined,
             size: 18,
-            color: AppColors.link,
+            color: AppColors.textMuted,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -2057,7 +2057,7 @@ class _ThreadHeaderActions extends StatelessWidget {
         if (rssFeed != null)
           OutlinedButton.icon(
             onPressed: () => onExternalLink(rssFeed!),
-            icon: Icon(Icons.rss_feed, size: 18),
+            icon: Icon(Icons.rss_feed_outlined, size: 18),
             label: const Text('RSS'),
             style: _compactActionStyle(),
           ),
@@ -2071,7 +2071,7 @@ class _ThreadHeaderActions extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : Icon(
-                    favorite!.canRemove ? Icons.star : Icons.star_border,
+                    favorite!.canRemove ? Icons.star : Icons.star_outline,
                     size: 17,
                   ),
             label: Text(favorite!.canRemove ? '取消收藏' : '收藏'),

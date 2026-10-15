@@ -39,14 +39,14 @@ class ThreadSaleBoxView extends StatelessWidget {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppColors.surface,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: AppColors.border),
                     ),
                     child: Icon(
                       Icons.lock_outline,
                       size: 18,
-                      color: AppColors.brandDark,
+                      color: AppColors.textMuted,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -162,14 +162,14 @@ class _SaleMetaPill extends StatelessWidget {
       height: 32,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: AppColors.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: AppColors.link),
+          Icon(icon, size: 15, color: AppColors.textMuted),
           const SizedBox(width: 5),
           Text(
             label,
