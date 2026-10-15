@@ -8,6 +8,7 @@ import '../../services/forum_repository.dart';
 import '../../services/forum_network_setup_store.dart';
 import '../../services/forum_text_size_settings.dart';
 import '../../services/image_loading_settings.dart';
+import '../../services/thread_paging_settings.dart';
 import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';

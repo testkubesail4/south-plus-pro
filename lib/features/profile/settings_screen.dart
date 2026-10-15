@@ -23,6 +23,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _clearingCache = false;
   bool _checkingUpdate = false;
 
+  @override
+  void initState() {
+    super.initState();
+    ThreadPagingSettings.load().ignore();
+  }
+
+  Future<void> _setAutoLoad(bool enabled) async {
+    try {
+      await ThreadPagingSettings.save(enabled);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+    }
+  }
+
   Future<void> _setImageMode(ImageLoadMode mode) async {
     await ImageLoadingSettings.saveMode(mode);
     if (!mounted) return;
@@ -206,6 +223,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: '连接引导',
                   subtitle: '重新探测解析线路、访问入口和直连线路',
                   onTap: _openNetworkSetup,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _AccountSection(
+              title: '阅读',
+              subtitle: '帖子的翻页方式',
+              children: [
+                ValueListenableBuilder<bool>(
+                  valueListenable: ThreadPagingSettings.notifier,
+                  builder: (context, autoLoad, _) => MergeSemantics(
+                    child: _BaseAccountTile(
+                      icon: Icons.vertical_align_bottom_outlined,
+                      title: const Text('自动加载下一页'),
+                      subtitle: const Text('滑到页尾时自动接上下一页；关闭时用页尾的「下一页」翻页'),
+                      onTap: () => _setAutoLoad(!autoLoad),
+                      trailing:
+                          Switch(value: autoLoad, onChanged: _setAutoLoad),
+                    ),
+                  ),
                 ),
               ],
             ),
