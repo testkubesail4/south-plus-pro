@@ -6,7 +6,6 @@ part of 'home_shell.dart';
 // renders with placeholder bones, so loaded content lands where it stood.
 
 const _homeMaxWidth = 1200.0;
-const _noticeDot = Color(0xFFE5484D);
 
 TextStyle _sectionTitleStyle() => TextStyle(
       color: AppColors.text,
@@ -226,13 +225,13 @@ class _CompactHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _NoticeIconButton(
-                  icon: Icons.alternate_email_rounded,
+                  icon: Icons.alternate_email,
                   label: '回复提醒',
                   unread: flags.replyNotice,
                   onPressed: () => _openReplyNotices(context, repository),
                 ),
                 _NoticeIconButton(
-                  icon: Icons.mail_outline_rounded,
+                  icon: Icons.mail_outline,
                   label: '短消息',
                   unread: flags.unreadPm,
                   onPressed: onMessagesTap,
@@ -266,8 +265,6 @@ class _NoticeIconButton extends StatelessWidget {
       onPressed: onPressed,
       icon: Badge(
         isLabelVisible: unread,
-        smallSize: 8,
-        backgroundColor: _noticeDot,
         child: Icon(icon, color: AppColors.textMuted),
       ),
     );
@@ -339,14 +336,14 @@ class _WideHeader extends StatelessWidget {
               runSpacing: 8,
               children: [
                 _NoticeChip(
-                  icon: Icons.alternate_email_rounded,
+                  icon: Icons.alternate_email,
                   label: '回复提醒',
                   unread: flags.replyNotice,
                   color: chipColor,
                   onPressed: () => _openReplyNotices(context, repository),
                 ),
                 _NoticeChip(
-                  icon: Icons.mail_outline_rounded,
+                  icon: Icons.mail_outline,
                   label: '短消息',
                   unread: flags.unreadPm,
                   color: chipColor,
@@ -428,7 +425,7 @@ class _NoticeChip extends StatelessWidget {
                 width: 8,
                 height: 8,
                 decoration: const BoxDecoration(
-                  color: _noticeDot,
+                  color: AppColors.noticeDot,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -1131,11 +1128,12 @@ Widget _taskButton({
     TextButton.icon(
       onPressed: onPressed,
       icon: icon,
-      label: Text(label),
-      style: TextButton.styleFrom(
-        foregroundColor: foreground,
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      // Styled on the Text so it keeps the theme's font family.
+      label: Text(
+        label,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
       ),
+      style: TextButton.styleFrom(foregroundColor: foreground),
     );
 
 /// The task shortcut's idle look, disabled until the home has loaded.

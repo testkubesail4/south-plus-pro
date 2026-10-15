@@ -175,7 +175,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   onTap: () => _openProfile(UserProfileTab.posts),
                 ),
                 _AccountTile(
-                  icon: Icons.star_border_rounded,
+                  icon: Icons.star_outline,
                   title: '收藏',
                   subtitle: '我公开收藏的主题',
                   onTap: () => _openProfile(UserProfileTab.favorites),
@@ -188,22 +188,25 @@ class _AccountScreenState extends State<AccountScreen> {
             title: '账号',
             children: [
               if (loggedIn)
-                _AccountTile(
-                  icon: Icons.mail_outline,
-                  title: '短消息',
-                  subtitle: '收件箱、发件箱和消息跟踪',
-                  accent: true,
-                  onTap: () =>
-                      _push(PmBoxScreen(repository: widget.repository)),
+                ValueListenableBuilder<ForumNoticeFlags>(
+                  valueListenable: widget.repository.noticeFlags,
+                  builder: (context, flags, _) => _AccountTile(
+                    icon: Icons.mail_outline,
+                    title: '短消息',
+                    subtitle: '收件箱、发件箱和消息跟踪',
+                    unread: flags.unreadPm,
+                    onTap: () =>
+                        _push(PmBoxScreen(repository: widget.repository)),
+                  ),
                 ),
               if (loggedIn)
                 ValueListenableBuilder<ForumNoticeFlags>(
                   valueListenable: widget.repository.noticeFlags,
                   builder: (context, flags, _) => _AccountTile(
-                    icon: Icons.mark_chat_unread_outlined,
+                    icon: Icons.alternate_email,
                     title: '回复提醒',
                     subtitle: flags.replyNotice ? '有新的回复提醒' : '我的主题收到的回复',
-                    accent: flags.replyNotice,
+                    unread: flags.replyNotice,
                     onTap: () => _push(
                         ReplyNoticesScreen(repository: widget.repository)),
                   ),
@@ -212,7 +215,6 @@ class _AccountScreenState extends State<AccountScreen> {
                 icon: Icons.fact_check_outlined,
                 title: '论坛任务',
                 subtitle: loggedIn ? '申请日常、周常并领取奖励' : '登录后领取 SP 币任务奖励',
-                accent: loggedIn,
                 onTap: () =>
                     _push(ForumTasksScreen(repository: widget.repository)),
               ),
@@ -345,12 +347,12 @@ class AccountAvatar extends StatelessWidget {
     final url = avatarUrl;
     Widget icon(BuildContext context) => Icon(
           Icons.account_circle_outlined,
-          color: AppColors.brand,
+          color: AppColors.textMuted,
           size: size * 0.6,
         );
     return CircleAvatar(
       radius: size / 2,
-      backgroundColor: AppColors.brandSoft,
+      backgroundColor: AppColors.inkSoft,
       child: url == null
           ? icon(context)
           : ClipOval(
@@ -434,7 +436,7 @@ class _AccountTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.accent = false,
+    this.unread = false,
     this.danger = false,
   });
 
@@ -442,7 +444,7 @@ class _AccountTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
-  final bool accent;
+  final bool unread;
   final bool danger;
 
   @override
@@ -452,7 +454,7 @@ class _AccountTile extends StatelessWidget {
       title: Text(title),
       subtitle: Text(subtitle),
       onTap: onTap,
-      accent: accent,
+      unread: unread,
       danger: danger,
       trailing: Icon(Icons.chevron_right, color: AppColors.textFaint),
     );
@@ -502,7 +504,7 @@ class _SelectableAccountTile extends StatelessWidget {
       title: title,
       subtitle: subtitle,
       onTap: onTap,
-      accent: selected,
+      selected: selected,
       trailing: Icon(
         selected ? Icons.check_circle : Icons.radio_button_unchecked_outlined,
         color: selected ? AppColors.brand : AppColors.textFaint,
@@ -518,7 +520,8 @@ class _BaseAccountTile extends StatelessWidget {
     required this.subtitle,
     this.onTap,
     this.trailing,
-    this.accent = false,
+    this.selected = false,
+    this.unread = false,
     this.danger = false,
   });
 
@@ -527,80 +530,89 @@ class _BaseAccountTile extends StatelessWidget {
   final Widget subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
-  final bool accent;
+  final bool selected;
+  final bool unread;
   final bool danger;
 
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
+    // Neutral icons; brand marks a chosen option, brandDark a destructive
+    // one, and unread shows as a dot.
     final iconColor = danger
         ? AppColors.brandDark
-        : accent
+        : selected
             ? AppColors.brand
-            : AppColors.link;
-    final iconBackground = danger
-        ? AppColors.brandSoft
-        : accent
-            ? AppColors.brandSoft
-            : AppColors.inkSoft;
+            : AppColors.textMuted;
+    final iconBackground =
+        danger || selected ? AppColors.brandSoft : AppColors.inkSoft;
     final titleColor = danger ? AppColors.brandDark : AppColors.text;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: enabled ? onTap : null,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 74),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: enabled ? iconBackground : AppColors.inkSoft,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 22,
-                    color: enabled ? iconColor : AppColors.textFaint,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      DefaultTextStyle.merge(
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: titleColor,
-                            ),
-                        child: title,
+        // The dot alone is invisible to screen readers.
+        child: Semantics(
+          value: unread ? '有未读' : null,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 74),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+              child: Row(
+                children: [
+                  Badge(
+                    isLabelVisible: unread,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: enabled ? iconBackground : AppColors.inkSoft,
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(height: 3),
-                      DefaultTextStyle.merge(
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: enabled
-                                  ? AppColors.textMuted
-                                  : AppColors.textFaint,
-                            ),
-                        child: subtitle,
+                      child: Icon(
+                        icon,
+                        size: 20,
+                        color: enabled ? iconColor : AppColors.textFaint,
                       ),
-                    ],
+                    ),
                   ),
-                ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 8),
-                  trailing!,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        DefaultTextStyle.merge(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    color: titleColor,
+                                  ),
+                          child: title,
+                        ),
+                        const SizedBox(height: 3),
+                        DefaultTextStyle.merge(
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: enabled
+                                        ? AppColors.textMuted
+                                        : AppColors.textFaint,
+                                  ),
+                          child: subtitle,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (trailing != null) ...[
+                    const SizedBox(width: 8),
+                    trailing!,
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -635,7 +647,7 @@ class _StatusSummaryTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 17, color: AppColors.link),
+              Icon(icon, size: 16, color: AppColors.textMuted),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(

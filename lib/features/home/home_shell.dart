@@ -126,8 +126,8 @@ class _HomeShellState extends State<HomeShell> {
                   '首页',
                 ),
                 (
-                  const Icon(Icons.star_border_rounded),
-                  const Icon(Icons.star_rounded),
+                  const Icon(Icons.star_outline),
+                  const Icon(Icons.star),
                   '收藏',
                 ),
                 (const Icon(Icons.search), const Icon(Icons.search), '搜索'),

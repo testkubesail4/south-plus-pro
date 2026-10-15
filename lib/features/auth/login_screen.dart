@@ -51,10 +51,10 @@ class LoginPrompt extends StatelessWidget {
                 width: 54,
                 height: 54,
                 decoration: BoxDecoration(
-                  color: AppColors.brandSoft,
+                  color: AppColors.inkSoft,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: AppColors.brand, size: 28),
+                child: Icon(icon, color: AppColors.textMuted, size: 28),
               ),
               const SizedBox(height: 16),
               Text(title, style: theme.textTheme.headlineSmall),

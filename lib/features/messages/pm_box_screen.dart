@@ -311,8 +311,9 @@ class _PmTile extends StatelessWidget {
                   child: Icon(
                     Icons.circle,
                     size: 8,
-                    color:
-                        message.unread ? AppColors.brand : Colors.transparent,
+                    color: message.unread
+                        ? AppColors.noticeDot
+                        : Colors.transparent,
                     semanticLabel: message.unread ? '未读' : null,
                   ),
                 ),

@@ -1107,16 +1107,16 @@ class _SetupIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedContainer(
       duration: 220.ms,
-      width: 42,
-      height: 42,
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
         color: selected ? AppColors.brandSoft : AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Icon(
         icon,
-        color: selected ? AppColors.brand : AppColors.link,
-        size: 22,
+        color: selected ? AppColors.brand : AppColors.textMuted,
+        size: 20,
       ),
     );
   }

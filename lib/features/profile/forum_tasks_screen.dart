@@ -196,13 +196,17 @@ class _TaskHeader extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: AppColors.brandSoft,
-                  borderRadius: BorderRadius.circular(8),
+                  color: AppColors.inkSoft,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(Icons.fact_check_outlined, color: AppColors.brand),
+                child: Icon(
+                  Icons.fact_check_outlined,
+                  size: 20,
+                  color: AppColors.textMuted,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -544,7 +548,7 @@ SnackBar forumTaskSnackBar({
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
-              success ? Icons.check_circle_outline : Icons.info_outline_rounded,
+              success ? Icons.check_circle_outline : Icons.info_outline,
               color: color,
               size: 21,
             ),

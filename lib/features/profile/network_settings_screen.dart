@@ -1262,7 +1262,7 @@ class _OverviewValueTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: AppColors.link),
+              Icon(icon, size: 16, color: AppColors.textMuted),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(

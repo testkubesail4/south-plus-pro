@@ -66,7 +66,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
       return SafeArea(
         bottom: false,
         child: LoginPrompt(
-          icon: Icons.star_border_rounded,
+          icon: Icons.star_outline,
           title: '收藏',
           message: '这里会展示你收藏过的主题。登录后可以更快回看想追的帖子，不用再从版块里翻。',
           onLogin:
@@ -106,7 +106,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                   const EmptyStateView(
                     title: '还没有公开收藏',
                     message: '先去帖子详情里点收藏，之后会在这里集中查看。',
-                    icon: Icons.star_border_rounded,
+                    icon: Icons.star_outline,
                   )
                 else
                   ...profile.favorites.map(
@@ -159,7 +159,7 @@ class _FavoriteHeader extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  Icons.star_rounded,
+                  Icons.star,
                   color: AppColors.brand,
                 ),
               ),
@@ -324,7 +324,7 @@ class _FavoriteThreadTile extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(
-                      Icons.star_rounded,
+                      Icons.star,
                       size: 18,
                       color: AppColors.brand,
                     ),

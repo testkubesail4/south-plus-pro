@@ -139,6 +139,9 @@ class AppColors {
     };
   }
 
+  /// Unread and new marks: an 8px dot on a neutral icon (see [Badge]).
+  static const noticeDot = Color(0xFFE5484D);
+
   static Color get brand => current.brand;
   static Color get brandDark => current.brandDark;
   static Color get brandSoft => current.brandSoft;
@@ -234,6 +237,10 @@ class AppTheme {
           fontSize: 18,
           fontWeight: FontWeight.w700,
         ),
+      ),
+      badgeTheme: const BadgeThemeData(
+        backgroundColor: AppColors.noticeDot,
+        smallSize: 8,
       ),
       cardTheme: CardThemeData(
         elevation: 0,

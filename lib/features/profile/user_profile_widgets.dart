@@ -687,7 +687,7 @@ class _ActivityTile extends StatelessWidget {
             Icon(
               Icons.bolt_outlined,
               size: 18,
-              color: AppColors.brand,
+              color: AppColors.textMuted,
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -836,7 +836,7 @@ class _AuthorLink extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
-          color: AppColors.brandSoft,
+          color: AppColors.inkSoft,
           borderRadius: BorderRadius.circular(999),
         ),
         child: Row(
@@ -845,13 +845,13 @@ class _AuthorLink extends StatelessWidget {
             Icon(
               Icons.person_outline,
               size: 14,
-              color: AppColors.brand,
+              color: AppColors.textMuted,
             ),
             const SizedBox(width: 4),
             Text(
               name,
               style: TextStyle(
-                color: AppColors.brand,
+                color: AppColors.text,
                 fontSize: 12,
               ),
             ),

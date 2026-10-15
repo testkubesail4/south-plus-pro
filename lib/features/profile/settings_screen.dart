@@ -189,7 +189,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: '连接设置',
                   subtitle:
                       '${networkConfig.site.host} · ${networkConfig.dohEnabled ? '加密解析' : '系统默认解析'}',
-                  accent: true,
                   onTap: () async {
                     await Navigator.of(context).push(
                       MaterialPageRoute(
@@ -319,7 +318,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: '检查更新',
                   subtitle:
                       _checkingUpdate ? '正在检查 GitHub Releases' : '查看是否有新版本可下载',
-                  accent: true,
                   onTap: _checkingUpdate ? null : _checkForUpdate,
                 ),
                 if (kDebugMode)
