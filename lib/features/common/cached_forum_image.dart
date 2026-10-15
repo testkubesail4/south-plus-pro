@@ -661,9 +661,15 @@ class _ImageActionPlaceholder extends StatelessWidget {
                         children: [
                           Icon(icon, color: AppColors.textMuted),
                           const SizedBox(height: 6),
-                          Text(
-                            label,
-                            style: Theme.of(context).textTheme.bodySmall,
+                          // Large text in a small box shows what fits.
+                          Flexible(
+                            child: Text(
+                              label,
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 2,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           ),
                         ],
                       ),
