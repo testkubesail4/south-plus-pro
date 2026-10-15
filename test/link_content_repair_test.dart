@@ -51,6 +51,45 @@ void main() {
         isNull);
   });
 
+  test('native sibling footers supply distinct OP and reply actions', () async {
+    final client = _ThreadClient()
+      ..response = '''<html><body>Pages: 1/1
+      <span id="subject_tpc">Synthetic thread</span>
+      <a href="read.php?tid-701.html">Synthetic thread</a>
+      <table class="js-post"><tr>
+        <th class="r_two"><a href="u.php?uid-901.html"><strong>Synthetic OP</strong></a></th>
+        <th class="r_one"><div class="tiptop"><span class="fl"><a class="s3">楼主</a></span></div>
+          <div class="tpc_content"><div class="f14" id="read_tpc">Synthetic opening body</div></div>
+        </th></tr><tr><td><ul class="readbot">
+          <li class="huifu"><a onclick="postreply('回 楼主(Synthetic OP) 的帖子');">回复</a></li>
+          <li class="yinyong"><a href="post.php?action-quote-fid-2-tid-701-pid-tpc-article-0.html">引用</a></li>
+        </ul></td></tr></table>
+      <table class="js-post"><tr>
+        <th class="r_two"><a href="u.php?uid-902.html"><strong>Synthetic reply</strong></a></th>
+        <th class="r_one"><div class="tiptop"><span class="fl"><a class="s3">B1F</a></span></div>
+          <div class="tpc_content"><div class="f14" id="read_42">Synthetic reply body</div></div>
+        </th></tr><tr><td><ul class="readbot">
+          <li class="huifu"><a onclick="postreply('回 1楼(Synthetic reply) 的帖子');">回复</a></li>
+          <li class="yinyong"><a href="post.php?action-quote-fid-2-tid-701-pid-42-article-1.html">引用</a></li>
+        </ul></td></tr></table>
+      </body></html>''';
+    final detail = await ForumRepository(client: client).fetchThreadDetail(
+        const ForumThread(
+            title: 'Synthetic',
+            url: 'https://south-plus.net/read.php?tid-701.html',
+            replies: 1,
+            section: 'Synthetic'));
+    expect(detail.bodyReplyTitle, '回 楼主(Synthetic OP) 的帖子');
+    expect(detail.bodyQuoteUrl,
+        'https://south-plus.net/post.php?action-quote-fid-2-tid-701-pid-tpc-article-0.html');
+    expect(detail.bodyReplyUrl, isNull,
+        reason: 'native reply uses its subject, not the quote URL');
+    expect(detail.replies.single.replyTitle, '回 1楼(Synthetic reply) 的帖子');
+    expect(detail.replies.single.quoteUrl,
+        'https://south-plus.net/post.php?action-quote-fid-2-tid-701-pid-42-article-1.html');
+    expect(detail.replies.single.replyUrl, isNull);
+  });
+
   test(
       'filtered first rows never replace known OP identity or impersonate an opening post',
       () async {

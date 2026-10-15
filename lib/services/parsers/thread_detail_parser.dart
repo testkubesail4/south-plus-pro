@@ -60,8 +60,11 @@ class ThreadDetailParser {
           authorCell.querySelector('.user-pic img')?.attributes['src'] ??
               authorCell.querySelector('a[href*="uid"] img')?.attributes['src'];
       final authorPostsHref = _authorPostsHref(contentCell);
-      final quoteHref = _quoteHref(contentCell);
-      final replyLink = contentCell.querySelector('a[onclick*="postreply("]');
+      // Native floor actions live in a sibling footer, outside the content cell.
+      final actions = post.querySelector('.readbot') ?? contentCell;
+      final quoteHref = _quoteHref(actions) ?? _quoteHref(contentCell);
+      final replyLink = actions.querySelector('a[onclick*="postreply("]') ??
+          contentCell.querySelector('a[onclick*="postreply("]');
       final replyHref = replyLink?.attributes['href'];
       final floor = _floor(contentCell);
       final postedAt = _postedAt(contentCell);
