@@ -1537,7 +1537,9 @@ class _ThreadDetailContent extends StatelessWidget {
             child: _ThreadHeaderCard(
               title: detail.thread.title,
               author: detail.thread.author,
-              avatarUrl: detail.thread.authorAvatarUrl,
+              avatarUrl: rules.isAvatarBlocked(detail.thread.authorUid)
+                  ? null
+                  : detail.thread.authorAvatarUrl,
               onAuthorTap: detail.thread.authorUrl == null
                   ? null
                   : () => onAuthorTap(detail.thread.authorUrl!),

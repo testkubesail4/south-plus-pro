@@ -19,6 +19,7 @@ const _thread = ForumThread(
   section: '',
   author: 'op',
   authorUrl: 'https://south-plus.net/u.php?action-show-uid-500.html',
+  authorAvatarUrl: 'https://south-plus.net/avatar/500.png',
 );
 
 void main() {
@@ -110,6 +111,39 @@ void main() {
     expect(find.text('something else', findRichText: true), findsOneWidget);
   });
 
+  for (final openingBody in ['opening body', '']) {
+    testWidgets(
+        "a blocked avatar leaves the opening poster's card "
+        '(${openingBody.isEmpty ? 'header only' : 'with body'})',
+        (tester) async {
+      final repository =
+          _Repository(loggedIn: true, openingBody: openingBody);
+      repository.blocking.notifier.value = const BlockingRules(users: [
+        BlockedUser(
+            uid: '500', name: 'op', userBlocked: false, avatarBlocked: true),
+      ]);
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: ThreadDetailScreen(repository: repository, thread: _thread),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('blocking'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate((widget) =>
+            widget is CachedForumImage && widget.url.endsWith('/500.png')),
+        findsNothing,
+      );
+      expect(
+        find.byWidgetPredicate((widget) =>
+            widget is CachedForumImage && widget.url.endsWith('/601.png')),
+        findsOneWidget,
+      );
+    });
+  }
+
   testWidgets('a blocked opening poster keeps the title, hides the body',
       (tester) async {
     final repository = _Repository(loggedIn: true);
@@ -162,35 +196,57 @@ void main() {
     expect(find.text('B2F · 已屏蔽此人的发言'), findsOneWidget);
   });
 
-  testWidgets('撤销 from an ended session writes nothing', (tester) async {
+  /// Ends account A's session and signs account B in on the same screen.
+  Future<ForumRepository> switchToB(
+      WidgetTester tester, _SessionClient client) async {
+    final repository = repositoryOf(tester);
+    await repository.clearSession();
+    client
+      ..loggedIn = true
+      ..uid = '102'
+      ..name = 'Synthetic second account';
+    await repository.restoreSession();
+    await repository.ensureAccountIdentity();
+    await repository.blocking.load();
+    await tester.pumpAndSettle();
+    expect(repository.blocking.canWriteNative, isTrue);
+    return repository;
+  }
+
+  testWidgets("account A's 撤销 never edits account B's rules", (tester) async {
     final client = await pumpFresh(tester);
     await openMenu(tester, 'floor-actions-alice-B1F');
     await tester.tap(find.text('屏蔽内容'));
     await tester.pumpAndSettle();
     expect(find.text('B1F · 已屏蔽相同内容'), findsOneWidget);
-    await tester.tap(find.text('显示').first);
+
+    final repository = await switchToB(tester, client);
+    // B holds the very rule A's 撤销 would remove.
+    await repository.blocking.setContent('same short text', blocked: true);
     await tester.pumpAndSettle();
     final posts = List.of(client.posts);
 
-    await repositoryOf(tester).clearSession();
-    await tester.pumpAndSettle();
-    // The ended account's rules and reveal choices are gone.
-    expect(find.textContaining('已屏蔽'), findsOneWidget, reason: 'snackbar');
     await tester.tap(find.text('撤销'));
     await tester.pumpAndSettle();
     expect(client.posts, posts);
+    // Reloaded from storage: B's local rule survived.
+    await repository.blocking.load(refresh: true);
+    expect(repository.blocking.notifier.value.contentKeys, {'same short text'});
   });
 
-  testWidgets('a menu left open across a session change writes nothing',
+  testWidgets("a menu opened as account A never writes for account B",
       (tester) async {
     final client = await pumpFresh(tester);
     await openMenu(tester, 'floor-actions-bob-B2F');
+    final repository = await switchToB(tester, client);
     final posts = List.of(client.posts);
-    await repositoryOf(tester).clearSession();
+    final blocklist = jsonEncode(client.blocklist);
+
     await tester.tap(find.text('屏蔽此人'));
     await tester.pumpAndSettle();
     expect(client.posts, posts);
-    expect(find.textContaining('已屏蔽'), findsNothing);
+    expect(jsonEncode(client.blocklist), blocklist);
+    expect(repository.blocking.notifier.value.users, isEmpty);
   });
 
   testWidgets('guests see why native blocking is unavailable', (tester) async {
@@ -230,6 +286,8 @@ class _FreshRepository extends ForumRepository {
 
 class _SessionClient extends ForumClient {
   var loggedIn = true;
+  var uid = '101';
+  var name = 'Synthetic account';
   final gets = <String>[];
   final posts = <String>[];
   Map<String, dynamic> blocklist = {'version': '3.1', 'blist': <String, dynamic>{}};
@@ -247,8 +305,8 @@ class _SessionClient extends ForumClient {
   Future<String> get(String path) async {
     gets.add(path);
     return '''<html><head><script>var verifyhash='TEST1234';</script></head>
-      <body><div id="user-login"><a href="u.php">Synthetic account</a></div>
-      <div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-101.html">查看个人资料</a></div></div>
+      <body><div id="user-login"><a href="u.php">$name</a></div>
+      <div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-$uid.html">查看个人资料</a></div></div>
       </body></html>''';
   }
 
@@ -279,9 +337,12 @@ class _NativeServer {
 }
 
 class _Repository extends ForumRepository {
-  _Repository({required this.loggedIn});
+  _Repository({required this.loggedIn, this.openingBody = 'opening body'});
 
   final bool loggedIn;
+
+  /// Empty on later pages and author-filtered views: a header card only.
+  final String openingBody;
   final server = _NativeServer();
 
   @override
@@ -323,7 +384,7 @@ class _Repository extends ForumRepository {
         );
     return ThreadDetail(
       thread: _thread,
-      body: 'opening body',
+      body: openingBody,
       replies: [
         reply('alice', 601, 1, 'same short text'),
         reply('bob', 602, 2, 'something else'),
