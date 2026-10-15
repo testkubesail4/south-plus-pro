@@ -29,8 +29,20 @@ ForumThread _topic(String title, {bool sticky = false}) => ForumThread(
       isSticky: sticky,
     );
 
+ForumBoardFilter _filter(String label, ForumBoardFilterKind kind, String url) =>
+    ForumBoardFilter(label: label, url: url, kind: kind);
+
+final _all = _filter('全部', ForumBoardFilterKind.all, 'thread.php?fid-901.html');
+final _digest = _filter(
+    '精华', ForumBoardFilterKind.digest, 'thread.php?fid-901-search-digest.html');
+final _type = _filter(
+    'Type one', ForumBoardFilterKind.topicType, 'thread.php?fid-901-type-1.html');
+final _vote = _filter(
+    '投票', ForumBoardFilterKind.special, 'thread.php?fid-901-special-1.html');
+
 class _Repo extends ForumRepository {
-  final requests = <(String, int)>[];
+  final requests = <(String, int, ForumBoardFilter?)>[];
+  ForumBoardFilter? deepLinkFilter;
 
   @override
   Future<ForumThreadPage> fetchBoardThreadPage(
@@ -39,7 +51,7 @@ class _Repo extends ForumRepository {
     ForumThreadOrder order = ForumThreadOrder.lastPost,
     ForumBoardFilter? filter,
   }) async {
-    requests.add((category.slug, page));
+    requests.add((category.slug, page, filter));
     if (category.slug == _hub.slug) {
       return ForumThreadPage(
         threads: [_topic('Hub notice', sticky: true)],
@@ -60,6 +72,9 @@ class _Repo extends ForumRepository {
       currentPage: page,
       totalPages: 3,
       boardName: name,
+      filters: [_all, _digest, _type, _vote],
+      activeFilter: filter ?? deepLinkFilter ?? _all,
+      hasPictureWall: name == 'Child A',
       parents: const [_hub],
     );
   }
@@ -72,6 +87,10 @@ Future<void> _pump(WidgetTester tester, Widget home, {Size? size}) async {
   await tester.pumpWidget(MaterialApp(home: home));
   await tester.pumpAndSettle();
 }
+
+bool _selected(WidgetTester tester, String label) =>
+    containsSemantics(isSelected: true)
+        .matches(tester.getSemantics(find.text(label).last), {});
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -134,6 +153,50 @@ void main() {
     await tester.tap(find.text('Child B'));
     await tester.pumpAndSettle();
     expect(find.text('Child B topic 1'), findsOneWidget);
+  });
+
+  testWidgets('a filter tab refetches page one with that filter',
+      (tester) async {
+    final repo = _Repo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    );
+    expect(_selected(tester, '全部'), isTrue);
+
+    await tester.tap(find.byTooltip('下一页'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('精华'));
+    await tester.pumpAndSettle();
+    expect(repo.requests.last, ('fid-901', 1, _digest));
+    expect(_selected(tester, '精华'), isTrue);
+    expect(_selected(tester, '全部'), isFalse);
+
+    // 全部 is passed explicitly so a deep link's own filter is cleared too.
+    await tester.tap(find.text('全部'));
+    await tester.pumpAndSettle();
+    expect(repo.requests.last, ('fid-901', 1, _all));
+    expect(repo.requests.length, 4);
+  });
+
+  testWidgets('a deep-linked filter shows as the selected tab', (tester) async {
+    final repo = _Repo()..deepLinkFilter = _type;
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category: const ForumCategory(
+          name: '',
+          slug: 'fid-901',
+          url: 'https://south-plus.net/thread.php?fid-901-type-1.html',
+        ),
+        repository: repo,
+      ),
+    );
+    expect(_selected(tester, 'Type one'), isTrue);
+    expect(_selected(tester, '全部'), isFalse);
   });
 
   testWidgets('large text keeps the board screen within bounds',

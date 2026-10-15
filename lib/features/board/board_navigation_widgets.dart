@@ -442,37 +442,54 @@ class _SiblingPanel extends StatelessWidget {
   }
 }
 
-/// The topic area's header: 全部主题 and the sort menu.
+/// Filter tabs (全部 · 精华 · topic types | special types), then sort.
 class _BoardToolbar extends StatelessWidget {
   const _BoardToolbar({
+    required this.filters,
+    required this.activeUrl,
+    required this.onFilter,
     required this.order,
     required this.onOrder,
   });
 
+  final List<ForumBoardFilter> filters;
+  final String? activeUrl;
+  final ValueChanged<ForumBoardFilter> onFilter;
   final ForumThreadOrder order;
   final ValueChanged<ForumThreadOrder> onOrder;
 
   static double extentFor(BuildContext context) =>
       math.max(48, MediaQuery.textScalerOf(context).scale(14) * 1.4 + 26) + 1;
 
+  bool _selected(ForumBoardFilter filter) => activeUrl == null
+      ? filter.kind == ForumBoardFilterKind.all
+      : filter.url == activeUrl;
+
   @override
   Widget build(BuildContext context) {
-    // Large text keeps the width for the tabs.
+    // Large text keeps the width for the filter tabs.
     final compact = MediaQuery.textScalerOf(context).scale(1) > 1.3;
-    final tabs = [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: Text(
-          '全部主题',
-          style: TextStyle(
-            color: AppColors.text,
-            fontSize: 14,
-            height: 1.4,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    ];
+    final tabs = <Widget>[];
+    for (final (i, filter) in filters.indexed) {
+      if (i > 0 &&
+          filter.kind == ForumBoardFilterKind.special &&
+          filters[i - 1].kind != ForumBoardFilterKind.special) {
+        tabs.add(Container(
+          width: 1,
+          height: 16,
+          margin: const EdgeInsets.symmetric(horizontal: 6),
+          color: AppColors.border,
+        ));
+      }
+      tabs.add(_FilterTab(
+        label: filter.label,
+        selected: _selected(filter),
+        onTap: () => onFilter(filter),
+      ));
+    }
+    if (tabs.isEmpty) {
+      tabs.add(const _FilterTab(label: '全部主题', selected: true));
+    }
     return Row(
       children: [
         Expanded(
@@ -521,6 +538,52 @@ class _BoardToolbar extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FilterTab extends StatelessWidget {
+  const _FilterTab({required this.label, required this.selected, this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      selected: selected,
+      button: onTap != null,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          alignment: Alignment.center,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  width: 2,
+                  color: selected && onTap != null
+                      ? AppColors.text
+                      : Colors.transparent,
+                ),
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? AppColors.text : AppColors.textMuted,
+                fontSize: 14,
+                height: 1.4,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

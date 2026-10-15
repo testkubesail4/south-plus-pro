@@ -48,11 +48,12 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   final ScrollController _scrollController = ScrollController();
   late ForumCategory _category = widget.category;
   late List<ForumBoard> _knownSubBoards = List.of(widget.initialSubBoards);
-  // The last loaded page keeps sub-boards on screen while the
+  // The last loaded page keeps sub-boards and filters on screen while the
   // next page loads, so only the topic area shows a skeleton.
   ForumThreadPage? _shown;
   int _page = 1;
   ForumThreadOrder _order = ForumThreadOrder.lastPost;
+  ForumBoardFilter? _filter;
 
   @override
   void initState() {
@@ -66,6 +67,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       category,
       page: page,
       order: _order,
+      filter: _filter,
     );
     _adoptBoardName(category, threadPage);
     _rememberSubBoards(threadPage);
@@ -81,6 +83,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         _knownSubBoards = List.of(defaultSubBoard.children);
         _page = 1;
         _order = ForumThreadOrder.lastPost;
+        _filter = null;
       }
 
       if (mounted) {
@@ -164,6 +167,17 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     await _reload(page: 1);
     await _scrollToTop();
   }
+
+  // Filters are passed explicitly, 全部 included: a null filter keeps the
+  // one a deep link's url carries.
+  Future<void> _changeFilter(ForumBoardFilter filter) async {
+    if (filter.url == _activeFilterUrl) return;
+    _filter = filter;
+    await _reload(page: 1);
+    await _scrollToTop();
+  }
+
+  String? get _activeFilterUrl => _filter?.url ?? _shown?.activeFilter?.url;
 
   Future<void> _scrollToTop() async {
     if (!mounted || !_scrollController.hasClients) return;
@@ -395,6 +409,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         ? _knownSubBoards
         : shown.subBoards;
     final items = page == null ? null : _BoardListItem.fromPage(page);
+    final filters = shown?.filters ?? const <ForumBoardFilter>[];
     Widget padded(Widget sliver) => SliverPadding(
             padding: EdgeInsets.symmetric(horizontal: gutter),
             sliver: sliver,
@@ -423,6 +438,9 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                 gutter: gutter,
                 extent: _BoardToolbar.extentFor(context),
                 child: _BoardToolbar(
+                  filters: filters,
+                  activeUrl: _activeFilterUrl,
+                  onFilter: _changeFilter,
                   order: _order,
                   onOrder: _changeOrder,
                 ),
