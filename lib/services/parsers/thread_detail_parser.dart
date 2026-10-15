@@ -2,6 +2,7 @@ import 'package:html/dom.dart' as dom;
 
 import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
+import '../forum_block_content.dart';
 import 'thread_content_parser.dart';
 
 class ThreadDetailParser {
@@ -75,6 +76,10 @@ class ThreadDetailParser {
               ? null
               : urls.absoluteUrl(authorPostsHref),
           content: text,
+          blockContentKey: blockContentKey(content,
+              ignorable:
+                  contentCell.querySelector('.tiptop > .js-puremark-content') !=
+                      null),
           postedAt: postedAt.isEmpty ? null : postedAt,
           floor: floor.isEmpty ? null : floor,
           quote: quote,

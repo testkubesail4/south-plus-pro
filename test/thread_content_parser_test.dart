@@ -275,6 +275,9 @@ void main() {
       'https://south-plus.net/post.php?action=reply&fid=2&tid=741222',
     );
     expect(replies.single.authorUid, '123');
+    expect(replies.single.blockContentKey, isNull,
+        reason:
+            'paid content is ineligible even after sale boxes are extracted');
     expect(replies.single.saleBoxes.single.price, 5);
     expect(replies.single.saleBoxes.single.buyers, 8);
     expect(replies.single.saleBoxes.single.warning, '购买风险提示');
@@ -289,6 +292,27 @@ void main() {
     );
     expect(nextThread?.label, '下一主题');
     expect(rssFeed?.url, 'https://south-plus.net/rss.php?tid=741222');
+  });
+
+  test('ThreadDetailParser preserves escaped native reply subjects', () {
+    for (final sample in <(String, String)>[
+      (r'''postreply('回 3楼(Synthetic\'s) 的帖子');''', "回 3楼(Synthetic's) 的帖子"),
+      ('postreply("回 3楼(Synthetic) 的帖子");', '回 3楼(Synthetic) 的帖子'),
+      (
+        r'''postreply('回 3楼(Synthetic\\name) 的帖子');''',
+        r'回 3楼(Synthetic\name) 的帖子'
+      ),
+    ]) {
+      final onclick = sample.$1.replaceAll('"', '&quot;');
+      final document = html_parser.parse('''<table class="js-post"><tr>
+        <th class="r_two"><a href="u.php?uid-202.html"><strong>Synthetic author</strong></a></th>
+        <th class="r_one"><a onclick="$onclick">回复</a>
+          <div class="tpc_content"><div class="f14" id="read_7">synthetic body</div></div>
+        </th></tr></table>''');
+      expect(
+          ThreadDetailParser().desktopThreadCards(document).single.replyTitle,
+          sample.$2);
+    }
   });
 
   test('ThreadDetailParser extracts section title from thread breadcrumbs', () {

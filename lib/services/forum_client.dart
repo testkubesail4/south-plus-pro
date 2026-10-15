@@ -326,22 +326,29 @@ class ForumClient {
     int redirectsLeft = 5,
     bool sensitiveSearch = false,
     bool identityLookup = false,
+    bool sensitiveBlocking = false,
   }) async {
     await restoreCookies();
     final startedAt = DateTime.now();
     final isPm = uri.path == '/message.php';
     identityLookup = identityLookup || uri.path == '/sendemail.php';
     sensitiveSearch = sensitiveSearch || _isForumSearch(uri);
-    final tracePath = identityLookup
-        ? 'sendemail.php'
-        : isPm
-            ? 'message.php'
-            : sensitiveSearch
-                ? 'search.php'
-                : uri.toString();
+    sensitiveBlocking = sensitiveBlocking ||
+        (uri.path == '/pw_ajax.php' &&
+            {'getblocklist', 'updateblocklist'}
+                .contains(uri.queryParameters['action']));
+    final tracePath = sensitiveBlocking
+        ? 'pw_ajax.php (blocking)'
+        : identityLookup
+            ? 'sendemail.php'
+            : isPm
+                ? 'message.php'
+                : sensitiveSearch
+                    ? 'search.php'
+                    : uri.toString();
     ForumTraceLogger.log(
       'HTTP',
-      isPm || sensitiveSearch || identityLookup
+      isPm || sensitiveSearch || identityLookup || sensitiveBlocking
           ? '$method $tracePath'
           : method == 'POST'
               ? 'POST $uri form=${ForumTraceLogger.sanitizeForm(form ?? const {})}'
@@ -406,6 +413,7 @@ class ForumClient {
         redirectsLeft: redirectsLeft - 1,
         sensitiveSearch: sensitiveSearch,
         identityLookup: identityLookup,
+        sensitiveBlocking: sensitiveBlocking,
       );
     }
     final bytes = Uint8List.fromList(
@@ -420,6 +428,7 @@ class ForumClient {
     if (!isPm &&
         !sensitiveSearch &&
         !identityLookup &&
+        !sensitiveBlocking &&
         ForumTraceLogger.shouldLogFullBody(uri)) {
       ForumTraceLogger.logBlock(
         'HTTP',

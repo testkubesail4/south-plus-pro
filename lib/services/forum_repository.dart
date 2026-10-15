@@ -10,6 +10,7 @@ import '../models/forum_models.dart';
 import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
+import 'forum_blocking_settings.dart';
 import 'forum_http_routing.dart';
 import 'forum_network_config.dart';
 import 'forum_request_exception.dart';
@@ -79,6 +80,8 @@ class ForumRepository {
     _sessionEpoch.addListener(() {
       _restoredDesktopHtml = null;
       _replyNoticeVerify = null;
+      _blocking?.reset();
+      _blockingLoadedEpoch = null;
       _noticeFlags.value = const ForumNoticeFlags();
       _accountIdentity.value = null;
       _accountNicknameFuture = null;
@@ -122,6 +125,70 @@ class ForumRepository {
   int _homeGeneration = 0;
   Set<ForumQuickList> _homeQuickLists = {};
   final _quickListRequests = <ForumQuickList, Future<List<ForumThread>>>{};
+
+  ForumBlockingSettings? _blocking;
+  int? _blockingLoadedEpoch;
+  ForumBlockingSettings get blocking => _blocking ??= ForumBlockingSettings(
+        accountUid: () => isLoggedIn ? _accountIdentity.value?.uid : null,
+        request: _requestBlocking,
+      );
+
+  void _maybeLoadBlocking() {
+    if (!isLoggedIn ||
+        _accountIdentity.value?.uid == null ||
+        _replyNoticeVerify == null ||
+        _blockingLoadedEpoch == _sessionEpoch.value) return;
+    _blockingLoadedEpoch = _sessionEpoch.value;
+    unawaited(blocking.load().catchError((Object _) {}));
+  }
+
+  Future<String> _requestBlocking(
+      String action, Map<String, String> fields) async {
+    final epoch = _sessionEpoch.value;
+    final client = _client;
+    final owner = _accountIdentity.value?.uid;
+    void requireCurrent() {
+      if (!isLoggedIn ||
+          owner == null ||
+          epoch != _sessionEpoch.value ||
+          client != _client ||
+          owner != _accountIdentity.value?.uid) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录后可配置屏蔽规则');
+      }
+    }
+
+    requireCurrent();
+    try {
+      if (_replyNoticeVerify == null) {
+        final response = await client.get('index.php');
+        requireCurrent();
+        _throwIfBlockedPage(response);
+        final document = html_parser.parse(response);
+        _captureAccountIdentity(document);
+        _captureIndexNotices(document);
+        requireCurrent();
+      }
+      final verify = _replyNoticeVerify;
+      if (verify == null) {
+        throw const ForumRequestException(
+            ForumRequestKind.server, '无法取得屏蔽配置凭据，请重新登录');
+      }
+      final response = await client.post(
+          Uri(path: 'pw_ajax.php', queryParameters: {
+            'action': action,
+            'verify': verify,
+          }).toString(),
+          fields);
+      requireCurrent();
+      return response;
+    } on ForumRequestException catch (error) {
+      throw ForumRequestException(error.kind, '屏蔽配置同步失败，请稍后重试');
+    } catch (_) {
+      throw const ForumRequestException(
+          ForumRequestKind.network, '屏蔽配置同步失败，请检查网络后重试');
+    }
+  }
 
   final _accountIdentity = ValueNotifier<ForumAccountIdentity?>(null);
   Future<void>? _accountNicknameFuture;
@@ -247,6 +314,7 @@ class ForumRepository {
           : null,
       avatarUrl: identity.avatarUrl,
     );
+    _maybeLoadBlocking();
   }
 
   Future<void> loadAccountNickname() {
@@ -295,6 +363,7 @@ class ForumRepository {
       replyNotice: _replyNoticeParser.hasReplyNotice(document),
       unreadPm: _replyNoticeParser.hasUnreadPm(document),
     );
+    _maybeLoadBlocking();
   }
 
   Future<String> _postReplyNotice(Map<String, String> fields) async {
@@ -515,7 +584,9 @@ class ForumRepository {
     _sessionUser.value = username;
     _restoredDesktopHtml = header.desktopHtml;
     if (header.desktopHtml != null) {
-      _captureAccountIdentity(html_parser.parse(header.desktopHtml!));
+      final document = html_parser.parse(header.desktopHtml!);
+      _captureAccountIdentity(document);
+      _captureIndexNotices(document);
     }
     return true;
   }
@@ -2029,6 +2100,7 @@ class ForumRepository {
       bodyReplyTitle: first?.replyTitle,
       bodyReplyUrl: first?.replyUrl,
       bodyQuoteUrl: first?.quoteUrl,
+      bodyContentKey: first?.blockContentKey,
       replies: isOpeningPage ? posts.skip(1).toList() : posts,
       pagination: pagination,
       favorite: favorite,

@@ -316,6 +316,7 @@ class ThreadDetail {
     this.bodyReplyTitle,
     this.bodyReplyUrl,
     this.bodyQuoteUrl,
+    this.bodyContentKey,
     this.favorite,
     this.previousThread,
     this.nextThread,
@@ -335,6 +336,7 @@ class ThreadDetail {
   final String? bodyReplyTitle;
   final String? bodyReplyUrl;
   final String? bodyQuoteUrl;
+  final String? bodyContentKey;
   final ThreadFavorite? favorite;
   final ThreadActionLink? previousThread;
   final ThreadActionLink? nextThread;
@@ -367,6 +369,7 @@ class ThreadReply {
     this.quoteUrl,
     this.replyTitle,
     this.replyUrl,
+    this.blockContentKey,
     this.segments = const [],
     this.anchors = const [],
     this.images = const [],
@@ -386,6 +389,7 @@ class ThreadReply {
   final String? quoteUrl;
   final String? replyTitle;
   final String? replyUrl;
+  final String? blockContentKey;
   String? get authorUid => _profileUid(authorUrl);
   final List<ThreadContentSegment> segments;
   final List<String> anchors;
