@@ -199,6 +199,46 @@ void main() {
     expect(_selected(tester, '全部'), isFalse);
   });
 
+  testWidgets('the picture wall shows the same page as cards', (tester) async {
+    final repo = _Repo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    );
+    await tester.tap(find.text('精华'));
+    await tester.pumpAndSettle();
+    final requests = repo.requests.length;
+
+    await tester.tap(find.byTooltip('图墙'));
+    await tester.pumpAndSettle();
+    expect(find.text('Child A topic 1'), findsOneWidget);
+    expect(find.text('Child A pinned'), findsOneWidget);
+    expect(find.byTooltip('列表'), findsOneWidget);
+    expect(_selected(tester, '精华'), isTrue);
+    expect(repo.requests.length, requests, reason: 'same data, no refetch');
+
+    await tester.tap(find.byTooltip('列表'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('图墙'), findsOneWidget);
+  });
+
+  testWidgets('boards without a picture wall have no wall switch',
+      (tester) async {
+    final repo = _Repo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category: ForumCategory(name: 'Child B', slug: 'fid-902', url: _url(902)),
+        repository: repo,
+      ),
+    );
+    expect(find.text('Child B topic 1'), findsOneWidget);
+    expect(find.byTooltip('图墙'), findsNothing);
+  });
+
   testWidgets('large text keeps the board screen within bounds',
       (tester) async {
     final repo = _Repo();
@@ -215,6 +255,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Child A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('图墙'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });

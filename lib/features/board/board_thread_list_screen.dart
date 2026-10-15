@@ -20,7 +20,7 @@ part 'board_thread_list_widgets.dart';
 
 const _doujinContentBoardName = '同人志&CG';
 
-/// One board: its sub-boards, then its topics.
+/// One board: its sub-boards, then its topics as a list or a picture wall.
 /// A sub-board opens as its own route; [parent] and [siblings] are the board
 /// it was opened from and that board's sub-boards, for the switcher.
 class BoardThreadListScreen extends StatefulWidget {
@@ -54,6 +54,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   int _page = 1;
   ForumThreadOrder _order = ForumThreadOrder.lastPost;
   ForumBoardFilter? _filter;
+  bool _wall = false;
 
   @override
   void initState() {
@@ -410,6 +411,8 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         : shown.subBoards;
     final items = page == null ? null : _BoardListItem.fromPage(page);
     final filters = shown?.filters ?? const <ForumBoardFilter>[];
+    final wallAvailable = shown?.hasPictureWall ?? false;
+    final wall = _wall && wallAvailable;
     Widget padded(Widget sliver) => SliverPadding(
             padding: EdgeInsets.symmetric(horizontal: gutter),
             sliver: sliver,
@@ -443,6 +446,8 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                   onFilter: _changeFilter,
                   order: _order,
                   onOrder: _changeOrder,
+                  wall: wallAvailable ? wall : null,
+                  onWall: (value) => setState(() => _wall = value),
                 ),
               ),
             ),
@@ -453,6 +458,8 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
               padded(SliverToBoxAdapter(
                 child: _EmptyTopics(inSubBoards: subBoards.isNotEmpty),
               ))
+            else if (wall)
+              ..._wallSlivers(items, content).map(padded)
             else
               padded(_listSliver(items)),
             if (page != null)
@@ -486,4 +493,47 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         ),
       );
 
+  // Pinned topics and ads stay a compact list above the wall.
+  List<Widget> _wallSlivers(List<_BoardListItem> items, double width) {
+    final listed = [
+      for (final item in items)
+        if (item is _BoardAdItem ||
+            (item is _BoardThreadItem && item.thread.isSticky))
+          item,
+    ];
+    final tiles = [
+      for (final item in items)
+        if (item is _BoardThreadItem && !item.thread.isSticky) item.thread,
+    ];
+    final columns = _wallColumns(width);
+    final rows = (tiles.length / columns).ceil();
+    return [
+      if (listed.isNotEmpty) ...[
+        _listSliver(listed),
+        const SliverToBoxAdapter(child: SizedBox(height: 16)),
+      ],
+      SliverList.builder(
+        itemCount: rows,
+        itemBuilder: (context, row) => Padding(
+          padding: EdgeInsets.only(top: row == 0 ? 0 : _wallSpacing),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var c = 0; c < columns; c++) ...[
+                if (c > 0) const SizedBox(width: _wallSpacing),
+                Expanded(
+                  child: row * columns + c < tiles.length
+                      ? _WallCard(
+                          thread: tiles[row * columns + c],
+                          onTap: () => _openThread(tiles[row * columns + c]),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
 }

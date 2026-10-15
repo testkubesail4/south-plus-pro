@@ -4,6 +4,7 @@ part of 'board_thread_list_screen.dart';
 // soft surfaces on the background, section titles 20/w600, hairline rows.
 
 const _boardMaxWidth = 1200.0;
+const _wallSpacing = 12.0;
 const _siblingPanelWidth = 248.0;
 
 double _boardGutter(double width) =>
@@ -14,6 +15,9 @@ int _subBoardColumns(double width) => width < 600
     : width < 900
         ? 3
         : 4;
+
+int _wallColumns(double width) =>
+    math.max(2, ((width + _wallSpacing) / (180 + _wallSpacing)).floor());
 
 BoxDecoration _boardSurface(BuildContext context, {double radius = 16}) =>
     BoxDecoration(
@@ -442,7 +446,8 @@ class _SiblingPanel extends StatelessWidget {
   }
 }
 
-/// Filter tabs (全部 · 精华 · topic types | special types), then sort.
+/// Filter tabs (全部 · 精华 · topic types | special types), then sort and the
+/// list/picture-wall switch. [wall] is null when the board has no wall.
 class _BoardToolbar extends StatelessWidget {
   const _BoardToolbar({
     required this.filters,
@@ -450,6 +455,8 @@ class _BoardToolbar extends StatelessWidget {
     required this.onFilter,
     required this.order,
     required this.onOrder,
+    required this.wall,
+    required this.onWall,
   });
 
   final List<ForumBoardFilter> filters;
@@ -457,6 +464,8 @@ class _BoardToolbar extends StatelessWidget {
   final ValueChanged<ForumBoardFilter> onFilter;
   final ForumThreadOrder order;
   final ValueChanged<ForumThreadOrder> onOrder;
+  final bool? wall;
+  final ValueChanged<bool> onWall;
 
   static double extentFor(BuildContext context) =>
       math.max(48, MediaQuery.textScalerOf(context).scale(14) * 1.4 + 26) + 1;
@@ -537,6 +546,16 @@ class _BoardToolbar extends StatelessWidget {
             ),
           ),
         ),
+        if (wall != null)
+          IconButton(
+            tooltip: wall! ? '列表' : '图墙',
+            onPressed: () => onWall(!wall!),
+            icon: Icon(
+              wall! ? Icons.view_agenda_outlined : Icons.grid_view_outlined,
+              size: 20,
+              color: AppColors.textMuted,
+            ),
+          ),
       ],
     );
   }
@@ -646,6 +665,111 @@ class _EmptyTopics extends StatelessWidget {
         inSubBoards ? '这个板块的主题在子版块中' : '暂无主题',
         textAlign: TextAlign.center,
         style: TextStyle(color: AppColors.textMuted, fontSize: 14),
+      ),
+    );
+  }
+}
+
+/// A picture-wall card: cover-cropped first image, title, author · replies.
+class _WallCard extends StatelessWidget {
+  const _WallCard({required this.thread, required this.onTap});
+
+  final ForumThread thread;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = thread.previewImageUrl;
+    final meta = [
+      if (thread.author != null) thread.author!,
+      '${thread.replies} 回复',
+    ].join(' · ');
+    return DecoratedBox(
+      decoration: _boardSurface(context, radius: 12),
+      child: Material(
+        type: MaterialType.transparency,
+        clipBehavior: Clip.antiAlias,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AspectRatio(
+                aspectRatio: 3 / 4,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final placeholder = ColoredBox(
+                      color: AppColors.inkSoft,
+                      child: Center(
+                        child: Icon(
+                          url == null
+                              ? Icons.article_outlined
+                              : Icons.image_outlined,
+                          size: 24,
+                          color: AppColors.textFaint,
+                        ),
+                      ),
+                    );
+                    if (url == null) return placeholder;
+                    final dpr = MediaQuery.devicePixelRatioOf(context);
+                    return CachedForumImage(
+                      url: url,
+                      fit: BoxFit.cover,
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      // Cover needs the full card width; the height bound
+                      // (three cards tall) keeps very long images small.
+                      decodeToFit: true,
+                      memCacheWidth: (constraints.maxWidth * dpr).ceil(),
+                      memCacheHeight: (constraints.maxHeight * dpr * 3).ceil(),
+                      placeholder: (_) => placeholder,
+                      errorWidget: (_) => placeholder,
+                    );
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Two title lines are always reserved so a row of
+                    // cards lines up.
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight:
+                            MediaQuery.textScalerOf(context).scale(14) * 2.8,
+                      ),
+                      child: ForumTitleText(
+                        thread.title,
+                        titleStyle: thread.titleStyle,
+                        maxLines: 2,
+                        style: TextStyle(
+                          color: AppColors.text,
+                          fontSize: 14,
+                          height: 1.4,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      meta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textFaint,
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
