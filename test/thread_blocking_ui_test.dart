@@ -1,0 +1,334 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
+import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
+import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
+import 'package:south_plus_rewrite/services/forum_client.dart';
+import 'package:south_plus_rewrite/services/forum_repository.dart';
+
+// Synthetic fixtures only: fictional host, uids, authors and texts.
+const _url = 'https://south-plus.net/read.php?tid-7.html';
+const _thread = ForumThread(
+  title: 'blocking',
+  url: _url,
+  replies: 0,
+  section: '',
+  author: 'op',
+  authorUrl: 'https://south-plus.net/u.php?action-show-uid-500.html',
+);
+
+void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  Future<_Repository> pumpThread(WidgetTester tester,
+      {bool loggedIn = true}) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repository = _Repository(loggedIn: loggedIn);
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadDetailScreen(repository: repository, thread: _thread),
+    ));
+    await tester.pumpAndSettle();
+    return repository;
+  }
+
+  Future<void> openMenu(WidgetTester tester, String key) async {
+    final more = find.byKey(ValueKey(key));
+    await tester.ensureVisible(more);
+    await tester.pumpAndSettle();
+    await tester.tap(more);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('屏蔽内容 collapses matching floors, 显示 reveals one, 撤销 undoes',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openMenu(tester, 'floor-actions-alice-B1F');
+    await tester.tap(find.text('屏蔽内容'));
+    await tester.pumpAndSettle();
+
+    // B1F and B3F share the same short text.
+    expect(find.text('B1F · 已屏蔽相同内容'), findsOneWidget);
+    expect(find.text('B3F · 已屏蔽相同内容'), findsOneWidget);
+    expect(find.text('B2F · 已屏蔽相同内容'), findsNothing);
+    expect(repository.server.actions, isNot(contains('updateblocklist')),
+        reason: 'content rules stay local');
+
+    await tester.tap(find.text('显示').first);
+    await tester.pumpAndSettle();
+    expect(find.text('B1F · 已屏蔽相同内容'), findsNothing);
+    expect(find.text('B3F · 已屏蔽相同内容'), findsOneWidget);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(repository.blocking.notifier.value.contentKeys, isEmpty);
+    expect(find.textContaining('已屏蔽相同内容'), findsNothing);
+  });
+
+  testWidgets('屏蔽此人 writes the native list and hides that author',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    expect(find.text('同步南+屏蔽配置 · 隐藏 TA 的主题与回复'), findsOneWidget);
+    await tester.tap(find.text('屏蔽此人'));
+    await tester.pumpAndSettle();
+
+    // Rules load once read-only; the write merges a fresh read.
+    expect(repository.server.actions,
+        ['getblocklist', 'getblocklist', 'updateblocklist']);
+    final blist = repository.server.config['blist'] as Map;
+    expect((blist['602'] as Map)['level'], ['topic']);
+    expect(find.text('B2F · 已屏蔽此人的发言'), findsOneWidget);
+    expect(find.text('已屏蔽此人'), findsOneWidget);
+
+    // The menu now offers the reverse.
+    await tester.tap(find.text('显示'));
+    await tester.pumpAndSettle();
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    expect(find.text('取消屏蔽此人'), findsOneWidget);
+  });
+
+  testWidgets('屏蔽头像 only swaps the avatar for the initial', (tester) async {
+    final repository = await pumpThread(tester);
+    final bobAvatar = find.byWidgetPredicate(
+        (widget) => widget is CachedForumImage && widget.url.endsWith('/602.png'));
+    expect(bobAvatar, findsOneWidget);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    await tester.tap(find.text('屏蔽头像'));
+    await tester.pumpAndSettle();
+
+    expect((repository.server.config['blist'] as Map)['602']['level'],
+        ['avatar']);
+    expect(find.text('已屏蔽头像'), findsOneWidget);
+    expect(find.textContaining('已屏蔽此人的发言'), findsNothing);
+    expect(bobAvatar, findsNothing);
+    expect(find.text('something else', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets('a blocked opening poster keeps the title, hides the body',
+      (tester) async {
+    final repository = _Repository(loggedIn: true);
+    repository.blocking.notifier.value = const BlockingRules(users: [
+      BlockedUser(
+          uid: '500', name: 'op', userBlocked: true, avatarBlocked: false),
+    ]);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadDetailScreen(repository: repository, thread: _thread),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('blocking'), findsOneWidget);
+    expect(find.text('楼主 · 已屏蔽此人的发言'), findsOneWidget);
+    expect(find.text('opening body', findRichText: true), findsNothing);
+  });
+
+  Future<_SessionClient> pumpFresh(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final client = _SessionClient();
+    final repository = _FreshRepository(client);
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadDetailScreen(repository: repository, thread: _thread),
+    ));
+    await tester.pumpAndSettle();
+    return client;
+  }
+
+  ForumRepository repositoryOf(WidgetTester tester) => tester
+      .widget<ThreadDetailScreen>(find.byType(ThreadDetailScreen))
+      .repository;
+
+  testWidgets('a fresh session learns its uid before offering 屏蔽此人',
+      (tester) async {
+    final client = await pumpFresh(tester);
+    expect(client.gets, isEmpty);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+
+    // Read-only bootstrap: the account page and the current rules.
+    expect(client.gets, ['index.php']);
+    expect(client.posts, ['getblocklist']);
+    await tester.tap(find.text('屏蔽此人'));
+    await tester.pumpAndSettle();
+    expect(client.posts, ['getblocklist', 'getblocklist', 'updateblocklist']);
+    expect(find.text('B2F · 已屏蔽此人的发言'), findsOneWidget);
+  });
+
+  testWidgets('撤销 from an ended session writes nothing', (tester) async {
+    final client = await pumpFresh(tester);
+    await openMenu(tester, 'floor-actions-alice-B1F');
+    await tester.tap(find.text('屏蔽内容'));
+    await tester.pumpAndSettle();
+    expect(find.text('B1F · 已屏蔽相同内容'), findsOneWidget);
+    await tester.tap(find.text('显示').first);
+    await tester.pumpAndSettle();
+    final posts = List.of(client.posts);
+
+    await repositoryOf(tester).clearSession();
+    await tester.pumpAndSettle();
+    // The ended account's rules and reveal choices are gone.
+    expect(find.textContaining('已屏蔽'), findsOneWidget, reason: 'snackbar');
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(client.posts, posts);
+  });
+
+  testWidgets('a menu left open across a session change writes nothing',
+      (tester) async {
+    final client = await pumpFresh(tester);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    final posts = List.of(client.posts);
+    await repositoryOf(tester).clearSession();
+    await tester.tap(find.text('屏蔽此人'));
+    await tester.pumpAndSettle();
+    expect(client.posts, posts);
+    expect(find.textContaining('已屏蔽'), findsNothing);
+  });
+
+  testWidgets('guests see why native blocking is unavailable', (tester) async {
+    await pumpThread(tester, loggedIn: false);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    expect(find.text('登录后可同步南+屏蔽配置'), findsNWidgets(2));
+    expect(
+      tester
+          .widget<ListTile>(
+              find.ancestor(of: find.text('屏蔽此人'), matching: find.byType(ListTile)))
+          .enabled,
+      isFalse,
+    );
+  });
+}
+
+/// A real repository whose session has not captured its own uid yet.
+class _FreshRepository extends ForumRepository {
+  _FreshRepository(this.client) : super(client: client);
+
+  final _SessionClient client;
+
+  @override
+  Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread t) async =>
+      null;
+
+  @override
+  Future<void> saveThreadReadPosition(
+    ForumThread t,
+    ThreadReadPosition p,
+  ) async {}
+
+  @override
+  Future<ThreadDetail> fetchThreadDetail(ForumThread thread, {int page = 1}) =>
+      _Repository(loggedIn: true).fetchThreadDetail(thread, page: page);
+}
+
+class _SessionClient extends ForumClient {
+  var loggedIn = true;
+  final gets = <String>[];
+  final posts = <String>[];
+  Map<String, dynamic> blocklist = {'version': '3.1', 'blist': <String, dynamic>{}};
+
+  @override
+  bool get isLoggedIn => loggedIn;
+
+  @override
+  Future<void> restoreCookies() async {}
+
+  @override
+  Future<void> clearSession() async => loggedIn = false;
+
+  @override
+  Future<String> get(String path) async {
+    gets.add(path);
+    return '''<html><head><script>var verifyhash='TEST1234';</script></head>
+      <body><div id="user-login"><a href="u.php">Synthetic account</a></div>
+      <div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-101.html">查看个人资料</a></div></div>
+      </body></html>''';
+  }
+
+  @override
+  Future<String> post(String path, Map<String, String> fields) async {
+    final action = Uri.parse(path).queryParameters['action']!;
+    posts.add(action);
+    if (action == 'getblocklist') {
+      return '<ajax><![CDATA[${jsonEncode(blocklist)}]]></ajax>';
+    }
+    blocklist = jsonDecode(fields['blocklistconfig']!) as Map<String, dynamic>;
+    return '<ajax><![CDATA[success]]></ajax>';
+  }
+}
+
+class _NativeServer {
+  final actions = <String>[];
+  Map<String, dynamic> config = {'version': '3.1', 'blist': <String, dynamic>{}};
+
+  Future<String> request(String action, Map<String, String> fields) async {
+    actions.add(action);
+    if (action == 'getblocklist') {
+      return '<ajax><![CDATA[${jsonEncode(config)}]]></ajax>';
+    }
+    config = jsonDecode(fields['blocklistconfig']!) as Map<String, dynamic>;
+    return '<ajax><![CDATA[success]]></ajax>';
+  }
+}
+
+class _Repository extends ForumRepository {
+  _Repository({required this.loggedIn});
+
+  final bool loggedIn;
+  final server = _NativeServer();
+
+  @override
+  bool get isLoggedIn => loggedIn;
+
+  @override
+  late final ForumBlockingSettings blocking = ForumBlockingSettings(
+    accountUid: () => loggedIn ? '101' : null,
+    request: server.request,
+  );
+
+  // The account is already known here; see _FreshRepository for bootstrap.
+  @override
+  Future<void> ensureAccountIdentity() async {}
+
+  @override
+  Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread t) async =>
+      null;
+
+  @override
+  Future<void> saveThreadReadPosition(
+    ForumThread t,
+    ThreadReadPosition p,
+  ) async {}
+
+  @override
+  Future<ThreadDetail> fetchThreadDetail(
+    ForumThread thread, {
+    int page = 1,
+  }) async {
+    ThreadReply reply(String author, int uid, int floor, String text) =>
+        ThreadReply(
+          author: author,
+          content: text,
+          floor: 'B${floor}F',
+          authorUrl: 'https://south-plus.net/u.php?action-show-uid-$uid.html',
+          authorAvatarUrl: 'https://south-plus.net/avatar/$uid.png',
+          blockContentKey: text,
+        );
+    return ThreadDetail(
+      thread: _thread,
+      body: 'opening body',
+      replies: [
+        reply('alice', 601, 1, 'same short text'),
+        reply('bob', 602, 2, 'something else'),
+        reply('carol', 603, 3, 'same short text'),
+      ],
+    );
+  }
+}

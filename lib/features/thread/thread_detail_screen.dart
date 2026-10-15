@@ -9,6 +9,7 @@ import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
 import '../../services/attachment_saver.dart';
 import '../../services/perf_trace.dart';
+import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
 import '../../services/thread_paging_settings.dart';
 import '../../theme/app_theme.dart';
@@ -50,6 +51,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   // The reply box docks under the list instead of ending it, so paging
   // never moves it and opening it never moves the reading position.
   bool _composerOpen = false;
+  // Hidden floors the reader chose to see anyway: cleared by a new page or
+  // thread load and by a session change.
+  final _revealedPosts = Set<Object>.identity();
   bool _loading = true;
   Object? _loadError;
   late ForumThread _thread;
@@ -88,6 +92,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _thread = widget.thread;
     _pendingAnchor = _fragmentOf(widget.thread.url);
     ThreadPagingSettings.notifier.addListener(_onPagingSettingChanged);
+    widget.repository.blocking.notifier.addListener(_onBlockingChanged);
+    widget.repository.sessionEpoch.addListener(_onSessionChanged);
     _openAtSavedPosition();
   }
 
@@ -152,6 +158,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _pendingAnchor = _fragmentOf(widget.thread.url);
     _anchorTarget = null;
     _morePages.clear();
+    _revealedPosts.clear();
     _resetDetailRenderState();
     _loadPage(1);
   }
@@ -192,6 +199,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _pendingAnchor = null;
         _pendingLatest = false;
         _morePages.clear();
+        _revealedPosts.clear();
         _loadingMore = false;
         _loadMoreFailed = false;
         _anchorTarget = latest
@@ -669,32 +677,127 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   @override
   void dispose() {
     ThreadPagingSettings.notifier.removeListener(_onPagingSettingChanged);
+    widget.repository.blocking.notifier.removeListener(_onBlockingChanged);
+    widget.repository.sessionEpoch.removeListener(_onSessionChanged);
     _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _showFloorActions(ThreadReply reply) async {
+  Future<void> _showFloorActions(ThreadReply reply, bool openingPost) async {
+    final repository = widget.repository;
+    final blocking = repository.blocking;
+    // Every write below belongs to the session this menu opened in.
+    final epoch = repository.sessionEpoch.value;
+    bool sameSession() =>
+        mounted && repository.sessionEpoch.value == epoch;
+    final signedIn = repository.isLoggedIn;
+    if (signedIn) {
+      // A fresh session may not know its own uid or rules yet (read-only).
+      try {
+        await repository.ensureAccountIdentity();
+        await blocking.load();
+      } catch (_) {
+        // The menu still opens; unavailable items say why.
+      }
+      if (!sameSession()) return;
+    }
+    final rules = blocking.notifier.value;
+    final uid = reply.authorUid;
+    // The opening post is never matched by content (as on the site).
+    final contentKey = openingPost ? null : reply.blockContentKey;
+    // Both native and local rules are keyed by the signed-in account's uid.
+    final accountKnown = blocking.canWriteNative;
+    final userBlocked =
+        rules.users.any((user) => user.uid == uid && user.userBlocked);
+    final avatarBlocked = rules.isAvatarBlocked(uid);
+    final contentBlocked = rules.isContentBlocked(contentKey);
     final action = await showThreadFloorActions(
       context,
       author: reply.author,
       floor: reply.floor,
       avatar: _AuthorAvatar(
         author: reply.author,
-        avatarUrl: reply.authorAvatarUrl,
+        avatarUrl: avatarBlocked ? null : reply.authorAvatarUrl,
         onTap: null,
       ),
       canShowAuthorPosts: reply.authorPostsUrl != null,
-      // shortcut: the 屏蔽 group stays hidden until the blocking engine lands.
-      block: null,
+      block: ThreadFloorBlockState(
+        userBlocked: userBlocked,
+        avatarBlocked: avatarBlocked,
+        contentBlocked: contentBlocked,
+        canBlockUser: uid != null && accountKnown,
+        canBlockContent: contentKey != null && accountKnown,
+        userBlockUnavailableReason: !signedIn
+            ? '登录后可同步南+屏蔽配置'
+            : !accountKnown
+                ? '暂时无法识别当前账号'
+                : '无法识别此用户',
+        contentBlockUnavailableReason: openingPost
+            ? '主题内容不参与内容屏蔽'
+            : contentKey == null
+                ? null
+                : !signedIn
+                    ? '登录后可配置'
+                    : '暂时无法识别当前账号',
+      ),
     );
-    if (!mounted || action == null) return;
+    if (action == null || !sameSession()) return;
     switch (action) {
       case ThreadFloorAction.showAuthorPosts:
         await _showAuthorPosts(reply);
-      case ThreadFloorAction.blockContent ||
-            ThreadFloorAction.blockUser ||
-            ThreadFloorAction.blockAvatar:
-        break;
+      case ThreadFloorAction.blockUser:
+        await _applyBlock(
+          userBlocked ? '已取消屏蔽此人' : '已屏蔽此人',
+          (blocked) => blocking.setUser(uid!, reply.author, blocked: blocked),
+          !userBlocked,
+          sameSession,
+        );
+      case ThreadFloorAction.blockAvatar:
+        await _applyBlock(
+          avatarBlocked ? '已取消屏蔽头像' : '已屏蔽头像',
+          (blocked) => blocking.setUser(
+            uid!,
+            reply.author,
+            blocked: blocked,
+            avatarOnly: true,
+          ),
+          !avatarBlocked,
+          sameSession,
+        );
+      case ThreadFloorAction.blockContent:
+        await _applyBlock(
+          contentBlocked ? '已取消屏蔽此内容' : '已屏蔽相同内容',
+          (blocked) => blocking.setContent(contentKey!, blocked: blocked),
+          !contentBlocked,
+          sameSession,
+        );
+    }
+  }
+
+  /// Applies one rule change, offering to undo it; nothing is written once
+  /// the screen or the session that asked for it is gone.
+  Future<void> _applyBlock(
+    String done,
+    Future<void> Function(bool blocked) write,
+    bool blocked,
+    bool Function() sameSession,
+  ) async {
+    if (!sameSession()) return;
+    try {
+      await write(blocked);
+      if (!mounted) return;
+      _messenger.showSnackBar(SnackBar(
+        content: Text(done),
+        action: SnackBarAction(
+          label: '撤销',
+          onPressed: () => _applyBlock('已撤销', write, !blocked, sameSession),
+        ),
+        persist: false,
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      // Engine errors carry fixed, response-free messages.
+      _messenger.showSnackBar(SnackBar(content: Text('$error')));
     }
   }
 
@@ -759,6 +862,16 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   }
 
   bool get _autoLoadNextPage => ThreadPagingSettings.notifier.value;
+
+  // Reveal choices belong to the account that made them.
+  void _onSessionChanged() {
+    if (mounted) setState(_revealedPosts.clear);
+  }
+
+  // Rules apply as they change, here or in 屏蔽配置; nothing is refetched.
+  void _onBlockingChanged() {
+    if (mounted) setState(() {});
+  }
 
   // 设置 can change while this thread stays open below it.
   void _onPagingSettingChanged() {
@@ -1005,6 +1118,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           detail: detail,
           onPostMounted: _postMounted,
           onRetryLoadMore: _retryLoadMore,
+          rules: widget.repository.blocking.notifier.value,
+          revealedPosts: _revealedPosts,
+          onReveal: (post) => setState(() => _revealedPosts.add(post)),
           entries: _detailEntries,
           loading: _loading,
           onlyOriginalPosterActive: _onlyOriginalPosterActive,
@@ -1254,6 +1370,9 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.detail,
     required this.onPostMounted,
     required this.onRetryLoadMore,
+    required this.rules,
+    required this.revealedPosts,
+    required this.onReveal,
     required this.entries,
     required this.loading,
     required this.onlyOriginalPosterActive,
@@ -1286,6 +1405,9 @@ class _ThreadDetailContent extends StatelessWidget {
   final void Function(Object post, BuildContext context, bool mounted)
       onPostMounted;
   final VoidCallback onRetryLoadMore;
+  final BlockingRules rules;
+  final Set<Object> revealedPosts;
+  final ValueChanged<Object> onReveal;
   final List<ThreadDetailListEntry> entries;
   final bool loading;
   final bool onlyOriginalPosterActive;
@@ -1304,7 +1426,7 @@ class _ThreadDetailContent extends StatelessWidget {
   final Future<void> Function(ThreadReply) onQuoteReply;
   final ValueChanged<ThreadSaleBox> onBuySaleBox;
   final ValueChanged<String> onReplyToFloor;
-  final ValueChanged<ThreadReply> onFloorMore;
+  final void Function(ThreadReply post, bool openingPost) onFloorMore;
   final ValueChanged<int> onPageSelected;
   final bool autoLoadNextPage;
   final ValueChanged<ThreadActionLink> onThreadLink;
@@ -1425,13 +1547,44 @@ class _ThreadDetailContent extends StatelessWidget {
           );
         }
         final openingPost = _openingPostAsReply();
+        final opHidden = !revealedPosts.contains(detail) &&
+            rules.floorBlock(
+                  uid: detail.thread.authorUid,
+                  contentKey: null,
+                  isOpeningPost: true,
+                ) !=
+                FloorBlock.none;
+        if (opHidden) {
+          // The title and thread actions stay; only the post body hides.
+          return _entryWithKey(
+            key: entry.key,
+            post: detail,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _ThreadHeaderCard(
+                  title: detail.thread.title,
+                  pagination: detail.pagination,
+                  actions: actions,
+                ),
+                const SizedBox(height: 12),
+                ThreadBlockedFloor(
+                  label: _hiddenLabel('楼主', FloorBlock.user),
+                  onReveal: () => onReveal(detail),
+                ),
+              ],
+            ),
+          );
+        }
         return _entryWithKey(
           key: entry.key,
           post: detail,
           child: _FloorCard(
             title: detail.thread.title,
             author: detail.thread.author ?? '楼主',
-            avatarUrl: detail.thread.authorAvatarUrl,
+            avatarUrl: rules.isAvatarBlocked(detail.thread.authorUid)
+                ? null
+                : detail.thread.authorAvatarUrl,
             onAuthorTap: detail.thread.authorUrl == null
                 ? null
                 : () => onAuthorTap(detail.thread.authorUrl!),
@@ -1443,10 +1596,7 @@ class _ThreadDetailContent extends StatelessWidget {
             quoteLoading: detail.bodyQuoteUrl != null &&
                 loadingQuoteDrafts.contains(detail.bodyQuoteUrl),
             onQuote: () => onQuoteReply(openingPost),
-            // 只看楼主 already sits on this card; ⋯ only adds the author link.
-            onMore: openingPost.authorPostsUrl == null
-                ? null
-                : () => onFloorMore(openingPost),
+            onMore: () => onFloorMore(openingPost, true),
             headerActions: actions,
             child: ThreadPostBody(
               content: detail.body,
@@ -1493,6 +1643,25 @@ class _ThreadDetailContent extends StatelessWidget {
       case ThreadDetailListEntryType.reply:
         final replyEntry = entry as ThreadDetailReplyEntry;
         final reply = replyEntry.reply;
+        final hidden = revealedPosts.contains(reply)
+            ? FloorBlock.none
+            : rules.floorBlock(
+                uid: reply.authorUid,
+                contentKey: reply.blockContentKey,
+              );
+        if (hidden != FloorBlock.none) {
+          return _entryWithKey(
+            key: entry.key,
+            post: reply,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ThreadBlockedFloor(
+                label: _hiddenLabel(reply.floor, hidden),
+                onReveal: () => onReveal(reply),
+              ),
+            ),
+          );
+        }
         return _entryWithKey(
           key: entry.key,
           post: reply,
@@ -1500,7 +1669,9 @@ class _ThreadDetailContent extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 12),
             child: _FloorCard(
               author: reply.author,
-              avatarUrl: reply.authorAvatarUrl,
+              avatarUrl: rules.isAvatarBlocked(reply.authorUid)
+                  ? null
+                  : reply.authorAvatarUrl,
               onAuthorTap: reply.authorUrl == null
                   ? null
                   : () => onAuthorTap(reply.authorUrl!),
@@ -1509,7 +1680,7 @@ class _ThreadDetailContent extends StatelessWidget {
               onReply: () => onReplyToFloor(
                 reply.replyTitle ?? 'Re:${detail.thread.title}',
               ),
-              onMore: () => onFloorMore(reply),
+              onMore: () => onFloorMore(reply, false),
               quoteLoading: reply.quoteUrl != null &&
                   loadingQuoteDrafts.contains(reply.quoteUrl),
               onQuote: () => onQuoteReply(reply),
@@ -1581,6 +1752,11 @@ class _ThreadDetailContent extends StatelessWidget {
           ),
         );
     }
+  }
+
+  static String _hiddenLabel(String? floor, FloorBlock reason) {
+    final what = reason == FloorBlock.user ? '已屏蔽此人的发言' : '已屏蔽相同内容';
+    return floor == null || floor.isEmpty ? what : '$floor · $what';
   }
 
   /// The opening post in the shape the floor actions take.

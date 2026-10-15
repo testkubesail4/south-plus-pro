@@ -13,6 +13,7 @@ class ThreadFloorBlockState {
     this.canBlockUser = false,
     this.canBlockContent = false,
     this.userBlockUnavailableReason,
+    this.contentBlockUnavailableReason,
   });
 
   final bool userBlocked;
@@ -25,6 +26,7 @@ class ThreadFloorBlockState {
   /// 屏蔽内容 needs text to match on.
   final bool canBlockContent;
   final String? userBlockUnavailableReason;
+  final String? contentBlockUnavailableReason;
 }
 
 /// Footer of a floor: the two everyday actions in reach, the rest behind ⋯.
@@ -172,7 +174,9 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                 ThreadFloorAction.blockContent,
                 Icons.comments_disabled_outlined,
                 block.contentBlocked ? '取消屏蔽内容' : '屏蔽内容',
-                block.canBlockContent ? '仅本机 · 隐藏内容相同的楼层' : '此楼没有可匹配的文字',
+                block.canBlockContent
+                    ? '仅本机 · 隐藏内容相同的楼层'
+                    : block.contentBlockUnavailableReason ?? '此楼没有可匹配的文字',
                 enabled: block.canBlockContent,
               ),
               item(
