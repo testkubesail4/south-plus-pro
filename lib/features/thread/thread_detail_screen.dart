@@ -10,6 +10,7 @@ import '../../services/external_link_launcher.dart';
 import '../../services/attachment_saver.dart';
 import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
+import '../../services/thread_paging_settings.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
@@ -88,6 +89,12 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   /// A plain thread link resumes where the reader stopped last time; links
   /// to a page or floor open exactly what they point to.
   Future<void> _openAtSavedPosition() async {
+    try {
+      await ThreadPagingSettings.load();
+    } catch (_) {
+      ThreadPagingSettings.notifier.value = false;
+    }
+    if (!mounted) return;
     final page = _explicitPage.firstMatch(widget.thread.url)?.group(1);
     ThreadReadPosition? position;
     if (_pendingAnchor == null && page == null) {
@@ -256,6 +263,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _morePages.isEmpty ? _detail : _morePages.last;
 
   void _maybeLoadMore() {
+    if (!ThreadPagingSettings.notifier.value) return;
     final last = _lastLoaded;
     if (last == null ||
         _loading ||

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/thread_paging_settings.dart';
 
 // Synthetic fixtures only: fictional host, tid, pids and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
@@ -18,12 +19,14 @@ void main() {
   Future<_FakeRepository> pumpThread(
     WidgetTester tester, {
     String url = _url,
+    bool autoLoad = true,
     _FakeRepository? repository,
   }) async {
     tester.view.physicalSize = const Size(360, 780);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     repository ??= _FakeRepository();
+    if (autoLoad) await ThreadPagingSettings.save(true);
     await tester.pumpWidget(MaterialApp(
       home: ThreadDetailScreen(
         repository: repository,
@@ -41,6 +44,22 @@ void main() {
     await tester.drag(find.byType(Scrollable).first, Offset(0, -dy));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('auto-loading is off by default, including the bottom shortcut', (
+    tester,
+  ) async {
+    final repository = await pumpThread(tester, autoLoad: false);
+    await tester.tap(find.byTooltip('到底部'));
+    await tester.pumpAndSettle();
+    tester.binding.handlePointerEvent(
+      PointerScrollEvent(
+        position: tester.getCenter(find.byType(Scrollable).first),
+        scrollDelta: const Offset(0, 300),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(repository.pages, [1]);
+  });
 
   testWidgets('a wheel turn at the very end appends the next page',
       (tester) async {
