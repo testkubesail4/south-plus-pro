@@ -50,6 +50,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   ThreadDetail? _detail;
   int _page = 1;
   int _loadRunId = 0;
+  final _purchaseRefreshRuns = <int, int>{};
   ThreadDetail? _compiledDetail;
   ThreadPostRenderModel _openingPostRenderModel = ThreadPostRenderModel.empty;
   Map<ThreadReply, String> _replyStableIds = <ThreadReply, String>{};
@@ -152,6 +153,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   }) async {
     final normalizedPage = page < 1 ? 1 : page;
     final runId = ++_loadRunId;
+    _purchaseRefreshRuns.clear();
     setState(() {
       _loading = true;
       _loadError = null;
@@ -552,6 +554,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _replyRenderModels = <String, ThreadPostRenderModel>{};
       _replyPages.clear();
       _addRenderModels(detail);
+      for (final page in _morePages) {
+        _addRenderModels(page, idPrefix: 'p${page.pagination.currentPage}:');
+      }
     }
 
     // Filter state comes from the validated uid in the loaded URL, not names.
@@ -726,8 +731,85 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     await _refresh();
   }
 
+  double? _postY(Object? post) {
+    final box = _mountedPosts[post]?.findRenderObject();
+    return box is RenderBox && box.attached && box.hasSize
+        ? box.localToGlobal(Offset.zero).dy
+        : null;
+  }
+
+  Future<void> _refreshPurchasedPage(
+    ThreadDetail source,
+    int runId, {
+    required String? floorId,
+    required double? floorY,
+  }) async {
+    final page = source.pagination.currentPage;
+    final refreshRun = (_purchaseRefreshRuns[page] ?? 0) + 1;
+    _purchaseRefreshRuns[page] = refreshRun;
+    final updated = await widget.repository.fetchThreadDetail(
+      source.thread,
+      page: page,
+    );
+    if (!mounted || runId != _loadRunId ||
+        _purchaseRefreshRuns[page] != refreshRun) return;
+    if (updated.pagination.currentPage != source.pagination.currentPage) {
+      throw StateError('购买后的页面发生跳转，请手动刷新');
+    }
+    final index = _morePages.indexWhere(
+        (detail) => detail.pagination.currentPage == page);
+    if (_detail?.pagination.currentPage != page && index < 0) return;
+    setState(() {
+      if (index < 0) {
+        _detail = updated;
+        _thread = updated.thread;
+      } else {
+        _morePages[index] = updated;
+      }
+      _compiledDetail = null;
+      _recomputeDetailRenderState();
+    });
+    // Lazy row measurement can shift a floor even when scroll pixels stay put.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || runId != _loadRunId ||
+        _purchaseRefreshRuns[page] != refreshRun || floorY == null) return;
+    final post = floorId == null
+        ? updated
+        : _replyStableIds.entries
+            .where((entry) => entry.value == floorId)
+            .map((entry) => entry.key)
+            .firstOrNull;
+    final newY = _postY(post);
+    if (newY != null && _scrollController.hasClients) {
+      final position = _scrollController.position;
+      position.jumpTo(
+        (position.pixels + newY - floorY).clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        ),
+      );
+    }
+  }
+
   Future<void> _handleBuySaleBox(ThreadSaleBox saleBox) async {
     if (_buyingSaleBoxes.contains(saleBox.buyPath)) return;
+    final source = [if (_detail != null) _detail!, ..._morePages]
+        .where(
+          (page) => [
+            ...page.bodySaleBoxes,
+            for (final reply in page.replies) ...reply.saleBoxes,
+          ].any((box) => box.buyPath == saleBox.buyPath),
+        )
+        .firstOrNull;
+    final boughtReply = source?.replies
+        .where(
+          (reply) =>
+              reply.saleBoxes.any((box) => box.buyPath == saleBox.buyPath),
+        )
+        .firstOrNull;
+    final floorId = _replyStableIds[boughtReply];
+    final floorY = _postY(boughtReply ?? source);
+    final runId = _loadRunId;
     setState(() {
       _buyingSaleBoxes.add(saleBox.buyPath);
     });
@@ -742,8 +824,20 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           ),
         ),
       );
-      if (result.success) {
-        await _refresh();
+      if (result.success && source != null && runId == _loadRunId) {
+        try {
+          await _refreshPurchasedPage(
+            source,
+            runId,
+            floorId: floorId,
+            floorY: floorY,
+          );
+        } catch (error) {
+          if (!mounted) return;
+          _messenger.showSnackBar(
+            SnackBar(content: Text('购买成功，页面刷新失败：$error')),
+          );
+        }
       }
     } catch (error) {
       if (!mounted) return;

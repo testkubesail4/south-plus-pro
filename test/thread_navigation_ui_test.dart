@@ -71,6 +71,66 @@ void main() {
     expect(repository.pages, [1, 2]);
   });
 
+  testWidgets('buying on an appended page refreshes that page in place', (
+    tester,
+  ) async {
+    final repository = await pumpThread(tester);
+    await tester.tap(find.byTooltip('到底部'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('购买查看'), 300);
+    final floorY = tester.getTopLeft(find.text('[B31F]')).dy;
+    await tester.tap(find.text('购买查看'));
+    await tester.pumpAndSettle();
+    expect(repository.pages, [1, 2, 2]);
+    expect(find.text('unlocked paid content').hitTestable(), findsOneWidget);
+    expect(find.text('购买查看'), findsNothing);
+    expect(find.text('[B31F]'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('[B31F]')).dy, closeTo(floorY, 1));
+    await tester.scrollUntilVisible(find.text('[B1F]'), -300);
+    await tester.pumpAndSettle();
+    expect(repository.pages, [1, 2, 2], reason: 'page 1 remains loaded');
+    expect(find.text('[B1F]').hitTestable(), findsOneWidget);
+  });
+
+  for (final reverseResponses in [false, true]) {
+    testWidgets('two purchases retain both unlocks (reversed refreshes: $reverseResponses)',
+        (tester) async {
+      final repository = _FakeRepository(twoSales: true)..delayBuys = true;
+      await pumpThread(tester, repository: repository);
+      await tester.tap(find.byTooltip('到底部'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('购买查看').first, 300);
+      await tester.tap(find.text('购买查看').first);
+      await tester.pump();
+      await tester.scrollUntilVisible(find.text('购买查看'), 100);
+      await tester.tap(find.text('购买查看'));
+      await tester.pump();
+      expect(repository.heldPurchases.keys, containsAll(['/buy', '/buy-b']));
+
+      repository.hold = reverseResponses;
+      repository.heldPurchases['/buy']!.complete(
+          const ReplyResult(success: true, message: 'purchase A'));
+      for (var i = 0; i < 3; i++) { await tester.pump(); }
+      final earlierResponse = repository.page(2);
+      expect(repository.pages, [1, 2, 2]);
+      repository.heldPurchases['/buy-b']!.complete(
+          const ReplyResult(success: true, message: 'purchase B'));
+      for (var i = 0; i < 3; i++) { await tester.pump(); }
+      if (reverseResponses) {
+        expect(repository.held, hasLength(2));
+        repository.held.last.complete(repository.page(2));
+        for (var i = 0; i < 3; i++) { await tester.pump(); }
+        repository.held.first.complete(earlierResponse);
+      }
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('[B31F]'), -200);
+      await tester.pumpAndSettle();
+      expect(repository.pages, [1, 2, 2, 2]);
+      expect(find.text('unlocked both purchases'), findsOneWidget);
+      expect(find.text('购买查看'), findsNothing);
+    });
+  }
+
   testWidgets('the resume notice auto-hides and closes with the thread',
       (tester) async {
     await _FakeRepository().saveThreadReadPosition(
@@ -272,11 +332,24 @@ void main() {
 }
 
 class _FakeRepository extends ForumRepository {
-  _FakeRepository({this.totalPages = 3});
+  _FakeRepository({this.totalPages = 3, this.twoSales = false});
 
   final int totalPages;
+  final bool twoSales;
+  bool delayBuys = false;
+  final purchased = <String>{};
+  final heldPurchases = <String, Completer<ReplyResult>>{};
   final urls = <String>[];
   final pages = <int>[];
+
+  @override
+  Future<ReplyResult> buySaleBox(ThreadSaleBox saleBox) async {
+    final result = delayBuys
+        ? await (heldPurchases[saleBox.buyPath] = Completer<ReplyResult>()).future
+        : const ReplyResult(success: true, message: 'purchased');
+    if (result.success) purchased.add(saleBox.buyPath);
+    return result;
+  }
 
   /// While set, requests wait in [held] until the test answers them.
   bool hold = false;
@@ -316,8 +389,20 @@ class _FakeRepository extends ForumRepository {
         for (var floor = first + 1; floor <= first + 30; floor++)
           ThreadReply(
             author: 'user$floor',
-            content: 'reply body $floor ' * 6,
+            content: floor == 31 && purchased.isNotEmpty
+                ? twoSales && purchased.length == 2
+                    ? 'unlocked both purchases'
+                    : 'unlocked paid content'
+                : 'reply body $floor ' * 6,
             floor: 'B${floor}F',
+            saleBoxes: floor == 31
+                ? [
+                    if (!purchased.contains('/buy'))
+                      const ThreadSaleBox(summary: 'synthetic sale', buyPath: '/buy'),
+                    if (twoSales && !purchased.contains('/buy-b'))
+                      const ThreadSaleBox(summary: 'second synthetic sale', buyPath: '/buy-b'),
+                  ]
+                : const [],
             anchors: ['${1000 + floor}', 'read_${1000 + floor}', 'fl-$floor'],
           ),
       ],
