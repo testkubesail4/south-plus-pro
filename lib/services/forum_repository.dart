@@ -133,6 +133,34 @@ class ForumRepository {
         request: _requestBlocking,
       );
 
+  Future<void> ensureAccountIdentity() async {
+    if (!isLoggedIn ||
+        (_accountIdentity.value?.uid != null && _replyNoticeVerify != null))
+      return;
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    try {
+      final response = await client.get('index.php');
+      if (!isLoggedIn || client != _client || epoch != _sessionEpoch.value) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+      }
+      _throwIfBlockedPage(response);
+      final document = html_parser.parse(response);
+      _captureAccountIdentity(document);
+      _captureIndexNotices(document);
+      if (_accountIdentity.value?.uid == null) {
+        throw const ForumRequestException(
+            ForumRequestKind.server, '暂时无法识别当前账号，请重试');
+      }
+    } on ForumRequestException {
+      rethrow;
+    } catch (_) {
+      throw const ForumRequestException(
+          ForumRequestKind.network, '账号信息读取失败，请检查网络后重试');
+    }
+  }
+
   void _maybeLoadBlocking() {
     if (!isLoggedIn ||
         _accountIdentity.value?.uid == null ||
@@ -161,12 +189,7 @@ class ForumRepository {
     requireCurrent();
     try {
       if (_replyNoticeVerify == null) {
-        final response = await client.get('index.php');
-        requireCurrent();
-        _throwIfBlockedPage(response);
-        final document = html_parser.parse(response);
-        _captureAccountIdentity(document);
-        _captureIndexNotices(document);
+        await ensureAccountIdentity();
         requireCurrent();
       }
       final verify = _replyNoticeVerify;
