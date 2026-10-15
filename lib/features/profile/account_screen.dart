@@ -289,18 +289,7 @@ class _AccountHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceTint,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.brandSoft),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
+      decoration: appSurface(context),
       child: Row(
         children: [
           AccountAvatar(avatarUrl: avatarUrl, size: 56),
@@ -385,24 +374,18 @@ class _AccountSection extends StatelessWidget {
     final dividedChildren = <Widget>[];
     for (var index = 0; index < children.length; index++) {
       if (index > 0) {
-        dividedChildren.add(Divider(indent: 64, endIndent: 12));
+        dividedChildren.add(Divider(
+          height: 1,
+          indent: 64,
+          endIndent: 12,
+          color: AppColors.border.withValues(alpha: 0.6),
+        ));
       }
       dividedChildren.add(children[index]);
     }
 
     return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x06000000),
-            blurRadius: 14,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
+      decoration: appSurface(context),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -637,11 +620,7 @@ class _StatusSummaryTile extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(minHeight: 84),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+      decoration: appSurface(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

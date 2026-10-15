@@ -14,20 +14,6 @@ TextStyle _sectionTitleStyle() => TextStyle(
       fontWeight: FontWeight.w600,
     );
 
-BoxDecoration _surface(BuildContext context) => BoxDecoration(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: Theme.of(context).brightness == Brightness.dark
-          ? null
-          : [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 12,
-                offset: const Offset(0, 2),
-              ),
-            ],
-    );
-
 Widget _hairline(double indent) => Divider(
       height: 1,
       indent: indent,
@@ -592,7 +578,7 @@ class _QuickListsState extends State<_QuickLists> {
     );
     if (!widget.columns || _lists.length == 1) {
       return Container(
-        decoration: _surface(context),
+        decoration: appSurface(context),
         padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -616,7 +602,7 @@ class _QuickListsState extends State<_QuickLists> {
       );
     }
     return Container(
-      decoration: _surface(context),
+      decoration: appSurface(context),
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -961,7 +947,7 @@ class _BoardGrid extends StatelessWidget {
         );
     if (columns == 1) {
       return Container(
-        decoration: _surface(context),
+        decoration: appSurface(context),
         clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
@@ -974,7 +960,7 @@ class _BoardGrid extends StatelessWidget {
       );
     }
     return Container(
-      decoration: _surface(context),
+      decoration: appSurface(context),
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [

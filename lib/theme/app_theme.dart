@@ -161,6 +161,21 @@ class AppColors {
   static Color get successBorder => current.successBorder;
 }
 
+/// The app's card surface: radius 16, a soft shadow in light mode, no border.
+BoxDecoration appSurface(BuildContext context) => BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: Theme.of(context).brightness == Brightness.dark
+          ? null
+          : [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 2),
+              ),
+            ],
+    );
+
 class AppThemeController {
   AppThemeController._();
 
