@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
+import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../services/forum_search_preferences.dart';
@@ -186,7 +187,8 @@ class _SearchScreenState extends State<SearchScreen> {
           setState(() {
             _boards = list;
             if (_board.name.isEmpty) {
-              _board = list
+              _board =
+                  list
                       .where((b) => b.selectable && b.id == _board.id)
                       .firstOrNull ??
                   _board;
@@ -206,18 +208,19 @@ class _SearchScreenState extends State<SearchScreen> {
   // Homepage sections only group the search scopes; the picker works without.
   Future<List<ForumSection>> _loadSections() {
     final session = _session;
-    return _sectionLoads[session] ??=
-        widget.repository.fetchForumSections().then(
-      (sections) {
-        // An empty result may be transient; a retry must ask again.
-        if (sections.isEmpty) _sectionLoads.remove(session);
-        return sections;
-      },
-      onError: (Object error) {
-        _sectionLoads.remove(session);
-        throw error;
-      },
-    );
+    return _sectionLoads[session] ??= widget.repository
+        .fetchForumSections()
+        .then(
+          (sections) {
+            // An empty result may be transient; a retry must ask again.
+            if (sections.isEmpty) _sectionLoads.remove(session);
+            return sections;
+          },
+          onError: (Object error) {
+            _sectionLoads.remove(session);
+            throw error;
+          },
+        );
   }
 
   bool get _filtersAtDefault =>
@@ -390,10 +393,10 @@ class _SearchScreenState extends State<SearchScreen> {
     final boardName = query == null || query.boardId == _board.id
         ? _boardLabel
         : _boards
-                ?.where((board) => board.id == query.boardId)
-                .firstOrNull
-                ?.name ??
-            '版块 ${query.boardId}';
+                  ?.where((board) => board.id == query.boardId)
+                  .firstOrNull
+                  ?.name ??
+              '版块 ${query.boardId}';
     return [
       boardName,
       _timeLabels[time]!,
@@ -427,35 +430,40 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
             if (page != null && page.threads.isNotEmpty) ...[
-              SliverPadding(
-                // A fresh list per page, so old row offsets can't shift it.
-                key: ObjectKey(page),
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                sliver: SliverList.list(
-                  children: [
-                    Text(
-                      [
-                        if (page.total != null) '共 ${page.total} 条结果',
-                        '第 ${page.currentPage} 页',
-                      ].join(' · '),
-                      style: TextStyle(color: AppColors.textMuted),
-                    ),
-                    const SizedBox(height: 10),
-                    for (final thread in page.threads) ...[
-                      _SearchResultTile(
-                        thread: thread,
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ThreadDetailScreen(
-                              thread: thread,
-                              repository: widget.repository,
-                            ),
-                          ),
-                        ),
+              // Blocked authors' results disappear as soon as a rule changes.
+              ValueListenableBuilder<BlockingRules>(
+                valueListenable: widget.repository.blocking.notifier,
+                builder: (context, rules, _) => SliverPadding(
+                  // A fresh list per page, so old row offsets can't shift it.
+                  key: ObjectKey(page),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  sliver: SliverList.list(
+                    children: [
+                      Text(
+                        [
+                          if (page.total != null) '共 ${page.total} 条结果',
+                          '第 ${page.currentPage} 页',
+                        ].join(' · '),
+                        style: TextStyle(color: AppColors.textMuted),
                       ),
                       const SizedBox(height: 10),
+                      for (final thread in page.threads)
+                        if (!rules.isThreadBlocked(thread)) ...[
+                          _SearchResultTile(
+                            thread: thread,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ThreadDetailScreen(
+                                  thread: thread,
+                                  repository: widget.repository,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               SliverPadding(
@@ -463,10 +471,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 sliver: SliverToBoxAdapter(child: _buildPager(page)),
               ),
             ] else
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: _buildStatus(),
-              ),
+              SliverFillRemaining(hasScrollBody: false, child: _buildStatus()),
           ],
         ),
       ),
@@ -568,8 +573,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Text('第 ${page.currentPage} 页'),
                 ),
               OutlinedButton.icon(
-                onPressed:
-                    next == null || _searching ? null : () => _openPage(next),
+                onPressed: next == null || _searching
+                    ? null
+                    : () => _openPage(next),
                 icon: const Icon(Icons.chevron_right),
                 label: const Text('下一页'),
               ),
@@ -699,10 +705,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ],
         if (_formError != null) ...[
           const SizedBox(height: 4),
-          Text(
-            _formError!,
-            style: TextStyle(color: theme.colorScheme.error),
-          ),
+          Text(_formError!, style: TextStyle(color: theme.colorScheme.error)),
         ],
         const SizedBox(height: 12),
         Wrap(
@@ -730,10 +733,10 @@ class _SearchScreenState extends State<SearchScreen> {
 }
 
 String _errorText(Object error) => switch (error) {
-      ForumRequestException(:final kind) => forumRequestErrorText(kind),
-      ForumRepositoryException(:final message) => message,
-      _ => '$error',
-    };
+  ForumRequestException(:final kind) => forumRequestErrorText(kind),
+  ForumRepositoryException(:final message) => message,
+  _ => '$error',
+};
 
 Future<T?> _showChoiceSheet<T>(
   BuildContext context, {
@@ -756,8 +759,10 @@ Future<T?> _showChoiceSheet<T>(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child:
-                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
             Flexible(
               child: ListView(
@@ -767,8 +772,9 @@ Future<T?> _showChoiceSheet<T>(
                     ListTile(
                       title: Text(value),
                       selected: key == selected,
-                      trailing:
-                          key == selected ? const Icon(Icons.check) : null,
+                      trailing: key == selected
+                          ? const Icon(Icons.check)
+                          : null,
                       onTap: () => Navigator.of(context).pop(key),
                     ),
                 ],
@@ -806,10 +812,7 @@ class _FiltersHeader extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '筛选条件',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
+                  Text('筛选条件', style: Theme.of(context).textTheme.titleSmall),
                   if (!open) ...[
                     const SizedBox(height: 6),
                     _ChipSummary(items: summary),
@@ -1003,8 +1006,10 @@ class _SearchSummary extends StatelessWidget {
                 if (query.keyword.isNotEmpty)
                   Text(query.keyword, style: theme.textTheme.titleMedium),
                 if (query.username.isNotEmpty)
-                  Text('用户：${query.username}',
-                      style: theme.textTheme.bodyMedium),
+                  Text(
+                    '用户：${query.username}',
+                    style: theme.textTheme.bodyMedium,
+                  ),
                 const SizedBox(height: 8),
                 _ChipSummary(items: filters),
               ],
@@ -1103,9 +1108,11 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
       _expandedFor = source;
       for (final node in _BoardNode.flatten(roots)) {
         if (node.board.id == widget.selectedId) {
-          for (var parent = node.parent;
-              parent != null;
-              parent = parent.parent) {
+          for (
+            var parent = node.parent;
+            parent != null;
+            parent = parent.parent
+          ) {
             _expanded.add(parent.key);
           }
         }
@@ -1147,9 +1154,9 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
   }
 
   Future<String?> _askLabel(String initial) => showDialog<String>(
-        context: context,
-        builder: (_) => _PinLabelDialog(initial: initial),
-      );
+    context: context,
+    builder: (_) => _PinLabelDialog(initial: initial),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1215,8 +1222,10 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
                         _SheetHeader('全部版块'),
                         if (snapshot.hasError)
                           ListTile(
-                            leading: Icon(Icons.error_outline,
-                                color: theme.colorScheme.error),
+                            leading: Icon(
+                              Icons.error_outline,
+                              color: theme.colorScheme.error,
+                            ),
                             title: const Text('版块列表加载失败'),
                             trailing: TextButton(
                               onPressed: () => setState(() {
@@ -1273,8 +1282,9 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
       },
       selected: pin.id == widget.selectedId,
       enabled: exists == true,
-      onTap: () => Navigator.of(context)
-          .pop(ForumSearchBoard(id: pin.id, name: pin.label)),
+      onTap: () => Navigator.of(
+        context,
+      ).pop(ForumSearchBoard(id: pin.id, name: pin.label)),
       trailing: IconButton(
         tooltip: '删除捷径',
         icon: const Icon(Icons.close),
@@ -1311,32 +1321,25 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
       dense: true,
       leading: const Icon(Icons.info_outline),
       title: const Text('未能加载版块层级，按平铺列表显示'),
-      trailing: TextButton(
-        onPressed: _retrySections,
-        child: const Text('重试'),
-      ),
+      trailing: TextButton(onPressed: _retrySections, child: const Text('重试')),
     );
   }
 
   List<Widget> _treeRows(List<_BoardNode> nodes) => [
-        for (final node in nodes)
-          if (node.children.isEmpty)
-            _boardTile(node, level: node.level)
-          else ...[
-            _groupTile(node),
-            if (_expanded.contains(node.key)) ...[
-              // Opening a group never selects it; searching all of it is
-              // its own row.
-              if (node.board.selectable)
-                _boardTile(
-                  node,
-                  level: node.level + 1,
-                  label: '搜索整个${node.name}',
-                ),
-              ..._treeRows(node.children),
-            ],
-          ],
-      ];
+    for (final node in nodes)
+      if (node.children.isEmpty)
+        _boardTile(node, level: node.level)
+      else ...[
+        _groupTile(node),
+        if (_expanded.contains(node.key)) ...[
+          // Opening a group never selects it; searching all of it is
+          // its own row.
+          if (node.board.selectable)
+            _boardTile(node, level: node.level + 1, label: '搜索整个${node.name}'),
+          ..._treeRows(node.children),
+        ],
+      ],
+  ];
 
   double _indent(int level) => 16.0 + 16.0 * level.clamp(0, 4);
 
@@ -1404,7 +1407,7 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
 /// One search scope placed under its parent by the preorder depth.
 class _BoardNode {
   _BoardNode(this.board, this.parent)
-      : level = parent == null ? 0 : parent.level + 1;
+    : level = parent == null ? 0 : parent.level + 1;
 
   final ForumSearchBoard board;
   final _BoardNode? parent;

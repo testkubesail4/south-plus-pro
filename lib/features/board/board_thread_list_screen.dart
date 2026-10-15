@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
+import '../../services/forum_blocking_settings.dart';
 import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
@@ -331,14 +332,20 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                           message: '${snapshot.error}',
                           onRetry: _refresh,
                         )
-                      : _buildBody(
-                          context,
-                          page,
-                          shown,
-                          gutter: panel ? 0 : gutter,
-                          content: constraints.maxWidth -
-                              gutter * 2 -
-                              (panel ? _siblingPanelWidth + 24 : 0),
+                      // Blocked authors' topics leave the list and the wall
+                      // as soon as a rule changes.
+                      : ValueListenableBuilder<BlockingRules>(
+                          valueListenable: widget.repository.blocking.notifier,
+                          builder: (context, rules, _) => _buildBody(
+                            context,
+                            page,
+                            shown,
+                            rules: rules,
+                            gutter: panel ? 0 : gutter,
+                            content: constraints.maxWidth -
+                                gutter * 2 -
+                                (panel ? _siblingPanelWidth + 24 : 0),
+                          ),
                         );
                   final list = _SiblingList(
                     parent: widget.parent,
@@ -403,13 +410,14 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     BuildContext context,
     ForumThreadPage? page,
     ForumThreadPage? shown, {
+    required BlockingRules rules,
     required double gutter,
     required double content,
   }) {
     final subBoards = shown == null || shown.subBoards.isEmpty
         ? _knownSubBoards
         : shown.subBoards;
-    final items = page == null ? null : _BoardListItem.fromPage(page);
+    final items = page == null ? null : _BoardListItem.fromPage(page, rules);
     final filters = shown?.filters ?? const <ForumBoardFilter>[];
     final wallAvailable = shown?.hasPictureWall ?? false;
     final wall = _wall && wallAvailable;

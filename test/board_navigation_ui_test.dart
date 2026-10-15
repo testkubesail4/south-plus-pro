@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 
 // Synthetic boards, topics and names only.
@@ -67,7 +68,8 @@ class _Repo extends ForumRepository {
       threads: [
         _topic('$name pinned', sticky: true),
         _topic('$name topic 1'),
-        _topic('$name topic 2'),
+        _topic('$name topic 2')
+            .copyWith(authorUrl: 'https://south-plus.net/u.php?action-show-uid-1002.html'),
       ],
       currentPage: page,
       totalPages: 3,
@@ -223,6 +225,33 @@ void main() {
     await tester.tap(find.byTooltip('列表'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('图墙'), findsOneWidget);
+  });
+
+  testWidgets('a blocked author leaves the list and the wall at once',
+      (tester) async {
+    final repo = _Repo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    );
+    expect(find.text('Child A topic 2'), findsOneWidget);
+
+    repo.blocking.notifier.value = const BlockingRules(users: [
+      BlockedUser(
+          uid: '1002', name: 'B', userBlocked: true, avatarBlocked: false),
+    ]);
+    await tester.pump();
+    expect(find.text('Child A topic 1'), findsOneWidget);
+    expect(find.text('Child A topic 2'), findsNothing);
+
+    await tester.tap(find.byTooltip('图墙'));
+    await tester.pumpAndSettle();
+    expect(find.text('Child A topic 1'), findsOneWidget);
+    expect(find.text('Child A topic 2'), findsNothing);
+    expect(repo.requests.length, 1, reason: 'filtered locally');
   });
 
   testWidgets('boards without a picture wall have no wall switch',

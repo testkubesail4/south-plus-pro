@@ -3,11 +3,14 @@ part of 'board_thread_list_screen.dart';
 sealed class _BoardListItem {
   const _BoardListItem();
 
-  static List<_BoardListItem> fromPage(ForumThreadPage page) {
-    final threads = page.threads;
+  static List<_BoardListItem> fromPage(
+    ForumThreadPage page,
+    BlockingRules rules,
+  ) {
     return [
       ...page.ads.map(_BoardAdItem.new),
-      ...threads.map(_BoardThreadItem.new),
+      for (final thread in page.threads)
+        if (!rules.isThreadBlocked(thread)) _BoardThreadItem(thread),
     ];
   }
 }

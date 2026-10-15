@@ -8,6 +8,7 @@ import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart'
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/search/search_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
@@ -724,6 +725,28 @@ void main() {
       await search(tester);
       expect(repo.queries.single.boardId, '227');
     });
+  });
+
+  testWidgets('results by a blocked author are hidden, live', (tester) async {
+    final repo = await pump(tester);
+    await tester.enterText(find.byType(TextField).first, 'kw');
+    await tester.pumpAndSettle();
+    await tapVisible(tester, _submit, settle: false);
+    repo.pending.last.complete(ForumSearchPage(threads: [
+      _thread(1),
+      _thread(2).copyWith(
+          authorUrl: 'https://south-plus.net/u.php?action-show-uid-1002.html'),
+    ]));
+    await tester.pumpAndSettle();
+    expect(find.text('Result 2'), findsOneWidget);
+
+    repo.blocking.notifier.value = const BlockingRules(users: [
+      BlockedUser(
+          uid: '1002', name: 'B', userBlocked: true, avatarBlocked: false),
+    ]);
+    await tester.pump();
+    expect(find.text('Result 1'), findsOneWidget);
+    expect(find.text('Result 2'), findsNothing);
   });
 
   testWidgets('results never outlive the session that fetched them',
