@@ -158,6 +158,34 @@ void main() {
     });
   }
 
+  testWidgets('a sent floor reply leaves the next reply generic',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    final footer = find.ancestor(
+      of: find.byKey(const ValueKey('floor-actions-user1-B1F')),
+      matching: find.byType(ThreadFloorFooter),
+    );
+    await tester.ensureVisible(footer);
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: footer, matching: find.text('回复')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'to floor one');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('reply-submit-button')));
+    await tester.pumpAndSettle();
+    expect(repository.sentTitles, ['回 1楼(user1) 的帖子']);
+    expect(composerShown(tester), isFalse);
+
+    await tester.tap(find.byTooltip('写回复'));
+    await tester.pumpAndSettle();
+    expect(find.text('Re:paging'), findsOneWidget);
+    expect(find.text('回 1楼(user1) 的帖子'), findsNothing);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+      isEmpty,
+    );
+  });
+
   testWidgets('replyTo sets only the subject and keeps the body',
       (tester) async {
     final key = GlobalKey<ReplyComposerState>();
@@ -182,6 +210,17 @@ void main() {
 
 class _Repository extends ForumRepository {
   final pages = <int>[];
+  final sentTitles = <String>[];
+
+  @override
+  Future<ReplyResult> submitReply({
+    required ForumThread thread,
+    required String title,
+    required String content,
+  }) async {
+    sentTitles.add(title);
+    return const ReplyResult(success: true, message: '回复成功');
+  }
 
   @override
   Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread t) async =>

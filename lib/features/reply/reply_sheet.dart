@@ -89,6 +89,9 @@ class ReplyComposerState extends State<ReplyComposer> {
         return;
       }
       _content.clear();
+      // A floor's subject answered that floor only; the next reply is generic.
+      _title.text = 'Re:${widget.thread.title}';
+      _editingTitle = false;
       widget.onSubmitted(result.message);
     } on ForumRequestException catch (error) {
       if (mounted) setState(() => _error = forumRequestErrorText(error.kind));
