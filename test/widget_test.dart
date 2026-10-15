@@ -841,6 +841,7 @@ void main() {
       const saveChannel = MethodChannel('south_plus_rewrite/attachment_saver');
       final savedPaths = <String>[];
       var nativeSave = Completer<bool>();
+      var nativeEntered = Completer<void>();
       var saveResult = 0;
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         browserChannel,
@@ -858,6 +859,7 @@ void main() {
               saveResult == 0 ? 'Record.7z' : 'Reply.Record.7z');
           expect(await File(args['path'] as String).readAsBytes(), archive);
           savedPaths.add(args['path'] as String);
+          nativeEntered.complete();
           if (saveResult == 0) return nativeSave.future;
           if (saveResult == 1) return false;
           throw PlatformException(code: 'SAVE_FAILED', message: 'Storage full');
@@ -881,10 +883,8 @@ void main() {
       expect(browserUrls, ['https://example.com/info']);
       final attachment = find.text(' Record.7z');
       await tester.tap(attachment);
-      for (var i = 0; i < 100 && savedPaths.isEmpty; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        await tester.pump(const Duration(milliseconds: 20));
-      }
+      await nativeEntered.future;
+      await tester.pump();
       expect(savedPaths, hasLength(1),
           reason: 'attachment must reach native save through the app session');
       expect(browserUrls, ['https://example.com/info'],
@@ -902,25 +902,24 @@ void main() {
       expect(find.text('附件已保存'), findsOneWidget);
       expect(await File(savedPaths.single).exists(), isFalse);
       saveResult = 1;
+      nativeEntered = Completer<void>();
       final replyAttachment = find.text('Reply.Record.7z');
       await tester.scrollUntilVisible(replyAttachment, 150,
           scrollable: find.byType(Scrollable).first);
-      await tester.tap(replyAttachment);
-      for (var i = 0; i < 100 && savedPaths.length != 2; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        await tester.pump(const Duration(milliseconds: 20));
-      }
-      await tester.pump();
+      final replyBody = tester.widget<ThreadPostBody>(find
+          .ancestor(of: replyAttachment, matching: find.byType(ThreadPostBody))
+          .first);
+      final replyUrl = replyBody.segments.single.href!;
+      // Native entry precedes async cleanup: await the full public link handler.
+      await replyBody.onOpenLink!(replyUrl, 'Reply.Record.7z');
+      await tester.pumpAndSettle();
+      expect(savedPaths, hasLength(2));
       expect(find.text('附件已保存'), findsNothing,
           reason: 'canceling the picker is not a successful save');
       saveResult = 2;
-      await tester.tap(replyAttachment);
-      for (var i = 0;
-          i < 100 && find.textContaining('Storage full').evaluate().isEmpty;
-          i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        await tester.pump(const Duration(milliseconds: 20));
-      }
+      nativeEntered = Completer<void>();
+      await replyBody.onOpenLink!(replyUrl, 'Reply.Record.7z');
+      await tester.pumpAndSettle();
       expect(find.textContaining('Storage full'), findsOneWidget);
       expect(savedPaths, hasLength(3));
       expect(browserUrls, ['https://example.com/info']);
@@ -939,11 +938,10 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       saveResult = 0;
       nativeSave = Completer<bool>();
+      nativeEntered = Completer<void>();
       await tester.tap(attachment);
-      for (var i = 0; i < 100 && savedPaths.length != 4; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        await tester.pump(const Duration(milliseconds: 20));
-      }
+      await nativeEntered.future;
+      await tester.pump();
       expect(savedPaths, hasLength(4));
       await tester.pump(const Duration(seconds: 1));
       await tester.pump();
