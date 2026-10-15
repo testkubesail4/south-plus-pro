@@ -15,9 +15,12 @@ import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../common/forum_link_opener.dart';
+import '../common/forum_pager.dart';
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
 import '../search/search_screen.dart';
+import 'thread_floor_actions.dart';
+import 'thread_page_end_card.dart';
 import 'thread_post_body.dart';
 import 'thread_render_models.dart';
 
@@ -44,6 +47,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       <String, ThreadFavoriteState>{};
   bool _favoriteBusy = false;
   bool _savingAttachment = false;
+  // The reply box docks under the list instead of ending it, so paging
+  // never moves it and opening it never moves the reading position.
+  bool _composerOpen = false;
   bool _loading = true;
   Object? _loadError;
   late ForumThread _thread;
@@ -81,6 +87,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     super.initState();
     _thread = widget.thread;
     _pendingAnchor = _fragmentOf(widget.thread.url);
+    ThreadPagingSettings.notifier.addListener(_onPagingSettingChanged);
     _openAtSavedPosition();
   }
 
@@ -631,7 +638,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         ),
         for (final reply in page.replies) replyEntry(reply),
       ],
-      if (last.pagination.totalPages > 1)
+      if (_autoLoadNextPage && last.pagination.totalPages > 1)
         ThreadDetailLoadMoreEntry(
           key: const ValueKey('thread-load-more'),
           hasMore: last.pagination.hasNext,
@@ -642,12 +649,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         pagination: last.pagination,
         key: ValueKey(
           'thread-pagination-bottom-${detail.thread.url}-${last.pagination.currentPage}',
-        ),
-      ),
-      const ThreadDetailTopSpacingEntry(12),
-      ThreadDetailComposerEntry(
-        key: ValueKey(
-          'thread-composer-${detail.thread.url}-${detail.pagination.currentPage}',
         ),
       ),
     ];
@@ -667,27 +668,52 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   @override
   void dispose() {
+    ThreadPagingSettings.notifier.removeListener(_onPagingSettingChanged);
     _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _scrollToReply() async {
-    final context = _replyKey.currentContext;
-    if (context != null) {
-      await Scrollable.ensureVisible(
-        context,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOut,
-      );
-      _replyKey.currentState?.focusContent();
-      return;
-    }
-    await _scrollController.animateTo(
-      _scrollController.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOut,
+  Future<void> _showFloorActions(ThreadReply reply) async {
+    final action = await showThreadFloorActions(
+      context,
+      author: reply.author,
+      floor: reply.floor,
+      avatar: _AuthorAvatar(
+        author: reply.author,
+        avatarUrl: reply.authorAvatarUrl,
+        onTap: null,
+      ),
+      canShowAuthorPosts: reply.authorPostsUrl != null,
+      // shortcut: the 屏蔽 group stays hidden until the blocking engine lands.
+      block: null,
     );
-    _replyKey.currentState?.focusContent();
+    if (!mounted || action == null) return;
+    switch (action) {
+      case ThreadFloorAction.showAuthorPosts:
+        await _showAuthorPosts(reply);
+      case ThreadFloorAction.blockContent ||
+            ThreadFloorAction.blockUser ||
+            ThreadFloorAction.blockAvatar:
+        break;
+    }
+  }
+
+  /// Opens the docked composer and focuses its content once it shows.
+  void _openComposer() {
+    if (!_composerOpen) setState(() => _composerOpen = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _replyKey.currentState?.focusContent();
+    });
+  }
+
+  void _closeComposer() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_composerOpen) setState(() => _composerOpen = false);
+  }
+
+  void _replyToFloor(String title) {
+    _replyKey.currentState?.replyTo(title);
+    _openComposer();
   }
 
   String _localQuoteDraft(ThreadReply reply) {
@@ -702,7 +728,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     final quoteUrl = reply.quoteUrl;
     if (quoteUrl == null || quoteUrl.isEmpty) {
       _replyKey.currentState?.insertContent(_localQuoteDraft(reply));
-      _scrollToReply();
+      _openComposer();
       return;
     }
     if (_loadingQuoteDrafts.contains(quoteUrl)) return;
@@ -729,10 +755,18 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _loadingQuoteDrafts.remove(quoteUrl);
       });
     }
-    _scrollToReply();
+    _openComposer();
+  }
+
+  bool get _autoLoadNextPage => ThreadPagingSettings.notifier.value;
+
+  // 设置 can change while this thread stays open below it.
+  void _onPagingSettingChanged() {
+    if (mounted && _detail != null) setState(_recomputeDetailRenderState);
   }
 
   Future<void> _handleReplySubmitted(String result) async {
+    _closeComposer();
     _messenger.showSnackBar(
       SnackBar(content: Text('$result，已刷新当前页')),
     );
@@ -962,6 +996,48 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
   }
 
+  Widget _threadList(ThreadDetail detail) {
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScroll,
+      child: Listener(
+        onPointerSignal: _onPointerSignal,
+        child: _ThreadDetailContent(
+          detail: detail,
+          onPostMounted: _postMounted,
+          onRetryLoadMore: _retryLoadMore,
+          entries: _detailEntries,
+          loading: _loading,
+          onlyOriginalPosterActive: _onlyOriginalPosterActive,
+          authorFilterName: _authorFilterActive
+              ? _authorFilterName ?? '该作者'
+              : null,
+          visibleFloorCount: _visibleFloorCount,
+          favorite: detail.favorite == null
+              ? null
+              : _effectiveFavorite(detail.favorite!),
+          favoriteBusy: _favoriteBusy,
+          buyingSaleBoxes: _buyingSaleBoxes,
+          loadingQuoteDrafts: _loadingQuoteDrafts,
+          scrollController: _scrollController,
+          onRefresh: _refresh,
+          onAuthorTap: _openUserProfile,
+          onFavorite: _handleFavorite,
+          onShowOriginalPosterPosts: _showOriginalPosterPosts,
+          onFloorMore: _showFloorActions,
+          onClearAuthorFilter: _clearAuthorFilter,
+          onQuoteReply: _quoteReply,
+          onBuySaleBox: _handleBuySaleBox,
+          onReplyToFloor: _replyToFloor,
+          onPageSelected: _goToPage,
+          autoLoadNextPage: _autoLoadNextPage,
+          onThreadLink: _openThreadLink,
+          onExternalLink: _openExternalLink,
+          onOpenLink: _openContentLink,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     PerfTrace.markScreen('ThreadDetailScreen');
@@ -998,19 +1074,23 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                 ),
                 IconButton(
                   tooltip: '回复',
-                  onPressed: () => _scrollToReply(),
+                  onPressed: () => _openComposer(),
                   icon: Icon(Icons.reply_outlined),
                 ),
               ],
             ),
-            floatingActionButton: FloatingActionButton.small(
-              backgroundColor: AppColors.brand,
-              foregroundColor: Colors.white,
-              onPressed: () => _scrollToReply(),
-              child: Icon(Icons.edit_outlined),
-            ),
-            // Floor navigation in its own strip, so it never covers a post.
-            bottomNavigationBar: detail == null
+            floatingActionButton: _composerOpen || detail == null
+                ? null
+                : FloatingActionButton.small(
+                    tooltip: '写回复',
+                    backgroundColor: AppColors.brand,
+                    foregroundColor: Colors.white,
+                    onPressed: _openComposer,
+                    child: const Icon(Icons.edit_outlined),
+                  ),
+            // Floor navigation in its own strip, so it never covers a post;
+            // the open composer takes its place.
+            bottomNavigationBar: detail == null || _composerOpen
                 ? null
                 : BottomAppBar(
                     height: 48,
@@ -1047,43 +1127,34 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                     error: _loadError,
                     onRetry: _refresh,
                   )
-                : NotificationListener<ScrollNotification>(
-                    onNotification: _onScroll,
-                    child: Listener(
-                      onPointerSignal: _onPointerSignal,
-                      child: _ThreadDetailContent(
-                        detail: detail,
-                        onPostMounted: _postMounted,
-                        onRetryLoadMore: _retryLoadMore,
-                        entries: _detailEntries,
-                        loading: _loading,
-                        onlyOriginalPosterActive: _onlyOriginalPosterActive,
-                        authorFilterName: _authorFilterActive
-                            ? _authorFilterName ?? '该作者'
-                            : null,
-                        visibleFloorCount: _visibleFloorCount,
-                        favorite: detail.favorite == null
-                            ? null
-                            : _effectiveFavorite(detail.favorite!),
-                        favoriteBusy: _favoriteBusy,
-                        buyingSaleBoxes: _buyingSaleBoxes,
-                        loadingQuoteDrafts: _loadingQuoteDrafts,
-                        scrollController: _scrollController,
-                        replyKey: _replyKey,
-                        onRefresh: _refresh,
-                        onAuthorTap: _openUserProfile,
-                        onFavorite: _handleFavorite,
-                        onShowOriginalPosterPosts: _showOriginalPosterPosts,
-                        onShowAuthorPosts: _showAuthorPosts,
-                        onClearAuthorFilter: _clearAuthorFilter,
-                        onQuoteReply: _quoteReply,
-                        onBuySaleBox: _handleBuySaleBox,
-                        onReplySubmitted: _handleReplySubmitted,
-                        onPageSelected: _goToPage,
-                        onThreadLink: _openThreadLink,
-                        onExternalLink: _openExternalLink,
-                        onOpenLink: _openContentLink,
-                        repository: widget.repository,
+                : PopScope(
+                    // Back folds an open composer before leaving the thread.
+                    canPop: !_composerOpen,
+                    onPopInvokedWithResult: (didPop, _) {
+                      if (!didPop) _closeComposer();
+                    },
+                    // Sized from the body actually left, after the app bar,
+                    // keyboard and any short landscape window.
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => Column(
+                        children: [
+                          Expanded(child: _threadList(detail)),
+                          _ComposerDock(
+                            open: _composerOpen,
+                            // A cramped body (landscape + keyboard) goes
+                            // to the composer whole.
+                            maxHeight: constraints.maxHeight < 240
+                                ? constraints.maxHeight
+                                : constraints.maxHeight * 0.6,
+                            child: ReplyComposer(
+                              key: _replyKey,
+                              thread: detail.thread,
+                              repository: widget.repository,
+                              onSubmitted: _handleReplySubmitted,
+                              onCollapse: _closeComposer,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -1095,6 +1166,63 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         'hasDetail': detail != null,
         'page': _page,
       },
+    );
+  }
+}
+
+/// The reply box docked under the list; it stays mounted while folded so
+/// the draft survives.
+class _ComposerDock extends StatelessWidget {
+  const _ComposerDock({
+    required this.open,
+    required this.maxHeight,
+    required this.child,
+  });
+
+  final bool open;
+  final double maxHeight;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.bottomCenter,
+      child: Offstage(
+        offstage: !open,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(20)),
+              border: dark ? Border.all(color: AppColors.border) : null,
+              boxShadow: dark
+                  ? null
+                  : const [
+                      BoxShadow(
+                        color: Color(0x14000000),
+                        blurRadius: 16,
+                        offset: Offset(0, -4),
+                      ),
+                    ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Center(
+                heightFactor: 1,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 920),
+                  child: SingleChildScrollView(child: child),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1136,21 +1264,20 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.buyingSaleBoxes,
     required this.loadingQuoteDrafts,
     required this.scrollController,
-    required this.replyKey,
     required this.onRefresh,
     required this.onAuthorTap,
     required this.onFavorite,
     required this.onShowOriginalPosterPosts,
-    required this.onShowAuthorPosts,
     required this.onClearAuthorFilter,
     required this.onQuoteReply,
     required this.onBuySaleBox,
-    required this.onReplySubmitted,
+    required this.onReplyToFloor,
+    required this.onFloorMore,
     required this.onPageSelected,
+    required this.autoLoadNextPage,
     required this.onThreadLink,
     required this.onExternalLink,
     required this.onOpenLink,
-    required this.repository,
   });
 
   final ThreadDetail detail;
@@ -1169,21 +1296,20 @@ class _ThreadDetailContent extends StatelessWidget {
   final Set<String> buyingSaleBoxes;
   final Set<String> loadingQuoteDrafts;
   final ScrollController scrollController;
-  final GlobalKey<ReplyComposerState> replyKey;
   final Future<void> Function() onRefresh;
   final ValueChanged<String> onAuthorTap;
   final ValueChanged<ThreadFavorite> onFavorite;
   final ValueChanged<ForumThread> onShowOriginalPosterPosts;
-  final ValueChanged<ThreadReply> onShowAuthorPosts;
   final VoidCallback onClearAuthorFilter;
   final Future<void> Function(ThreadReply) onQuoteReply;
   final ValueChanged<ThreadSaleBox> onBuySaleBox;
-  final ValueChanged<String> onReplySubmitted;
+  final ValueChanged<String> onReplyToFloor;
+  final ValueChanged<ThreadReply> onFloorMore;
   final ValueChanged<int> onPageSelected;
+  final bool autoLoadNextPage;
   final ValueChanged<ThreadActionLink> onThreadLink;
   final ValueChanged<ThreadActionLink> onExternalLink;
   final Future<void> Function(String url, String label) onOpenLink;
-  final ForumRepository repository;
 
   @override
   Widget build(BuildContext context) {
@@ -1191,6 +1317,8 @@ class _ThreadDetailContent extends StatelessWidget {
       'ThreadDetailContent.build',
       () {
         final originalAuthor = detail.thread.author;
+        final side =
+            math.max(20.0, (MediaQuery.sizeOf(context).width - 880) / 2);
         return Stack(
           children: [
             RefreshIndicator(
@@ -1198,7 +1326,9 @@ class _ThreadDetailContent extends StatelessWidget {
               onRefresh: onRefresh,
               child: ListView.builder(
                 controller: scrollController,
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                // Room below the end for the floating reply button.
+                // and a comfortable reading width on wide windows.
+                padding: EdgeInsets.fromLTRB(side, 0, side, 88),
                 itemCount: entries.length,
                 itemBuilder: (context, index) => _buildEntry(
                   context,
@@ -1238,12 +1368,26 @@ class _ThreadDetailContent extends StatelessWidget {
               SizedBox(height: (entry as ThreadDetailTopSpacingEntry).height),
         );
       case ThreadDetailListEntryType.pagination:
+        final end = (entry as ThreadDetailPaginationEntry).pagination;
+        final pagination = end ?? detail.pagination;
+        final select = loading ? null : onPageSelected;
+        if (end != null && !autoLoadNextPage) {
+          return _entryWithKey(
+            key: entry.key,
+            child: ThreadPageEndCard(
+              pagination: pagination,
+              onPageSelected: select,
+              onRefresh: loading ? null : onRefresh,
+            ),
+          );
+        }
+        if (pagination.totalPages <= 1) return const SizedBox.shrink();
         return _entryWithKey(
           key: entry.key,
-          child: _ThreadPaginationBar(
-            pagination: (entry as ThreadDetailPaginationEntry).pagination ??
-                detail.pagination,
-            onPageSelected: loading ? null : onPageSelected,
+          child: ForumPager(
+            current: pagination.currentPage,
+            total: pagination.totalPages,
+            onSelected: select,
           ),
         );
       case ThreadDetailListEntryType.openingPost:
@@ -1280,6 +1424,7 @@ class _ThreadDetailContent extends StatelessWidget {
             ),
           );
         }
+        final openingPost = _openingPostAsReply();
         return _entryWithKey(
           key: entry.key,
           post: detail,
@@ -1292,7 +1437,16 @@ class _ThreadDetailContent extends StatelessWidget {
                 : () => onAuthorTap(detail.thread.authorUrl!),
             postedAt: detail.thread.lastPost,
             floor: '楼主',
-            onQuote: null,
+            onReply: () => onReplyToFloor(
+              detail.bodyReplyTitle ?? 'Re:${detail.thread.title}',
+            ),
+            quoteLoading: detail.bodyQuoteUrl != null &&
+                loadingQuoteDrafts.contains(detail.bodyQuoteUrl),
+            onQuote: () => onQuoteReply(openingPost),
+            // 只看楼主 already sits on this card; ⋯ only adds the author link.
+            onMore: openingPost.authorPostsUrl == null
+                ? null
+                : () => onFloorMore(openingPost),
             headerActions: actions,
             child: ThreadPostBody(
               content: detail.body,
@@ -1352,9 +1506,10 @@ class _ThreadDetailContent extends StatelessWidget {
                   : () => onAuthorTap(reply.authorUrl!),
               postedAt: reply.postedAt,
               floor: reply.floor,
-              onShowAuthorPosts: reply.authorPostsUrl == null
-                  ? null
-                  : () => onShowAuthorPosts(reply),
+              onReply: () => onReplyToFloor(
+                reply.replyTitle ?? 'Re:${detail.thread.title}',
+              ),
+              onMore: () => onFloorMore(reply),
               quoteLoading: reply.quoteUrl != null &&
                   loadingQuoteDrafts.contains(reply.quoteUrl),
               onQuote: () => onQuoteReply(reply),
@@ -1425,18 +1580,20 @@ class _ThreadDetailContent extends StatelessWidget {
             ),
           ),
         );
-      case ThreadDetailListEntryType.composer:
-        return _entryWithKey(
-          key: entry.key,
-          child: ReplyComposer(
-            key: replyKey,
-            thread: detail.thread,
-            repository: repository,
-            onSubmitted: onReplySubmitted,
-          ),
-        );
     }
   }
+
+  /// The opening post in the shape the floor actions take.
+  ThreadReply _openingPostAsReply() => ThreadReply(
+        author: detail.thread.author ?? '楼主',
+        content: detail.body,
+        authorUrl: detail.thread.authorUrl,
+        authorAvatarUrl: detail.thread.authorAvatarUrl,
+        authorPostsUrl: detail.thread.authorPostsUrl,
+        floor: '楼主',
+        quoteUrl: detail.bodyQuoteUrl,
+        replyTitle: detail.bodyReplyTitle,
+      );
 
   Widget _entryWithKey({
     required Widget child,
@@ -1645,9 +1802,10 @@ class _FloorCard extends StatelessWidget {
     this.onAuthorTap,
     this.postedAt,
     this.floor,
-    this.onShowAuthorPosts,
+    this.onReply,
     this.quoteLoading = false,
     this.onQuote,
+    this.onMore,
     this.headerActions,
   });
 
@@ -1657,9 +1815,10 @@ class _FloorCard extends StatelessWidget {
   final VoidCallback? onAuthorTap;
   final String? postedAt;
   final String? floor;
-  final VoidCallback? onShowAuthorPosts;
+  final VoidCallback? onReply;
   final bool quoteLoading;
   final VoidCallback? onQuote;
+  final VoidCallback? onMore;
   final Widget? headerActions;
   final Widget child;
 
@@ -1729,57 +1888,14 @@ class _FloorCard extends StatelessWidget {
             ],
             const SizedBox(height: 12),
             RepaintBoundary(child: child),
-            if (onShowAuthorPosts != null || onQuote != null) ...[
+            if (onReply != null || onQuote != null || onMore != null) ...[
               const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerRight,
-                child: PopupMenuButton<_FloorAction>(
-                  key: ValueKey('floor-actions-$author-$floor'),
-                  tooltip: '更多操作',
-                  icon: Icon(Icons.more_horiz),
-                  constraints: const BoxConstraints(minWidth: 180),
-                  onSelected: (action) {
-                    switch (action) {
-                      case _FloorAction.showAuthorPosts:
-                        onShowAuthorPosts?.call();
-                        break;
-                      case _FloorAction.quote:
-                        onQuote?.call();
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (onShowAuthorPosts != null)
-                      const PopupMenuItem(
-                        value: _FloorAction.showAuthorPosts,
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.person_search_outlined),
-                          title: Text('只看该作者'),
-                          dense: true,
-                        ),
-                      ),
-                    if (onQuote != null)
-                      PopupMenuItem(
-                        value: _FloorAction.quote,
-                        enabled: !quoteLoading,
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: quoteLoading
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Icon(Icons.format_quote),
-                          title: Text(quoteLoading ? '引用中...' : '引用'),
-                          dense: true,
-                        ),
-                      ),
-                  ],
-                ),
+              ThreadFloorFooter(
+                moreKey: ValueKey('floor-actions-$author-$floor'),
+                onReply: onReply,
+                onQuote: onQuote,
+                onMore: onMore,
+                quoteLoading: quoteLoading,
               ),
             ],
           ],
@@ -1787,11 +1903,6 @@ class _FloorCard extends StatelessWidget {
       ),
     );
   }
-}
-
-enum _FloorAction {
-  showAuthorPosts,
-  quote,
 }
 
 class _AuthorAvatar extends StatelessWidget {
@@ -1864,193 +1975,6 @@ class _AvatarFallback extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _ThreadPaginationBar extends StatelessWidget {
-  const _ThreadPaginationBar({
-    required this.pagination,
-    required this.onPageSelected,
-  });
-
-  final ThreadPagination pagination;
-  final ValueChanged<int>? onPageSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    if (pagination.totalPages <= 1) {
-      return const SizedBox.shrink();
-    }
-    final visiblePages = _visiblePages();
-
-    return Wrap(
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 6,
-      runSpacing: 8,
-      children: [
-        _PageBox(
-          label: '«',
-          tooltip: '上一页',
-          enabled: pagination.hasPrevious && onPageSelected != null,
-          onPressed: () => onPageSelected?.call(pagination.currentPage - 1),
-        ),
-        for (final pageNumber in visiblePages)
-          _PageBox(
-            label: '$pageNumber',
-            selected: pageNumber == pagination.currentPage,
-            enabled: onPageSelected != null,
-            onPressed: () => onPageSelected?.call(pageNumber),
-          ),
-        _PageBox(
-          label: '跳转',
-          tooltip: '跳转页码',
-          wide: true,
-          enabled: onPageSelected != null,
-          onPressed: () => _showJumpDialog(context),
-        ),
-        _PageBox(
-          label: '»',
-          tooltip: '下一页',
-          enabled: pagination.hasNext && onPageSelected != null,
-          onPressed: () => onPageSelected?.call(pagination.currentPage + 1),
-        ),
-        Text(
-          '${pagination.currentPage} / ${pagination.totalPages}',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
-    );
-  }
-
-  List<int> _visiblePages() {
-    const windowSize = 5;
-    final total = pagination.totalPages < 1 ? 1 : pagination.totalPages;
-    final current = pagination.currentPage.clamp(1, total);
-    if (total <= windowSize) {
-      return [for (var i = 1; i <= total; i++) i];
-    }
-
-    var start = current - 2;
-    var end = current + 2;
-    if (start < 1) {
-      end += 1 - start;
-      start = 1;
-    }
-    if (end > total) {
-      start -= end - total;
-      end = total;
-    }
-    if (start < 1) start = 1;
-    return [for (var i = start; i <= end; i++) i];
-  }
-
-  Future<void> _showJumpDialog(BuildContext context) async {
-    final controller = TextEditingController(text: '${pagination.currentPage}');
-    final selected = await showDialog<int>(
-      context: context,
-      builder: (context) {
-        String? errorText;
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('跳转页码'),
-              content: TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: '页码',
-                  helperText: '1 - ${pagination.totalPages}',
-                  errorText: errorText,
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final input = int.tryParse(controller.text.trim());
-                    if (input == null) {
-                      setDialogState(() {
-                        errorText = '请输入有效页码';
-                      });
-                      return;
-                    }
-                    Navigator.of(context).pop(
-                      input.clamp(1, pagination.totalPages).toInt(),
-                    );
-                  },
-                  child: const Text('跳转'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    if (selected != null) onPageSelected?.call(selected);
-  }
-}
-
-class _PageBox extends StatelessWidget {
-  const _PageBox({
-    required this.label,
-    required this.enabled,
-    required this.onPressed,
-    this.tooltip,
-    this.selected = false,
-    this.wide = false,
-  });
-
-  final String label;
-  final String? tooltip;
-  final bool enabled;
-  final VoidCallback onPressed;
-  final bool selected;
-  final bool wide;
-
-  @override
-  Widget build(BuildContext context) {
-    final foreground = selected
-        ? Colors.white
-        : enabled
-            ? AppColors.link
-            : AppColors.textFaint;
-    final background = selected ? AppColors.brand : AppColors.surface;
-    final box = SizedBox(
-      width: wide ? 58 : 44,
-      height: 44,
-      child: Material(
-        color: background,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: enabled ? onPressed : null,
-          child: Container(
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: selected ? AppColors.brand : AppColors.border,
-              ),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: foreground,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    if (tooltip == null) return box;
-    return Tooltip(message: tooltip!, child: box);
   }
 }
 

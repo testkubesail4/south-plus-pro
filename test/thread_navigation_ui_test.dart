@@ -96,7 +96,7 @@ void main() {
     final repository = await pumpThread(tester);
     await tester.tap(find.byTooltip('到底部'));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('购买查看'), 300);
+    await tester.scrollUntilVisible(find.text('购买查看').hitTestable(), 300);
     final floorY = tester.getTopLeft(find.text('[B31F]')).dy;
     await tester.tap(find.text('购买查看'));
     await tester.pumpAndSettle();
@@ -118,10 +118,11 @@ void main() {
       await pumpThread(tester, repository: repository);
       await tester.tap(find.byTooltip('到底部'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('购买查看').first, 300);
+      await tester.scrollUntilVisible(
+          find.text('购买查看').first.hitTestable(), 300);
       await tester.tap(find.text('购买查看').first);
       await tester.pump();
-      await tester.scrollUntilVisible(find.text('购买查看'), 100);
+      await tester.scrollUntilVisible(find.text('购买查看').hitTestable(), 100);
       await tester.tap(find.text('购买查看'));
       await tester.pump();
       expect(repository.heldPurchases.keys, containsAll(['/buy', '/buy-b']));

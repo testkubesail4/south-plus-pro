@@ -1500,11 +1500,11 @@ void main() {
     expect(find.text('RSS'), findsOneWidget);
     expect(find.byTooltip('更多操作'), findsOneWidget);
     expect(find.text('只看该作者'), findsNothing);
-    expect(find.text('2 / 4'), findsNWidgets(2));
+    expect(find.text('第 2 / 4 页'), findsNWidgets(2));
     expect(find.text('page 2 body', findRichText: true), findsNothing);
     expect(find.text('reply on page 2', findRichText: true), findsOneWidget);
 
-    await tester.tap(find.text('»').first);
+    await tester.tap(find.byTooltip('下一页').first);
     await tester.pumpAndSettle();
 
     expect(repository.requestedPages, [1, 3]);
@@ -1524,11 +1524,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('跳转').first);
+    await tester.tap(find.byTooltip('选择页码').first);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(BottomSheet),
         matching: find.byType(TextField),
       ),
       'abc',
@@ -1541,7 +1541,7 @@ void main() {
 
     await tester.enterText(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(BottomSheet),
         matching: find.byType(TextField),
       ),
       '99',
@@ -1567,7 +1567,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('»').first);
+    await tester.tap(find.byTooltip('下一页').first);
     await tester.pumpAndSettle();
 
     expect(repository.requestedPages, [1, 3]);
@@ -1640,8 +1640,8 @@ void main() {
     expect(find.text('只看 Alice'), findsOneWidget);
     expect(find.text('第 1 / 2 页 · 本页 1 楼'), findsOneWidget);
     expect(find.text('op filtered page 1', findRichText: true), findsOneWidget);
-    expect(find.text('1 / 2'), findsWidgets);
-    expect(find.text('2 / 4'), findsNothing);
+    expect(find.text('第 1 / 2 页'), findsWidgets);
+    expect(find.text('第 2 / 4 页'), findsNothing);
     expect(
       tester
           .widget<FilterChip>(
@@ -1654,14 +1654,14 @@ void main() {
       isTrue,
     );
 
-    await tester.tap(find.text('»').first);
+    await tester.tap(find.byTooltip('下一页').first);
     await tester.pumpAndSettle();
 
     expect(repository.requestedThreadUrls.last,
         'https://south-plus.net/read.php?tid-1-uid-1.html');
     expect(repository.requestedPages, [1, 1, 2]);
     expect(find.text('op filtered page 2', findRichText: true), findsOneWidget);
-    expect(find.text('2 / 2'), findsWidgets);
+    expect(find.text('第 2 / 2 页'), findsWidgets);
     expect(find.text('第 2 / 2 页 · 本页 1 楼'), findsOneWidget);
 
     await tester.tap(
@@ -1675,7 +1675,7 @@ void main() {
     expect(repository.requestedThreadUrls.last,
         'https://south-plus.net/read.php?tid-1.html');
     expect(find.text('只看 Alice'), findsNothing);
-    expect(find.text('1 / 4'), findsWidgets);
+    expect(find.text('第 1 / 4 页'), findsWidgets);
   });
 
   testWidgets('thread detail shows empty state for empty author filter',
@@ -1719,8 +1719,6 @@ void main() {
 
     final floorActions = find.byKey(const ValueKey('floor-actions-Bob-B2F'));
     await tester.ensureVisible(floorActions);
-    await tester.pumpAndSettle();
-    await tester.tap(floorActions);
     await tester.pumpAndSettle();
     await tester.tap(find.text('引用').last);
     await tester.pumpAndSettle();

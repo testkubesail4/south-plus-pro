@@ -60,12 +60,12 @@ void main() {
       'OP without a posts link filters on the server '
       'instead of hiding rows locally', (tester) async {
     final repository = await pumpThread(tester, authorUrl: _opProfile);
-    await tester.tap(find.text('»').first);
+    await tester.tap(find.byTooltip('下一页').first);
     await tester.pumpAndSettle();
     expect(
         find.text('others only on page 2', findRichText: true), findsOneWidget);
     // The chip lives on the opening post, which only page 1 shows.
-    await tester.tap(find.text('«').first);
+    await tester.tap(find.byTooltip('上一页').first);
     await tester.pumpAndSettle();
 
     await tapOpChip(tester);

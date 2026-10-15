@@ -82,7 +82,7 @@ void main() {
     final repository = await pumpThread(tester, '$_base?tid=7&page=e&#a');
     expect(repository.requested.first, contains('page=e'));
     expectOnScreen('[B90F]');
-    expect(find.text('3'), findsWidgets);
+    expect(find.textContaining('第 3 /'), findsWidgets);
   });
 
   testWidgets('opening post body anchor stays on the opening post', (

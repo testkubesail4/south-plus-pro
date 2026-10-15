@@ -13,11 +13,15 @@ class ReplyComposer extends StatefulWidget {
     required this.thread,
     required this.repository,
     required this.onSubmitted,
+    this.onCollapse,
   });
 
   final ForumThread thread;
   final ForumRepository repository;
   final ValueChanged<String> onSubmitted;
+
+  /// Folds the docked composer away; its draft stays.
+  final VoidCallback? onCollapse;
 
   @override
   State<ReplyComposer> createState() => ReplyComposerState();
@@ -28,6 +32,7 @@ class ReplyComposerState extends State<ReplyComposer> {
   final _content = TextEditingController();
   final _contentFocus = FocusNode();
   bool _submitting = false;
+  bool _editingTitle = false;
   String? _error;
 
   @override
@@ -104,106 +109,134 @@ class ReplyComposerState extends State<ReplyComposer> {
     focusContent();
   }
 
+  /// Answers one floor: the site's 回复 only sets the subject line.
+  void replyTo(String title) {
+    _title.text = title;
+    focusContent();
+  }
+
   void focusContent() {
     _contentFocus.requestFocus();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(top: 20),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(8),
-      ),
+    final muted = TextStyle(color: AppColors.textMuted, fontSize: 13);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
               Expanded(
-                child: Text(
-                  '快速回复',
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSoft,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'WindCode',
-                  style: TextStyle(
-                    color: AppColors.brandDark,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _title,
-            enabled: !_submitting,
-            decoration: const InputDecoration(
-              labelText: '标题',
-            ),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _content,
-            focusNode: _contentFocus,
-            minLines: 5,
-            maxLines: 8,
-            enabled: !_submitting,
-            decoration: const InputDecoration(
-              labelText: '内容',
-              hintText: '输入回复内容',
-            ),
-          ),
-          const SizedBox(height: 10),
-          WindCodeToolbar(
-            controller: _content,
-            enabled: !_submitting,
-            baseUri: widget.repository.networkConfig.baseUri,
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  key: const ValueKey('reply-submit-button'),
-                  onPressed: _canSubmit ? _submit : null,
-                  icon: _submitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+                // The subject line stays folded until the reader edits it.
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: _submitting
+                      ? null
+                      : () => setState(() => _editingTitle = !_editingTitle),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.reply_outlined,
+                          size: 18,
+                          color: AppColors.textMuted,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _title,
+                            builder: (context, value, _) => Text(
+                              value.text.trim().isEmpty ? '无标题' : value.text,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: muted,
+                            ),
                           ),
-                        )
-                      : Icon(Icons.send_outlined, size: 18),
-                  label: Text(_submitting ? '提交中...' : '提交回复'),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          _editingTitle ? Icons.expand_less : Icons.edit_outlined,
+                          size: 16,
+                          color: AppColors.textFaint,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
+              if (widget.onCollapse != null)
+                IconButton(
+                  tooltip: '收起回复框',
+                  onPressed: widget.onCollapse,
+                  color: AppColors.textMuted,
+                  icon: const Icon(Icons.expand_more),
+                ),
             ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_editingTitle) ...[
+                  TextField(
+                    controller: _title,
+                    enabled: !_submitting,
+                    decoration: const InputDecoration(labelText: '标题'),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                TextField(
+                  controller: _content,
+                  focusNode: _contentFocus,
+                  minLines: 3,
+                  maxLines: 6,
+                  enabled: !_submitting,
+                  decoration: const InputDecoration(hintText: '输入回复内容'),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: WindCodeToolbar(
+                        controller: _content,
+                        enabled: !_submitting,
+                        baseUri: widget.repository.networkConfig.baseUri,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      key: const ValueKey('reply-submit-button'),
+                      onPressed: _canSubmit ? _submit : null,
+                      icon: _submitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.send_outlined, size: 18),
+                      label: Text(_submitting ? '发送中' : '发送'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),

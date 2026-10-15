@@ -1,0 +1,246 @@
+import 'package:flutter/material.dart';
+
+import '../../theme/app_theme.dart';
+
+enum ThreadFloorAction { showAuthorPosts, blockContent, blockUser, blockAvatar }
+
+/// The rule state a floor's menu reflects, and which rules may change.
+class ThreadFloorBlockState {
+  const ThreadFloorBlockState({
+    this.userBlocked = false,
+    this.avatarBlocked = false,
+    this.contentBlocked = false,
+    this.canBlockUser = false,
+    this.canBlockContent = false,
+    this.userBlockUnavailableReason,
+  });
+
+  final bool userBlocked;
+  final bool avatarBlocked;
+  final bool contentBlocked;
+
+  /// Native 屏蔽此人 / 屏蔽头像 need a signed-in account and the author's uid.
+  final bool canBlockUser;
+
+  /// 屏蔽内容 needs text to match on.
+  final bool canBlockContent;
+  final String? userBlockUnavailableReason;
+}
+
+/// Footer of a floor: the two everyday actions in reach, the rest behind ⋯.
+class ThreadFloorFooter extends StatelessWidget {
+  const ThreadFloorFooter({
+    super.key,
+    required this.moreKey,
+    required this.onReply,
+    required this.onQuote,
+    required this.onMore,
+    this.quoteLoading = false,
+  });
+
+  final Key moreKey;
+  final VoidCallback? onReply;
+  final VoidCallback? onQuote;
+  final VoidCallback? onMore;
+  final bool quoteLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = TextButton.styleFrom(
+      foregroundColor: AppColors.textMuted,
+      minimumSize: const Size(48, 48),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+    );
+    return Row(
+      children: [
+        if (onReply != null)
+          TextButton.icon(
+            onPressed: onReply,
+            icon: const Icon(Icons.reply_outlined, size: 18),
+            label: const Text('回复'),
+            style: style,
+          ),
+        if (onQuote != null)
+          TextButton.icon(
+            onPressed: quoteLoading ? null : onQuote,
+            icon: quoteLoading
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.format_quote_outlined, size: 18),
+            label: Text(quoteLoading ? '引用中…' : '引用'),
+            style: style,
+          ),
+        const Spacer(),
+        if (onMore != null)
+          IconButton(
+            key: moreKey,
+            tooltip: '更多操作',
+            onPressed: onMore,
+            color: AppColors.textMuted,
+            icon: const Icon(Icons.more_horiz),
+          ),
+      ],
+    );
+  }
+}
+
+/// The floor's secondary actions, headed by whose floor it is.
+Future<ThreadFloorAction?> showThreadFloorActions(
+  BuildContext context, {
+  required String author,
+  required String? floor,
+  required Widget avatar,
+  required bool canShowAuthorPosts,
+
+  /// Null hides the 屏蔽 group, e.g. while the rules are unavailable.
+  required ThreadFloorBlockState? block,
+}) {
+  return showModalBottomSheet<ThreadFloorAction>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) {
+      Widget item(
+        ThreadFloorAction action,
+        IconData icon,
+        String title,
+        String subtitle, {
+        bool enabled = true,
+      }) => ListTile(
+        enabled: enabled,
+        leading: Icon(icon, size: 20, color: AppColors.textMuted),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        minVerticalPadding: 10,
+        onTap: () => Navigator.of(context).pop(action),
+      );
+      final nativeNote = block == null || block.canBlockUser
+          ? null
+          : block.userBlockUnavailableReason;
+      return SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ListTile(
+                leading: avatar,
+                title: Text(
+                  author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: floor == null || floor.isEmpty ? null : Text(floor),
+              ),
+              Divider(
+                height: 1,
+                indent: 16,
+                endIndent: 16,
+                color: AppColors.border.withValues(alpha: 0.6),
+              ),
+              if (canShowAuthorPosts)
+                item(
+                  ThreadFloorAction.showAuthorPosts,
+                  Icons.person_search_outlined,
+                  '只看该作者',
+                  '只显示 TA 在本帖的楼层',
+                ),
+              if (block != null) ...[
+              if (canShowAuthorPosts)
+                Divider(
+                height: 17,
+                indent: 16,
+                endIndent: 16,
+                color: AppColors.border.withValues(alpha: 0.6),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                child: Text(
+                  '屏蔽',
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              item(
+                ThreadFloorAction.blockContent,
+                Icons.comments_disabled_outlined,
+                block.contentBlocked ? '取消屏蔽内容' : '屏蔽内容',
+                block.canBlockContent ? '仅本机 · 隐藏内容相同的楼层' : '此楼没有可匹配的文字',
+                enabled: block.canBlockContent,
+              ),
+              item(
+                ThreadFloorAction.blockUser,
+                Icons.person_off_outlined,
+                block.userBlocked ? '取消屏蔽此人' : '屏蔽此人',
+                nativeNote ?? '同步南+屏蔽配置 · 隐藏 TA 的主题与回复',
+                enabled: block.canBlockUser,
+              ),
+              item(
+                ThreadFloorAction.blockAvatar,
+                Icons.hide_image_outlined,
+                block.avatarBlocked ? '取消屏蔽头像' : '屏蔽头像',
+                nativeNote ?? '同步南+屏蔽配置 · 只隐藏 TA 的头像',
+                enabled: block.canBlockUser,
+              ),
+              ],
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// A hidden floor keeps its place as one slim row the reader can open.
+class ThreadBlockedFloor extends StatelessWidget {
+  const ThreadBlockedFloor({
+    super.key,
+    required this.label,
+    required this.onReveal,
+  });
+
+  final String label;
+  final VoidCallback onReveal;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.inkSoft,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 2, 4, 2),
+        child: Row(
+          children: [
+            Icon(
+              Icons.visibility_off_outlined,
+              size: 16,
+              color: AppColors.textFaint,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+              ),
+            ),
+            TextButton(
+              onPressed: onReveal,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.link,
+                minimumSize: const Size(48, 44),
+              ),
+              child: const Text('显示'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

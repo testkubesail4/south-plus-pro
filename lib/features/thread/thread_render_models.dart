@@ -458,7 +458,6 @@ enum ThreadDetailListEntryType {
   reply,
   pageDivider,
   loadMore,
-  composer,
 }
 
 sealed class ThreadDetailListEntry {
@@ -545,11 +544,6 @@ class ThreadDetailReplyEntry extends ThreadDetailListEntry {
 
   final ThreadReply reply;
   final ThreadPostRenderModel renderModel;
-}
-
-class ThreadDetailComposerEntry extends ThreadDetailListEntry {
-  const ThreadDetailComposerEntry({Key? key})
-      : super(ThreadDetailListEntryType.composer, key: key);
 }
 
 String threadReplyStableId(
