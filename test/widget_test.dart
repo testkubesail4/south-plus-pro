@@ -1906,6 +1906,7 @@ class _FakeBoardRepository extends ForumRepository {
     ForumCategory category, {
     int page = 1,
     ForumThreadOrder order = ForumThreadOrder.lastPost,
+    ForumBoardFilter? filter,
   }) async {
     requestedCategoryUrls.add(category.url ?? '');
     requestedOrders.add((order, page));
@@ -2061,6 +2062,7 @@ class _FakeHomeRepository extends ForumRepository {
     ForumCategory category, {
     int page = 1,
     ForumThreadOrder order = ForumThreadOrder.lastPost,
+    ForumBoardFilter? filter,
   }) async {
     requestedCategoryUrls.add(category.url ?? '');
     return const ForumThreadPage(

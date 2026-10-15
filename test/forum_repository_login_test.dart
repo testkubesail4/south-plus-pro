@@ -321,10 +321,8 @@ void main() {
     expect(client.paths,
         ['thread_new.php?fid-226-orderway-lastpost-asc-DESC-page-1.html']);
     expect(page.threads, isEmpty);
-    expect(page.subBoards.map((board) => board.name), [
-      '同人志&CG',
-      '同人志&CG (图墙模式)',
-    ]);
+    expect(page.subBoards.map((board) => board.name), ['同人志&CG']);
+    expect(page.subBoards.single.hasPictureWall, isTrue);
     expect(page.currentPage, 1);
     expect(page.totalPages, 1);
   });

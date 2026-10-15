@@ -2,6 +2,7 @@ import 'package:html/dom.dart' as dom;
 
 import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
+import 'board_view_parser.dart';
 import 'thread_title_style_parser.dart';
 
 class BoardThreadPageParser {
@@ -19,6 +20,106 @@ class BoardThreadPageParser {
       if (name.isNotEmpty) return name;
     }
     return null;
+  }
+
+  List<ForumBoardFilter> parseFilters(
+    dom.Document document,
+    ForumCategory category,
+  ) {
+    final filters = <ForumBoardFilter>[];
+    final seen = <String>{};
+    for (final link in [
+      ...document.querySelectorAll('.hthread .threadlist a[href]'),
+      ...document.querySelectorAll('#menu_special a[href]'),
+    ]) {
+      final href = link.attributes['href'] ?? '';
+      final parsed = urls.boardFilterFromUrl(
+        category,
+        label: _cleanText(link.text),
+        url: href,
+      );
+      if (parsed == null || parsed.label.isEmpty) continue;
+      final key = urls.boardDesktopPath(category, filter: parsed)!;
+      if (!seen.add(key)) continue;
+      filters.add(
+        ForumBoardFilter(
+          label: parsed.kind == ForumBoardFilterKind.special ||
+                  parsed.kind == ForumBoardFilterKind.all
+              ? parsed.label.replaceAll(' ', '')
+              : parsed.label,
+          url: parsed.url,
+          kind: parsed.kind,
+        ),
+      );
+    }
+    return filters;
+  }
+
+  ForumBoardFilter? parseActiveFilter(
+    dom.Document document,
+    ForumCategory category,
+    List<ForumBoardFilter> filters, {
+    ForumBoardFilter? requested,
+  }) {
+    final script =
+        document.querySelectorAll('script').map((s) => s.text).join();
+    final selectedId = RegExp(
+      r'''setCurrent\(['"](thread_type_(?:all|digest|\d+))['"],\s*['"]thread_type_all['"]''',
+    ).firstMatch(script)?.group(1);
+    final link = (selectedId == null
+            ? null
+            : document.querySelector('#$selectedId a[href]')) ??
+        document.querySelector('.hthread .current a[href]');
+    final selected = requested ??
+        urls.boardFilterFromUrl(
+          category,
+          label: '',
+          url: link?.attributes['href'] ?? '',
+        );
+    if (selected != null) {
+      final key = urls.boardDesktopPath(category, filter: selected);
+      for (final filter in filters) {
+        if (urls.boardDesktopPath(category, filter: filter) == key) return filter;
+      }
+      return selected;
+    }
+    return filters.where((f) => f.kind == ForumBoardFilterKind.all).firstOrNull;
+  }
+
+  List<ForumCategory> parseParents(
+    dom.Document document,
+    ForumCategory category,
+  ) {
+    final parents = <ForumCategory>[];
+    final seen = <String>{urls.fidFromCategory(category) ?? ''};
+    for (final link in document.querySelectorAll('#breadcrumbs a[href]')) {
+      final href = link.attributes['href'] ?? '';
+      final fid = urls.fidFromUrl(href);
+      final name = _cleanText(link.text);
+      if (fid == null || name.isEmpty || !seen.add(fid)) continue;
+      parents.add(
+        ForumCategory(
+          name: name,
+          slug: 'fid-$fid',
+          url: urls.absoluteUrl(href),
+        ),
+      );
+    }
+    return parents;
+  }
+
+  bool hasPictureWall(dom.Document document, ForumCategory category) {
+    if (document.querySelector('ul.stream') != null) return true;
+    final fid = urls.fidFromCategory(category);
+    for (final link in document.querySelectorAll('a[href]')) {
+      final href = link.attributes['href'] ?? '';
+      if (urls.fidFromUrl(href) == null) continue;
+      final name = pictureWallBoardName(_cleanText(link.text));
+      if (name == '' || name == category.name) return true;
+      if (Uri.tryParse(urls.absoluteUrl(href))?.path == '/thread_new.php' &&
+          urls.fidFromUrl(href) == fid) return true;
+    }
+    return false;
   }
 
   String validationText(dom.Document document, ForumCategory category) {
@@ -146,10 +247,22 @@ class BoardThreadPageParser {
     final subBoardTable = _subBoardTable(document);
     if (subBoardTable == null) return const [];
 
+    final rows = subBoardTable.querySelectorAll('tr');
+    final wallNames = rows
+        .map(_subBoardTitleLink)
+        .whereType<dom.Element>()
+        .map((link) => pictureWallBoardName(_cleanText(link.text)))
+        .whereType<String>()
+        .toSet();
     final boards = <ForumBoard>[];
     final seen = <String>{};
-    for (final row in subBoardTable.querySelectorAll('tr')) {
-      final board = _subBoardFromRow(row, category);
+    for (final row in rows) {
+      final name = _cleanText(_subBoardTitleLink(row)?.text ?? '');
+      final board = _subBoardFromRow(
+        row,
+        category,
+        hasPictureWall: wallNames.contains(name),
+      );
       if (board == null || !seen.add(board.url)) continue;
       boards.add(board);
     }
@@ -180,6 +293,7 @@ class BoardThreadPageParser {
       }
     }
 
+    if (current != null && current > total) total = current;
     return current == null ? null : (current: current, total: total);
   }
 
@@ -227,16 +341,17 @@ class BoardThreadPageParser {
   }
 
   int? _threadNewPageFromHref(String href) {
-    for (final pattern in [
-      RegExp(
-        r'thread_new\.php\?fid-\d+(?:-orderway-(?:lastpost|postdate|hits|replies)-asc-DESC)?-page-(\d+)\.html',
-      ),
-      RegExp(r'thread_new\.php\?fid=\d+&page=(\d+)'),
-    ]) {
-      final match = pattern.firstMatch(href);
-      if (match != null) return int.tryParse(match.group(1)!);
-    }
-    return null;
+    if (urls.fidFromUrl(href) == null) return null;
+    final uri = Uri.tryParse(href);
+    if (uri == null) return null;
+    if (uri.query.contains('='))
+      return int.tryParse(uri.queryParameters['page'] ?? '');
+    return int.tryParse(
+      RegExp(r'(?:^|-)page-(\d+)(?:-|\.html$|$)')
+              .firstMatch(uri.query)
+              ?.group(1) ??
+          '',
+    );
   }
 
   dom.Element? _desktopThreadLink(dom.Element row) {
@@ -268,29 +383,42 @@ class BoardThreadPageParser {
     return null;
   }
 
-  ForumBoard? _subBoardFromRow(dom.Element row, ForumCategory category) {
+  ForumBoard? _subBoardFromRow(
+    dom.Element row,
+    ForumCategory category, {
+    bool hasPictureWall = false,
+  }) {
     final titleLink = _subBoardTitleLink(row);
     if (titleLink == null) return null;
 
     final href = titleLink.attributes['href'] ?? '';
     final name = _cleanText(titleLink.text);
-    if (href.isEmpty || name.isEmpty || name == category.name) return null;
+    if (href.isEmpty ||
+        name.isEmpty ||
+        name == category.name ||
+        urls.fidFromUrl(href) == null ||
+        pictureWallBoardName(name) != null) return null;
 
     final cells = row.children.map((cell) => _cleanText(cell.text)).toList();
     final postCount =
         cells.map((value) => int.tryParse(value)).whereType<int>().firstOrNull;
-    final latest = cells
-        .where((value) => value.isNotEmpty)
-        .where((value) => value != name)
-        .where((value) => int.tryParse(value) == null)
-        .lastOrNull;
+    final description = _cleanText(row.querySelector('.smalltxt')?.text ?? '');
+    final lastPost = row.children.last;
+    final lastTitle = _cleanText(
+      lastPost.querySelector('h3 a[href], a[href*="read.php?tid-"]')?.text ??
+          '',
+    );
+    final lastTime = lastPost.attributes['title']?.trim();
 
     return ForumBoard(
       name: name,
       url: urls.absoluteUrl(href),
       section: category.name,
       postCount: postCount,
-      subtitle: latest,
+      subtitle: description.isEmpty ? null : description,
+      lastPostTitle: lastTitle.isEmpty ? null : lastTitle,
+      lastPostTime: lastTime == null || lastTime.isEmpty ? null : lastTime,
+      hasPictureWall: hasPictureWall,
     );
   }
 

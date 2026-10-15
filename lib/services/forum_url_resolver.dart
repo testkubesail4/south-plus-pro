@@ -326,15 +326,82 @@ class ForumUrlResolver {
     return null;
   }
 
+  ForumBoardFilter? boardFilterFromUrl(
+    ForumCategory category, {
+    required String label,
+    required String url,
+  }) {
+    final parsed = _boardFilter(category, url);
+    if (parsed == null) return null;
+    return ForumBoardFilter(
+      label: label,
+      url: absoluteUrl(url),
+      kind: parsed.kind,
+    );
+  }
+
+  ({ForumBoardFilterKind kind, String suffix})? _boardFilter(
+    ForumCategory category,
+    String url,
+  ) {
+    final fid = fidFromCategory(category);
+    if (fid == null || fidFromUrl(url) != fid) return null;
+    final uri = baseUri.resolve(url);
+    if (!{'/thread.php', '/thread_new.php'}.contains(uri.path)) return null;
+    final fields = _queryFields(uri, rawQuery: _rawQuery(url));
+    if (fields == null ||
+        fields.keys.any(
+          (key) => !{
+            'fid',
+            'search',
+            'type',
+            'special',
+            'page',
+            'orderway',
+            'asc',
+          }.contains(key),
+        )) return null;
+    final selectors = [
+      'search',
+      'type',
+      'special',
+    ].where((key) => fields.containsKey(key)).toList();
+    if (selectors.isEmpty) return (kind: ForumBoardFilterKind.all, suffix: '');
+    if (selectors.length != 1) return null;
+    final key = selectors.single;
+    final value = fields[key]!;
+    if (key == 'search') {
+      return value == 'digest'
+          ? (kind: ForumBoardFilterKind.digest, suffix: '-search-digest')
+          : null;
+    }
+    if (!RegExp(r'^[1-9]\d*$').hasMatch(value)) return null;
+    if (key == 'special' && !{'1', '2', '3', '4', '5'}.contains(value))
+      return null;
+    return (
+      kind: key == 'type'
+          ? ForumBoardFilterKind.topicType
+          : ForumBoardFilterKind.special,
+      suffix: '-$key-$value',
+    );
+  }
+
   String? boardDesktopPath(
     ForumCategory category, {
     int page = 1,
     ForumThreadOrder order = ForumThreadOrder.lastPost,
+    ForumBoardFilter? filter,
   }) {
     final fid = fidFromCategory(category);
     if (fid == null) return null;
+    var suffix = '';
+    if (filter != null) {
+      final parsed = _boardFilter(category, filter.url);
+      if (parsed == null || parsed.kind != filter.kind) return null;
+      suffix = parsed.suffix;
+    }
     final normalizedPage = _normalizedPage(page);
-    return 'thread_new.php?fid-$fid-orderway-${order.queryValue}-asc-DESC-page-$normalizedPage.html';
+    return 'thread_new.php?fid-$fid$suffix-orderway-${order.queryValue}-asc-DESC-page-$normalizedPage.html';
   }
 
   String? threadBoundaryUrl(String url, {required bool last}) {

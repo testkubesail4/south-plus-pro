@@ -1641,12 +1641,19 @@ class ForumRepository {
     ForumCategory category, {
     int page = 1,
     ForumThreadOrder order = ForumThreadOrder.lastPost,
+    ForumBoardFilter? filter,
   }) async {
+    filter ??= _urls.boardFilterFromUrl(
+      category,
+      label: '',
+      url: category.url ?? '',
+    );
     final normalizedPage = page < 1 ? 1 : page;
     final desktopPath = _urls.boardDesktopPath(
       category,
       page: normalizedPage,
       order: order,
+      filter: filter,
     );
     if (desktopPath == null) {
       throw ForumRepositoryException('没有解析到${category.name}帖子列表');
@@ -1676,7 +1683,28 @@ class ForumRepository {
       ),
       _boardThreadPageParser.parseWallThreads(desktopDocument, category),
     );
-    if (threads.isNotEmpty) {
+    final hasPictureWall = _boardThreadPageParser.hasPictureWall(
+      desktopDocument,
+      category,
+    );
+    final parents = _boardThreadPageParser.parseParents(
+      desktopDocument,
+      category,
+    );
+    final filters = _boardThreadPageParser.parseFilters(
+      desktopDocument,
+      category,
+    );
+    final activeFilter = _boardThreadPageParser.parseActiveFilter(
+      desktopDocument,
+      category,
+      filters,
+      requested: filter,
+    );
+    if (threads.isNotEmpty ||
+        subBoards.isNotEmpty ||
+        hasPictureWall ||
+        filters.isNotEmpty) {
       final pages = _boardThreadPageParser.wallPages(desktopDocument) ??
           (current: normalizedPage, total: normalizedPage);
       return ForumThreadPage(
@@ -1686,17 +1714,10 @@ class ForumRepository {
         ads: _boardThreadPageParser.parseDesktopAds(desktopDocument),
         subBoards: subBoards,
         boardName: boardName,
-      );
-    }
-
-    if (subBoards.isNotEmpty) {
-      return ForumThreadPage(
-        threads: const [],
-        currentPage: normalizedPage,
-        totalPages: normalizedPage,
-        ads: _boardThreadPageParser.parseDesktopAds(desktopDocument),
-        subBoards: subBoards,
-        boardName: boardName,
+        hasPictureWall: hasPictureWall,
+        parents: parents,
+        filters: filters,
+        activeFilter: activeFilter,
       );
     }
 

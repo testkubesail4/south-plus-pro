@@ -235,6 +235,20 @@ class BrowsingHistoryEntry {
   final DateTime viewedAt;
 }
 
+enum ForumBoardFilterKind { all, digest, topicType, special }
+
+class ForumBoardFilter {
+  const ForumBoardFilter({
+    required this.label,
+    required this.url,
+    required this.kind,
+  });
+
+  final String label;
+  final String url;
+  final ForumBoardFilterKind kind;
+}
+
 class ForumThreadPage {
   const ForumThreadPage({
     required this.threads,
@@ -243,6 +257,10 @@ class ForumThreadPage {
     this.ads = const [],
     this.subBoards = const [],
     this.boardName,
+    this.hasPictureWall = false,
+    this.filters = const [],
+    this.activeFilter,
+    this.parents = const [],
   });
 
   final List<ForumThread> threads;
@@ -251,6 +269,10 @@ class ForumThreadPage {
   final List<ForumBoardAd> ads;
   final List<ForumBoard> subBoards;
   final String? boardName;
+  final bool hasPictureWall;
+  final List<ForumBoardFilter> filters;
+  final ForumBoardFilter? activeFilter;
+  final List<ForumCategory> parents;
 
   bool get hasPrevious => currentPage > 1;
   bool get hasNext => currentPage < totalPages;
@@ -614,6 +636,7 @@ class ForumBoard {
     this.lastPostTitle,
     this.lastPostTime,
     this.hasNew = false,
+    this.hasPictureWall = false,
     this.children = const [],
   });
 
@@ -627,6 +650,7 @@ class ForumBoard {
   final String? lastPostTitle;
   final String? lastPostTime;
   final bool hasNew;
+  final bool hasPictureWall;
   final List<ForumBoard> children;
 
   String get slug {

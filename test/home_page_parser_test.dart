@@ -121,10 +121,8 @@ void main() {
     expect(comicMarket.subtitle, '2025.12.30 - 2025.12.31');
     expect(comicMarket.topicCount, 594);
     expect(comicMarket.postCount, 3669);
-    expect(comicMarket.children.map((board) => board.name), [
-      '同人志&CG',
-      '同人志&CG (图墙模式)',
-    ]);
+    expect(comicMarket.children.map((board) => board.name), ['同人志&CG']);
+    expect(comicMarket.children.single.hasPictureWall, isTrue);
 
     final archive = sections.first.items.last;
     expect(archive.name, '旧物仓库');
@@ -136,8 +134,8 @@ void main() {
 
     final freeStorage = sections.last.items.single;
     expect(freeStorage.name, '免空资源区');
-    expect(freeStorage.children.last.url,
-        'https://south-plus.net/thread_new.php?fid=109');
+    expect(freeStorage.children.map((board) => board.name), ['CG资源']);
+    expect(freeStorage.hasPictureWall, isTrue);
   });
 
   test('HomePageParser keeps empty parent boards with multiple children', () {

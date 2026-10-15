@@ -3,6 +3,7 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
+import 'board_view_parser.dart';
 import 'thread_title_style_parser.dart';
 
 class HomePageParser {
@@ -245,12 +246,21 @@ class HomePageParser {
     if (mainHref.isEmpty || mainName.isEmpty) return null;
 
     final counts = _countsFromRow(row);
+    final wallNames = links
+        .skip(1)
+        .where((link) => urls.fidFromUrl(link.attributes['href'] ?? '') != null)
+        .map((link) => pictureWallBoardName(_cleanText(link.text)))
+        .whereType<String>()
+        .toSet();
     final children = <ForumBoard>[];
     final seenChildren = <String>{};
     for (final link in links.skip(1)) {
       final href = link.attributes['href'] ?? '';
       final name = _cleanText(link.text);
-      if (href.isEmpty || name.isEmpty || !seenChildren.add('$href$name')) {
+      if (href.isEmpty ||
+          name.isEmpty ||
+          pictureWallBoardName(name) != null ||
+          !seenChildren.add('$href$name')) {
         continue;
       }
       children.add(
@@ -258,6 +268,8 @@ class HomePageParser {
           name: name,
           url: urls.absoluteUrl(href),
           section: '$sectionTitle / $mainName',
+          hasPictureWall: wallNames.contains(name) ||
+              Uri.tryParse(urls.absoluteUrl(href))?.path == '/thread_new.php',
         ),
       );
     }
@@ -283,6 +295,9 @@ class HomePageParser {
       hasNew: row.querySelectorAll('td.icon img[src]').any((image) =>
           Uri.tryParse(image.attributes['src']!)?.path.split('/').last ==
           'new.gif'),
+      hasPictureWall: wallNames.contains('') ||
+          wallNames.contains(mainName) ||
+          Uri.tryParse(urls.absoluteUrl(mainHref))?.path == '/thread_new.php',
       children: children,
     );
   }

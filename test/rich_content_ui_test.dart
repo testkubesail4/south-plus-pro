@@ -402,6 +402,7 @@ class _FakeRepository extends ForumRepository {
     ForumCategory category, {
     int page = 1,
     ForumThreadOrder order = ForumThreadOrder.lastPost,
+    ForumBoardFilter? filter,
   }) =>
       Completer<ForumThreadPage>().future;
 }

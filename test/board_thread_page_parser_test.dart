@@ -100,13 +100,12 @@ void main() {
       ),
     );
 
-    expect(boards.map((board) => board.name), [
-      '同人志&CG',
-      '同人志&CG (图墙模式)',
-    ]);
+    expect(boards.map((board) => board.name), ['同人志&CG']);
     expect(boards.first.url, 'https://south-plus.net/thread.php?fid-213.html');
     expect(boards.first.postCount, 26246);
-    expect(boards.first.subtitle, contains('Re:(C103)'));
+    expect(boards.first.subtitle, isNull);
+    expect(boards.first.lastPostTitle, 'Re:(C103)[自购][ ..');
+    expect(boards.first.hasPictureWall, isTrue);
   });
 
   test('BoardThreadPageParser handles parent boards that only list children',

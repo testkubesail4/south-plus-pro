@@ -34,7 +34,7 @@ void main() {
                 .fetchBoardThreadPage(_category);
         expect(page.boardName, 'Fixture board');
         if (mode == 'child-only') {
-          expect(page.subBoards.single.subtitle, contains(phrase));
+          expect(page.subBoards.single.lastPostTitle, phrase);
         } else {
           expect(page.threads.single.title, phrase);
         }
