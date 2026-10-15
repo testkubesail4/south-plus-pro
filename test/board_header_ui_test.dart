@@ -67,8 +67,8 @@ void main() {
     expect(find.text('版块 42'), findsNothing);
 
     // Later pages without a name keep it.
-    await tester.ensureVisible(find.text('»'));
-    await tester.tap(find.text('»'));
+    await tester.ensureVisible(find.byTooltip('下一页'));
+    await tester.tap(find.byTooltip('下一页'));
     await tester.pump();
     repo.pages.last.complete(_page(page: 2));
     await tester.pumpAndSettle();

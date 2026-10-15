@@ -151,7 +151,7 @@ void main() {
     expect(find.byType(RefreshIndicator), findsOneWidget);
     expect(
         repository.requestedCategoryUrls, [_FakeBoardRepository.category.url]);
-    await tester.drag(find.byType(ListView), const Offset(0, 320));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 320));
     await tester.pumpAndSettle();
     expect(repository.requestedCategoryUrls, [
       _FakeBoardRepository.category.url,
@@ -304,7 +304,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.requestedOrders.last, (ForumThreadOrder.hits, 1));
 
-    await tester.drag(find.byType(ListView), const Offset(0, 320));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 320));
     await tester.pumpAndSettle();
     expect(repository.requestedOrders, [
       (ForumThreadOrder.lastPost, 1),
@@ -336,7 +336,7 @@ void main() {
 
     expect(find.text('子版块'), findsOneWidget);
 
-    await tester.drag(find.byType(ListView), const Offset(0, -520));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -520));
     await tester.pumpAndSettle();
 
     expect(find.text('子版块'), findsNothing);

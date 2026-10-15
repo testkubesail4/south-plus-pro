@@ -1,0 +1,589 @@
+part of 'board_thread_list_screen.dart';
+
+// Board layout, in the home page's language: a centred column (max 1200) of
+// soft surfaces on the background, section titles 20/w600, hairline rows.
+
+const _boardMaxWidth = 1200.0;
+const _siblingPanelWidth = 248.0;
+
+double _boardGutter(double width) =>
+    width < 600 ? 16 : math.max(24, (width - _boardMaxWidth) / 2);
+
+int _subBoardColumns(double width) => width < 600
+    ? 2
+    : width < 900
+        ? 3
+        : 4;
+
+BoxDecoration _boardSurface(BuildContext context, {double radius = 16}) =>
+    BoxDecoration(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(radius),
+      boxShadow: Theme.of(context).brightness == Brightness.dark
+          ? null
+          : [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 2),
+              ),
+            ],
+    );
+
+/// 290511 → 29.1万; below ten thousand, digits with separators.
+String _compactCount(int value) {
+  if (value >= 10000) {
+    final wan = (value / 10000).toStringAsFixed(1);
+    return '${wan.endsWith('.0') ? wan.substring(0, wan.length - 2) : wan}万';
+  }
+  return value
+      .toString()
+      .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
+}
+
+/// "2026-10-15 13:25": today → 13:25, this year → 10-15, else the date.
+String _shortTime(String time, {DateTime? now}) {
+  final at = DateTime.tryParse(time.trim().replaceFirst(' ', 'T'));
+  if (at == null) return time.trim();
+  final today = now ?? DateTime.now();
+  String two(int v) => v.toString().padLeft(2, '0');
+  if (at.year == today.year && at.month == today.month && at.day == today.day) {
+    return '${two(at.hour)}:${two(at.minute)}';
+  }
+  if (at.year == today.year) return '${two(at.month)}-${two(at.day)}';
+  return '${at.year}-${two(at.month)}-${two(at.day)}';
+}
+
+String _subBoardMeta(ForumBoard board) => [
+      if (board.postCount != null) '${_compactCount(board.postCount!)} 帖',
+      if (board.lastPostTime != null && board.lastPostTime!.isNotEmpty)
+        _shortTime(board.lastPostTime!),
+    ].join(' · ');
+
+class _RowDivider extends StatelessWidget {
+  const _RowDivider();
+
+  @override
+  Widget build(BuildContext context) => Divider(
+        height: 1,
+        thickness: 1,
+        indent: 16,
+        endIndent: 16,
+        color: AppColors.border.withValues(alpha: 0.6),
+      );
+}
+
+/// Back, the board title and search. A sub-board names its parent above the
+/// title; the title opens the sibling switcher (or the parent when the
+/// siblings are unknown).
+class _BoardHeader extends StatelessWidget {
+  const _BoardHeader({
+    required this.gutter,
+    required this.title,
+    this.parent,
+    this.onParent,
+    this.onSwitch,
+    this.onSearch,
+  });
+
+  final double gutter;
+  final String title;
+  final ForumCategory? parent;
+  final VoidCallback? onParent;
+  final VoidCallback? onSwitch;
+  final VoidCallback? onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final onTitle = onSwitch ?? onParent;
+    final parentName = parent?.name ?? '';
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 56),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(gutter - 12, 4, gutter - 8, 4),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: '返回',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Semantics(
+                button: onTitle != null,
+                hint: onSwitch != null ? '切换版块' : null,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: onTitle,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (parentName.isNotEmpty)
+                            Text(
+                              parentName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 12.5,
+                                height: 1.3,
+                              ),
+                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: AppColors.text,
+                                    fontSize: 18,
+                                    height: 1.3,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              if (onSwitch != null) ...[
+                                const SizedBox(width: 2),
+                                Icon(
+                                  Icons.expand_more,
+                                  size: 20,
+                                  color: AppColors.textFaint,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (onSearch != null)
+              IconButton(
+                tooltip: '在本版搜索',
+                onPressed: onSearch,
+                icon: const Icon(Icons.search),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 子版块: one surface holding a grid of sub-board tiles.
+class _SubBoardSection extends StatelessWidget {
+  const _SubBoardSection({
+    required this.boards,
+    required this.width,
+    required this.onOpen,
+  });
+
+  final List<ForumBoard> boards;
+  final double width;
+  final ValueChanged<ForumBoard> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final columns = _subBoardColumns(width);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                '子版块',
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 20,
+                  height: 1.3,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '${boards.length} 个',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          decoration: _boardSurface(context),
+          padding: const EdgeInsets.all(6),
+          child: Column(
+            children: [
+              for (var start = 0; start < boards.length; start += columns)
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var c = 0; c < columns; c++)
+                        Expanded(
+                          child: start + c < boards.length
+                              ? _SubBoardTile(
+                                  board: boards[start + c],
+                                  onOpen: onOpen,
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SubBoardTile extends StatelessWidget {
+  const _SubBoardTile({required this.board, required this.onOpen});
+
+  final ForumBoard board;
+  final ValueChanged<ForumBoard> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = _subBoardMeta(board);
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => onOpen(board),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              board.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 15,
+                height: 1.35,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (meta.isNotEmpty) ...[
+              const SizedBox(height: 3),
+              Text(
+                meta,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.textFaint,
+                  fontSize: 12,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Parent board on top, then its sub-boards; the open one is checked.
+class _SiblingList extends StatelessWidget {
+  const _SiblingList({
+    required this.parent,
+    required this.siblings,
+    required this.currentUrl,
+    required this.onParent,
+    required this.onSelected,
+  });
+
+  final ForumCategory? parent;
+  final List<ForumBoard> siblings;
+  final String? currentUrl;
+  final VoidCallback onParent;
+  final ValueChanged<ForumBoard> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final parent = this.parent;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (parent != null) ...[
+          ListTile(
+            minTileHeight: 56,
+            leading: Icon(
+              Icons.arrow_upward_outlined,
+              color: AppColors.textMuted,
+              size: 20,
+            ),
+            title: Text(
+              parent.name,
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              '返回上级版块',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 12.5),
+            ),
+            onTap: onParent,
+          ),
+          const _RowDivider(),
+        ],
+        for (final board in siblings)
+          ListTile(
+            minTileHeight: 52,
+            selected: board.url == currentUrl,
+            title: Text(
+              board.name,
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 15,
+                fontWeight:
+                    board.url == currentUrl ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+            subtitle: switch (_subBoardMeta(board)) {
+              '' => null,
+              final meta => Text(
+                  meta,
+                  style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+                ),
+            },
+            trailing: board.url == currentUrl
+                ? Icon(Icons.check, color: AppColors.brand, size: 20)
+                : null,
+            onTap: board.url == currentUrl ? null : () => onSelected(board),
+          ),
+      ],
+    );
+  }
+}
+
+Future<void> _showSiblingSheet(
+  BuildContext context, {
+  required ForumCategory? parent,
+  required List<ForumBoard> siblings,
+  required String? currentUrl,
+  required ValueChanged<ForumBoard> onSelected,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    backgroundColor: AppColors.surface,
+    builder: (sheetContext) => ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.75,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: _SiblingList(
+          parent: parent,
+          siblings: siblings,
+          currentUrl: currentUrl,
+          onParent: () {
+            Navigator.of(sheetContext).pop();
+            Navigator.of(context).maybePop();
+          },
+          onSelected: (board) {
+            Navigator.of(sheetContext).pop();
+            onSelected(board);
+          },
+        ),
+      ),
+    ),
+  );
+}
+
+/// Wide windows keep the switcher open beside the topics.
+class _SiblingPanel extends StatelessWidget {
+  const _SiblingPanel({required this.child});
+
+  final _SiblingList child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, bottom: 24),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Container(
+          decoration: _boardSurface(context),
+          clipBehavior: Clip.antiAlias,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The topic area's header: 全部主题 and the sort menu.
+class _BoardToolbar extends StatelessWidget {
+  const _BoardToolbar({
+    required this.order,
+    required this.onOrder,
+  });
+
+  final ForumThreadOrder order;
+  final ValueChanged<ForumThreadOrder> onOrder;
+
+  static double extentFor(BuildContext context) =>
+      math.max(48, MediaQuery.textScalerOf(context).scale(14) * 1.4 + 26) + 1;
+
+  @override
+  Widget build(BuildContext context) {
+    // Large text keeps the width for the tabs.
+    final compact = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final tabs = [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Text(
+          '全部主题',
+          style: TextStyle(
+            color: AppColors.text,
+            fontSize: 14,
+            height: 1.4,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    ];
+    return Row(
+      children: [
+        Expanded(
+          // A trailing fade shows the tabs continue past the edge.
+          child: ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (rect) => LinearGradient(
+              colors: const [Colors.black, Colors.black, Colors.transparent],
+              stops: [0, 1 - 40 / rect.width, 1],
+            ).createShader(rect),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(right: 40),
+              child: Row(children: tabs),
+            ),
+          ),
+        ),
+        PopupMenuButton<ForumThreadOrder>(
+          key: const ValueKey('board-order-button'),
+          tooltip: '排序',
+          initialValue: order,
+          onSelected: onOrder,
+          itemBuilder: (context) => [
+            for (final value in ForumThreadOrder.values)
+              PopupMenuItem(value: value, child: Text(_orderLabel(value))),
+          ],
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.sort, size: 18, color: AppColors.textMuted),
+                  if (!compact) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      _orderLabel(order),
+                      style:
+                          TextStyle(color: AppColors.textMuted, fontSize: 13),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BoardToolbarDelegate extends SliverPersistentHeaderDelegate {
+  _BoardToolbarDelegate({
+    required this.gutter,
+    required this.extent,
+    required this.child,
+  });
+
+  final double gutter;
+  final double extent;
+  final Widget child;
+
+  @override
+  double get minExtent => extent;
+
+  @override
+  double get maxExtent => extent;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Container(
+      height: extent,
+      color: AppColors.background,
+      padding: EdgeInsets.symmetric(horizontal: gutter),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: AppColors.border.withValues(alpha: 0.6)),
+          ),
+        ),
+        // Tab text lines up with the row text below.
+        child: Padding(padding: const EdgeInsets.only(left: 6), child: child),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_BoardToolbarDelegate oldDelegate) => true;
+}
+
+class _EmptyTopics extends StatelessWidget {
+  const _EmptyTopics({required this.inSubBoards});
+
+  final bool inSubBoards;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 28),
+      alignment: Alignment.center,
+      decoration: _boardSurface(context),
+      child: Text(
+        inSubBoards ? '这个板块的主题在子版块中' : '暂无主题',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: AppColors.textMuted, fontSize: 14),
+      ),
+    );
+  }
+}

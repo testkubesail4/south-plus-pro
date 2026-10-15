@@ -1,0 +1,158 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
+import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_repository.dart';
+
+// Synthetic boards, topics and names only.
+String _url(int fid) => 'https://south-plus.net/thread.php?fid-$fid.html';
+
+const _hub = ForumCategory(name: 'Hub', slug: 'fid-900');
+
+final _children = [
+  ForumBoard(
+    name: 'Child A',
+    url: _url(901),
+    section: 'Hub',
+    postCount: 290511,
+    lastPostTime: '2020-03-19 13:25',
+  ),
+  ForumBoard(name: 'Child B', url: _url(902), section: 'Hub', postCount: 8421),
+];
+
+ForumThread _topic(String title, {bool sticky = false}) => ForumThread(
+      title: title,
+      url: 'https://south-plus.net/read.php?tid-1.html',
+      replies: 3,
+      section: '',
+      isSticky: sticky,
+    );
+
+class _Repo extends ForumRepository {
+  final requests = <(String, int)>[];
+
+  @override
+  Future<ForumThreadPage> fetchBoardThreadPage(
+    ForumCategory category, {
+    int page = 1,
+    ForumThreadOrder order = ForumThreadOrder.lastPost,
+    ForumBoardFilter? filter,
+  }) async {
+    requests.add((category.slug, page));
+    if (category.slug == _hub.slug) {
+      return ForumThreadPage(
+        threads: [_topic('Hub notice', sticky: true)],
+        currentPage: 1,
+        totalPages: 1,
+        subBoards: _children,
+        boardName: 'Hub',
+      );
+    }
+    final name =
+        _children.firstWhere((board) => board.slug == category.slug).name;
+    return ForumThreadPage(
+      threads: [
+        _topic('$name pinned', sticky: true),
+        _topic('$name topic 1'),
+        _topic('$name topic 2'),
+      ],
+      currentPage: page,
+      totalPages: 3,
+      boardName: name,
+      parents: const [_hub],
+    );
+  }
+}
+
+Future<void> _pump(WidgetTester tester, Widget home, {Size? size}) async {
+  tester.view.physicalSize = size ?? const Size(400, 800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(MaterialApp(home: home));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('a hub lists its sub-boards as tiles that open their own page',
+      (tester) async {
+    final repo = _Repo();
+    await _pump(tester, BoardThreadListScreen(category: _hub, repository: repo));
+
+    expect(find.text('子版块'), findsOneWidget);
+    expect(find.text('29.1万 帖 · 2020-03-19'), findsOneWidget);
+    expect(find.text('8,421 帖'), findsOneWidget);
+
+    await tester.tap(find.text('Child A'));
+    await tester.pumpAndSettle();
+    expect(find.text('Child A topic 1'), findsOneWidget);
+    expect(find.text('Hub'), findsOneWidget, reason: 'parent named above');
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+    expect(find.text('子版块'), findsOneWidget, reason: 'back is the hub');
+    expect(repo.requests.map((r) => r.$1), ['fid-900', 'fid-901']);
+  });
+
+  testWidgets('the title switches to a sibling and back still reaches the hub',
+      (tester) async {
+    final repo = _Repo();
+    await _pump(tester, BoardThreadListScreen(category: _hub, repository: repo));
+    await tester.tap(find.text('Child A'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Child A').first);
+    await tester.pumpAndSettle();
+    expect(find.text('返回上级版块'), findsOneWidget);
+    await tester.tap(find.text('Child B').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Child B topic 1'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+    expect(find.text('子版块'), findsOneWidget);
+  });
+
+  testWidgets('wide windows keep the sibling list beside the topics',
+      (tester) async {
+    final repo = _Repo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+        parent: _hub,
+        siblings: _children,
+      ),
+      size: const Size(1440, 900),
+    );
+    expect(find.text('返回上级版块'), findsOneWidget);
+    expect(find.text('Child B'), findsOneWidget);
+
+    await tester.tap(find.text('Child B'));
+    await tester.pumpAndSettle();
+    expect(find.text('Child B topic 1'), findsOneWidget);
+  });
+
+  testWidgets('large text keeps the board screen within bounds',
+      (tester) async {
+    final repo = _Repo();
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: const TextScaler.linear(2)),
+        child: child!,
+      ),
+      home: BoardThreadListScreen(category: _hub, repository: repo),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Child A'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+}

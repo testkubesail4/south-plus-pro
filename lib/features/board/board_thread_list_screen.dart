@@ -15,21 +15,29 @@ import 'thread_preview_image_layout.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_compose_screen.dart';
 
+part 'board_navigation_widgets.dart';
 part 'board_thread_list_widgets.dart';
 
 const _doujinContentBoardName = '同人志&CG';
 
+/// One board: its sub-boards, then its topics.
+/// A sub-board opens as its own route; [parent] and [siblings] are the board
+/// it was opened from and that board's sub-boards, for the switcher.
 class BoardThreadListScreen extends StatefulWidget {
   const BoardThreadListScreen({
     super.key,
     required this.category,
     required this.repository,
     this.initialSubBoards = const [],
+    this.parent,
+    this.siblings = const [],
   });
 
   final ForumCategory category;
   final ForumRepository repository;
   final List<ForumBoard> initialSubBoards;
+  final ForumCategory? parent;
+  final List<ForumBoard> siblings;
 
   @override
   State<BoardThreadListScreen> createState() => _BoardThreadListScreenState();
@@ -40,6 +48,9 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   final ScrollController _scrollController = ScrollController();
   late ForumCategory _category = widget.category;
   late List<ForumBoard> _knownSubBoards = List.of(widget.initialSubBoards);
+  // The last loaded page keeps sub-boards on screen while the
+  // next page loads, so only the topic area shows a skeleton.
+  ForumThreadPage? _shown;
   int _page = 1;
   ForumThreadOrder _order = ForumThreadOrder.lastPost;
 
@@ -65,18 +76,17 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         slug: defaultSubBoard.slug,
         url: defaultSubBoard.url,
       );
-      if (mounted) {
-        setState(() {
-          _category = nextCategory;
-          _knownSubBoards = List.of(defaultSubBoard.children);
-          _page = 1;
-          _order = ForumThreadOrder.lastPost;
-        });
-      } else {
+      void adopt() {
         _category = nextCategory;
         _knownSubBoards = List.of(defaultSubBoard.children);
         _page = 1;
         _order = ForumThreadOrder.lastPost;
+      }
+
+      if (mounted) {
+        setState(adopt);
+      } else {
+        adopt();
       }
       final nextPage =
           await widget.repository.fetchBoardThreadPage(nextCategory, page: 1);
@@ -132,34 +142,30 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     return null;
   }
 
-  Future<void> _refresh() async {
+  Future<void> _reload({int? page}) async {
     setState(() {
+      if (page != null) _page = page;
       _future = _fetchPage(_page);
     });
     await _future;
   }
 
+  Future<void> _refresh() => _reload();
+
   Future<void> _goToPage(int page) async {
     if (page == _page || page < 1) return;
-    setState(() {
-      _page = page;
-      _future = _fetchPage(page);
-    });
-    await _scrollToTopAfterLoad();
+    await _reload(page: page);
+    await _scrollToTop();
   }
 
   Future<void> _changeOrder(ForumThreadOrder order) async {
     if (order == _order) return;
-    setState(() {
-      _order = order;
-      _page = 1;
-      _future = _fetchPage(1);
-    });
-    await _scrollToTopAfterLoad();
+    _order = order;
+    await _reload(page: 1);
+    await _scrollToTop();
   }
 
-  Future<void> _scrollToTopAfterLoad() async {
-    await _future;
+  Future<void> _scrollToTop() async {
     if (!mounted || !_scrollController.hasClients) return;
     await _scrollController.animateTo(
       0,
@@ -186,19 +192,45 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     }
   }
 
-  Future<void> _openSubBoard(ForumBoard board) async {
-    setState(() {
-      _category = ForumCategory(
-        name: board.name,
-        slug: board.slug,
-        url: board.url,
-      );
-      _knownSubBoards = List.of(board.children);
-      _page = 1;
-      _order = ForumThreadOrder.lastPost;
-      _future = _fetchPage(_page);
-    });
-    await _scrollToTopAfterLoad();
+  ForumCategory _categoryOf(ForumBoard board) =>
+      ForumCategory(name: board.name, slug: board.slug, url: board.url);
+
+  void _openSubBoard(ForumBoard board, List<ForumBoard> siblings) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => BoardThreadListScreen(
+        category: _categoryOf(board),
+        repository: widget.repository,
+        initialSubBoards: board.children,
+        parent: _category,
+        siblings: siblings,
+      ),
+    ));
+  }
+
+  // A sibling replaces this route, so back still returns to the parent.
+  void _openSibling(ForumBoard board) {
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => BoardThreadListScreen(
+        category: _categoryOf(board),
+        repository: widget.repository,
+        initialSubBoards: board.children,
+        parent: widget.parent,
+        siblings: widget.siblings,
+      ),
+    ));
+  }
+
+  void _openParent(ForumCategory parent) {
+    if (widget.parent != null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => BoardThreadListScreen(
+        category: parent,
+        repository: widget.repository,
+      ),
+    ));
   }
 
   Future<void> _openAd(ForumBoardAd ad) async {
@@ -212,6 +244,30 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     }
   }
 
+  void _openThread(ForumThread thread) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ThreadDetailScreen(
+          thread: thread,
+          repository: widget.repository,
+        ),
+      ),
+    );
+  }
+
+  VoidCallback? get _search =>
+      switch (widget.repository.searchBoardId(_category)) {
+        final fid? => () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => SearchScreen(
+                  repository: widget.repository,
+                  initialBoard: ForumSearchBoard(id: fid, name: _category.name),
+                ),
+              ),
+            ),
+        null => null,
+      };
+
   @override
   void dispose() {
     _scrollController.dispose();
@@ -224,124 +280,192 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     return PerfTrace.span(
       'BoardThreadListScreen.build',
       () {
-        return Scaffold(
-          body: SafeArea(
-            child: Column(
-              children: [
-                _BoardHeader(
-                  title: _title,
-                  order: _order,
-                  onCompose: _openComposer,
-                  onSearch: switch (
-                      widget.repository.searchBoardId(_category)) {
-                    final fid? => () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SearchScreen(
-                              repository: widget.repository,
-                              initialBoard: ForumSearchBoard(
-                                id: fid,
-                                name: _category.name,
-                              ),
-                            ),
-                          ),
-                        ),
-                    null => null,
-                  },
-                  onOrderSelected: _changeOrder,
-                ),
-                Expanded(
-                  child: ColoredBox(
-                    color: AppColors.surface,
-                    child: FutureBuilder<ForumThreadPage>(
-                      future: _future,
-                      builder: (context, snapshot) {
-                        if (snapshot.hasError) {
-                          return AsyncErrorView(
-                            title: '板块加载失败',
-                            message: '${snapshot.error}',
-                            onRetry: _refresh,
-                          );
-                        }
-                        if (!snapshot.hasData) {
-                          return const _BoardThreadListSkeleton();
-                        }
-                        final page = snapshot.data!;
-                        final subBoards = page.subBoards.isNotEmpty
-                            ? page.subBoards
-                            : _knownSubBoards;
-                        final items = _BoardListItem.fromPage(page);
-                        if (_page != page.currentPage) {
-                          _page = page.currentPage;
-                        }
-                        final hasSubBoards = subBoards.isNotEmpty;
-                        final showSubBoardOnlyHint =
-                            items.isEmpty && hasSubBoards;
-                        final listItemCount = items.length +
-                            1 +
-                            (hasSubBoards ? 1 : 0) +
-                            (showSubBoardOnlyHint ? 1 : 0);
-                        return RefreshIndicator(
-                          color: AppColors.brand,
-                          onRefresh: _refresh,
-                          child: ListView.separated(
-                            controller: _scrollController,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(0, 10, 0, 24),
-                            itemCount: listItemCount,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox.shrink(),
-                            itemBuilder: (context, index) {
-                              if (hasSubBoards && index == 0) {
-                                return _SubBoardPanel(
-                                  boards: subBoards,
-                                  onBoardTap: _openSubBoard,
-                                );
-                              }
-
-                              final itemIndex = index - (hasSubBoards ? 1 : 0);
-                              if (showSubBoardOnlyHint && itemIndex == 0) {
-                                return const _SubBoardOnlyHint();
-                              }
-                              final adjustedItemIndex =
-                                  itemIndex - (showSubBoardOnlyHint ? 1 : 0);
-                              if (adjustedItemIndex == items.length) {
-                                return _PaginationBar(
-                                  page: page,
-                                  onPageSelected: _goToPage,
-                                );
-                              }
-                              final item = items[adjustedItemIndex];
-                              return switch (item) {
-                                _BoardAdItem(:final ad) => _BoardAdBanner(
-                                    ad: ad,
-                                    onTap: () => _openAd(ad),
-                                  ),
-                                _BoardThreadItem(:final thread) => _ThreadRow(
-                                    thread: thread,
-                                    repository: widget.repository,
-                                    onTap: () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => ThreadDetailScreen(
-                                          thread: thread,
-                                          repository: widget.repository,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              };
-                            },
-                          ),
+        return FutureBuilder<ForumThreadPage>(
+          future: _future,
+          builder: (context, snapshot) {
+            final done = snapshot.connectionState == ConnectionState.done;
+            final loaded = done && snapshot.hasData;
+            if (loaded) {
+              _shown = snapshot.data;
+              _page = snapshot.data!.currentPage;
+            }
+            final page = loaded ? snapshot.data : null;
+            final shown = _shown;
+            final parent = widget.parent ??
+                (shown == null || shown.parents.isEmpty
+                    ? null
+                    : shown.parents.last);
+            return Scaffold(
+              backgroundColor: AppColors.background,
+              floatingActionButton: FloatingActionButton(
+                tooltip: '发帖',
+                onPressed: _openComposer,
+                backgroundColor: AppColors.brand,
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.edit_outlined),
+              ),
+              body: SafeArea(
+                bottom: false,
+                child: LayoutBuilder(builder: (context, constraints) {
+                  final gutter = _boardGutter(constraints.maxWidth);
+                  final siblings = widget.siblings.length > 1;
+                  final panel = siblings && constraints.maxWidth >= 1200;
+                  final body = done && snapshot.hasError
+                      ? AsyncErrorView(
+                          title: '板块加载失败',
+                          message: '${snapshot.error}',
+                          onRetry: _refresh,
+                        )
+                      : _buildBody(
+                          context,
+                          page,
+                          shown,
+                          gutter: panel ? 0 : gutter,
+                          content: constraints.maxWidth -
+                              gutter * 2 -
+                              (panel ? _siblingPanelWidth + 24 : 0),
                         );
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+                  final list = _SiblingList(
+                    parent: widget.parent,
+                    siblings: widget.siblings,
+                    currentUrl: widget.category.url,
+                    onParent: () => Navigator.of(context).maybePop(),
+                    onSelected: _openSibling,
+                  );
+                  return Column(
+                    children: [
+                      _BoardHeader(
+                        gutter: gutter,
+                        title: _title,
+                        parent: parent,
+                        // The panel has its own parent row.
+                        onParent: parent == null || panel
+                            ? null
+                            : () => _openParent(parent),
+                        onSwitch: !siblings || panel
+                            ? null
+                            : () => _showSiblingSheet(
+                                  context,
+                                  parent: widget.parent,
+                                  siblings: widget.siblings,
+                                  currentUrl: widget.category.url,
+                                  onSelected: _openSibling,
+                                ),
+                        onSearch: _search,
+                      ),
+                      Expanded(
+                        child: !panel
+                            ? body
+                            : Padding(
+                                padding:
+                                    EdgeInsets.symmetric(horizontal: gutter),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: _siblingPanelWidth,
+                                      child: _SiblingPanel(child: list),
+                                    ),
+                                    const SizedBox(width: 24),
+                                    Expanded(child: body),
+                                  ],
+                                ),
+                              ),
+                      ),
+                    ],
+                  );
+                }),
+              ),
+            );
+          },
         );
       },
       arguments: {'page': _page, 'board': _category.slug},
     );
   }
+
+  Widget _buildBody(
+    BuildContext context,
+    ForumThreadPage? page,
+    ForumThreadPage? shown, {
+    required double gutter,
+    required double content,
+  }) {
+    final subBoards = shown == null || shown.subBoards.isEmpty
+        ? _knownSubBoards
+        : shown.subBoards;
+    final items = page == null ? null : _BoardListItem.fromPage(page);
+    Widget padded(Widget sliver) => SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: gutter),
+            sliver: sliver,
+          );
+      return RefreshIndicator(
+        color: AppColors.brand,
+        onRefresh: _refresh,
+        child: CustomScrollView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (subBoards.isNotEmpty)
+              padded(SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 16, bottom: 8),
+                  child: _SubBoardSection(
+                    boards: subBoards,
+                    width: content,
+                    onOpen: (board) => _openSubBoard(board, subBoards),
+                  ),
+                ),
+              )),
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _BoardToolbarDelegate(
+                gutter: gutter,
+                extent: _BoardToolbar.extentFor(context),
+                child: _BoardToolbar(
+                  order: _order,
+                  onOrder: _changeOrder,
+                ),
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 12)),
+            if (items == null)
+              padded(const SliverToBoxAdapter(child: _BoardThreadListSkeleton()))
+            else if (items.isEmpty)
+              padded(SliverToBoxAdapter(
+                child: _EmptyTopics(inSubBoards: subBoards.isNotEmpty),
+              ))
+            else
+              padded(_listSliver(items)),
+            if (page != null)
+              padded(SliverToBoxAdapter(
+                child: _PaginationBar(page: page, onPageSelected: _goToPage),
+              )),
+            const SliverToBoxAdapter(child: SizedBox(height: 96)),
+          ],
+        ),
+      );
+  }
+
+  Widget _itemWidget(_BoardListItem item) => switch (item) {
+        _BoardAdItem(:final ad) => _BoardAdBanner(
+            ad: ad,
+            onTap: () => _openAd(ad),
+          ),
+        _BoardThreadItem(:final thread) => _ThreadRow(
+            thread: thread,
+            repository: widget.repository,
+            onTap: () => _openThread(thread),
+          ),
+      };
+
+  Widget _listSliver(List<_BoardListItem> items) => DecoratedSliver(
+        decoration: _boardSurface(context),
+        sliver: SliverList.separated(
+          itemCount: items.length,
+          separatorBuilder: (_, __) => const _RowDivider(),
+          itemBuilder: (context, index) => _itemWidget(items[index]),
+        ),
+      );
+
 }
