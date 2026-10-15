@@ -390,10 +390,10 @@ class ForumClient {
           '重定向次数过多',
         );
       }
-      if (identityLookup && !_sameOrigin(next)) {
-        throw const ForumRequestException(
+      if ((identityLookup || sensitiveBlocking) && !_sameOrigin(next)) {
+        throw ForumRequestException(
           ForumRequestKind.server,
-          '登录名称查询跳转到不安全的地址',
+          sensitiveBlocking ? '屏蔽配置不能跳转到其他站点' : '登录名称查询跳转到不安全的地址',
         );
       }
       if (method == 'POST' &&
