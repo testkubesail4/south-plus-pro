@@ -184,6 +184,26 @@ void main() {
     expect(repo.requests.length, 4);
   });
 
+  testWidgets('the pager picks any page from the shared page sheet',
+      (tester) async {
+    final repo = _Repo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    );
+    await tester.ensureVisible(find.text('第 1 / 3 页'));
+    await tester.tap(find.text('第 1 / 3 页'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择页码'), findsOneWidget);
+    await tester.tap(find.text('3').last);
+    await tester.pumpAndSettle();
+    expect(repo.requests.last.$2, 3);
+    expect(find.text('第 3 / 3 页'), findsOneWidget);
+  });
+
   testWidgets('a deep-linked filter shows as the selected tab', (tester) async {
     final repo = _Repo()..deepLinkFilter = _type;
     await _pump(

@@ -8,6 +8,7 @@ import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/forum_pager.dart';
 import '../common/forum_title_text.dart';
 import '../common/cached_forum_image.dart';
 import '../profile/user_profile_screen.dart';
@@ -470,9 +471,16 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
               ..._wallSlivers(items, content).map(padded)
             else
               padded(_listSliver(items)),
-            if (page != null)
+            if (page != null && page.totalPages > 1)
               padded(SliverToBoxAdapter(
-                child: _PaginationBar(page: page, onPageSelected: _goToPage),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 20),
+                  child: ForumPager(
+                    current: page.currentPage,
+                    total: page.totalPages,
+                    onSelected: _goToPage,
+                  ),
+                ),
               )),
             const SliverToBoxAdapter(child: SizedBox(height: 96)),
           ],
