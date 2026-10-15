@@ -220,6 +220,7 @@ void main() {
                     2026-05-29 12:30
                   </span>
                   <a href="read.php?tid-741222-uid-123.html">只看该作者</a>
+                  <a href="post.php?action=reply&amp;fid=2&amp;tid=741222" onclick="postreply('回 1楼(Alice) 的帖子');return false;">回复</a>
                   <a href="post.php?action-quote-fid-2-tid-741222-pid-1-article-1.html">引用</a>
                 </div>
                 <div class="tpc_content">
@@ -268,6 +269,12 @@ void main() {
       replies.single.quoteUrl,
       'https://south-plus.net/post.php?action-quote-fid-2-tid-741222-pid-1-article-1.html',
     );
+    expect(replies.single.replyTitle, '回 1楼(Alice) 的帖子');
+    expect(
+      replies.single.replyUrl,
+      'https://south-plus.net/post.php?action=reply&fid=2&tid=741222',
+    );
+    expect(replies.single.authorUid, '123');
     expect(replies.single.saleBoxes.single.price, 5);
     expect(replies.single.saleBoxes.single.buyers, 8);
     expect(replies.single.saleBoxes.single.warning, '购买风险提示');

@@ -181,6 +181,7 @@ class ForumThread {
   final String? authorUrl;
   final String? authorAvatarUrl;
   final String? authorPostsUrl;
+  String? get authorUid => _profileUid(authorUrl);
   final String? previewImageUrl;
   final bool isSticky;
   final ForumTitleStyle? titleStyle;
@@ -216,6 +217,14 @@ class ForumThread {
       titleStyle: titleStyle ?? this.titleStyle,
     );
   }
+}
+
+String? _profileUid(String? url) {
+  final uri = Uri.tryParse(url ?? '');
+  if (uri == null || !uri.path.endsWith('/u.php')) return null;
+  return RegExp(
+    r'(?:^|[&-])uid[-=]([1-9]\d*)(?:\.html)?(?:$|[&-])',
+  ).firstMatch(uri.query)?.group(1);
 }
 
 class ThreadReadPosition {
@@ -304,6 +313,9 @@ class ThreadDetail {
     this.bodyAnchors = const [],
     this.bodySaleBoxes = const [],
     this.bodySaleBoxesFirst = false,
+    this.bodyReplyTitle,
+    this.bodyReplyUrl,
+    this.bodyQuoteUrl,
     this.favorite,
     this.previousThread,
     this.nextThread,
@@ -320,6 +332,9 @@ class ThreadDetail {
   final List<String> bodyAnchors;
   final List<ThreadSaleBox> bodySaleBoxes;
   final bool bodySaleBoxesFirst;
+  final String? bodyReplyTitle;
+  final String? bodyReplyUrl;
+  final String? bodyQuoteUrl;
   final ThreadFavorite? favorite;
   final ThreadActionLink? previousThread;
   final ThreadActionLink? nextThread;
@@ -350,6 +365,8 @@ class ThreadReply {
     this.floor,
     this.quote,
     this.quoteUrl,
+    this.replyTitle,
+    this.replyUrl,
     this.segments = const [],
     this.anchors = const [],
     this.images = const [],
@@ -367,6 +384,9 @@ class ThreadReply {
   final String? floor;
   final String? quote;
   final String? quoteUrl;
+  final String? replyTitle;
+  final String? replyUrl;
+  String? get authorUid => _profileUid(authorUrl);
   final List<ThreadContentSegment> segments;
   final List<String> anchors;
   final List<ThreadImage> images;

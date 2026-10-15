@@ -64,6 +64,12 @@ void main() {
         section: ''));
     expect(original.thread.author, 'Fixture OP');
     expect(original.body, 'Fixture opening');
+    expect(original.thread.authorUid, '901');
+    expect(original.bodyReplyTitle, '回 楼主(Fixture OP) 的帖子');
+    expect(
+      original.bodyQuoteUrl,
+      'https://south-plus.net/post.php?action-quote-fid-2-tid-701-pid-tpc-article-0.html',
+    );
     client.response =
         _postPage('902', 'Fixture other author', 'B11F', 'Fixture other reply');
     final other = await repository.fetchThreadDetail(original.thread
@@ -247,7 +253,9 @@ String _postPage(String uid, String name, String floor, String body) =>
   <span id="subject_tpc">Fixture thread</span><a href="read.php?tid-701.html">Fixture thread</a>
   <table class="js-post"><tr><th class="r_two"><a href="u.php?action-show-uid-$uid.html"><strong>$name</strong></a></th>
     <th class="r_one" id="td_42"><div class="tiptop"><span class="fl"><a class="s3">$floor</a></span>
-      <a href="read.php?tid-701-uid-$uid.html">只看该作者</a></div>
+      <a href="read.php?tid-701-uid-$uid.html">只看该作者</a>
+      <a onclick="postreply('回 $floor($name) 的帖子');">回复</a>
+      <a href="post.php?action-quote-fid-2-tid-701-pid-tpc-article-0.html">引用</a></div>
       <div class="tpc_content"><div class="f14" id="read_42">$body</div></div>
     </th></tr></table></body></html>''';
 

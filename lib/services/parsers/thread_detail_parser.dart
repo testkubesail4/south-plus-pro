@@ -60,6 +60,8 @@ class ThreadDetailParser {
               authorCell.querySelector('a[href*="uid"] img')?.attributes['src'];
       final authorPostsHref = _authorPostsHref(contentCell);
       final quoteHref = _quoteHref(contentCell);
+      final replyLink = contentCell.querySelector('a[onclick*="postreply("]');
+      final replyHref = replyLink?.attributes['href'];
       final floor = _floor(contentCell);
       final postedAt = _postedAt(contentCell);
       replies.add(
@@ -77,6 +79,12 @@ class ThreadDetailParser {
           floor: floor.isEmpty ? null : floor,
           quote: quote,
           quoteUrl: quoteHref == null ? null : urls.absoluteUrl(quoteHref),
+          replyTitle: _replyTitle(replyLink?.attributes['onclick']),
+          replyUrl: replyHref == null ||
+                  replyHref.isEmpty ||
+                  replyHref.startsWith('javascript:')
+              ? null
+              : urls.absoluteUrl(replyHref),
           segments: segments,
           anchors: _postAnchors(post, floor, namedAnchors),
           images: images,
@@ -394,6 +402,20 @@ class ThreadDetailParser {
       if (label.isEmpty || label.contains('只看')) return href;
     }
     return null;
+  }
+
+  String? _replyTitle(String? onclick) {
+    if (onclick == null) return null;
+    final match = RegExp(
+          r'''postreply\(\s*'((?:\\.|[^'\\])*)'\s*\)''',
+        ).firstMatch(onclick) ??
+        RegExp(
+          r'''postreply\(\s*"((?:\\.|[^"\\])*)"\s*\)''',
+        ).firstMatch(onclick);
+    return match?.group(1)?.replaceAllMapped(
+          RegExp(r'''\\(['"\\])'''),
+          (match) => match.group(1)!,
+        );
   }
 
   String? _quoteHref(dom.Element contentCell) {
