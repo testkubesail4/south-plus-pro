@@ -229,7 +229,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 14),
             _AccountSection(
               title: '阅读',
-              subtitle: '帖子的翻页方式',
+              subtitle: '帖子的翻页方式和屏蔽规则',
               children: [
                 ValueListenableBuilder<bool>(
                   valueListenable: ThreadPagingSettings.notifier,
@@ -243,6 +243,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Switch(value: autoLoad, onChanged: _setAutoLoad),
                     ),
                   ),
+                ),
+                _AccountTile(
+                  icon: Icons.block_outlined,
+                  title: '屏蔽配置',
+                  subtitle: '屏蔽的用户、头像和回复内容',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) =>
+                        BlockingSettingsScreen(repository: widget.repository),
+                  )),
                 ),
               ],
             ),

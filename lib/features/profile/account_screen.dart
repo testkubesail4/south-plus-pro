@@ -1,10 +1,14 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
+import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
+import '../../services/forum_request_exception.dart';
 import '../../services/forum_network_setup_store.dart';
 import '../../services/forum_text_size_settings.dart';
 import '../../services/image_loading_settings.dart';
@@ -12,6 +16,7 @@ import '../../services/thread_paging_settings.dart';
 import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
+import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../history/browsing_history_screen.dart';
 import '../messages/pm_box_screen.dart';
@@ -21,6 +26,7 @@ import 'network_setup_flow_screen.dart';
 import 'network_settings_screen.dart';
 import 'user_profile_screen.dart';
 
+part 'blocking_settings_screen.dart';
 part 'settings_screen.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -507,6 +513,7 @@ class _BaseAccountTile extends StatelessWidget {
     this.selected = false,
     this.unread = false,
     this.danger = false,
+    this.active,
   });
 
   final IconData icon;
@@ -518,9 +525,12 @@ class _BaseAccountTile extends StatelessWidget {
   final bool unread;
   final bool danger;
 
+  /// Whether the row looks usable; by default, whether it has [onTap].
+  final bool? active;
+
   @override
   Widget build(BuildContext context) {
-    final enabled = onTap != null;
+    final enabled = active ?? onTap != null;
     // Neutral icons; brand marks a chosen option, brandDark a destructive
     // one, and unread shows as a dot.
     final iconColor = danger
