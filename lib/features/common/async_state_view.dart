@@ -178,46 +178,6 @@ class ThreadDetailSkeleton extends StatelessWidget {
   }
 }
 
-class HomeSkeleton extends StatelessWidget {
-  const HomeSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(20, 16, 20, 24),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(child: SkeletonBlock(height: 58)),
-              SizedBox(width: 8),
-              Expanded(child: SkeletonBlock(height: 58)),
-              SizedBox(width: 8),
-              Expanded(child: SkeletonBlock(height: 58)),
-            ],
-          ),
-          SizedBox(height: 18),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: SkeletonBlock(width: 120, height: 22),
-          ),
-          SizedBox(height: 12),
-          SkeletonCard(height: 92, lines: [0.94, 0.62, 0.44]),
-          SizedBox(height: 10),
-          SkeletonCard(height: 92, lines: [0.88, 0.54, 0.38]),
-          SizedBox(height: 18),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: SkeletonBlock(width: 100, height: 22),
-          ),
-          SizedBox(height: 12),
-          SkeletonCard(height: 180, lines: [0.7, 0.78, 0.64, 0.72]),
-        ],
-      ),
-    );
-  }
-}
-
 class SkeletonCard extends StatelessWidget {
   const SkeletonCard({
     super.key,

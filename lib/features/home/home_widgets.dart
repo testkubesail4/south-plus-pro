@@ -2,7 +2,8 @@ part of 'home_shell.dart';
 
 // Home layout: a centred column (max 1200) of plain section titles on the
 // background, each over one soft surface. Red dots appear only on reply
-// notices and unread short messages.
+// notices and unread short messages. While the home loads, the same layout
+// renders with placeholder bones, so loaded content lands where it stood.
 
 const _homeMaxWidth = 1200.0;
 const _noticeDot = Color(0xFFE5484D);
@@ -28,11 +29,60 @@ BoxDecoration _surface(BuildContext context) => BoxDecoration(
             ],
     );
 
-/// Section title, with an optional muted note and a trailing action.
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title, {this.note, this.trailing});
+Widget _hairline(double indent) => Divider(
+      height: 1,
+      indent: indent,
+      endIndent: indent,
+      color: AppColors.border.withValues(alpha: 0.6),
+    );
 
-  final String title;
+/// A placeholder bar one line of [style] tall and as wide as [text] (or
+/// [widthFactor] of the row), so the loaded text takes its exact place.
+class _Bone extends StatelessWidget {
+  const _Bone(this.style, {this.text = '\u3000', this.widthFactor});
+
+  final TextStyle style;
+  final String text;
+  final double? widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    final bone = Stack(
+      children: [
+        Text(
+          text,
+          maxLines: 1,
+          style: style.copyWith(color: Colors.transparent),
+        ),
+        Positioned.fill(
+          child: FractionallySizedBox(
+            alignment: Alignment.centerLeft,
+            widthFactor: widthFactor ?? 1,
+            heightFactor: 0.6,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppColors.inkSoft,
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    return ExcludeSemantics(
+      child: widthFactor == null
+          ? bone
+          : SizedBox(width: double.infinity, child: bone),
+    );
+  }
+}
+
+/// Section title, with an optional muted note and a trailing action; a
+/// null [title] is a placeholder.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title, {super.key, this.note, this.trailing});
+
+  final String? title;
   final String? note;
   final Widget? trailing;
 
@@ -42,21 +92,40 @@ class _SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
+          // One line at any text size, so a placeholder's height holds: the
+          // title keeps the room it needs and the note takes what is left.
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                // Flexible so large system text wraps instead of overflowing.
-                Flexible(child: Text(title, style: _sectionTitleStyle())),
-                if (note != null) ...[
-                  const SizedBox(width: 10),
-                  Text(
-                    note!,
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+            child: LayoutBuilder(
+              builder: (context, constraints) => Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                    child: title == null
+                        ? _Bone(_sectionTitleStyle(), text: '\u3000' * 4)
+                        : Text(
+                            title!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: _sectionTitleStyle(),
+                          ),
                   ),
+                  if (note != null)
+                    Flexible(
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 10),
+                        child: Text(
+                          note!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: AppColors.textMuted, fontSize: 13),
+                        ),
+                      ),
+                    ),
                 ],
-              ],
+              ),
             ),
           ),
           if (trailing != null) trailing!,
@@ -410,10 +479,12 @@ class _BrandMark extends StatelessWidget {
   }
 }
 
-/// 最新讨论 and the site's other quick lists: side-by-side columns of
-/// one-line rows when there is room, tabs of up to two-line rows otherwise.
+/// 最新讨论 and the site's other quick lists: side-by-side columns when
+/// there is room, tabs otherwise. Rows are one line each, so every title
+/// reads as one and the placeholders match the loaded height.
 /// Lists the snapshot did not include load right after the home's first
-/// frame, so they never delay it.
+/// frame, so they never delay it. Null [lists] (the home is loading) shows
+/// three placeholder lists.
 class _QuickLists extends StatefulWidget {
   const _QuickLists({
     super.key,
@@ -423,7 +494,7 @@ class _QuickLists extends StatefulWidget {
     required this.repository,
   });
 
-  final List<ForumQuickList> lists;
+  final List<ForumQuickList>? lists;
   final List<ForumThread> latest;
   final bool columns;
   final ForumRepository repository;
@@ -435,19 +506,52 @@ class _QuickLists extends StatefulWidget {
 const _quickListIcons = {
   '最新讨论': Icons.forum_outlined,
   '最新回复': Icons.mode_comment_outlined,
-  '提问求物': Icons.help_outline_rounded,
+  '提问求物': Icons.help_outline,
 };
 
+TextStyle _quickTitleStyle() => TextStyle(
+      color: AppColors.text,
+      fontSize: 15,
+      height: 1.4,
+      fontWeight: FontWeight.w400,
+    );
+
+/// One 速览 row; rows are split by hairlines so two wrapped titles never
+/// read as one.
+Widget _quickRow(Widget child) => Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      alignment: Alignment.centerLeft,
+      child: child,
+    );
+
+Widget _quickRows(List<Widget> rows) => Column(
+      children: [
+        for (final (i, row) in rows.indexed) ...[
+          if (i > 0) _hairline(12),
+          row,
+        ],
+      ],
+    );
+
 class _QuickListsState extends State<_QuickLists> {
-  late final _lists = widget.lists.isEmpty
-      ? [ForumQuickList(title: '最新讨论', threads: widget.latest)]
-      : widget.lists;
+  late final _lists = switch (widget.lists) {
+    null => const [
+        ForumQuickList(title: ''),
+        ForumQuickList(title: ''),
+        ForumQuickList(title: ''),
+      ],
+    [] => [ForumQuickList(title: '最新讨论', threads: widget.latest)],
+    final lists => lists,
+  };
   final _loads = <int, Future<List<ForumThread>>>{};
   var _tab = 0;
 
   @override
   void initState() {
     super.initState();
+    if (widget.lists == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       for (var i = 0; i < _lists.length; i++) {
@@ -476,9 +580,8 @@ class _QuickListsState extends State<_QuickLists> {
     _load(index);
   }
 
-  Widget _body(int index, {required int maxLines}) => _QuickListBody(
+  Widget _body(int index) => _QuickListBody(
         future: _loaded(index),
-        maxLines: maxLines,
         onRetry: () => _retry(index),
         repository: widget.repository,
       );
@@ -503,12 +606,14 @@ class _QuickListsState extends State<_QuickLists> {
                   for (var i = 0; i < _lists.length; i++)
                     _QuickListTab(
                       title: _lists[i].title,
-                      selected: _tab == i,
-                      onTap: () => setState(() => _tab = i),
+                      selected: widget.lists != null && _tab == i,
+                      onTap: widget.lists == null
+                          ? null
+                          : () => setState(() => _tab = i),
                     ),
                 ],
               ),
-            _body(_tab, maxLines: 2),
+            _body(_tab),
           ],
         ),
       );
@@ -529,25 +634,33 @@ class _QuickListsState extends State<_QuickLists> {
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                     child: Row(
                       children: [
-                        Icon(
-                          _quickListIcons[_lists[i].title] ??
-                              Icons.subject_outlined,
-                          size: 16,
-                          color: AppColors.textMuted,
-                        ),
+                        if (widget.lists == null)
+                          const SizedBox(width: 16, height: 16)
+                        else
+                          Icon(
+                            _quickListIcons[_lists[i].title] ??
+                                Icons.subject_outlined,
+                            size: 16,
+                            color: AppColors.textMuted,
+                          ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Text(
-                            _lists[i].title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: labelStyle,
-                          ),
+                          child: widget.lists == null
+                              ? Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: _Bone(labelStyle, text: '\u3000' * 4),
+                                )
+                              : Text(
+                                  _lists[i].title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: labelStyle,
+                                ),
                         ),
                       ],
                     ),
                   ),
-                  _body(i, maxLines: 1),
+                  _body(i),
                 ],
               ),
             ),
@@ -567,10 +680,15 @@ class _QuickListTab extends StatelessWidget {
 
   final String title;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final style = TextStyle(
+      color: selected ? AppColors.text : AppColors.textMuted,
+      fontSize: 14,
+      fontWeight: FontWeight.w500,
+    );
     return Semantics(
       selected: selected,
       button: true,
@@ -589,14 +707,10 @@ class _QuickListTab extends StatelessWidget {
                 ),
               ),
             ),
-            child: Text(
-              title,
-              style: TextStyle(
-                color: selected ? AppColors.text : AppColors.textMuted,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            // Placeholder tabs are as wide as the site's four-character titles.
+            child: title.isEmpty
+                ? _Bone(style, text: '\u3000' * 4)
+                : Text(title, style: style),
           ),
         ),
       ),
@@ -607,13 +721,11 @@ class _QuickListTab extends StatelessWidget {
 class _QuickListBody extends StatelessWidget {
   const _QuickListBody({
     required this.future,
-    required this.maxLines,
     required this.onRetry,
     required this.repository,
   });
 
   final Future<List<ForumThread>>? future;
-  final int maxLines;
   final VoidCallback onRetry;
   final ForumRepository repository;
 
@@ -621,6 +733,22 @@ class _QuickListBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final pending = future;
     if (pending == null) return const _QuickListSkeleton();
+    // The card keeps five rows' height for short, empty and failed lists.
+    return Stack(
+      children: [
+        const Visibility(
+          visible: false,
+          maintainSize: true,
+          maintainAnimation: true,
+          maintainState: true,
+          child: _QuickListSkeleton(),
+        ),
+        _list(pending),
+      ],
+    );
+  }
+
+  Widget _list(Future<List<ForumThread>> pending) {
     return FutureBuilder<List<ForumThread>>(
       future: pending,
       builder: (context, snapshot) {
@@ -642,48 +770,34 @@ class _QuickListBody extends StatelessWidget {
             child: Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
           );
         }
-        return Column(
-          children: [
-            for (final thread in threads.take(5))
-              InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ThreadDetailScreen(
-                      thread: thread,
-                      repository: repository,
-                    ),
-                  ),
-                ),
-                child: Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(minHeight: 48),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  alignment: Alignment.centerLeft,
-                  child: ForumTitleText(
-                    thread.title,
-                    titleStyle: thread.titleStyle,
-                    maxLines: maxLines,
-                    style: TextStyle(
-                      color: AppColors.text,
-                      fontSize: 15,
-                      height: 1.45,
-                      fontWeight: FontWeight.w400,
-                    ),
+        return _quickRows([
+          for (final thread in threads.take(5))
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ThreadDetailScreen(
+                    thread: thread,
+                    repository: repository,
                   ),
                 ),
               ),
-          ],
-        );
+              child: _quickRow(
+                ForumTitleText(
+                  thread.title,
+                  titleStyle: thread.titleStyle,
+                  maxLines: 1,
+                  style: _quickTitleStyle(),
+                ),
+              ),
+            ),
+        ]);
       },
     );
   }
 }
 
-/// Placeholder rows, as tall as loaded rows, while a list loads.
+/// Five placeholder rows, laid out like loaded one-line rows.
 class _QuickListSkeleton extends StatelessWidget {
   const _QuickListSkeleton();
 
@@ -691,43 +805,28 @@ class _QuickListSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       label: '加载中',
-      child: Column(
-        children: [
-          for (final widthFactor in const [0.8, 0.6, 0.7])
-            Container(
-              height: 48,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              alignment: Alignment.centerLeft,
-              child: FractionallySizedBox(
-                widthFactor: widthFactor,
-                child: Container(
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: AppColors.inkSoft,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+      child: _quickRows([
+        for (final widthFactor in const [0.8, 0.6, 0.7, 0.5, 0.65])
+          _quickRow(_Bone(_quickTitleStyle(), widthFactor: widthFactor)),
+      ]),
     );
   }
 }
 
 /// 常用版块 (boards pinned in search) for signed-in users, otherwise the
-/// site's 热门版块, as a row of chips.
+/// site's 热门版块, as a row of chips. While [hotBoards] is null (the home
+/// is loading) [boneCount] blank chips stand in.
 class _BoardChips extends StatefulWidget {
   const _BoardChips({
     required this.repository,
     required this.hotBoards,
-    required this.scroll,
+    required this.boneCount,
     required this.onOpen,
   });
 
   final ForumRepository repository;
-  final List<ForumCategory> hotBoards;
-  final bool scroll;
+  final List<ForumCategory>? hotBoards;
+  final int boneCount;
   final ValueChanged<ForumCategory> onOpen;
 
   @override
@@ -767,39 +866,54 @@ class _BoardChipsState extends State<_BoardChips> {
             for (final pin in _pinned)
               ForumCategory(name: pin.label, slug: 'fid-${pin.id}'),
           ]
-        : widget.hotBoards;
-    if (boards.isEmpty) return const SizedBox.shrink();
-    final chips = [
-      for (final board in boards)
-        ActionChip(
-          label: Text(board.name),
+        : widget.hotBoards ?? const <ForumCategory>[];
+    final bones = !pinned && widget.hotBoards == null;
+    if (bones ? widget.boneCount == 0 : boards.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    Widget chip(String label, {ForumCategory? board}) => ActionChip(
+          label: Text(label),
           labelStyle: TextStyle(
-            color: AppColors.text,
+            color: board == null ? Colors.transparent : AppColors.text,
             fontSize: 14,
             fontWeight: FontWeight.w500,
           ),
           shape: const StadiumBorder(),
-          side: BorderSide(color: AppColors.border),
-          backgroundColor: AppColors.surface,
-          onPressed: () => widget.onOpen(board),
-        ),
-    ];
+          side: BorderSide(
+              color: board == null ? AppColors.inkSoft : AppColors.border),
+          backgroundColor:
+              board == null ? AppColors.inkSoft : AppColors.surface,
+          onPressed: board == null ? null : () => widget.onOpen(board),
+        );
+    final chips = bones
+        ? [
+            for (var i = 0; i < widget.boneCount; i++)
+              ExcludeSemantics(child: chip('\u3000' * 4)),
+          ]
+        : [for (final board in boards) chip(board.name, board: board)];
+    final scrolling = ScrollConfiguration.of(context);
     return Padding(
       padding: const EdgeInsets.only(top: 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SectionHeader(pinned ? '常用版块' : '热门版块'),
-          if (!widget.scroll)
-            Wrap(spacing: 8, runSpacing: 4, children: chips)
-          else
-            // A trailing fade shows the row continues past the edge.
-            ShaderMask(
-              blendMode: BlendMode.dstIn,
-              shaderCallback: (rect) => LinearGradient(
-                colors: const [Colors.black, Colors.black, Colors.transparent],
-                stops: [0, 1 - 24 / rect.width, 1],
-              ).createShader(rect),
+          // One row at every width, so its height never depends on the
+          // boards; a trailing fade shows it continues past the edge.
+          ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (rect) => LinearGradient(
+              colors: const [Colors.black, Colors.black, Colors.transparent],
+              stops: [0, 1 - 24 / rect.width, 1],
+            ).createShader(rect),
+            child: ScrollConfiguration(
+              // Mice drag it too, as desktops have no horizontal wheel.
+              behavior: scrolling.copyWith(
+                dragDevices: {
+                  ...scrolling.dragDevices,
+                  PointerDeviceKind.mouse,
+                },
+              ),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.only(right: 24),
@@ -813,6 +927,7 @@ class _BoardChipsState extends State<_BoardChips> {
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
@@ -821,39 +936,41 @@ class _BoardChipsState extends State<_BoardChips> {
 
 /// Boards of one section on one surface: a list on phones, a grid of
 /// [columns] wider. Each board shows its name, today's count, the last post
-/// and its time with the topic total.
+/// and its time with the topic total. [bones] (the home is loading) holds
+/// each placeholder board's [_tileLines] instead.
 class _BoardGrid extends StatelessWidget {
   const _BoardGrid({
+    super.key,
     required this.boards,
+    this.bones,
     required this.columns,
     required this.onOpen,
   });
 
   final List<ForumBoard> boards;
+  final List<int>? bones;
   final int columns;
   final ValueChanged<ForumBoard> onOpen;
 
   @override
   Widget build(BuildContext context) {
+    final bones = this.bones;
+    final count = bones?.length ?? boards.length;
+    Widget tile(int i, EdgeInsets padding) => _BoardTile(
+          board: bones == null ? boards[i] : null,
+          lines: bones?[i] ?? 0,
+          padding: padding,
+          onOpen: onOpen,
+        );
     if (columns == 1) {
       return Container(
         decoration: _surface(context),
         clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
-            for (final (i, board) in boards.indexed) ...[
-              if (i > 0)
-                Divider(
-                  height: 1,
-                  indent: 16,
-                  endIndent: 16,
-                  color: AppColors.border.withValues(alpha: 0.6),
-                ),
-              _BoardTile(
-                board: board,
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                onOpen: onOpen,
-              ),
+            for (var i = 0; i < count; i++) ...[
+              if (i > 0) _hairline(16),
+              tile(i, const EdgeInsets.fromLTRB(16, 14, 16, 14)),
             ],
           ],
         ),
@@ -864,19 +981,15 @@ class _BoardGrid extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [
-          for (var start = 0; start < boards.length; start += columns)
+          for (var start = 0; start < count; start += columns)
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 for (var c = 0; c < columns; c++) ...[
                   if (c > 0) const SizedBox(width: 8),
                   Expanded(
-                    child: start + c < boards.length
-                        ? _BoardTile(
-                            board: boards[start + c],
-                            padding: const EdgeInsets.all(12),
-                            onOpen: onOpen,
-                          )
+                    child: start + c < count
+                        ? tile(start + c, const EdgeInsets.all(12))
                         : const SizedBox.shrink(),
                   ),
                 ],
@@ -892,19 +1005,57 @@ String _thousands(int value) => value
     .toString()
     .replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
 
+/// Which optional lines a board tile shows: 1 the last post, 2 the meta.
+int _tileLines(ForumBoard board) =>
+    (board.lastPostTitle != null ? 1 : 0) |
+    (board.lastPostTime != null || board.topicCount != null ? 2 : 0);
+
 class _BoardTile extends StatelessWidget {
   const _BoardTile({
     required this.board,
+    required this.lines,
     required this.padding,
     required this.onOpen,
   });
 
-  final ForumBoard board;
+  /// Null for a placeholder showing [lines] (see [_tileLines]).
+  final ForumBoard? board;
+  final int lines;
   final EdgeInsets padding;
   final ValueChanged<ForumBoard> onOpen;
 
   @override
   Widget build(BuildContext context) {
+    final nameStyle = TextStyle(
+      color: AppColors.text,
+      fontSize: 15,
+      fontWeight: FontWeight.w500,
+    );
+    final lastPostStyle = TextStyle(
+      color: Color.lerp(AppColors.textMuted, AppColors.text, 0.35),
+      fontSize: 13,
+    );
+    final metaStyle = TextStyle(color: AppColors.textFaint, fontSize: 12);
+    final board = this.board;
+    if (board == null) {
+      return Container(
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: padding,
+        child: Column(
+          children: [
+            _Bone(nameStyle, widthFactor: 0.45),
+            if (lines & 1 != 0) ...[
+              const SizedBox(height: 6),
+              _Bone(lastPostStyle, widthFactor: 0.8),
+            ],
+            if (lines & 2 != 0) ...[
+              const SizedBox(height: 2),
+              _Bone(metaStyle, widthFactor: 0.55),
+            ],
+          ],
+        ),
+      );
+    }
     final today = board.todayCount ?? 0;
     final lastPostTitle = board.lastPostTitle;
     final meta = [
@@ -930,11 +1081,7 @@ class _BoardTile extends StatelessWidget {
                     board.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AppColors.text,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: nameStyle,
                   ),
                 ),
                 if (today > 0) ...[
@@ -956,10 +1103,7 @@ class _BoardTile extends StatelessWidget {
                 lastPostTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Color.lerp(AppColors.textMuted, AppColors.text, 0.35),
-                  fontSize: 13,
-                ),
+                style: lastPostStyle,
               ),
             ],
             if (meta.isNotEmpty) ...[
@@ -968,7 +1112,7 @@ class _BoardTile extends StatelessWidget {
                 meta.join(' · '),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+                style: metaStyle,
               ),
             ],
           ],
@@ -977,6 +1121,30 @@ class _BoardTile extends StatelessWidget {
     );
   }
 }
+
+Widget _taskButton({
+  required VoidCallback? onPressed,
+  required Widget icon,
+  required String label,
+  required Color foreground,
+}) =>
+    TextButton.icon(
+      onPressed: onPressed,
+      icon: icon,
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: foreground,
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      ),
+    );
+
+/// The task shortcut's idle look, disabled until the home has loaded.
+Widget _taskButtonPlaceholder() => _taskButton(
+      onPressed: null,
+      icon: const Icon(Icons.redeem_outlined, size: 18),
+      label: '任务奖励',
+      foreground: AppColors.textMuted,
+    );
 
 class _TaskShortcut extends StatefulWidget {
   const _TaskShortcut({required this.repository});
@@ -1113,7 +1281,7 @@ class _TaskShortcutState extends State<_TaskShortcut> {
     final foreground = success ? AppColors.success : AppColors.textMuted;
     final icon = success ? Icons.check_circle_outline : Icons.redeem_outlined;
 
-    return TextButton.icon(
+    return _taskButton(
       onPressed: _running ? null : _claimRewards,
       icon: _running
           ? SizedBox(
@@ -1125,11 +1293,8 @@ class _TaskShortcutState extends State<_TaskShortcut> {
               ),
             )
           : Icon(icon, size: 18),
-      label: Text(label),
-      style: TextButton.styleFrom(
-        foregroundColor: foreground,
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-      ),
+      label: label,
+      foreground: foreground,
     );
   }
 

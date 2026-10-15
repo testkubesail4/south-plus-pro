@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
@@ -218,17 +221,81 @@ class ForumHomePage extends StatefulWidget {
   State<ForumHomePage> createState() => _ForumHomePageState();
 }
 
+/// The directory's geometry as last loaded, for the placeholders: how many
+/// hot boards, and per section each board's [_tileLines]. No names or ids.
+/// The first load ever guesses.
+typedef _HomeShape = ({int hot, List<List<int>> sections});
+
+const _HomeShape _guessedShape = (
+  hot: 6,
+  sections: [
+    [3, 3, 3, 3, 3, 3],
+    [3, 3, 3, 3, 3, 3],
+  ],
+);
+
+// Per account: what a directory holds can depend on who is signed in.
+String _shapeKey(String? account) =>
+    'home_layout_shape/${Uri.encodeComponent(account ?? '')}';
+
+Future<_HomeShape> _loadShape(String? account) async {
+  try {
+    final raw =
+        (await SharedPreferences.getInstance()).getString(_shapeKey(account));
+    if (raw == null) return _guessedShape;
+    final json = jsonDecode(raw) as Map<String, dynamic>;
+    return (
+      hot: json['hot'] as int,
+      sections: [
+        for (final section in json['sections'] as List)
+          [for (final lines in section as List) lines as int],
+      ],
+    );
+  } catch (_) {
+    return _guessedShape;
+  }
+}
+
+Future<void> _saveShape(String? account, ForumHomeSnapshot data) async {
+  try {
+    await (await SharedPreferences.getInstance()).setString(
+      _shapeKey(account),
+      jsonEncode({
+        'hot': data.hot.length,
+        'sections': [
+          for (final section in data.sections)
+            [for (final board in section.items) _tileLines(board)],
+        ],
+      }),
+    );
+  } catch (_) {
+    // Only the next placeholders lose their shape.
+  }
+}
+
 class _ForumHomePageState extends State<ForumHomePage> {
   late Future<ForumHomeSnapshot> _future;
+  _HomeShape _shape = _guessedShape;
 
   @override
   void initState() {
     super.initState();
-    _future = widget.repository.fetchHome();
+    _future = _fetchHome();
+    _loadShape(widget.repository.currentUsername).then((shape) {
+      if (mounted) setState(() => _shape = shape);
+    });
+  }
+
+  Future<ForumHomeSnapshot> _fetchHome() {
+    final account = widget.repository.currentUsername;
+    return widget.repository.fetchHome().then((data) {
+      unawaited(_saveShape(account, data));
+      return data;
+    });
   }
 
   Future<void> _refresh() async {
-    final next = widget.repository.fetchHome();
+    final next = _fetchHome();
     setState(() {
       _future = next;
     });
@@ -289,6 +356,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
                 future: _future,
                 builder: (context, snapshot) {
                   final data = snapshot.data;
+                  // Null data renders the same layout with placeholders.
+                  final sectionCount =
+                      data?.sections.length ?? _shape.sections.length;
                   return ListView(
                     padding: EdgeInsets.fromLTRB(
                       gutter,
@@ -316,36 +386,40 @@ class _ForumHomePageState extends State<ForumHomePage> {
                           message: '${snapshot.error}',
                           onRetry: _refresh,
                         )
-                      else if (data == null)
-                        const HomeSkeleton()
                       else ...[
                         _SectionHeader(
                           '速览',
-                          trailing:
-                              _TaskShortcut(repository: widget.repository),
+                          trailing: data == null
+                              ? _taskButtonPlaceholder()
+                              : _TaskShortcut(repository: widget.repository),
                         ),
                         _QuickLists(
                           // Lazy lists reload with the snapshot they came from.
                           key: ObjectKey(data),
-                          lists: data.quickLists,
-                          latest: data.latest,
+                          lists: data?.quickLists,
+                          latest: data?.latest ?? const [],
                           columns: inner >= 840,
                           repository: widget.repository,
                         ),
                         _BoardChips(
                           repository: widget.repository,
-                          hotBoards: data.hot,
-                          scroll: compact,
+                          hotBoards: data?.hot,
+                          boneCount: _shape.hot,
                           onOpen: _openCategory,
                         ),
-                        for (final section in data.sections) ...[
+                        for (var i = 0; i < sectionCount; i++) ...[
                           const SizedBox(height: 32),
                           _SectionHeader(
-                            section.title,
-                            note: '${section.items.length} 个版块',
+                            data?.sections[i].title,
+                            key: ValueKey('home-section-$i'),
+                            note: data == null
+                                ? null
+                                : '${data.sections[i].items.length} 个版块',
                           ),
                           _BoardGrid(
-                            boards: section.items,
+                            key: ValueKey('home-grid-$i'),
+                            boards: data?.sections[i].items ?? const [],
+                            bones: data == null ? _shape.sections[i] : null,
                             columns: inner >= 960 ? 3 : (inner >= 600 ? 2 : 1),
                             onOpen: _openBoard,
                           ),

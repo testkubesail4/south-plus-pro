@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -162,6 +164,120 @@ void main() {
     });
   }
 
+  testWidgets('速览 rows are divided so wrapped titles never run together',
+      (tester) async {
+    await pumpAt(tester, 360);
+    await tester.tap(find.text('最新回复'));
+    await tester.pumpAndSettle();
+    for (var i = 1; i < 5; i++) {
+      final above = tester.getRect(find.text('Reply $i'));
+      final below = tester.getRect(find.text('Reply ${i + 1}'));
+      // The card's hidden height keeper has its own.
+      final hidden = find
+          .descendant(
+              of: find.byWidgetPredicate((w) => w is Visibility && !w.visible),
+              matching: find.byType(Divider))
+          .evaluate()
+          .toSet();
+      final dividers = find
+          .byType(Divider)
+          .evaluate()
+          .where((e) => !hidden.contains(e))
+          .map((e) => tester.getRect(find.byWidget(e.widget)));
+      expect(
+        dividers.where((d) => d.top >= above.bottom && d.bottom <= below.top),
+        hasLength(1),
+        reason: 'a hairline between Reply $i and Reply ${i + 1}',
+      );
+      expect(below.top - above.bottom, greaterThanOrEqualTo(20));
+    }
+  });
+
+  // The skeleton is the loaded layout with placeholders, so nothing moves.
+  // The first load ever knows no directory: everything down to the first
+  // section's title holds. Later loads remember its shape: everything holds.
+  // Tall views build every section; short and empty 速览 lists keep the card.
+  for (final (width, scale, guest) in const [
+    (360.0, 1.0, false),
+    (360.0, 2.0, true),
+    (900.0, 1.0, true),
+    (900.0, 2.0, false),
+    (1440.0, 1.0, false),
+    (1440.0, 2.0, true),
+  ]) {
+    testWidgets(
+        'loading skeleton matches the loaded layout at ${width.toInt()} '
+        'x$scale ${guest ? 'guest' : 'user'}', (tester) async {
+      tester.view.physicalSize = Size(width, 4000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      Future<_Repo> launch() async {
+        final repo = _Repo()
+          ..loggedIn = !guest
+          ..latestCount = guest ? 0 : 2
+          ..homeGate = Completer<void>();
+        await tester.pumpWidget(MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: HomeShell(key: UniqueKey(), repository: repo),
+        ));
+        await tester.pump();
+        await tester.pump();
+        return repo;
+      }
+
+      List<Rect> geometry({bool directory = true}) => [
+            tester.getRect(find.text('速览')),
+            tester.getRect(find.text('热门版块')),
+            tester.getRect(find.byKey(const ValueKey('home-section-0'))),
+            if (directory)
+              for (final key in [
+                'home-grid-0',
+                'home-section-1',
+                'home-grid-1'
+              ])
+                tester.getRect(find.byKey(ValueKey(key))),
+          ];
+
+      var repo = await launch();
+      final first = geometry(directory: false);
+      repo.homeGate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Fixture board'), findsOneWidget);
+      expect(geometry(directory: false), first);
+
+      repo = await launch();
+      final later = geometry();
+      repo.homeGate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Fixture board'), findsOneWidget);
+      expect(geometry(), later);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('an unreadable remembered shape falls back to the guess',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(
+        {'home_layout_shape/fixture_login': '{"hot":"x"}'});
+    tester.view.physicalSize = const Size(360, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = _Repo()..homeGate = Completer<void>();
+    await tester.pumpWidget(MaterialApp(home: HomeShell(repository: repo)));
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('home-grid-1')), findsOneWidget);
+    repo.homeGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Fixture board'), findsOneWidget);
+  });
+
   testWidgets('guests: welcome and 登录, hot boards, no notices', (tester) async {
     await pumpAt(tester, 1440, guest: true);
     expect(find.text('欢迎来到南+'), findsOneWidget);
@@ -206,6 +322,8 @@ class _Repo extends ForumRepository {
   final failOnce = <String>{};
 
   var loggedIn = true;
+  var latestCount = 5;
+  Completer<void>? homeGate;
 
   @override
   bool get isLoggedIn => loggedIn;
@@ -223,24 +341,45 @@ class _Repo extends ForumRepository {
       systemName: 'fixture_login', nickname: 'Fixture user'));
 
   @override
-  Future<ForumHomeSnapshot> fetchHome() async => ForumHomeSnapshot(
+  Future<ForumHomeSnapshot> fetchHome() async {
+    await homeGate?.future;
+    return _home;
+  }
+
+  ForumHomeSnapshot get _home => ForumHomeSnapshot(
         latest: [_thread('Latest 1')],
         quickLists: [
-          ForumQuickList(title: '最新讨论', threads: [_thread('Latest 1')]),
+          ForumQuickList(title: '最新讨论', threads: [
+            // A title too long for one line must not grow its row.
+            for (var i = 1; i <= latestCount; i++)
+              _thread(i == 3 ? 'A long latest title ' * 6 : 'Latest $i'),
+          ]),
           const ForumQuickList(title: '最新回复'),
           const ForumQuickList(title: '提问求物'),
         ],
-        hot: const [
-          ForumCategory(name: 'Hot board', slug: 'fid-7'),
+        hot: [
+          const ForumCategory(name: 'Hot board', slug: 'fid-7'),
+          for (var i = 2; i <= 9; i++)
+            ForumCategory(name: 'Hot board number $i', slug: 'fid-7'),
         ],
-        sections: const [
+        sections: [
           ForumSection(
-            title: 'Fixture section',
+            // Long enough to wrap if a section title could.
+            title: 'Boards with a rather long section title',
             items: [
+              for (var i = 2; i <= 4; i++)
+                ForumBoard(
+                  name: 'Board $i',
+                  url: 'https://south-plus.net/thread.php?fid-4$i.html',
+                  section: 'Boards',
+                  // Tiles without a last post or without meta are shorter.
+                  lastPostTitle: i == 3 ? null : 'Topic $i',
+                  lastPostTime: i == 4 ? null : '2026-01-0$i 09:00',
+                ),
               ForumBoard(
                 name: 'Fixture board',
                 url: 'https://south-plus.net/thread.php?fid-42.html',
-                section: 'Fixture section',
+                section: 'Boards',
                 topicCount: 1234,
                 postCount: 156,
                 todayCount: 2,
@@ -251,12 +390,19 @@ class _Repo extends ForumRepository {
                   ForumBoard(
                     name: 'Child board',
                     url: 'https://south-plus.net/thread.php?fid-43.html',
-                    section: 'Fixture section',
+                    section: 'Boards',
                   ),
                 ],
               ),
             ],
           ),
+          const ForumSection(title: 'More', items: [
+            ForumBoard(
+              name: 'Board 5',
+              url: 'https://south-plus.net/thread.php?fid-45.html',
+              section: 'More',
+            ),
+          ]),
         ],
       );
 
@@ -266,7 +412,11 @@ class _Repo extends ForumRepository {
     if (failOnce.remove(list.title)) {
       throw const ForumRepositoryException('fixture failure');
     }
-    return [for (var i = 1; i <= 6; i++) _thread('Reply $i')];
+    // 提问求物 is short, for the card height.
+    return [
+      for (var i = 1; i <= (list.title == '提问求物' ? 2 : 6); i++)
+        _thread('Reply $i'),
+    ];
   }
 
   @override
