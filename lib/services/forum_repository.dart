@@ -774,9 +774,14 @@ class ForumRepository {
     final document = html_parser.parse(html);
     var latest = _homePageParser.parseLatestThreads(document);
     final latestScriptUrl = _homePageParser.latestThreadsScriptUrl(document);
-    if (latest.isEmpty && latestScriptUrl != null) {
-      final script = await client.get(_urls.relativePath(latestScriptUrl));
-      latest = _homePageParser.parseLatestThreadsFromScript(script);
+    if (latestScriptUrl != null) {
+      try {
+        final script = await client.get(_urls.relativePath(latestScriptUrl));
+        final fetched = _homePageParser.parseLatestThreadsFromScript(script);
+        if (fetched.isNotEmpty) latest = fetched;
+      } catch (_) {
+        if (latest.isEmpty) rethrow;
+      }
     }
     final hot = _homePageParser.parseHotCategories(document);
     var sections = _homePageParser.parseForumSections(document);

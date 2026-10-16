@@ -32,8 +32,22 @@ class HomePageParser {
     var base = urls.baseUri.resolve('simple/index.php');
     final href = document.querySelector('base[href]')?.attributes['href'];
     if (href != null && urls.isForumUrl(href)) base = base.resolve(href);
-    final resolved = base.resolveUri(scriptUri).toString();
-    return urls.isForumUrl(resolved) ? urls.absoluteUrl(resolved) : null;
+    final resolved = base.resolveUri(scriptUri);
+    if (!urls.isForumUrl(resolved.toString())) return null;
+    final feed = resolved.path.endsWith('/new.php') &&
+        resolved.queryParameters['action'] == 'article';
+    return urls.absoluteUrl((feed
+            ? resolved.replace(queryParameters: {
+                ...resolved.queryParameters,
+                'num': '8',
+                'length': '120',
+                'postdate': '1',
+                'author': '1',
+                'replies': '1',
+                'fname': '1',
+              })
+            : resolved)
+        .toString());
   }
 
   List<ForumQuickList> parseQuickLists(
@@ -52,7 +66,7 @@ class HomePageParser {
         title: title,
         threads: item.classes.contains('active')
             ? activeThreads
-            : inline.isNotEmpty || script == null
+            : script == null
                 ? inline
                 : null,
         scriptUrl: script,
@@ -154,23 +168,54 @@ class HomePageParser {
     for (final link in links) {
       final href = link.attributes['href'] ?? '';
       final title = _cleanText(link.text);
-      if (title.isEmpty || !urls.isThreadHref(href) || !seen.add(href)) {
+      final target = urls.forumLinkTarget(href);
+      if (title.isEmpty ||
+          target is! ForumThreadLinkTarget ||
+          !seen.add(urls.absoluteUrl(href))) {
         continue;
       }
+      final metadata = dom.Element.tag('span');
+      final siblings = link.parentNode?.nodes ?? const <dom.Node>[];
+      for (final next in siblings.skip(siblings.indexOf(link) + 1)) {
+        if (next is dom.Element &&
+            (next.localName == 'br' ||
+                urls.forumLinkTarget(next.attributes['href'] ?? '')
+                    is ForumThreadLinkTarget)) break;
+        metadata.nodes.add(next.clone(true));
+      }
+      dom.Element? author;
+      dom.Element? board;
+      for (final meta in metadata.querySelectorAll('a[href]')) {
+        final target = urls.forumLinkTarget(meta.attributes['href']!);
+        if (target is ForumUserLinkTarget) author ??= meta;
+        if (target is ForumBoardLinkTarget) board ??= meta;
+      }
+      final text = _cleanText(metadata.text);
       threads.add(
         ForumThread(
           title: title,
           titleStyle: parseThreadTitleStyle(link),
           url: urls.absoluteUrl(href),
-          replies: 0,
-          section: '最新讨论',
-          author: '匿名',
+          replies: int.tryParse(
+                  RegExp(r'回复\s*[：:]\s*(\d+)').firstMatch(text)?.group(1) ??
+                      '') ??
+              0,
+          section: board == null ? '' : _metadataLabel(board.text),
+          author: author == null ? null : _metadataLabel(author.text),
+          authorUrl: author == null
+              ? null
+              : urls.absoluteUrl(author.attributes['href']!),
+          lastPost: RegExp(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}')
+              .firstMatch(text)
+              ?.group(0),
         ),
       );
-      if (threads.length == 3) break;
     }
     return threads;
   }
+
+  String _metadataLabel(String text) =>
+      _cleanText(text).replaceAll(RegExp(r'^[（(]|[）)]$'), '').trim();
 
   String _htmlFromDocumentWrites(String script) {
     final buffer = StringBuffer();
