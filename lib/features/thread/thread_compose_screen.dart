@@ -6,6 +6,7 @@ import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../editor/windcode_preview.dart';
 import '../editor/windcode_toolbar.dart';
 
 class ThreadComposeScreen extends StatefulWidget {
@@ -103,26 +104,12 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
     }
   }
 
-  void _preview() {
-    final title = _title.text.trim().isEmpty ? '未命名主题' : _title.text.trim();
-    final content = _content.text.trim().isEmpty ? '暂无正文' : _content.text;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-            children: [
-              Text(title, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              Text(content, style: Theme.of(context).textTheme.bodyMedium),
-            ],
-          ),
-        );
-      },
-    );
-  }
+  void _preview() => showWindCodePreview(
+        context,
+        title: _title.text,
+        source: _content.text,
+        baseUri: widget.repository.networkConfig.baseUri,
+      );
 
   @override
   Widget build(BuildContext context) {

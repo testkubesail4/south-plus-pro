@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:south_plus_rewrite/features/editor/windcode_preview.dart';
 import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
 import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
 import 'package:south_plus_rewrite/models/forum_emojis.dart';
@@ -186,6 +187,55 @@ void main() {
       }
     }
   }
+
+  testWidgets('PM 预览 renders the WindCode, not the raw tags', (tester) async {
+    final body = await pumpPmCompose(tester);
+    body.text = '[b]粗体文字[/b]\n[quote]引用内容[/quote] [s:701] ';
+    await tester.tap(find.byTooltip('预览'));
+    await tester.pumpAndSettle();
+
+    final sheet = find.byType(BottomSheet);
+    Finder inSheet(String text) => find.descendant(
+      of: sheet,
+      matching: find.textContaining(text, findRichText: true),
+    );
+    expect(inSheet('粗体文字'), findsWidgets);
+    expect(inSheet('引用内容'), findsWidgets);
+    expect(inSheet('[b]'), findsNothing);
+    expect(inSheet('[quote]'), findsNothing);
+    // The toolbar's emoticon code becomes the bundled image.
+    expect(
+      find.descendant(of: sheet, matching: find.byType(Image)),
+      findsOneWidget,
+    );
+    expect(inSheet('[s:'), findsNothing);
+  });
+
+  testWidgets('预览 shows a sold block with its price and content', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showWindCodePreview(
+                context,
+                title: '主题',
+                source: '[sell=5]付费正文[/sell]',
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('售价 5', findRichText: true), findsWidgets);
+    expect(find.textContaining('付费正文', findRichText: true), findsWidgets);
+    expect(find.textContaining('[sell', findRichText: true), findsNothing);
+  });
 
   testWidgets('thread toolbar keeps sale insertion', (tester) async {
     final controller = TextEditingController();

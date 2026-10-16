@@ -174,6 +174,48 @@ void main() {
     expect(repository.submits, hasLength(1));
   });
 
+  testWidgets('预览 waits while a message is sending, then the result returns',
+      (tester) async {
+    final repository = _FakePmRepository();
+    ForumPmActionResult? returned;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () async {
+            returned = await Navigator.of(context).push<ForumPmActionResult>(
+              MaterialPageRoute(
+                  builder: (_) => PmComposeScreen(repository: repository)),
+            );
+          },
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    final submit = find.byKey(const ValueKey('pm-submit-button'));
+    await tester.enterText(find.byType(TextField).at(0), '12');
+    await tester.enterText(find.byType(TextField).at(1), 'hello');
+    await tester.enterText(find.byType(TextField).at(2), 'body');
+    await tester.scrollUntilVisible(submit, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(submit);
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('预览'));
+    // The send spinner keeps animating, so pump a sheet's worth of time.
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(BottomSheet), findsNothing);
+
+    repository.submitResult.complete(const ForumPmActionResult(
+      message: '操作完成',
+      refreshPath: 'message.php?action=receivebox',
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byType(PmComposeScreen), findsNothing);
+    expect(returned?.refreshPath, 'message.php?action=receivebox');
+  });
+
   testWidgets('edit form requires a numeric recipient and neutral label',
       (tester) async {
     final repository = _FakePmRepository()..editCompose = true;

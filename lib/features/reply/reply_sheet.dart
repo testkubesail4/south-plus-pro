@@ -5,6 +5,7 @@ import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../editor/windcode_preview.dart';
 import '../editor/windcode_toolbar.dart';
 
 class ReplyComposer extends StatefulWidget {
@@ -176,6 +177,19 @@ class ReplyComposerState extends State<ReplyComposer> {
                     ),
                   ),
                 ),
+              ),
+              IconButton(
+                tooltip: '预览',
+                onPressed: _submitting
+                    ? null
+                    : () => showWindCodePreview(
+                  context,
+                  title: _title.text,
+                  source: _content.text,
+                  baseUri: widget.repository.networkConfig.baseUri,
+                ),
+                color: AppColors.textMuted,
+                icon: const Icon(Icons.visibility_outlined),
               ),
               if (widget.onCollapse != null)
                 IconButton(

@@ -5,6 +5,7 @@ import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../common/async_state_view.dart';
+import '../editor/windcode_preview.dart';
 import '../editor/windcode_toolbar.dart';
 
 /// Writes, replies, forwards or edits a message through a server compose form.
@@ -95,7 +96,25 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('短消息')),
+      appBar: AppBar(
+        title: const Text('短消息'),
+        actions: [
+          IconButton(
+            tooltip: '预览',
+            // A sheet over a pending send would take its success pop.
+            onPressed: _submitting
+                ? null
+                : () => showWindCodePreview(
+              context,
+              title: _title.text,
+              source: _body.text,
+              baseUri: widget.repository.networkConfig.baseUri,
+
+            ),
+            icon: const Icon(Icons.visibility_outlined),
+          ),
+        ],
+      ),
       body: SafeArea(
         top: false,
         child: FutureBuilder<ForumPmCompose>(
