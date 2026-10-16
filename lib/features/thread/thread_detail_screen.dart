@@ -1338,32 +1338,34 @@ class _ComposerDock extends StatelessWidget {
       alignment: Alignment.bottomCenter,
       child: Offstage(
         offstage: !open,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxHeight),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
-              border: dark ? Border.all(color: AppColors.border) : null,
-              boxShadow: dark
-                  ? null
-                  : const [
-                      BoxShadow(
-                        color: Color(0x14000000),
-                        blurRadius: 16,
-                        offset: Offset(0, -4),
-                      ),
-                    ],
+        // The dock shares the posts' reading width.
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: maxHeight,
+              maxWidth: AppWidths.reading,
             ),
-            child: SafeArea(
-              top: false,
-              child: Center(
-                heightFactor: 1,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: AppWidths.reading),
-                  child: SingleChildScrollView(child: child),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(AppRadius.xl),
                 ),
+                border: dark ? Border.all(color: AppColors.border) : null,
+                boxShadow: dark
+                    ? null
+                    : const [
+                        BoxShadow(
+                          color: Color(0x14000000),
+                          blurRadius: 16,
+                          offset: Offset(0, -4),
+                        ),
+                      ],
+              ),
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(child: child),
               ),
             ),
           ),

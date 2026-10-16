@@ -139,6 +139,21 @@ void main() {
     expect(find.byType(ThreadDetailScreen), findsOneWidget);
   });
 
+  testWidgets('on a wide window the dock shares the posts\' reading width',
+      (tester) async {
+    await pumpThread(tester, size: const Size(1440, 900));
+    await tester.tap(find.byTooltip('写回复'));
+    await tester.pumpAndSettle();
+
+    final dock = tester.getRect(find
+        .ancestor(
+            of: find.byType(ReplyComposer), matching: find.byType(DecoratedBox))
+        .first);
+    final post = tester.getRect(find.byType(Card).first);
+    expect(dock.left, post.left);
+    expect(dock.right, post.right);
+  });
+
   for (final textScale in [1.0, 2.0]) {
     testWidgets(
         'the dock fits a short landscape window with the keyboard up '
