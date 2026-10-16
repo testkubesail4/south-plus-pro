@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../models/forum_emojis.dart';
@@ -56,8 +58,13 @@ class SouthPlusEmojiPicker extends StatelessWidget {
                         GridView.builder(
                           padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
                           gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 52,
+                              SliverGridDelegateWithMaxCrossAxisExtent(
+                            // Tiles grow with large text so a code label
+                            // still fits.
+                            maxCrossAxisExtent: math.max(
+                              52,
+                              MediaQuery.textScalerOf(context).scale(52),
+                            ),
                             mainAxisSpacing: 8,
                             crossAxisSpacing: 8,
                           ),

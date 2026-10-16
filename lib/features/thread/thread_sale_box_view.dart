@@ -63,7 +63,8 @@ class ThreadSaleBoxView extends StatelessWidget {
                         Text(
                           saleBox.summary,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppColors.textMuted,
+                            color: AppColors.text,
+                            // textMuted on inkSoft is 4.47:1, under AA.
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -101,9 +102,10 @@ class ThreadSaleBoxView extends StatelessWidget {
                         ? SizedBox(
                             width: 18,
                             height: 18,
+                            // The busy button has the disabled neutral fill.
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: AppColors.onBrand,
+                              color: AppColors.textMuted,
                             ),
                           )
                         : const Text('购买查看'),
