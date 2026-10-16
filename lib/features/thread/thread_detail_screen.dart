@@ -1352,22 +1352,19 @@ class _ComposerDock extends StatelessWidget {
               maxHeight: maxHeight,
               maxWidth: AppWidths.reading,
             ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.surface,
+            // Raised (DESIGN §5 level 1); in dark a border, not a shadow,
+            // lifts it, and its fields keep the surfaceTint contrast.
+            child: Material(
+              color: AppColors.surface,
+              surfaceTintColor: Colors.transparent,
+              elevation: dark ? 0 : 3,
+              shape: RoundedRectangleBorder(
+                side: dark
+                    ? BorderSide(color: AppColors.border)
+                    : BorderSide.none,
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(AppRadius.xl),
                 ),
-                border: dark ? Border.all(color: AppColors.border) : null,
-                boxShadow: dark
-                    ? null
-                    : const [
-                        BoxShadow(
-                          color: Color(0x14000000),
-                          blurRadius: 16,
-                          offset: Offset(0, -4),
-                        ),
-                      ],
               ),
               child: SafeArea(
                 top: false,

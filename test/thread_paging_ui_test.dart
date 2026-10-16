@@ -147,7 +147,7 @@ void main() {
 
     final dock = tester.getRect(find
         .ancestor(
-            of: find.byType(ReplyComposer), matching: find.byType(DecoratedBox))
+            of: find.byType(ReplyComposer), matching: find.byType(Material))
         .first);
     final post = tester.getRect(find.byType(Card).first);
     expect(dock.left, post.left);

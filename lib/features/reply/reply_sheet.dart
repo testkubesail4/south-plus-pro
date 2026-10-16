@@ -130,7 +130,10 @@ class ReplyComposerState extends State<ReplyComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final muted = TextStyle(color: AppColors.textMuted, fontSize: 13);
+    final muted = Theme.of(context)
+        .textTheme
+        .bodySmall!
+        .copyWith(color: AppColors.textMuted);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
       child: Column(

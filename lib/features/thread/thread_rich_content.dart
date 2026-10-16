@@ -334,7 +334,7 @@ TextStyle _threadTextStyle(
   return (baseStyle ?? const TextStyle()).copyWith(
     color: forceLinkColor ? AppColors.link : color,
     backgroundColor: background,
-    fontWeight: style.isBold ? FontWeight.w800 : baseStyle?.fontWeight,
+    fontWeight: style.isBold ? FontWeight.w700 : baseStyle?.fontWeight,
     fontStyle: style.isItalic ? FontStyle.italic : baseStyle?.fontStyle,
     decoration: decoration,
     fontSize: (baseStyle?.fontSize ?? 16) * style.fontScale,
@@ -701,11 +701,10 @@ class _DownloadLinkPanel extends StatelessWidget {
             label,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 12,
-              height: 1.35,
-            ),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: AppColors.textMuted),
           ),
           const SizedBox(height: 8),
           SelectionContainer.disabled(
@@ -756,49 +755,12 @@ class _DownloadActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = filled ? Colors.white : AppColors.link;
-    final background = filled ? AppColors.brand : Colors.transparent;
-    final borderColor = filled ? AppColors.brand : AppColors.border;
-
-    return Semantics(
-      button: true,
-      label: label,
-      child: Material(
-        color: background,
-        borderRadius: BorderRadius.circular(6),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 44),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: borderColor),
-            ),
-            child: IconTheme.merge(
-              data: IconThemeData(color: foreground, size: 16),
-              child: DefaultTextStyle.merge(
-                style: TextStyle(
-                  color: foreground,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  height: 1,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    icon,
-                    const SizedBox(width: 5),
-                    Text(label),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    // The themed primary and tonal secondary buttons (DESIGN §6).
+    return filled
+        ? FilledButton.icon(
+            onPressed: onPressed, icon: icon, label: Text(label))
+        : OutlinedButton.icon(
+            onPressed: onPressed, icon: icon, label: Text(label));
   }
 }
 
@@ -1112,7 +1074,11 @@ class _PreviewScreenshotViewerState extends State<_PreviewScreenshotViewer> {
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   child: Text(
                     '${_index + 1} / ${widget.urls.length}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    // On the dark photo overlay, in either theme.
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelMedium
+                        ?.copyWith(color: Colors.white),
                   ),
                 ),
               ),

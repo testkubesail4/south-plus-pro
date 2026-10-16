@@ -101,7 +101,10 @@ class _EmojiTile extends StatelessWidget {
     final codeLabel = Center(
       child: Text(
         emoji.id,
-        style: TextStyle(fontSize: 10, color: AppColors.textMuted),
+        style: Theme.of(context)
+            .textTheme
+            .labelMedium
+            ?.copyWith(color: AppColors.textMuted),
       ),
     );
     return Tooltip(
@@ -110,11 +113,11 @@ class _EmojiTile extends StatelessWidget {
         button: true,
         label: '表情 ${emoji.id}',
         child: InkWell(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
           onTap: () => onSelected(emoji),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
               border: Border.all(color: AppColors.border),
               color: AppColors.surface,
             ),

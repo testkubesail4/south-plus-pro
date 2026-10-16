@@ -25,9 +25,8 @@ class ThreadSaleBoxView extends StatelessWidget {
         Container(
           padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
           decoration: BoxDecoration(
-            color: AppColors.brandSoft,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
+            color: AppColors.inkSoft,
+            borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -40,8 +39,7 @@ class ThreadSaleBoxView extends StatelessWidget {
                     height: 34,
                     decoration: BoxDecoration(
                       color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.border),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
                     child: Icon(
                       Icons.lock_outline,
@@ -57,8 +55,8 @@ class ThreadSaleBoxView extends StatelessWidget {
                         Text(
                           '付费内容',
                           style: theme.textTheme.titleSmall?.copyWith(
-                            color: AppColors.brandDark,
-                            fontWeight: FontWeight.w800,
+                            color: AppColors.text,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 3),
@@ -99,21 +97,13 @@ class ThreadSaleBoxView extends StatelessWidget {
                 child: SelectionContainer.disabled(
                   child: FilledButton(
                     onPressed: isBuying ? null : onBuy,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.brand,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
                     child: isBuying
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: AppColors.onBrand,
                             ),
                           )
                         : const Text('购买查看'),
@@ -136,7 +126,7 @@ class ThreadSaleBoxView extends StatelessWidget {
             child: Text(
               saleBox.warning!,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xff555555),
+                color: AppColors.textMuted,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -164,7 +154,6 @@ class _SaleMetaPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -173,11 +162,10 @@ class _SaleMetaPill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             label,
-            style: TextStyle(
-              color: AppColors.text,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(context)
+                .textTheme
+                .labelMedium
+                ?.copyWith(color: AppColors.text),
           ),
         ],
       ),

@@ -185,11 +185,10 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                     Expanded(
                       child: Text(
                         '屏蔽',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.textMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                     ),
                     TextButton(
@@ -264,7 +263,10 @@ class ThreadBlockedFloor extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: AppColors.textMuted),
               ),
             ),
             TextButton(
