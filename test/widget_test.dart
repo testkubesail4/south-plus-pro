@@ -1539,7 +1539,7 @@ void main() {
 
   testWidgets('thread detail shows avatar fallback and page controls',
       (tester) async {
-    // Tall enough to build both the top and the bottom page controls.
+    // Tall enough to build the page-end card under the floors.
     tester.view.physicalSize = const Size(800, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -1572,7 +1572,7 @@ void main() {
     expect(find.text('RSS 订阅'), findsNothing, reason: 'RSS lives in ⋮');
     expect(find.byTooltip('更多操作'), findsOneWidget);
     expect(find.text('只看该作者'), findsNothing);
-    expect(find.text('第 2 / 4 页'), findsNWidgets(2));
+    expect(find.text('第 2 / 4 页'), findsOneWidget);
     expect(find.text('page 2 body', findRichText: true), findsNothing);
     expect(find.text('reply on page 2', findRichText: true), findsOneWidget);
 
@@ -1596,7 +1596,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('选择页码').first);
+    await tester.tap(find.byTooltip('跳转'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(

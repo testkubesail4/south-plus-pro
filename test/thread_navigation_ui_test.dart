@@ -49,7 +49,7 @@ void main() {
     tester,
   ) async {
     final repository = await pumpThread(tester, autoLoad: false);
-    await tester.tap(find.byTooltip('到底部'));
+    await jump(tester, '到底部');
     await tester.pumpAndSettle();
     tester.binding.handlePointerEvent(
       PointerScrollEvent(
@@ -85,7 +85,7 @@ void main() {
 
   testWidgets('到底部 appends the next page', (tester) async {
     final repository = await pumpThread(tester);
-    await tester.tap(find.byTooltip('到底部'));
+    await jump(tester, '到底部');
     await tester.pumpAndSettle();
     expect(repository.pages, [1, 2]);
   });
@@ -94,7 +94,7 @@ void main() {
     tester,
   ) async {
     final repository = await pumpThread(tester);
-    await tester.tap(find.byTooltip('到底部'));
+    await jump(tester, '到底部');
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('购买查看').hitTestable(), 300);
     final floorY = tester.getTopLeft(find.text('[B31F]')).dy;
@@ -116,7 +116,7 @@ void main() {
         (tester) async {
       final repository = _FakeRepository(twoSales: true)..delayBuys = true;
       await pumpThread(tester, repository: repository);
-      await tester.tap(find.byTooltip('到底部'));
+      await jump(tester, '到底部');
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
           find.text('购买查看').first.hitTestable(), 300);
@@ -296,7 +296,7 @@ void main() {
     final staleAppend = repository.held.single;
 
     // The reader jumps to the latest page while page 2 loads; that fails.
-    await tester.tap(find.byTooltip('最新回复'));
+    await jump(tester, '最新回复');
     await tester.pump();
     expect(repository.pages.last, 3);
     repository.held.last.completeError(StateError('offline'));
@@ -322,8 +322,11 @@ void main() {
     for (var i = 0; i < 40 && repository.pages.length < 2; i++) {
       await scrollBy(tester, 2000);
     }
-    await tester.scrollUntilVisible(find.byTooltip('上一页'), 300);
-    await tester.tap(find.byTooltip('上一页').last);
+    // At the end of page 2, the page bar shows page 2; 上一页 is page 1.
+    await jump(tester, '到底部');
+    await tester.pumpAndSettle();
+    expect(find.text('第 2 / 2 页'), findsOneWidget);
+    await tester.tap(find.byTooltip('上一页'));
     await tester.pumpAndSettle();
     expect(list(tester).pixels, 0);
     expect(repository.pages, [1, 2]);
@@ -333,20 +336,20 @@ void main() {
       (tester) async {
     final repository = await pumpThread(tester);
 
-    await tester.tap(find.byTooltip('最新回复'));
+    await jump(tester, '最新回复');
     await tester.pumpAndSettle();
     expect(repository.urls.last, contains('page-e'));
     expect(find.text('[B90F]').hitTestable(), findsOneWidget);
 
-    await tester.tap(find.byTooltip('回到顶部'));
+    await jump(tester, '回到顶部');
     await tester.pumpAndSettle();
     expect(list(tester).pixels, 0);
 
-    await tester.tap(find.byTooltip('到底部'));
+    await jump(tester, '到底部');
     await tester.pumpAndSettle();
     expect(list(tester).pixels, list(tester).maxScrollExtent);
 
-    await tester.tap(find.byTooltip('首楼'));
+    await jump(tester, '首楼');
     await tester.pumpAndSettle();
     expect(repository.pages.last, 1);
     expect(find.text('[楼主]').hitTestable(), findsOneWidget);
@@ -430,4 +433,13 @@ class _FakeRepository extends ForumRepository {
       ],
     );
   }
+}
+
+/// Opens the 跳转 sheet from the page bar and taps one of its shortcuts;
+/// the caller pumps on.
+Future<void> jump(WidgetTester tester, String shortcut) async {
+  await tester.tap(find.byTooltip('跳转'));
+  await tester.pump();
+  await tester.pump(const Duration(seconds: 1));
+  await tester.tap(find.text(shortcut));
 }

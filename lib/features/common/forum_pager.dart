@@ -108,26 +108,40 @@ class ForumPager extends StatelessWidget {
   }
 }
 
+/// A jump target above the page grid: label, icon, and what it does once
+/// the sheet has closed.
+typedef ForumJumpShortcut = (String label, IconData icon, VoidCallback onTap);
+
 /// Bottom sheet listing every page plus a number field; resolves to the
-/// chosen page, or null when dismissed.
+/// chosen page, or null when dismissed or left through a [shortcuts] tile.
 Future<int?> showForumPagePicker(
   BuildContext context, {
   required int current,
   required int total,
+  List<ForumJumpShortcut> shortcuts = const [],
 }) {
   return showModalBottomSheet<int>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) => _PagePickerSheet(current: current, total: total),
+    builder: (context) => _PagePickerSheet(
+      current: current,
+      total: total,
+      shortcuts: shortcuts,
+    ),
   );
 }
 
 class _PagePickerSheet extends StatefulWidget {
-  const _PagePickerSheet({required this.current, required this.total});
+  const _PagePickerSheet({
+    required this.current,
+    required this.total,
+    required this.shortcuts,
+  });
 
   final int current;
   final int total;
+  final List<ForumJumpShortcut> shortcuts;
 
   @override
   State<_PagePickerSheet> createState() => _PagePickerSheetState();
@@ -169,7 +183,7 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
             children: [
               Expanded(
                 child: Text(
-                  '选择页码',
+                  widget.shortcuts.isEmpty ? '选择页码' : '跳转',
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -182,6 +196,59 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
             ],
           ),
           const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _input,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.go,
+                  onSubmitted: (_) => _submit(),
+                  // 48 high, level with the button beside it.
+                  decoration: InputDecoration(
+                    hintText: '页码 1 - ${widget.total}',
+                    errorText: _error,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: _submit,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(72, 48),
+                ),
+                child: const Text('跳转'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (widget.shortcuts.isNotEmpty) ...[
+            Row(
+              children: [
+                for (final (label, icon, onTap) in widget.shortcuts)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: _ShortcutTile(
+                        label: label,
+                        icon: icon,
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          onTap();
+                        },
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
           Flexible(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -212,37 +279,49 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
               },
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+    );
+  }
+}
+
+class _ShortcutTile extends StatelessWidget {
+  const _ShortcutTile({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.inkSoft,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+          child: Column(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _input,
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.go,
-                  onSubmitted: (_) => _submit(),
-                  decoration: InputDecoration(
-                    labelText: '页码',
-                    hintText: '1 - ${widget.total}',
-                    errorText: _error,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: FilledButton(
-                  onPressed: _submit,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(72, 48),
-                  ),
-                  child: const Text('跳转'),
+              Icon(icon, size: 22, color: AppColors.text),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -62,6 +62,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   String? _authorFilterName;
   ThreadDetail? _detail;
   int _page = 1;
+  int? _visiblePage;
   int _loadRunId = 0;
   final _purchaseRefreshRuns = <int, int>{};
   ThreadDetail? _compiledDetail;
@@ -197,6 +198,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _detail = detail;
         _thread = detail.thread;
         _page = detail.pagination.currentPage;
+        _visiblePage = null;
         _loading = false;
         _pendingAnchor = null;
         _pendingLatest = false;
@@ -404,6 +406,10 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         curve: Curves.easeOut,
       );
     }
+    // ...or shrinks once they have: settle on the real end, not past it.
+    if (position.pixels > position.maxScrollExtent) {
+      position.jumpTo(position.maxScrollExtent);
+    }
     // Reaching the end on request is reading to the end.
     if (mounted) _maybeLoadMore();
   }
@@ -478,6 +484,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         ),
       _ => null,
     };
+    if (position != null && position.page != _visiblePage) {
+      setState(() => _visiblePage = position.page);
+    }
     if (position != null) {
       widget.repository
           .saveThreadReadPosition(_thread, position)
@@ -612,12 +621,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         );
 
     final entries = <ThreadDetailListEntry>[
-      const ThreadDetailTopSpacingEntry(12),
-      ThreadDetailPaginationEntry(
-        key: ValueKey(
-          'thread-pagination-top-${detail.thread.url}-${detail.pagination.currentPage}',
-        ),
-      ),
       const ThreadDetailTopSpacingEntry(12),
       ThreadDetailOpeningPostEntry(
         key: identical(_anchorTarget, detail)
@@ -1111,6 +1114,27 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
   }
 
+  /// The page of the post at the top of the screen, once scrolling has
+  /// shown one; the loaded page before that.
+  int get _shownPage => _visiblePage ?? _page;
+
+  Future<void> _openJumpSheet() async {
+    final last = _lastLoaded;
+    if (last == null) return;
+    final page = await showForumPagePicker(
+      context,
+      current: _shownPage,
+      total: last.pagination.totalPages,
+      shortcuts: [
+        ('首楼', Icons.first_page, _jumpToFirst),
+        ('回到顶部', Icons.vertical_align_top, () => _scrollToEdge(top: true)),
+        ('到底部', Icons.vertical_align_bottom, () => _scrollToEdge(top: false)),
+        ('最新回复', Icons.last_page, _jumpToLatest),
+      ],
+    );
+    if (page != null && mounted) await _goToPage(page);
+  }
+
   Future<void> _share() async {
     final thread = _detail?.thread;
     final url = thread == null
@@ -1237,35 +1261,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
             // the open composer takes its place.
             bottomNavigationBar: detail == null || _composerOpen
                 ? null
-                : BottomAppBar(
-                    height: 48,
-                    padding: EdgeInsets.zero,
-                    child: Row(
-                      children: [
-                        for (final (tooltip, icon, action)
-                            in <(String, IconData, VoidCallback)>[
-                          ('首楼', Icons.first_page, _jumpToFirst),
-                          (
-                            '回到顶部',
-                            Icons.arrow_upward,
-                            () => _scrollToEdge(top: true)
-                          ),
-                          (
-                            '到底部',
-                            Icons.arrow_downward,
-                            () => _scrollToEdge(top: false)
-                          ),
-                          ('最新回复', Icons.last_page, _jumpToLatest),
-                        ])
-                          Expanded(
-                            child: IconButton(
-                              tooltip: tooltip,
-                              onPressed: action,
-                              icon: Icon(icon),
-                            ),
-                          ),
-                      ],
-                    ),
+                : _ThreadPageBar(
+                    current: _shownPage,
+                    total: _lastLoaded!.pagination.totalPages,
+                    onSelected: _loading ? null : _goToPage,
+                    onJump: _openJumpSheet,
                   ),
             body: detail == null
                 ? _InitialThreadState(
@@ -1517,26 +1517,16 @@ class _ThreadDetailContent extends StatelessWidget {
               SizedBox(height: (entry as ThreadDetailTopSpacingEntry).height),
         );
       case ThreadDetailListEntryType.pagination:
-        final end = (entry as ThreadDetailPaginationEntry).pagination;
-        final pagination = end ?? detail.pagination;
-        final select = loading ? null : onPageSelected;
-        if (end != null && !autoLoadNextPage) {
-          return _entryWithKey(
-            key: entry.key,
-            child: ThreadPageEndCard(
-              pagination: pagination,
-              onPageSelected: select,
-              onRefresh: loading ? null : onRefresh,
-            ),
-          );
-        }
-        if (pagination.totalPages <= 1) return const SizedBox.shrink();
+        // Only explicit paging ends a page with a card; the page bar under
+        // the list is the page control in both modes.
+        if (autoLoadNextPage) return const SizedBox.shrink();
         return _entryWithKey(
           key: entry.key,
-          child: ForumPager(
-            current: pagination.currentPage,
-            total: pagination.totalPages,
-            onSelected: select,
+          child: ThreadPageEndCard(
+            pagination: (entry as ThreadDetailPaginationEntry).pagination ??
+                detail.pagination,
+            onPageSelected: loading ? null : onPageSelected,
+            onRefresh: loading ? null : onRefresh,
           ),
         );
       case ThreadDetailListEntryType.openingPost:
@@ -2367,6 +2357,92 @@ class _ThreadMoreMenu extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Paging strip under the thread, in the app bar's colour: previous page,
+/// the shown page (opens the 跳转 sheet), next page.
+class _ThreadPageBar extends StatelessWidget {
+  const _ThreadPageBar({
+    required this.current,
+    required this.total,
+    required this.onSelected,
+    required this.onJump,
+  });
+
+  final int current;
+  final int total;
+
+  /// Null while a page loads.
+  final ValueChanged<int>? onSelected;
+  final VoidCallback onJump;
+
+  @override
+  Widget build(BuildContext context) {
+    final select = onSelected;
+    Widget arrow(String tooltip, IconData icon, int page, bool enabled) =>
+        IconButton(
+          tooltip: tooltip,
+          onPressed: enabled && select != null ? () => select(page) : null,
+          icon: Icon(icon),
+        );
+    return Material(
+      color: AppColors.surfaceTint,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480, minHeight: 52),
+              child: Row(
+                children: [
+                  arrow('上一页', Icons.chevron_left, current - 1, current > 1),
+                  Expanded(
+                    child: Tooltip(
+                      message: '跳转',
+                      child: InkWell(
+                        onTap: onJump,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  '第 $current / $total 页',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: AppColors.text,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.expand_less,
+                                size: 18,
+                                color: AppColors.textFaint,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  arrow('下一页', Icons.chevron_right, current + 1, current < total),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -85,7 +85,7 @@ void main() {
 
   testWidgets('the page picker opens the chosen page', (tester) async {
     final repository = await pumpThread(tester);
-    await tester.tap(find.byTooltip('选择页码').first);
+    await tester.tap(find.byTooltip('跳转'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('3'));
     await tester.pumpAndSettle();
