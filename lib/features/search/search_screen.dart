@@ -432,14 +432,19 @@ class _SearchScreenState extends State<SearchScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final gutter = appGutter(constraints.maxWidth, AppWidths.list);
+            final form = _editing || _query == null;
+            // The form is a form (720); the summary lines up with results.
+            final top = form
+                ? appGutter(constraints.maxWidth, AppWidths.form)
+                : gutter;
             return CustomScrollView(
               controller: _scroll,
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
                 SliverPadding(
-                  padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 8),
+                  padding: EdgeInsets.fromLTRB(top, 12, top, 8),
                   sliver: SliverToBoxAdapter(
-                    child: _editing || _query == null
+                    child: form
                         ? _buildForm(context)
                         : _SearchSummary(
                             query: _query!,
@@ -758,6 +763,7 @@ class _SearchScreenState extends State<SearchScreen> {
         FilledButton.icon(
           key: const ValueKey('search-submit'),
           onPressed: _searching ? null : _search,
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
           icon: const Icon(Icons.search),
           label: Text(_searching ? '搜索中...' : '搜索'),
         ),

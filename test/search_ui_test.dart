@@ -945,6 +945,15 @@ void main() {
     expect(find.textContaining('版块 404'), findsOneWidget);
   });
 
+  testWidgets('the form keeps the form width with one large primary',
+      (tester) async {
+    await pump(tester, size: const Size(1440, 900));
+    final submit = tester.getRect(_submit);
+    expect(submit.width, AppWidths.form);
+    expect(submit.height, 48);
+    expect(submit.center.dx, 720);
+  });
+
   testWidgets('field help shows only for the focused field', (tester) async {
     await pump(tester);
     const keywordHelp = '多个关键词用空格或 | 分隔';
