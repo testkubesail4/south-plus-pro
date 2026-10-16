@@ -8,6 +8,8 @@ import 'package:south_plus_rewrite/services/forum_repository.dart';
 
 // Synthetic fixtures only: fictional tid, uids and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
+String _profile(int uid) =>
+    'https://south-plus.net/u.php?action-show-uid-$uid.html';
 
 class _Repo extends ForumRepository {
   @override
@@ -26,12 +28,22 @@ class _Repo extends ForumRepository {
     int page = 1,
   }) async =>
       ThreadDetail(
-        thread: thread.copyWith(title: '合成主题', author: '楼主甲'),
+        thread: thread.copyWith(
+          title: '合成主题',
+          author: '楼主甲',
+          authorUrl: _profile(3),
+        ),
         body: 'opening body',
         replies: [
-          for (final (author, floor) in [('路人乙', 'B1F'), ('楼主甲', 'B2F')])
+          for (final (author, uid, floor) in [
+            ('路人乙', 4, 'B1F'),
+            ('楼主甲', 3, 'B2F'),
+            // Same display name, another account: not the thread starter.
+            ('楼主甲', 5, 'B3F'),
+          ])
             ThreadReply(
               author: author,
+              authorUrl: _profile(uid),
               content: 'reply $floor',
               segments: [ThreadContentSegment.text('reply $floor')],
               floor: floor,
@@ -69,7 +81,8 @@ void main() {
 
     expect(find.text('2026-10-12 10:20 · B1F'), findsOneWidget);
     expect(find.text('[B1F]'), findsNothing);
-    // The opening post and the OP's own reply carry the tag.
+    // The opening post and the OP's own reply carry the tag; a namesake
+    // with another uid does not.
     expect(find.text('楼主'), findsNWidgets(2));
   });
 

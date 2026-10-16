@@ -9,6 +9,7 @@ import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart'
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic fixtures only: fictional tid, uid, board and authors.
 const _filteredUrl = 'https://south-plus.net/read.php?tid-7-uid-9.html';
@@ -85,6 +86,7 @@ void main() {
   Future<_Repo> pumpThread(WidgetTester tester, {ForumCategory? board}) async {
     final repository = _Repo(board: board);
     await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light,
       home: ThreadDetailScreen(
         repository: repository,
         thread: const ForumThread(
@@ -101,6 +103,11 @@ void main() {
 
   testWidgets('the board name opens that board', (tester) async {
     final repository = await pumpThread(tester, board: _board);
+    final target = find.descendant(
+      of: find.byTooltip('打开版块'),
+      matching: find.byType(InkWell),
+    );
+    expect(tester.getSize(target).height, greaterThanOrEqualTo(48));
 
     await tester.tap(find.byTooltip('打开版块'));
     await tester.pump();

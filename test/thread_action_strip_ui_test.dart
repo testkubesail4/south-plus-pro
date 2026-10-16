@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +12,9 @@ const _url = 'https://south-plus.net/read.php?tid-7.html';
 
 class _Repo extends ForumRepository {
   final favoriteCalls = <String>[];
+
+  /// When set, 收藏 waits for it, so the busy state can be observed.
+  Completer<void>? holdFavorite;
 
   @override
   Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread t) async =>
@@ -48,6 +53,7 @@ class _Repo extends ForumRepository {
   @override
   Future<FavoriteResult> addFavorite(ThreadFavorite favorite) async {
     favoriteCalls.add('add');
+    await holdFavorite?.future;
     return const FavoriteResult(
       success: true,
       message: 'synthetic notice',
@@ -127,6 +133,28 @@ void main() {
       expect(tester.getSize(find.text(label)).height, lessThan(24 * 2),
           reason: label);
     }
+  });
+
+  testWidgets('a busy 收藏 is announced as disabled until it settles',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    repository.holdFavorite = Completer<void>();
+
+    await tester.ensureVisible(slot('收藏'));
+    await tester.tap(slot('收藏'));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(
+      tester.getSemantics(find.text('收藏')),
+      containsSemantics(isButton: true, isEnabled: false),
+    );
+
+    repository.holdFavorite!.complete();
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(find.text('已收藏')),
+      containsSemantics(isEnabled: true, isSelected: true),
+    );
   });
 
   testWidgets('a missing neighbour thread is a disabled slot', (tester) async {

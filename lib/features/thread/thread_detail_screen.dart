@@ -1709,8 +1709,9 @@ class _ThreadDetailContent extends StatelessWidget {
                 reply.replyTitle ?? 'Re:${detail.thread.title}',
               ),
               onMore: () => onFloorMore(reply, false),
-              byOriginalPoster:
-                  originalAuthor != null && reply.author == originalAuthor,
+              // By account, never by display name; no uid, no tag.
+              byOriginalPoster: detail.thread.authorUid != null &&
+                  reply.authorUid == detail.thread.authorUid,
               quoteLoading: reply.quoteUrl != null &&
                   loadingQuoteDrafts.contains(reply.quoteUrl),
               onQuote: () => onQuoteReply(reply),
@@ -2437,7 +2438,7 @@ class _ThreadActionButton extends StatelessWidget {
     return Semantics(
       container: true,
       button: true,
-      enabled: onTap != null,
+      enabled: !busy && onTap != null,
       selected: active,
       child: Material(
         color: active ? AppColors.brandSoft : Colors.transparent,
@@ -2495,8 +2496,9 @@ class _BoardTitle extends StatelessWidget {
       child: InkWell(
         onTap: tap,
         borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        // A full 48 px target, however short the title line is.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
