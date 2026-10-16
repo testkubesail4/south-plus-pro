@@ -109,7 +109,7 @@ void main() {
 
     await selectTab(tester, '我的');
     expect(find.text(_userA), findsWidgets);
-    expect(find.text('主题'), findsOneWidget);
+    expect(find.text('我的主题'), findsOneWidget);
   });
 
   testWidgets('logout asks first, then returns to the home tab',

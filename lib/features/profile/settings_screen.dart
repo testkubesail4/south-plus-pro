@@ -12,7 +12,6 @@ import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
 import '../common/grouped_list.dart';
-import 'blocking_settings_screen.dart';
 import 'network_settings_screen.dart';
 import 'network_setup_flow_screen.dart';
 
@@ -245,7 +244,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: AppSpace.xl),
             AppGroup(
               label: '阅读',
-              description: '帖子的翻页方式和屏蔽规则',
+              description: '帖子的翻页方式',
               children: [
                 ValueListenableBuilder<bool>(
                   valueListenable: ThreadPagingSettings.notifier,
@@ -259,15 +258,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Switch(value: autoLoad, onChanged: _setAutoLoad),
                     ),
                   ),
-                ),
-                AppRow(
-                  icon: Icons.block_outlined,
-                  title: const Text('屏蔽配置'),
-                  subtitle: const Text('屏蔽的用户、头像和回复内容'),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) =>
-                        BlockingSettingsScreen(repository: widget.repository),
-                  )),
                 ),
               ],
             ),

@@ -67,7 +67,6 @@ void main() {
 
     await openAccountTab(tester);
     expect(find.text('fixture_login'), findsOneWidget);
-    expect(find.text('南+账号已连接'), findsOneWidget);
     expect(avatarUrls(tester), isEmpty);
     expect(
       find.descendant(

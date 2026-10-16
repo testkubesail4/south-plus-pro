@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/profile/account_screen.dart';
 import 'package:south_plus_rewrite/features/profile/blocking_settings_screen.dart';
 import 'package:south_plus_rewrite/features/profile/settings_screen.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
@@ -88,16 +89,22 @@ void main() {
     expect(server.actions, hasLength(writes));
   });
 
-  testWidgets('设置 opens 屏蔽配置', (tester) async {
-    final repo = _Repo(false, null, _Server());
-    await tester
-        .pumpWidget(MaterialApp(home: SettingsScreen(repository: repo)));
+  testWidgets('我的 opens 屏蔽配置; 设置 no longer lists it', (tester) async {
+    final repo = _Repo(true, '101', _Server());
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: AccountScreen(repository: repo, onLoggedOut: () {}))));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('屏蔽配置'), 180,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('屏蔽配置'));
     await tester.pumpAndSettle();
     expect(find.byType(BlockingSettingsScreen), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(MaterialApp(home: SettingsScreen(repository: repo)));
+    await tester.pumpAndSettle();
+    expect(find.text('屏蔽配置', skipOffstage: false), findsNothing);
   });
 
   testWidgets('a failed sync keeps local rules and retries', (tester) async {

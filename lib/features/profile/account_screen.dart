@@ -7,10 +7,10 @@ import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/cached_forum_image.dart';
+import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../history/browsing_history_screen.dart';
-import '../messages/pm_box_screen.dart';
-import '../messages/reply_notices_screen.dart';
+import 'blocking_settings_screen.dart';
 import 'forum_tasks_screen.dart';
 import 'settings_screen.dart';
 import 'user_profile_screen.dart';
@@ -95,204 +95,193 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   Widget build(BuildContext context) {
     final loggedIn = widget.repository.isLoggedIn;
+    final theme = Theme.of(context);
     return SafeArea(
       bottom: false,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '我的',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              IconButton(
-                tooltip: '设置',
-                onPressed: _openSettings,
-                icon: const Icon(Icons.settings_outlined),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ValueListenableBuilder<ForumAccountIdentity?>(
-            valueListenable: widget.repository.accountIdentity,
-            builder: (context, identity, _) {
-              final name = accountDisplayName(identity);
-              // A nickname is shown first; the system name stays visible below.
-              final nicknameShown =
-                  identity != null && name != identity.systemName;
-              return _AccountHeader(
-                title: !loggedIn
-                    ? '未登录'
-                    : name ?? widget.repository.currentUsername ?? '已登录',
-                subtitle: !loggedIn
-                    ? '登录后可查看个人内容、收藏和短消息'
-                    : nicknameShown
-                        ? identity.systemName
-                        : '南+账号已连接',
-                avatarUrl: loggedIn ? identity?.avatarUrl : null,
-                loggedIn: loggedIn,
-              );
-            },
-          ),
-          if (!loggedIn) ...[
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () => openLogin(context, widget.repository),
-              icon: const Icon(Icons.login),
-              label: const Text('登录南+账号'),
-            ),
-          ],
-          if (loggedIn) ...[
-            const SizedBox(height: 16),
-            AppGroup(
-              label: '个人内容',
+      child: LayoutBuilder(
+        builder: (context, constraints) => ListView(
+          padding: EdgeInsets.symmetric(
+            horizontal: appGutter(constraints.maxWidth, AppWidths.form),
+          ).copyWith(top: AppSpace.sm, bottom: AppSpace.xxl),
+          children: [
+            Row(
               children: [
-                AppRow(
-                  icon: Icons.badge_outlined,
-                  title: const Text('资料'),
-                  subtitle: const Text('等级、积分和个人信息'),
-                  onTap: () => _openProfile(UserProfileTab.profile),
+                Expanded(
+                  child: Semantics(
+                    header: true,
+                    child: Text('我的', style: theme.textTheme.headlineSmall),
+                  ),
                 ),
-                AppRow(
-                  icon: Icons.article_outlined,
-                  title: const Text('主题'),
-                  subtitle: const Text('我发表的主题'),
-                  onTap: () => _openProfile(UserProfileTab.topics),
-                ),
-                AppRow(
-                  icon: Icons.forum_outlined,
-                  title: const Text('回复'),
-                  subtitle: const Text('我参与的回复'),
-                  onTap: () => _openProfile(UserProfileTab.posts),
-                ),
-                AppRow(
-                  icon: Icons.star_outline,
-                  title: const Text('收藏'),
-                  subtitle: const Text('我公开收藏的主题'),
-                  onTap: () => _openProfile(UserProfileTab.favorites),
+                IconButton(
+                  tooltip: '设置',
+                  onPressed: _openSettings,
+                  icon: const Icon(Icons.settings_outlined),
                 ),
               ],
             ),
-          ],
-          const SizedBox(height: AppSpace.xl),
-          AppGroup(
-            label: '账号',
-            children: [
-              if (loggedIn)
-                ValueListenableBuilder<ForumNoticeFlags>(
-                  valueListenable: widget.repository.noticeFlags,
-                  builder: (context, flags, _) => AppRow(
-                    icon: Icons.mail_outline,
-                    title: const Text('短消息'),
-                    subtitle: const Text('收件箱、发件箱和消息跟踪'),
-                    unread: flags.unreadPm,
-                    onTap: () =>
-                        _push(PmBoxScreen(repository: widget.repository)),
-                  ),
-                ),
-              if (loggedIn)
-                ValueListenableBuilder<ForumNoticeFlags>(
-                  valueListenable: widget.repository.noticeFlags,
-                  builder: (context, flags, _) => AppRow(
-                    icon: Icons.alternate_email,
-                    title: const Text('回复提醒'),
-                    subtitle: Text(
-                        flags.replyNotice ? '有新的回复提醒' : '我的主题收到的回复'),
-                    unread: flags.replyNotice,
-                    onTap: () => _push(
-                        ReplyNoticesScreen(repository: widget.repository)),
-                  ),
-                ),
-              AppRow(
-                icon: Icons.fact_check_outlined,
-                title: const Text('论坛任务'),
-                subtitle: Text(
-                    loggedIn ? '申请日常、周常并领取奖励' : '登录后领取 SP 币任务奖励'),
-                onTap: () =>
-                    _push(ForumTasksScreen(repository: widget.repository)),
-              ),
-              AppRow(
-                icon: Icons.history_outlined,
-                title: const Text('浏览历史'),
-                subtitle: const Text('只保存在本机的阅读记录'),
-                onTap: () => _push(BrowsingHistoryScreen(
-                  repository: widget.repository,
-                  onBrowseHome: widget.onBrowseHome,
-                )),
-              ),
-              AppRow(
-                icon: Icons.settings_outlined,
-                title: const Text('设置'),
-                subtitle: const Text('网络、外观、图片、字体和版本'),
-                onTap: _openSettings,
-              ),
-            ],
-          ),
-          if (loggedIn) ...[
+            const SizedBox(height: AppSpace.md),
+            ValueListenableBuilder<ForumAccountIdentity?>(
+              valueListenable: widget.repository.accountIdentity,
+              builder: (context, identity, _) {
+                final name = accountDisplayName(identity);
+                // A nickname is shown first; the system name stays below it.
+                final nicknameShown =
+                    identity != null && name != identity.systemName;
+                return _AccountHeader(
+                  title: !loggedIn
+                      ? '未登录'
+                      : name ?? widget.repository.currentUsername ?? '已登录',
+                  subtitle: !loggedIn
+                      ? '登录后查看主题、回复、收藏和短消息'
+                      : nicknameShown
+                          ? identity.systemName
+                          : null,
+                  avatarUrl: loggedIn ? identity?.avatarUrl : null,
+                  onTap: loggedIn
+                      ? () => _openProfile(UserProfileTab.home)
+                      : null,
+                  action: loggedIn
+                      ? null
+                      : FilledButton.icon(
+                          onPressed: () =>
+                              openLogin(context, widget.repository),
+                          icon: const Icon(Icons.login),
+                          label: const Text('登录南+账号'),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                          ),
+                        ),
+                );
+              },
+            ),
             const SizedBox(height: AppSpace.xl),
             AppGroup(
-              label: '登录状态',
               children: [
+                if (loggedIn) ...[
+                  AppRow(
+                    icon: Icons.article_outlined,
+                    title: const Text('我的主题'),
+                    onTap: () => _openProfile(UserProfileTab.topics),
+                  ),
+                  AppRow(
+                    icon: Icons.forum_outlined,
+                    title: const Text('我的回复'),
+                    onTap: () => _openProfile(UserProfileTab.posts),
+                  ),
+                ],
                 AppRow(
-                  icon: Icons.logout,
-                  title: const Text('退出登录'),
-                  subtitle: const Text('清除本机登录状态'),
-                  destructive: true,
-                  onTap: _logout,
+                  icon: Icons.history_outlined,
+                  title: const Text('浏览历史'),
+                  onTap: () => _push(BrowsingHistoryScreen(
+                    repository: widget.repository,
+                    onBrowseHome: widget.onBrowseHome,
+                  )),
                 ),
               ],
             ),
+            if (loggedIn) ...[
+              const SizedBox(height: AppSpace.xl),
+              AppGroup(
+                children: [
+                  AppRow(
+                    icon: Icons.fact_check_outlined,
+                    title: const Text('论坛任务'),
+                    onTap: () =>
+                        _push(ForumTasksScreen(repository: widget.repository)),
+                  ),
+                  AppRow(
+                    icon: Icons.block_outlined,
+                    title: const Text('屏蔽配置'),
+                    onTap: () => _push(
+                        BlockingSettingsScreen(repository: widget.repository)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpace.xl),
+              AppGroup(
+                children: [
+                  AppRow(
+                    icon: Icons.logout,
+                    title: const Text('退出登录'),
+                    destructive: true,
+                    onTap: _logout,
+                  ),
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
 }
 
+/// Who is signed in: avatar, name and, for guests, the login action.
 class _AccountHeader extends StatelessWidget {
   const _AccountHeader({
     required this.title,
     required this.subtitle,
     required this.avatarUrl,
-    required this.loggedIn,
+    this.onTap,
+    this.action,
   });
 
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final String? avatarUrl;
-  final bool loggedIn;
+
+  /// Opens the own profile.
+  final VoidCallback? onTap;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(18),
       decoration: appSurface(context),
-      child: Row(
-        children: [
-          AccountAvatar(avatarUrl: avatarUrl, size: 56),
-          const SizedBox(width: 14),
-          Expanded(
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpace.lg),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(title, style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 3),
-                Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 10),
-                _AccountBadge(
-                  label: loggedIn ? '已连接' : '游客模式',
-                  icon: loggedIn
-                      ? Icons.verified_user_outlined
-                      : Icons.person_off_outlined,
-                  active: loggedIn,
+                Row(
+                  children: [
+                    AccountAvatar(avatarUrl: avatarUrl, size: 56),
+                    const SizedBox(width: AppSpace.lg),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleLarge,
+                          ),
+                          if (subtitle != null) ...[
+                            const SizedBox(height: 2),
+                            Text(subtitle!, style: theme.textTheme.bodySmall),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (onTap != null)
+                      Icon(Icons.chevron_right, color: AppColors.textFaint),
+                  ],
                 ),
+                if (action != null) ...[
+                  const SizedBox(height: AppSpace.lg),
+                  action!,
+                ],
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -337,47 +326,3 @@ class AccountAvatar extends StatelessWidget {
     );
   }
 }
-
-class _AccountBadge extends StatelessWidget {
-  const _AccountBadge({
-    required this.label,
-    required this.icon,
-    required this.active,
-  });
-
-  final String label;
-  final IconData icon;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 28),
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: active ? AppColors.successSoft : AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 15,
-            color: active ? AppColors.success : AppColors.textMuted,
-          ),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: active ? AppColors.success : AppColors.textMuted,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-

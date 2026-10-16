@@ -3,12 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:package_info_plus/package_info_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/messages/pm_box_screen.dart';
 import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
 import 'package:south_plus_rewrite/features/messages/pm_detail_screen.dart';
-import 'package:south_plus_rewrite/features/profile/account_screen.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
@@ -297,32 +294,6 @@ void main() {
     await tester.tap(find.text('发短消息'));
     await tester.pumpAndSettle();
     expect(repository.composePaths, [_FakePmRepository.profile.messageUrl]);
-  });
-
-  testWidgets('account screen opens messages when logged in', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    final repository = _FakePmRepository();
-    await tester.pumpWidget(MaterialApp(
-      home: AccountScreen(
-        repository: repository,
-        onLoggedOut: () {},
-        packageInfoLoader: () async => PackageInfo(
-          appName: 'app',
-          packageName: 'app',
-          version: '0',
-          buildNumber: '0',
-        ),
-      ),
-    ));
-    await tester.pumpAndSettle();
-
-    await tester.scrollUntilVisible(find.text('短消息'), 180,
-        scrollable: find.byType(Scrollable).first);
-    await tester.ensureVisible(find.text('短消息'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('短消息'));
-    await tester.pumpAndSettle();
-    expect(find.byType(PmBoxScreen), findsOneWidget);
   });
 }
 
