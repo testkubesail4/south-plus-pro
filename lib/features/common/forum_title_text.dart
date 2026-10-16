@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../theme/app_theme.dart';
 
-/// A thread title drawn with the site's highlight (color, bold, italic,
-/// underline), its color kept readable on the current surface.
+/// A thread title with the site's highlight: bold and italic on the text, the
+/// site colour on a short bar before it (kept readable on the surface). The
+/// text stays in the body colour and is never underlined, so a highlighted
+/// title does not read as a raw link.
 class ForumTitleText extends StatelessWidget {
   const ForumTitleText(
     this.title, {
@@ -23,20 +25,41 @@ class ForumTitleText extends StatelessWidget {
   Widget build(BuildContext context) {
     final highlight = titleStyle;
     final color = highlight?.colorValue;
-    return Text(
+    final text = Text(
       title,
       maxLines: maxLines,
       overflow: maxLines == null ? null : TextOverflow.ellipsis,
       style: highlight == null
           ? style
           : style.copyWith(
-              color: color == null
-                  ? null
-                  : readableTitleColor(Color(color), AppColors.surface),
-              fontWeight: highlight.bold ? FontWeight.w800 : null,
+              fontWeight: highlight.bold ? FontWeight.w700 : null,
               fontStyle: highlight.italic ? FontStyle.italic : null,
-              decoration: highlight.underline ? TextDecoration.underline : null,
             ),
+    );
+    if (color == null) return text;
+    // The bar is centred on the first line at any text scale.
+    final fontSize = MediaQuery.textScalerOf(context).scale(style.fontSize ?? 14);
+    final line = fontSize * (style.height ?? 1.3);
+    final bar = fontSize * 0.9;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(top: (line - bar) / 2, right: 6),
+          child: SizedBox(
+            width: 4,
+            height: bar,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: readableTitleColor(Color(color), AppColors.surface),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ),
+        Flexible(child: text),
+      ],
     );
   }
 }
