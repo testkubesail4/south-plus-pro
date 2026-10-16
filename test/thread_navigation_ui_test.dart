@@ -145,7 +145,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.text('[B31F]'), -200);
       await tester.pumpAndSettle();
-      expect(repository.pages, [1, 2, 2, 2]);
+      // Scrolling may also append page 3; page 2 is refetched once per buy.
+      expect(repository.pages.take(4), [1, 2, 2, 2]);
+      expect(repository.pages.where((p) => p == 2), hasLength(3));
       expect(find.text('unlocked both purchases'), findsOneWidget);
       expect(find.text('购买查看'), findsNothing);
     });

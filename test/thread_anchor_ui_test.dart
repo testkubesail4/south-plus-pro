@@ -82,6 +82,8 @@ void main() {
     final repository = await pumpThread(tester, '$_base?tid=7&page=e&#a');
     expect(repository.requested.first, contains('page=e'));
     expectOnScreen('[B90F]');
+    // The page control sits after the last row, below the fold at 2x.
+    await tester.scrollUntilVisible(find.textContaining('第 3 /'), 200);
     expect(find.textContaining('第 3 /'), findsWidgets);
   });
 

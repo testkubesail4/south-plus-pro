@@ -78,7 +78,13 @@ class ThreadPostBody extends StatelessWidget {
                     onOpenLink: onOpenLink,
                   )
                 else if (content.isNotEmpty)
-                  Text(content, style: Theme.of(context).textTheme.bodyMedium),
+                  Text(
+                    content,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyLarge
+                        ?.copyWith(height: 1.62),
+                  ),
                 if (images.isNotEmpty) ...[
                   if (content.isNotEmpty || quote != null)
                     const SizedBox(height: 12),

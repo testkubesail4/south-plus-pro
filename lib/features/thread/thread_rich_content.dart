@@ -49,7 +49,8 @@ class ThreadRichContent extends StatelessWidget {
     return PerfTrace.span(
       'ThreadRichContent.build',
       () {
-        final baseStyle = Theme.of(context).textTheme.bodyMedium;
+        final baseStyle =
+            Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.62);
         final selectionRegistrar = SelectionContainer.maybeOf(context);
         final selectionColor =
             DefaultSelectionStyle.of(context).selectionColor ??
