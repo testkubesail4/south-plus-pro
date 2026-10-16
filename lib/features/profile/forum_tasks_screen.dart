@@ -5,6 +5,7 @@ import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/async_state_view.dart';
+import '../common/content_width.dart';
 
 class ForumTasksScreen extends StatefulWidget {
   const ForumTasksScreen({super.key, required this.repository});
@@ -100,10 +101,12 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
       appBar: AppBar(title: const Text('论坛任务')),
       body: SafeArea(
         bottom: false,
-        child: Column(
+        child: LayoutBuilder(builder: (context, constraints) {
+          final gutter = appGutter(constraints.maxWidth, AppWidths.form);
+          return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 12),
               child: _TaskHeader(
                 status: _status,
                 onStatusChanged: _setStatus,
@@ -132,7 +135,7 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
                     onRefresh: _refresh,
                     child: tasks.isEmpty
                         ? ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 24, 16, 28),
+                            padding: EdgeInsets.fromLTRB(gutter, 24, gutter, 28),
                             children: [
                               EmptyStateView(
                                 title: _emptyTitle(_status),
@@ -142,7 +145,7 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
                             ],
                           )
                         : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+                            padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 28),
                             itemCount: tasks.length,
                             separatorBuilder: (_, __) =>
                                 const SizedBox(height: 10),
@@ -162,7 +165,8 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
               ),
             ),
           ],
-        ),
+          );
+        }),
       ),
     );
   }
@@ -184,12 +188,8 @@ class _TaskHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceTint,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.brandSoft),
-      ),
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: appSurface(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -242,20 +242,18 @@ class _TaskHeader extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           SegmentedButton<ForumTaskStatus>(
+            showSelectedIcon: false,
             segments: const [
               ButtonSegment(
                 value: ForumTaskStatus.available,
-                icon: Icon(Icons.add_task_outlined),
                 label: Text('新任务'),
               ),
               ButtonSegment(
                 value: ForumTaskStatus.inProgress,
-                icon: Icon(Icons.pending_actions_outlined),
                 label: Text('进行中'),
               ),
               ButtonSegment(
                 value: ForumTaskStatus.completed,
-                icon: Icon(Icons.verified_outlined),
                 label: Text('已完成'),
               ),
             ],
@@ -283,12 +281,8 @@ class _TaskCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final progress = task.progressPercent;
     return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: appSurface(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -299,8 +293,8 @@ class _TaskCard extends StatelessWidget {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: _statusSoftColor(task.status),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AppColors.inkSoft,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Icon(
                   _statusIcon(task.status),
@@ -394,15 +388,6 @@ class _TaskCard extends StatelessWidget {
       ForumTaskStatus.failed => ThemeData().colorScheme.error,
     };
   }
-
-  Color _statusSoftColor(ForumTaskStatus status) {
-    return switch (status) {
-      ForumTaskStatus.available => AppColors.inkSoft,
-      ForumTaskStatus.inProgress => AppColors.brandSoft,
-      ForumTaskStatus.completed => AppColors.successSoft,
-      ForumTaskStatus.failed => AppColors.brandSoft,
-    };
-  }
 }
 
 class _TaskPill extends StatelessWidget {
@@ -417,7 +402,7 @@ class _TaskPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -426,11 +411,10 @@ class _TaskPill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             label,
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(context)
+                .textTheme
+                .labelMedium
+                ?.copyWith(color: AppColors.textMuted),
           ),
         ],
       ),

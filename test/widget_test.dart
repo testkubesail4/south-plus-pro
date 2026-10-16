@@ -890,6 +890,23 @@ void main() {
     expect(find.text('日常奖励领取完成SP+2'), findsOneWidget);
   });
 
+  testWidgets('forum tasks sit in the form width with text-only segments',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+        home: ForumTasksScreen(repository: _FakeQuickClaimTasksRepository())));
+    await tester.pumpAndSettle();
+
+    final segments = find.byType(SegmentedButton<ForumTaskStatus>);
+    expect(tester.getSize(segments).width, lessThanOrEqualTo(AppWidths.form));
+    expect(tester.getCenter(segments).dx, 1440 / 2);
+    // Icons make the three labels wrap at large text (DESIGN §7).
+    expect(find.descendant(of: segments, matching: find.byType(Icon)),
+        findsNothing);
+  });
+
   testWidgets('profile uses cached overview while refreshing fresh data',
       (tester) async {
     final repository = _CachedProfileRepository();
