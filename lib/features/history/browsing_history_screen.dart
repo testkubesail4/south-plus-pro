@@ -4,7 +4,9 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
-import '../common/forum_title_text.dart';
+import '../common/content_width.dart';
+import '../common/grouped_list.dart';
+import '../common/thread_row.dart';
 import '../thread/thread_detail_screen.dart';
 
 class BrowsingHistoryScreen extends StatefulWidget {
@@ -101,6 +103,24 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
     if (mounted) await _refresh();
   }
 
+  Widget _historyRow(BrowsingHistoryEntry entry) {
+    final thread = entry.thread;
+    final viewed = entry.viewedAt.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return ForumThreadRow(
+      title: thread.title,
+      titleStyle: thread.titleStyle,
+      meta: [
+        if (thread.section.isNotEmpty) thread.section,
+        if (thread.author case final author?) author,
+        '${thread.replies} 回复',
+        // The day is the group's label; the row adds when.
+        '${two(viewed.hour)}:${two(viewed.minute)}',
+      ],
+      onTap: () => _openThread(entry),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -142,24 +162,63 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
             onRefresh: _refresh,
             child: items.isEmpty
                 ? _EmptyHistory(onBrowseHome: widget.onBrowseHome)
-                : ListView.separated(
+                : ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                    itemCount: items.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final entry = items[index];
-                      return _HistoryItem(
-                        entry: entry,
-                        onTap: () => _openThread(entry),
-                      );
-                    },
+                    padding: const EdgeInsets.only(
+                        top: AppSpace.md, bottom: AppSpace.xxl),
+                    children: [
+                      AppContentWidth(
+                        maxWidth: AppWidths.list,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final (i, (label, entries))
+                                in _byDay(items, DateTime.now()).indexed) ...[
+                              if (i > 0) const SizedBox(height: AppSpace.xl),
+                              AppGroup(
+                                label: label,
+                                dividerIndent: AppSpace.lg,
+                                children: [
+                                  for (final entry in entries)
+                                    _historyRow(entry),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
           );
         },
       ),
     );
   }
+}
+
+/// Consecutive entries grouped under 今天 / 昨天 / the date they were viewed.
+List<(String, List<BrowsingHistoryEntry>)> _byDay(
+  List<BrowsingHistoryEntry> items,
+  DateTime now,
+) {
+  final today = DateUtils.dateOnly(now);
+  // Calendar days, not 24 h spans: a DST day is 23 or 25 hours long.
+  final yesterday = DateTime(today.year, today.month, today.day - 1);
+  String label(DateTime viewed) {
+    final day = DateUtils.dateOnly(viewed.toLocal());
+    if (DateUtils.isSameDay(day, today)) return '今天';
+    if (DateUtils.isSameDay(day, yesterday)) return '昨天';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${day.year}-${two(day.month)}-${two(day.day)}';
+  }
+
+  final groups = <(String, List<BrowsingHistoryEntry>)>[];
+  for (final entry in items) {
+    final key = label(entry.viewedAt);
+    if (groups.isEmpty || groups.last.$1 != key) groups.add((key, []));
+    groups.last.$2.add(entry);
+  }
+  return groups;
 }
 
 class _EmptyHistory extends StatelessWidget {
@@ -190,159 +249,6 @@ class _EmptyHistory extends StatelessWidget {
           ),
         ],
       ],
-    );
-  }
-}
-
-class _HistoryItem extends StatelessWidget {
-  const _HistoryItem({
-    required this.entry,
-    required this.onTap,
-  });
-
-  final BrowsingHistoryEntry entry;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final thread = entry.thread;
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 96),
-          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: ForumTitleText(
-                      thread.title,
-                      titleStyle: thread.titleStyle,
-                      maxLines: 2,
-                      style: TextStyle(
-                        color: AppColors.text,
-                        fontSize: 15.5,
-                        height: 1.35,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Icon(
-                    Icons.chevron_right,
-                    color: AppColors.textMuted,
-                    size: 22,
-                  ),
-                ],
-              ),
-              if (thread.bodyPreview != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  thread.bodyPreview!,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-              const SizedBox(height: 9),
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 5,
-                children: [
-                  _HistoryMetaChip(
-                    icon: Icons.schedule_outlined,
-                    label: _formatViewedAt(entry.viewedAt),
-                  ),
-                  _HistoryMetaChip(
-                    icon: Icons.forum_outlined,
-                    label: thread.section,
-                  ),
-                  _HistoryMetaChip(
-                    icon: Icons.chat_bubble_outline,
-                    label: '${thread.replies} 回',
-                  ),
-                  if (thread.author != null)
-                    _HistoryMetaChip(
-                      icon: Icons.person_outline,
-                      label: thread.author!,
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _formatViewedAt(DateTime value) {
-    final local = value.toLocal();
-    final now = DateTime.now();
-    final diff = now.difference(local);
-    if (!diff.isNegative) {
-      if (diff.inMinutes < 1) return '刚刚';
-      if (diff.inHours < 1) return '${diff.inMinutes} 分钟前';
-      if (diff.inDays < 1) return '${diff.inHours} 小时前';
-      if (diff.inDays < 7) return '${diff.inDays} 天前';
-    }
-    final month = local.month.toString().padLeft(2, '0');
-    final day = local.day.toString().padLeft(2, '0');
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '${local.year}-$month-$day $hour:$minute';
-  }
-}
-
-class _HistoryMetaChip extends StatelessWidget {
-  const _HistoryMetaChip({
-    required this.icon,
-    required this.label,
-  });
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 28, maxWidth: 180),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: AppColors.textMuted),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 12,
-                height: 1.2,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

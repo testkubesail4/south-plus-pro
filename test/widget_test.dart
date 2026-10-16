@@ -494,7 +494,7 @@ void main() {
 
     expect(find.text('浏览历史'), findsOneWidget);
     expect(find.text('看过的主题'), findsOneWidget);
-    expect(find.text('10 回'), findsOneWidget);
+    expect(find.textContaining('10 回复'), findsOneWidget);
 
     await tester.tap(find.text('看过的主题'));
     await tester.pumpAndSettle();
@@ -503,6 +503,38 @@ void main() {
       'https://south-plus.net/read.php?tid-88.html',
     ]);
     expect(find.text('history body', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets('browsing history groups rows under the day they were viewed',
+      (tester) async {
+    final now = DateTime.now();
+    BrowsingHistoryEntry entry(String title, DateTime viewedAt) =>
+        BrowsingHistoryEntry(
+          thread: ForumThread(
+              title: title,
+              url: 'https://south-plus.net/read.php?tid-1.html',
+              replies: 1,
+              section: '茶馆'),
+          viewedAt: viewedAt,
+        );
+    final repository = _FakeHistoryRepository()
+      .._entries = [
+        entry('today topic', now),
+        entry('yesterday topic', now.subtract(const Duration(days: 1))),
+        entry('older topic', DateTime(2026, 1, 5, 9, 30)),
+      ];
+    await tester.pumpWidget(
+      MaterialApp(home: BrowsingHistoryScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    double top(String text) => tester.getTopLeft(find.text(text)).dy;
+    expect(top('今天'), lessThan(top('today topic')));
+    expect(top('today topic'), lessThan(top('昨天')));
+    expect(top('昨天'), lessThan(top('yesterday topic')));
+    expect(top('yesterday topic'), lessThan(top('2026-01-05')));
+    expect(top('2026-01-05'), lessThan(top('older topic')));
+    expect(find.textContaining('09:30'), findsOneWidget);
   });
 
   testWidgets('browsing history can be cleared after confirmation',
