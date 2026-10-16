@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
+import 'package:south_plus_rewrite/features/messages/messages_screen.dart';
 import 'package:south_plus_rewrite/features/messages/reply_notices_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/models/forum_pm_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 
 // Synthetic boards, titles and tids only.
@@ -27,28 +29,44 @@ void main() {
       .widget<Badge>(find.descendant(of: near, matching: find.byType(Badge)))
       .isLabelVisible;
 
-  testWidgets('home dots unread notices and PMs; notices open and delete',
-      (tester) async {
+  testWidgets(
+      '消息 tab holds 短消息 and 回复提醒, each dotted; notices open and '
+      'delete', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repo =
-        _Repo(const ForumNoticeFlags(replyNotice: true, unreadPm: true));
+    final repo = _Repo(const ForumNoticeFlags(replyNotice: true));
     await tester.pumpWidget(MaterialApp(home: HomeShell(repository: repo)));
     await tester.pump();
+    Finder tab(String label) =>
+        find.ancestor(of: find.text(label), matching: find.byType(Tab));
 
-    expect(dotted(tester, find.byTooltip('回复提醒，有未读')), isTrue);
-    expect(dotted(tester, find.byTooltip('短消息，有未读')), isTrue);
-    expect(dotted(tester, find.byType(NavigationBar)), isTrue,
-        reason: '消息 tab in the navigation bar');
+    // Either kind of unread dots the 消息 destination.
+    expect(dotted(tester, find.byType(NavigationBar)), isTrue);
+    await tester.tap(find.descendant(
+        of: find.byType(NavigationBar), matching: find.text('消息')));
+    await tester.pumpAndSettle();
+    expect(dotted(tester, tab('回复提醒')), isTrue);
+    expect(dotted(tester, tab('短消息')), isFalse);
+    // Screen readers hear which tab has something unread.
+    final semantics = tester.ensureSemantics();
+    expect(find.bySemanticsLabel(RegExp('回复提醒，有未读')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('短消息，有未读')), findsNothing);
+
+    repo.flags.value = const ForumNoticeFlags(unreadPm: true);
+    await tester.pump();
+    expect(dotted(tester, tab('回复提醒')), isFalse);
+    expect(dotted(tester, tab('短消息')), isTrue);
+    expect(find.bySemanticsLabel(RegExp('短消息，有未读')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('回复提醒，有未读')), findsNothing);
+    semantics.dispose();
+    expect(dotted(tester, find.byType(NavigationBar)), isTrue);
 
     repo.flags.value = const ForumNoticeFlags();
     await tester.pump();
-    expect(dotted(tester, find.byTooltip('回复提醒')), isFalse);
-    expect(dotted(tester, find.byTooltip('短消息')), isFalse);
     expect(dotted(tester, find.byType(NavigationBar)), isFalse);
 
-    await tester.tap(find.byTooltip('回复提醒'));
+    await tester.tap(tab('回复提醒'));
     await tester.pumpAndSettle();
     expect(find.text('Fixture topic 1'), findsOneWidget);
     expect(find.text('Board 2 · 2026-01-02'), findsOneWidget);
@@ -71,6 +89,28 @@ void main() {
           .url,
       _notice(2).threadUrl,
     );
+  });
+
+  testWidgets('swiping between the 消息 tabs keeps both lists loaded',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = _Repo(const ForumNoticeFlags());
+    await tester.pumpWidget(MaterialApp(home: MessagesScreen(repository: repo)));
+    await tester.pumpAndSettle();
+    expect(repo.pmFetches, 1);
+
+    for (var i = 0; i < 2; i++) {
+      await tester.fling(
+          find.byType(TabBarView), const Offset(-300, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('Fixture topic 1'), findsOneWidget);
+      await tester.fling(find.byType(TabBarView), const Offset(300, 0), 1000);
+      await tester.pumpAndSettle();
+    }
+    expect(repo.fetches, 1, reason: '回复提醒 loaded once');
+    expect(repo.pmFetches, 1, reason: '短消息 loaded once');
   });
 
   testWidgets('a failed delete keeps the notice and says why', (tester) async {
@@ -153,6 +193,14 @@ class _Repo extends ForumRepository {
 
   @override
   bool get isLoggedIn => true;
+
+  @override
+  Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
+    pmFetches++;
+    return ForumPmPage(box: box, messages: const []);
+  }
+
+  var pmFetches = 0;
 
   @override
   Future<ForumHomeSnapshot> fetchHome() async => const ForumHomeSnapshot(

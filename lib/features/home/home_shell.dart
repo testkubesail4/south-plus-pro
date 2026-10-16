@@ -15,7 +15,7 @@ import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
 import '../common/forum_title_text.dart';
-import '../messages/pm_box_screen.dart';
+import '../messages/messages_screen.dart';
 import '../messages/reply_notices_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';
@@ -90,13 +90,13 @@ class _HomeShellState extends State<HomeShell> {
                   tab(
                     3,
                     () => _repository.isLoggedIn
-                        ? PmBoxScreen(repository: _repository)
+                        ? MessagesScreen(repository: _repository)
                         : Scaffold(
-                            appBar: AppBar(title: const Text('短消息')),
+                            appBar: AppBar(title: const Text('消息')),
                             body: LoginPrompt(
                               icon: Icons.mail_outline,
-                              title: '短消息',
-                              message: '登录后可以查看收件箱、发件箱和消息跟踪。',
+                              title: '消息',
+                              message: '登录后可以查看短消息和回复提醒。',
                               onLogin: () => openLogin(context, _repository),
                             ),
                           ),
@@ -111,12 +111,14 @@ class _HomeShellState extends State<HomeShell> {
                   ),
                 ],
               );
+              // Either kind of unread dots the 消息 destination.
+              final unread = flags.unreadPm || flags.replyNotice;
               final pmIcon = Badge(
-                isLabelVisible: flags.unreadPm,
+                isLabelVisible: unread,
                 child: const Icon(Icons.mail_outline),
               );
               final pmSelectedIcon = Badge(
-                isLabelVisible: flags.unreadPm,
+                isLabelVisible: unread,
                 child: const Icon(Icons.mail),
               );
               final destinations = [
@@ -186,8 +188,8 @@ class _HomeShellState extends State<HomeShell> {
                               icon: icon,
                               selectedIcon: selected,
                               label: label,
-                              tooltip: identical(icon, pmIcon) && flags.unreadPm
-                                  ? '消息，有未读短消息'
+                              tooltip: identical(icon, pmIcon) && unread
+                                  ? '消息，有未读'
                                   : null,
                             ),
                         ],

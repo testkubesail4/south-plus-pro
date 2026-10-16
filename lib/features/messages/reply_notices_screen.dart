@@ -8,9 +8,16 @@ import '../thread/thread_detail_screen.dart';
 
 /// The site's 回复提醒 list: replies to the user's threads, each removable.
 class ReplyNoticesScreen extends StatefulWidget {
-  const ReplyNoticesScreen({super.key, required this.repository});
+  const ReplyNoticesScreen({
+    super.key,
+    required this.repository,
+    this.embedded = false,
+  });
 
   final ForumRepository repository;
+
+  /// Inside the 消息 tab, which supplies the app bar.
+  final bool embedded;
 
   @override
   State<ReplyNoticesScreen> createState() => _ReplyNoticesScreenState();
@@ -81,7 +88,7 @@ class _ReplyNoticesScreenState extends State<ReplyNoticesScreen> {
     final notices = _notices;
     final error = _error;
     return Scaffold(
-      appBar: AppBar(title: const Text('回复提醒')),
+      appBar: widget.embedded ? null : AppBar(title: const Text('回复提醒')),
       body: error != null && notices == null
           ? AsyncErrorView(
               title: '回复提醒加载失败',

@@ -8,9 +8,16 @@ import 'pm_compose_screen.dart';
 import 'pm_detail_screen.dart';
 
 class PmBoxScreen extends StatefulWidget {
-  const PmBoxScreen({super.key, required this.repository});
+  const PmBoxScreen({
+    super.key,
+    required this.repository,
+    this.embedded = false,
+  });
 
   final ForumRepository repository;
+
+  /// Inside the 消息 tab, which supplies the app bar; 写消息 becomes the FAB.
+  final bool embedded;
 
   @override
   State<PmBoxScreen> createState() => _PmBoxScreenState();
@@ -91,16 +98,25 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('短消息'),
-        actions: [
-          IconButton(
-            tooltip: '写消息',
-            onPressed: _compose,
-            icon: Icon(Icons.edit_outlined),
-          ),
-        ],
-      ),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Text('短消息'),
+              actions: [
+                IconButton(
+                  tooltip: '写消息',
+                  onPressed: _compose,
+                  icon: Icon(Icons.edit_outlined),
+                ),
+              ],
+            ),
+      floatingActionButton: widget.embedded
+          ? FloatingActionButton(
+              tooltip: '写消息',
+              onPressed: _compose,
+              child: const Icon(Icons.edit_outlined),
+            )
+          : null,
       body: SafeArea(
         top: false,
         child: Column(
@@ -110,23 +126,23 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: SegmentedButton<ForumPmBox>(
+                  // Text-only segments stay on one line at large text.
                   segments: const [
                     ButtonSegment(
                       value: ForumPmBox.inbox,
-                      icon: Icon(Icons.inbox_outlined),
                       label: Text('收件箱'),
                     ),
                     ButtonSegment(
                       value: ForumPmBox.sendbox,
-                      icon: Icon(Icons.outbox_outlined),
                       label: Text('发件箱'),
                     ),
                     ButtonSegment(
                       value: ForumPmBox.scout,
-                      icon: Icon(Icons.track_changes_outlined),
-                      label: Text('消息跟踪'),
+                      // Short enough for one line at large text (D§7).
+                      label: Text('跟踪'),
                     ),
                   ],
+                  showSelectedIcon: false,
                   selected: {_box},
                   onSelectionChanged: (values) => _selectBox(values.single),
                 ),
@@ -179,10 +195,8 @@ class _PmList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Unread shows as dots on the tabs and rows, so no banner.
     final children = <Widget>[];
-    if (page.hasUnread == true) {
-      children.add(const _UnreadBanner());
-    }
     if (page.messages.isEmpty) {
       children.add(const EmptyStateView(
         icon: Icons.mark_email_read_outlined,
@@ -220,43 +234,14 @@ class _PmList extends StatelessWidget {
     }
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      // Clear of the 写消息 FAB.
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
       children: children,
     );
   }
 
   Widget _tile(ForumPmSummary message) =>
       _PmTile(message: message, onTap: () => onOpen(message));
-}
-
-class _UnreadBanner extends StatelessWidget {
-  const _UnreadBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.brandSoft,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.mark_email_unread_outlined,
-              size: 18, color: AppColors.brandDark),
-          const SizedBox(width: 8),
-          Text(
-            '有新消息',
-            style: TextStyle(
-              color: AppColors.brandDark,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _GroupLabel extends StatelessWidget {

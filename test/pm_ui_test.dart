@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,7 +57,8 @@ void main() {
 
     expect(find.text('个人消息'), findsOneWidget);
     expect(find.text('群发消息'), findsOneWidget);
-    expect(find.text('有新消息'), findsOneWidget);
+    // Unread shows as row and tab dots, not a banner.
+    expect(find.text('有新消息'), findsNothing);
     expect(
       tester.getTopLeft(find.text('personal title')).dy,
       lessThan(tester.getTopLeft(find.text('broadcast title')).dy),
@@ -67,10 +69,32 @@ void main() {
     expect(repository.boxRequests.last,
         (ForumPmBox.inbox, 'message.php?action-receivebox-page-2.html'));
 
-    await tester.tap(find.text('消息跟踪'));
+    await tester.tap(find.text('跟踪'));
     await tester.pumpAndSettle();
     expect(repository.boxRequests.last, (ForumPmBox.scout, null));
     expect(find.textContaining('对方已读'), findsOneWidget);
+  });
+
+  testWidgets('box switcher labels stay on one line at text scale 2',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(2)),
+        child: child!,
+      ),
+      home: PmBoxScreen(repository: _FakePmRepository()),
+    ));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    for (final label in ['收件箱', '发件箱', '跟踪']) {
+      final paragraph = tester.renderObject<RenderParagraph>(find.text(label));
+      final line =
+          paragraph.getFullHeightForCaret(const TextPosition(offset: 0));
+      expect(paragraph.size.height, lessThan(line * 1.5), reason: label);
+    }
   });
 
   testWidgets('detail shows only server actions and confirms before delete',
@@ -230,7 +254,7 @@ void main() {
     await tester
         .pumpWidget(MaterialApp(home: PmBoxScreen(repository: repository)));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('消息跟踪'));
+    await tester.tap(find.text('跟踪'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('tracked title'));
     await tester.pumpAndSettle();

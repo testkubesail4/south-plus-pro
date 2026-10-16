@@ -1,0 +1,86 @@
+import 'package:flutter/material.dart';
+
+import '../../models/forum_models.dart';
+import '../../services/forum_repository.dart';
+import 'pm_box_screen.dart';
+import 'reply_notices_screen.dart';
+
+/// The 消息 tab: the one home of 短消息 and 回复提醒, swipeable, each tab
+/// dotted while it has something unread.
+class MessagesScreen extends StatelessWidget {
+  const MessagesScreen({super.key, required this.repository});
+
+  final ForumRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    // The dot follows the label instead of sitting on its last character.
+    // The dot is announced too, since the Badge itself has no semantics.
+    Widget tab(String label, bool unread) => Tab(
+          child: Semantics(
+            label: unread ? '$label，有未读' : label,
+            child: ExcludeSemantics(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label),
+                  const SizedBox(width: 2),
+                  Badge(isLabelVisible: unread),
+                ],
+              ),
+            ),
+          ),
+        );
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('消息'),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(kTextTabBarHeight),
+            child: ValueListenableBuilder<ForumNoticeFlags>(
+              valueListenable: repository.noticeFlags,
+              builder: (context, flags, _) => TabBar(
+                tabs: [
+                  tab('短消息', flags.unreadPm),
+                  tab('回复提醒', flags.replyNotice),
+                ],
+              ),
+            ),
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            _KeepAlive(PmBoxScreen(repository: repository, embedded: true)),
+            _KeepAlive(
+              ReplyNoticesScreen(repository: repository, embedded: true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Swiping back shows the list as left, without a reload.
+class _KeepAlive extends StatefulWidget {
+  const _KeepAlive(this.child);
+
+  final Widget child;
+
+  @override
+  State<_KeepAlive> createState() => _KeepAliveState();
+}
+
+class _KeepAliveState extends State<_KeepAlive>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+}
