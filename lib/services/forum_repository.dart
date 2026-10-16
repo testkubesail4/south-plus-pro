@@ -281,6 +281,13 @@ class ForumRepository {
         : _urls.absoluteUrl('read.php?tid-$tid.html');
   }
 
+  String? threadShareUrl(ForumThread thread) {
+    if (_urls.forumLinkTarget(thread.url) is! ForumThreadLinkTarget)
+      return null;
+    final tid = _urls.tidFromUrl(thread.url);
+    return tid == null ? null : _urls.absoluteUrl('read.php?tid-$tid.html');
+  }
+
   Future<ForumAttachment> downloadAttachment(
     String url, {
     required Directory directory,
@@ -2079,7 +2086,8 @@ class ForumRepository {
       requestedPage: normalizedPage,
       threadUrl: thread.url,
     );
-    final section = _threadDetailParser.sectionTitle(document);
+    final board = _threadDetailParser.board(document);
+    final section = board?.name ?? _threadDetailParser.sectionTitle(document);
 
     if (posts.isEmpty) {
       throw ForumRepositoryException(_responseParser.pageMessage(html));
@@ -2113,6 +2121,7 @@ class ForumRepository {
 
     final detail = ThreadDetail(
       thread: detailThread,
+      board: board,
       body: first?.content ?? '',
       bodyImages: first?.images ?? const [],
       bodyLinks: first?.links ?? const [],

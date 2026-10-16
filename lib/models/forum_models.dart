@@ -321,6 +321,7 @@ class ThreadDetail {
     this.previousThread,
     this.nextThread,
     this.rssFeed,
+    this.board,
   });
 
   final ForumThread thread;
@@ -341,6 +342,7 @@ class ThreadDetail {
   final ThreadActionLink? previousThread;
   final ThreadActionLink? nextThread;
   final ThreadActionLink? rssFeed;
+  final ForumCategory? board;
 }
 
 class ThreadPagination {

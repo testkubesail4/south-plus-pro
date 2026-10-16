@@ -232,6 +232,31 @@ class ThreadDetailParser {
     );
   }
 
+  ForumCategory? board(dom.Document document) {
+    final links = document.querySelectorAll(
+      '#breadcrumbs a[href], #breadCrumb a[href], .breadcrumb a[href], '
+      '.crumb a[href]',
+    );
+    for (final link in links.reversed) {
+      final target = urls.forumLinkTarget(link.attributes['href'] ?? '');
+      if (target is! ForumBoardLinkTarget) continue;
+      final fid = urls.fidFromCategory(target.category);
+      if (fid == null) continue;
+      final label = _cleanText(link.text);
+      final name = label.isEmpty
+          ? _sectionTitleFromDocumentTitle(
+              document.querySelector('title')?.text ?? '')
+          : label;
+      if (name == null || _isGenericCrumbTitle(name)) return null;
+      return ForumCategory(
+        name: name,
+        slug: 'f$fid',
+        url: urls.absoluteUrl('thread.php?fid-$fid.html'),
+      );
+    }
+    return null;
+  }
+
   String? sectionTitle(dom.Document document) {
     final sectionFromTitle = _sectionTitleFromDocumentTitle(
       document.querySelector('title')?.text ?? '',
