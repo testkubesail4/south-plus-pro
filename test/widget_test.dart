@@ -21,6 +21,7 @@ import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/history/browsing_history_screen.dart';
 import 'package:south_plus_rewrite/features/profile/account_screen.dart';
+import 'package:south_plus_rewrite/features/profile/settings_screen.dart';
 import 'package:south_plus_rewrite/features/profile/forum_tasks_screen.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/reply/reply_sheet.dart';

@@ -1,4 +1,20 @@
-part of 'account_screen.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+
+import '../../services/external_link_launcher.dart';
+import '../../services/forum_network_setup_store.dart';
+import '../../services/forum_repository.dart';
+import '../../services/forum_text_size_settings.dart';
+import '../../services/image_loading_settings.dart';
+import '../../services/thread_paging_settings.dart';
+import '../../services/update_checker.dart';
+import '../../theme/app_theme.dart';
+import '../common/cached_forum_image.dart';
+import '../common/grouped_list.dart';
+import 'blocking_settings_screen.dart';
+import 'network_settings_screen.dart';
+import 'network_setup_flow_screen.dart';
 
 /// Device-only preferences: network, appearance, images, text size, app.
 class SettingsScreen extends StatefulWidget {
@@ -116,7 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text('发布时间：${_formatReleaseDate(release.publishedAt!)}'),
               ],
               if (release.body.isNotEmpty) ...[
-                const SizedBox(height: 14),
+                const SizedBox(height: AppSpace.xl),
                 Text(
                   _compactReleaseNotes(release.body),
                   maxLines: 5,
@@ -196,16 +212,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            _AccountSection(
-              title: '网络',
-              subtitle: '调整访问入口、解析方式和连接探测',
+            const SizedBox(height: AppSpace.xl),
+            AppGroup(
+              label: '网络',
+              description: '调整访问入口、解析方式和连接探测',
               children: [
-                _AccountTile(
+                AppRow(
                   icon: Icons.public_outlined,
-                  title: '连接设置',
-                  subtitle:
-                      '${networkConfig.site.host} · ${networkConfig.dohEnabled ? '加密解析' : '系统默认解析'}',
+                  title: const Text('连接设置'),
+                  subtitle: Text(
+                      '${networkConfig.site.host} · ${networkConfig.dohEnabled ? '加密解析' : '系统默认解析'}'),
                   onTap: () async {
                     await Navigator.of(context).push(
                       MaterialPageRoute(
@@ -218,23 +234,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() {});
                   },
                 ),
-                _AccountTile(
+                AppRow(
                   icon: Icons.auto_fix_high_outlined,
-                  title: '连接引导',
-                  subtitle: '重新探测解析线路、访问入口和直连线路',
+                  title: const Text('连接引导'),
+                  subtitle: const Text('重新探测解析线路、访问入口和直连线路'),
                   onTap: _openNetworkSetup,
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            _AccountSection(
-              title: '阅读',
-              subtitle: '帖子的翻页方式和屏蔽规则',
+            const SizedBox(height: AppSpace.xl),
+            AppGroup(
+              label: '阅读',
+              description: '帖子的翻页方式和屏蔽规则',
               children: [
                 ValueListenableBuilder<bool>(
                   valueListenable: ThreadPagingSettings.notifier,
                   builder: (context, autoLoad, _) => MergeSemantics(
-                    child: _BaseAccountTile(
+                    child: AppRow(
                       icon: Icons.vertical_align_bottom_outlined,
                       title: const Text('自动加载下一页'),
                       subtitle: const Text('滑到页尾时自动接上下一页；关闭时用页尾的「下一页」翻页'),
@@ -244,10 +260,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ),
-                _AccountTile(
+                AppRow(
                   icon: Icons.block_outlined,
-                  title: '屏蔽配置',
-                  subtitle: '屏蔽的用户、头像和回复内容',
+                  title: const Text('屏蔽配置'),
+                  subtitle: const Text('屏蔽的用户、头像和回复内容'),
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) =>
                         BlockingSettingsScreen(repository: widget.repository),
@@ -255,17 +271,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            _AccountSection(
-              title: '界面设置',
-              subtitle: '选择应用配色偏好',
+            const SizedBox(height: AppSpace.xl),
+            AppGroup(
+              label: '界面设置',
+              description: '选择应用配色偏好',
               children: [
                 ValueListenableBuilder<ThemeMode>(
                   valueListenable: AppThemeController.notifier,
                   builder: (context, themeMode, _) {
                     return Column(
                       children: ThemeMode.values.map((mode) {
-                        return _SelectableAccountTile(
+                        return AppRow(
                           icon: _iconForThemeMode(mode),
                           onTap: () => AppThemeController.setMode(mode),
                           title: Text(_labelForThemeMode(mode)),
@@ -278,10 +294,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            _AccountSection(
-              title: '图片与流量',
-              subtitle: '控制帖子图片的加载策略和本地缓存',
+            const SizedBox(height: AppSpace.xl),
+            AppGroup(
+              label: '图片与流量',
+              description: '控制帖子图片的加载策略和本地缓存',
               children: [
                 FutureBuilder<ImageLoadMode>(
                   future: _imageMode,
@@ -290,7 +306,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     return Column(
                       children: ImageLoadMode.values.map((item) {
                         final selected = item == mode;
-                        return _SelectableAccountTile(
+                        return AppRow(
                           icon: _iconForImageMode(item),
                           onTap: () => _setImageMode(item),
                           title: Text(item.label),
@@ -301,25 +317,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   },
                 ),
-                _AccountTile(
+                AppRow(
                   icon: Icons.cleaning_services_outlined,
-                  title: '清理图片缓存',
-                  subtitle: _clearingCache ? '正在清理...' : '释放本地图片缓存空间',
+                  title: const Text('清理图片缓存'),
+                  subtitle: Text(_clearingCache ? '正在清理...' : '释放本地图片缓存空间'),
                   onTap: _clearingCache ? null : _clearImageCache,
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            _AccountSection(
-              title: '字体大小',
-              subtitle: '在系统字号基础上调整应用文字',
+            const SizedBox(height: AppSpace.xl),
+            AppGroup(
+              label: '字体大小',
+              description: '在系统字号基础上调整应用文字',
               children: [
                 ValueListenableBuilder<ForumTextSize>(
                   valueListenable: ForumTextSizeSettings.notifier,
                   builder: (context, current, _) {
                     return Column(
                       children: ForumTextSize.values.map((size) {
-                        return _SelectableAccountTile(
+                        return AppRow(
                           icon: switch (size) {
                             ForumTextSize.small => Icons.text_decrease,
                             ForumTextSize.normal => Icons.text_fields,
@@ -341,36 +357,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            _AccountSection(
-              title: '应用',
-              subtitle: '版本信息和开发调试入口',
+            const SizedBox(height: AppSpace.xl),
+            AppGroup(
+              label: '应用',
+              description: '版本信息和开发调试入口',
               children: [
                 FutureBuilder<PackageInfo>(
                   future: _packageInfo,
                   builder: (context, snapshot) {
                     final info = snapshot.data;
-                    return _StaticInfoTile(
+                    return AppRow(
+                      enabled: true,
                       icon: Icons.info_outline,
-                      title: '南+',
-                      subtitle: info == null
+                      title: const Text('南+'),
+                      subtitle: Text(info == null
                           ? '正在读取版本信息'
-                          : 'v${info.version}+${info.buildNumber}',
+                          : 'v${info.version}+${info.buildNumber}'),
                     );
                   },
                 ),
-                _AccountTile(
+                AppRow(
                   icon: Icons.system_update_alt_outlined,
-                  title: '检查更新',
-                  subtitle:
-                      _checkingUpdate ? '正在检查 GitHub Releases' : '查看是否有新版本可下载',
+                  title: const Text('检查更新'),
+                  subtitle: Text(_checkingUpdate
+                      ? '正在检查 GitHub Releases'
+                      : '查看是否有新版本可下载'),
                   onTap: _checkingUpdate ? null : _checkForUpdate,
                 ),
                 if (kDebugMode)
-                  _AccountTile(
+                  AppRow(
                     icon: Icons.bug_report_outlined,
-                    title: '重置网络引导',
-                    subtitle: '调试首次启动引导流程',
+                    title: const Text('重置网络引导'),
+                    subtitle: const Text('调试首次启动引导流程'),
                     onTap: _resetNetworkSetupAndOpen,
                   ),
               ],
@@ -380,4 +398,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+}
+
+String _compactReleaseNotes(String body) {
+  return body
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .take(6)
+      .join('\n');
+}
+
+String _formatReleaseDate(DateTime dateTime) {
+  final local = dateTime.toLocal();
+  String twoDigits(int value) => value.toString().padLeft(2, '0');
+  return '${local.year}-${twoDigits(local.month)}-${twoDigits(local.day)} '
+      '${twoDigits(local.hour)}:${twoDigits(local.minute)}';
+}
+
+class _StatusSummaryTile extends StatelessWidget {
+  const _StatusSummaryTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 84),
+      padding: const EdgeInsets.all(12),
+      decoration: appSurface(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: AppColors.textMuted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+IconData _iconForImageMode(ImageLoadMode mode) {
+  return switch (mode) {
+    ImageLoadMode.automatic => Icons.image_outlined,
+    ImageLoadMode.wifiOnly => Icons.wifi_outlined,
+    ImageLoadMode.manual => Icons.touch_app_outlined,
+    ImageLoadMode.noImages => Icons.hide_image_outlined,
+  };
+}
+
+IconData _iconForThemeMode(ThemeMode mode) {
+  return switch (mode) {
+    ThemeMode.system => Icons.settings_suggest_outlined,
+    ThemeMode.light => Icons.light_mode_outlined,
+    ThemeMode.dark => Icons.dark_mode_outlined,
+  };
+}
+
+String _labelForThemeMode(ThemeMode mode) {
+  return switch (mode) {
+    ThemeMode.system => '跟随系统',
+    ThemeMode.light => '白天模式',
+    ThemeMode.dark => '暗黑模式',
+  };
+}
+
+String _descriptionForThemeMode(ThemeMode mode) {
+  return switch (mode) {
+    ThemeMode.system => '自动使用系统外观设置',
+    ThemeMode.light => '始终使用浅色界面',
+    ThemeMode.dark => '始终使用深色界面',
+  };
 }

@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/pm_box_screen.dart';
-import 'package:south_plus_rewrite/features/profile/account_screen.dart';
+import 'package:south_plus_rewrite/features/profile/settings_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';

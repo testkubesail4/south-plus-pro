@@ -1,4 +1,14 @@
-part of 'account_screen.dart';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import '../../services/forum_blocking_settings.dart';
+import '../../services/forum_repository.dart';
+import '../../services/forum_request_exception.dart';
+import '../../theme/app_theme.dart';
+import '../auth/login_screen.dart';
+import '../common/async_state_view.dart';
+import '../common/grouped_list.dart';
 
 /// 屏蔽配置: the site's own block list (synced with 南+) and this device's
 /// extra rules, each edited where it is stored.
@@ -134,16 +144,16 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
           ).copyWith(bottom: 28),
           children: [
             _siteSection(rules),
-            const SizedBox(height: 14),
+            const SizedBox(height: AppSpace.xl),
             _localSection(rules),
           ],
         ),
       );
 
   Widget _siteSection(BlockingRules rules) {
-    return _AccountSection(
-      title: '南+ 屏蔽名单',
-      subtitle: '与网页版同步。隐藏主题和回复：不显示 TA 的主题与所有楼层；替换头像：只换掉头像',
+    return AppGroup(
+      label: '南+ 屏蔽名单',
+      description: '与网页版同步。隐藏主题和回复：不显示 TA 的主题与所有楼层；替换头像：只换掉头像',
       children: [
         FutureBuilder<void>(
           future: _sync,
@@ -174,7 +184,8 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
               );
             }
             return Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.lg, AppSpace.md, AppSpace.lg, AppSpace.sm),
               child: status,
             );
           },
@@ -200,8 +211,8 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
             avatarOnly: avatar,
           ),
         );
-    return _BaseAccountTile(
-      active: true,
+    return AppRow(
+      enabled: true,
       icon: user.userBlocked
           ? Icons.person_off_outlined
           : Icons.hide_image_outlined,
@@ -230,9 +241,9 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
   }
 
   Widget _localSection(BlockingRules rules) {
-    return _AccountSection(
-      title: '本机规则',
-      subtitle: '只保存在这台设备，按账号分开，不会同步到南+。'
+    return AppGroup(
+      label: '本机规则',
+      description: '只保存在这台设备，按账号分开，不会同步到南+。'
           '屏蔽的回复内容只折叠与它完全相同的简短回复',
       children: [
         for (final user in rules.localUsers) _localUserRow(user),
@@ -251,8 +262,8 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
           LocalBlockScope.topics => '只屏蔽主题帖',
           LocalBlockScope.all => '屏蔽所有内容',
         };
-    return _BaseAccountTile(
-      active: true,
+    return AppRow(
+      enabled: true,
       icon: Icons.person_off_outlined,
       title: Text(user.name),
       subtitle: Text(label(user.scope)),
@@ -281,8 +292,8 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
   Widget _contentRow(String key) {
     final row = 'content:$key';
     final epoch = widget.repository.sessionEpoch.value;
-    return _BaseAccountTile(
-      active: true,
+    return AppRow(
+      enabled: true,
       icon: Icons.chat_bubble_outline,
       title: Text(_readableContent(key)),
       subtitle: const Text('回复内容'),
@@ -312,7 +323,7 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
   }
 
   Widget _emptyRow(String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(14, 4, 14, 16),
+        padding: const EdgeInsets.all(AppSpace.lg),
         child: Text(
           text,
           style: TextStyle(color: AppColors.textMuted, fontSize: 13),
