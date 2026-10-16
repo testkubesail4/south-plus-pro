@@ -10,6 +10,15 @@ class ThreadContentParser {
 
   final ForumUrlResolver urls;
 
+  List<ThreadContentSegment> parseWindCode(String source) {
+    final normalized = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final content = dom.Element.tag('div')
+      ..nodes.addAll(WindCodeParser(preview: true).parse(normalized) ??
+          [dom.Text(normalized)]);
+    return _extractInlineSegments(content, const _InlineTextStyleData(),
+        parseRaw: false);
+  }
+
   List<ThreadContentSegment> extractInlineSegments(dom.Element content) =>
       _extractInlineSegments(content, const _InlineTextStyleData());
 

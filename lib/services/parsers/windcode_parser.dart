@@ -6,6 +6,10 @@ import '../forum_url_resolver.dart';
 
 // WindCode becomes inert DOM nodes; HTML inside raw text is never reparsed.
 class WindCodeParser {
+  WindCodeParser({this.preview = false});
+
+  final bool preview;
+
   static final _token =
       RegExp(r'\[(/?)([a-z]+|\*)(?:[=:]([^\]\r\n]*))?\]', caseSensitive: false);
   static const _paired = {
@@ -16,6 +20,7 @@ class WindCodeParser {
     'font',
     'color',
     'quote',
+    'sell',
     'code',
     'url',
     'email',
@@ -54,6 +59,7 @@ class WindCodeParser {
             ..attributes['alt'] = '[s:$argument]';
         }
       } else if (_paired.contains(tag)) {
+        if (tag == 'sell' && !preview) continue;
         final close = _closing(text, match, tag);
         if (close == null) continue;
         end = close.end;
@@ -63,14 +69,24 @@ class WindCodeParser {
       }
       if (element == null) continue;
       if (match.start > offset)
-        result.add(dom.Text(text.substring(offset, match.start)));
+        result.addAll(_textNodes(text.substring(offset, match.start)));
       result.add(element);
       offset = end;
       changed = true;
     }
-    if (!changed) return null;
-    if (offset < text.length) result.add(dom.Text(text.substring(offset)));
+    if (!changed && !preview) return null;
+    if (offset < text.length) result.addAll(_textNodes(text.substring(offset)));
     return result;
+  }
+
+  List<dom.Node> _textNodes(String text) {
+    if (!preview) return [dom.Text(text)];
+    return [
+      for (final (index, line) in text.split('\n').indexed) ...[
+        if (index > 0) dom.Element.tag('br'),
+        dom.Text(line),
+      ],
+    ];
   }
 
   RegExpMatch? _closing(String text, RegExpMatch opening, String tag) {
@@ -127,6 +143,11 @@ class WindCodeParser {
   bool _validArgument(String tag, String? argument, String body) {
     final value = argument?.trim();
     switch (tag) {
+      case 'sell':
+        return preview &&
+            value != null &&
+            RegExp(r'^\d+$').hasMatch(value) &&
+            int.tryParse(value) != null;
       case 'size':
         return value != null && RegExp(r'^[1-6]$').hasMatch(value);
       case 'font':
@@ -178,7 +199,7 @@ class WindCodeParser {
         ..attributes['title'] = '$tag 媒体（应用内不支持播放）';
     }
     final element = dom.Element.tag(switch (tag) {
-      'quote' => 'blockquote',
+      'quote' || 'sell' => 'blockquote',
       'size' || 'font' || 'color' => 'font',
       'url' || 'email' => 'a',
       'align' => 'div',
@@ -196,6 +217,12 @@ class WindCodeParser {
       element.attributes['href'] = 'mailto:${argument ?? body.trim()}';
     if (tag == 'list' && argument != null)
       element.attributes['type'] = argument;
+    if (tag == 'sell') {
+      element
+        ..append(dom.Element.tag('b')
+          ..append(dom.Text('出售内容 · 售价 ${int.parse(argument!)} SP币')))
+        ..append(dom.Element.tag('br'));
+    }
     final markers =
         tag == 'list' ? _listMarkers(body).toList() : <RegExpMatch>[];
     if (markers.isNotEmpty) {
@@ -209,14 +236,14 @@ class WindCodeParser {
       }
       if (items.first.trim().isNotEmpty) {
         element.nodes.addAll(
-            parse(items.first, depth: depth + 1) ?? [dom.Text(items.first)]);
+            parse(items.first, depth: depth + 1) ?? _textNodes(items.first));
       }
       for (final item in items.skip(1)) {
         element.append(dom.Element.tag('li')
-          ..nodes.addAll(parse(item, depth: depth + 1) ?? [dom.Text(item)]));
+          ..nodes.addAll(parse(item, depth: depth + 1) ?? _textNodes(item)));
       }
     } else {
-      element.nodes.addAll(parse(body, depth: depth + 1) ?? [dom.Text(body)]);
+      element.nodes.addAll(parse(body, depth: depth + 1) ?? _textNodes(body));
     }
     return element;
   }
