@@ -769,7 +769,7 @@ class _BoardTile extends StatelessWidget {
       color: Color.lerp(AppColors.textMuted, AppColors.text, 0.35),
       fontSize: 13,
     );
-    final metaStyle = TextStyle(color: AppColors.textFaint, fontSize: 12);
+    final metaStyle = TextStyle(color: AppColors.textMuted, fontSize: 12);
     final board = this.board;
     if (board == null) {
       return Container(
