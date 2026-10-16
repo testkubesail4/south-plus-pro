@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'support/image_http_fixture.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
@@ -116,10 +117,15 @@ void main() {
         reason: 'login captcha remains visible in strict mode');
     await tester.tap(find.text('UID'));
     await tester.pumpAndSettle();
+    // Cookie lifetime and hidden login fold under 登录选项.
+    expect(find.text('隐身登录'), findsNothing);
+    await tester.tap(find.text('登录选项'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('一年'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('一个月').last);
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('隐身登录'));
     await tester.tap(find.text('隐身登录'));
     await tester.pumpAndSettle();
 
@@ -134,6 +140,32 @@ void main() {
     expect(repository.lastFields, containsPair('lgt', '1'));
     expect(repository.lastFields, containsPair('hideid', '1'));
     expect(repository.lastFields, containsPair('cktime', '2592000'));
+  });
+
+  testWidgets('login type labels stay on one line at text scale 2',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(2)),
+        child: child!,
+      ),
+      home: LoginScreen(repository: _FakeLoginRepository()),
+    ));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    for (final label in ['用户名', 'UID', '邮箱']) {
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(
+            of: find.byType(SegmentedButton<String>),
+            matching: find.text(label)),
+      );
+      final line =
+          paragraph.getFullHeightForCaret(const TextPosition(offset: 0));
+      expect(paragraph.size.height, lessThan(line * 1.5), reason: label);
+    }
   });
 
   testWidgets('board thread list supports pull refresh on short pages',

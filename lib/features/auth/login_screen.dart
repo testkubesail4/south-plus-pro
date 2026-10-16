@@ -1,12 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/brand_mark.dart';
 
 /// Opens the login page; true once a login succeeded. The app shell follows
 /// the session itself, so callers only refresh their own screen.
@@ -55,7 +55,7 @@ class LoginPrompt extends StatelessWidget {
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, ForumRepository? repository})
-      : repository = repository;
+    : repository = repository;
 
   final ForumRepository? repository;
 
@@ -151,178 +151,161 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(result.message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(result.message)));
     // Back to the screen that asked for login; never a second app shell.
     Navigator.of(context).maybePop(true);
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // No card: the form sits on the canvas in one narrow column.
     return Scaffold(
+      appBar: AppBar(),
       body: SafeArea(
+        top: false,
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.xl,
+              AppSpace.sm,
+              AppSpace.xl,
+              AppSpace.xl,
+            ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
-              child: Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: AppColors.brand,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(Icons.forum_outlined, color: Colors.white),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      '登录南+',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '使用账号和验证码继续参与讨论。',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.textMuted,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: BrandMark(size: 48),
+                  ),
+                  const SizedBox(height: AppSpace.lg),
+                  Text('登录南+', style: theme.textTheme.headlineSmall),
+                  const SizedBox(height: AppSpace.xs),
+                  Text('使用账号和验证码继续参与讨论。', style: theme.textTheme.bodySmall),
+                  const SizedBox(height: AppSpace.xl),
+                  AutofillGroup(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _LoginTypeSelector(
+                          value: _loginType,
+                          enabled: !_loading,
+                          onChanged: (value) {
+                            setState(() => _loginType = value);
+                          },
+                        ),
+                        const SizedBox(height: AppSpace.md),
+                        TextField(
+                          controller: _username,
+                          decoration: InputDecoration(
+                            labelText: _accountLabel,
+                            prefixIcon: const Icon(Icons.person_outline),
                           ),
-                    ),
-                    const SizedBox(height: 24),
-                    AutofillGroup(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _LoginTypeSelector(
-                            value: _loginType,
-                            enabled: !_loading,
-                            onChanged: (value) {
-                              setState(() => _loginType = value);
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: _username,
-                            decoration: InputDecoration(
-                              labelText: _accountLabel,
-                              prefixIcon: Icon(Icons.person_outline),
-                            ),
-                            keyboardType: _accountKeyboardType,
-                            autofillHints: _accountAutofillHints,
-                            textInputAction: TextInputAction.next,
-                            enabled: !_loading,
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: _password,
-                            decoration: InputDecoration(
-                              labelText: '密码',
-                              prefixIcon: Icon(Icons.lock_outline),
-                              suffixIcon: IconButton(
-                                tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
-                                onPressed: _loading
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _obscurePassword = !_obscurePassword;
-                                        });
-                                      },
-                                icon: Icon(
-                                  _obscurePassword
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                ),
+                          keyboardType: _accountKeyboardType,
+                          autofillHints: _accountAutofillHints,
+                          textInputAction: TextInputAction.next,
+                          enabled: !_loading,
+                        ),
+                        const SizedBox(height: AppSpace.md),
+                        TextField(
+                          controller: _password,
+                          decoration: InputDecoration(
+                            labelText: '密码',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+                              onPressed: _loading
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        _obscurePassword = !_obscurePassword;
+                                      });
+                                    },
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
                               ),
                             ),
-                            obscureText: _obscurePassword,
-                            autofillHints: const [AutofillHints.password],
-                            textInputAction: TextInputAction.next,
-                            enabled: !_loading,
                           ),
-                          const SizedBox(height: 12),
-                          _LoginOptions(
-                            hideLogin: _hideLogin,
-                            cookieTime: _cookieTime,
-                            enabled: !_loading,
-                            onHideLoginChanged: (value) {
-                              setState(() => _hideLogin = value);
-                            },
-                            onCookieTimeChanged: (value) {
-                              setState(() => _cookieTime = value);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    FutureBuilder<LoginChallenge?>(
-                      future: _challengeFuture,
-                      builder: (context, snapshot) {
-                        final challengeLoadError = _challengeLoadError;
-                        if (challengeLoadError != null && !snapshot.hasData) {
-                          return _ChallengeError(
-                            message: challengeLoadError,
-                            onRetry: _refreshChallenge,
-                          );
-                        }
-                        if (!snapshot.hasData) {
-                          return const SizedBox(
-                            height: 72,
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        return _CaptchaField(
-                          bytes: snapshot.data!.captchaBytes,
-                          controller: _captcha,
+                          obscureText: _obscurePassword,
+                          autofillHints: const [AutofillHints.password],
+                          textInputAction: TextInputAction.next,
                           enabled: !_loading,
-                          onRefresh: _refreshChallenge,
-                          onSubmit: _submit,
-                        );
-                      },
+                        ),
+                      ],
                     ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 12),
-                      _InlineError(message: _error!),
-                    ],
-                    const SizedBox(height: 20),
-                    FilledButton(
-                      onPressed: _loading ? null : _submit,
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        child: _loading
-                            ? const _LoadingButtonLabel()
-                            : const Text('登录'),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton(
-                      onPressed: _loading
-                          ? null
-                          : () => Navigator.of(context).maybePop(false),
-                      child: const Text('先浏览公开内容'),
-                    ),
-                  ],
-                ),
-              )
-                  .animate()
-                  .fadeIn(duration: 260.ms, curve: Curves.easeOutCubic)
-                  .slideY(
-                    begin: 0.04,
-                    duration: 260.ms,
-                    curve: Curves.easeOutCubic,
                   ),
+                  const SizedBox(height: AppSpace.md),
+                  FutureBuilder<LoginChallenge?>(
+                    future: _challengeFuture,
+                    builder: (context, snapshot) {
+                      final challengeLoadError = _challengeLoadError;
+                      if (challengeLoadError != null && !snapshot.hasData) {
+                        return _ChallengeError(
+                          message: challengeLoadError,
+                          onRetry: _refreshChallenge,
+                        );
+                      }
+                      if (!snapshot.hasData) {
+                        return const SizedBox(
+                          height: 56,
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      return _CaptchaField(
+                        bytes: snapshot.data!.captchaBytes,
+                        controller: _captcha,
+                        enabled: !_loading,
+                        onRefresh: _refreshChallenge,
+                        onSubmit: _submit,
+                      );
+                    },
+                  ),
+                  const SizedBox(height: AppSpace.sm),
+                  _LoginOptions(
+                    hideLogin: _hideLogin,
+                    cookieTime: _cookieTime,
+                    enabled: !_loading,
+                    onHideLoginChanged: (value) {
+                      setState(() => _hideLogin = value);
+                    },
+                    onCookieTimeChanged: (value) {
+                      setState(() => _cookieTime = value);
+                    },
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: AppSpace.md),
+                    _InlineError(message: _error!),
+                  ],
+                  const SizedBox(height: AppSpace.xl),
+                  // The page's one primary action: large and full width.
+                  FilledButton(
+                    onPressed: _loading ? null : _submit,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                    child: AnimatedSwitcher(
+                      duration: AppMotion.short,
+                      child: _loading
+                          ? const _LoadingButtonLabel()
+                          : const Text('登录'),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpace.sm),
+                  TextButton(
+                    onPressed: _loading
+                        ? null
+                        : () => Navigator.of(context).maybePop(false),
+                    child: const Text('先浏览公开内容'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -333,7 +316,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String get _accountLabel {
     return switch (_loginType) {
       '1' => 'UID',
-      '2' => 'Email',
+      '2' => '邮箱',
       _ => '用户名',
     };
   }
@@ -368,22 +351,11 @@ class _LoginTypeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SegmentedButton<String>(
+      // Text only, so each label stays on one line at large text.
       segments: const [
-        ButtonSegment(
-          value: '0',
-          icon: Icon(Icons.person_outline),
-          label: Text('用户名'),
-        ),
-        ButtonSegment(
-          value: '1',
-          icon: Icon(Icons.tag),
-          label: Text('UID'),
-        ),
-        ButtonSegment(
-          value: '2',
-          icon: Icon(Icons.alternate_email),
-          label: Text('Email'),
-        ),
+        ButtonSegment(value: '0', label: Text('用户名')),
+        ButtonSegment(value: '1', label: Text('UID')),
+        ButtonSegment(value: '2', label: Text('邮箱')),
       ],
       selected: {value},
       showSelectedIcon: false,
@@ -412,28 +384,39 @@ class _LoginOptions extends StatelessWidget {
   final ValueChanged<bool> onHideLoginChanged;
   final ValueChanged<String> onCookieTimeChanged;
 
+  static const _cookieLabels = {
+    '31536000': '一年',
+    '2592000': '一个月',
+    '86400': '一天',
+    '3600': '一小时',
+    '0': '即时',
+  };
+
+  // Rarely changed, so folded behind one row that names the current choice.
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    final theme = Theme.of(context);
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      // Top room for the dropdown's floating label.
+      childrenPadding: const EdgeInsets.only(top: AppSpace.sm),
+      shape: const Border(),
+      collapsedShape: const Border(),
+      title: Text('登录选项', style: theme.textTheme.titleSmall),
+      subtitle: Text(
+        '保持登录${_cookieLabels[cookieTime]}${hideLogin ? ' · 隐身登录' : ''}',
+        style: theme.textTheme.bodySmall,
+      ),
       children: [
-        Text(
-          '登录设置',
-          style: Theme.of(context).textTheme.titleSmall,
-        ),
-        const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: cookieTime,
           decoration: const InputDecoration(
             labelText: 'Cookie 有效期',
             prefixIcon: Icon(Icons.schedule_outlined),
           ),
-          items: const [
-            DropdownMenuItem(value: '31536000', child: Text('一年')),
-            DropdownMenuItem(value: '2592000', child: Text('一个月')),
-            DropdownMenuItem(value: '86400', child: Text('一天')),
-            DropdownMenuItem(value: '3600', child: Text('一小时')),
-            DropdownMenuItem(value: '0', child: Text('即时')),
+          items: [
+            for (final MapEntry(:key, :value) in _cookieLabels.entries)
+              DropdownMenuItem(value: key, child: Text(value)),
           ],
           onChanged: enabled
               ? (value) {
@@ -441,15 +424,11 @@ class _LoginOptions extends StatelessWidget {
                 }
               : null,
         ),
-        const SizedBox(height: 8),
-        CheckboxListTile(
+        SwitchListTile(
           value: hideLogin,
-          onChanged:
-              enabled ? (value) => onHideLoginChanged(value ?? false) : null,
+          onChanged: enabled ? onHideLoginChanged : null,
           title: const Text('隐身登录'),
-          controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
         ),
       ],
     );
@@ -473,48 +452,54 @@ class _CaptchaField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: TextField(
-            controller: controller,
-            decoration: const InputDecoration(labelText: '验证码'),
-            textInputAction: TextInputAction.done,
-            enabled: enabled,
-            onSubmitted: (_) {
-              if (enabled) onSubmit();
-            },
-          ),
-        ),
-        const SizedBox(width: 12),
-        InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () => _showCaptchaPreview(context),
-          child: Container(
-            height: 64,
-            width: 154,
-            padding: const EdgeInsets.all(4),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: AppColors.border),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Image.memory(
-              bytes,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.none,
-              gaplessPlayback: true,
+    // The image box takes the field's height at every text scale.
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: const InputDecoration(labelText: '验证码'),
+              textInputAction: TextInputAction.done,
+              enabled: enabled,
+              onSubmitted: (_) {
+                if (enabled) onSubmit();
+              },
             ),
           ),
-        ),
-        IconButton(
-          tooltip: '刷新验证码',
-          onPressed: enabled ? onRefresh : null,
-          icon: Icon(Icons.refresh),
-        ),
-      ],
+          const SizedBox(width: AppSpace.sm),
+          Tooltip(
+            message: '放大验证码',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              onTap: () => _showCaptchaPreview(context),
+              child: Container(
+                width: 136,
+                padding: const EdgeInsets.all(AppSpace.xs),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  // Captchas are drawn for a white page.
+                  color: Colors.white,
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Image.memory(
+                  bytes,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.none,
+                  gaplessPlayback: true,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: '刷新验证码',
+            onPressed: enabled ? onRefresh : null,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
     );
   }
 
@@ -575,10 +560,7 @@ class _LoadingButtonLabel extends StatelessWidget {
         SizedBox(
           width: 16,
           height: 16,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: Colors.white,
-          ),
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
         ),
         SizedBox(width: 10),
         Text('登录中...'),
