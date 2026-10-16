@@ -318,16 +318,12 @@ class _SessionSplash extends StatelessWidget {
               const SizedBox(height: 18),
               Text(
                 '南+',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 6),
               Text(
                 '正在恢复登录状态',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),

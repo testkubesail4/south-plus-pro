@@ -42,10 +42,7 @@ class _ProfileHeader extends StatelessWidget {
                 onPressed: () => Navigator.of(context).pop(),
                 icon: Icon(Icons.chevron_left, size: 30),
               ),
-              const Text(
-                '用户中心',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
+              Text('用户中心', style: Theme.of(context).textTheme.titleMedium),
             ],
           ),
           const SizedBox(height: 10),
@@ -99,11 +96,7 @@ class _ProfileHeader extends StatelessWidget {
                               profile.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w800,
-                                height: 1.15,
-                              ),
+                              style: Theme.of(context).textTheme.titleLarge,
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -119,11 +112,7 @@ class _ProfileHeader extends StatelessWidget {
                           profile.tagline!,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.textMuted,
-                            fontSize: 13,
-                            height: 1.35,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
                     ],
@@ -250,11 +239,10 @@ class _OnlinePill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             text ?? '未知',
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(context)
+                .textTheme
+                .labelMedium
+                ?.copyWith(color: color),
           ),
         ],
       ),
@@ -367,10 +355,7 @@ class _ProfileLoadingHeader extends StatelessWidget {
                 onPressed: () => Navigator.of(context).pop(),
                 icon: Icon(Icons.chevron_left, size: 30),
               ),
-              const Text(
-                '用户中心',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
+              Text('用户中心', style: Theme.of(context).textTheme.titleMedium),
             ],
           ),
           const SizedBox(height: 10),
@@ -651,22 +636,19 @@ class _ActivityTile extends StatelessWidget {
                 children: [
                   Text(
                     item.action ?? '动态',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 3),
                   Text(
                     item.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 14, height: 1.35),
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   if (item.date != null)
                     Text(
                       item.date!,
-                      style: TextStyle(
-                        color: AppColors.textFaint,
-                        fontSize: 12,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                 ],
               ),
@@ -697,9 +679,9 @@ class _ThreadLikeTile extends StatelessWidget {
     ].join(' · ');
     return Material(
       color: AppColors.surface,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(AppRadius.lg),
       child: InkWell(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -710,11 +692,7 @@ class _ThreadLikeTile extends StatelessWidget {
                 item.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 15,
-                  height: 1.35,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(context).textTheme.titleSmall,
               ),
               if (meta.isNotEmpty) ...[
                 const SizedBox(height: 7),
@@ -722,7 +700,7 @@ class _ThreadLikeTile extends StatelessWidget {
                   meta,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Color(0xff777777), fontSize: 12),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
               if (item.author != null) ...[
@@ -793,7 +771,11 @@ class _AuthorLink extends StatelessWidget {
           children: [
             Icon(Icons.person_outline, size: 14, color: AppColors.textMuted),
             const SizedBox(width: 4),
-            Text(name, style: TextStyle(color: AppColors.text, fontSize: 12)),
+            Text(name,
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: AppColors.text)),
           ],
         ),
       ),
@@ -824,14 +806,12 @@ class _FieldSection extends StatelessWidget {
                       width: 86,
                       child: Text(
                         field.label,
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 13,
-                        ),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
                     Expanded(
-                      child: Text(field.value, style: TextStyle(fontSize: 14)),
+                      child: Text(field.value,
+                          style: Theme.of(context).textTheme.bodyMedium),
                     ),
                   ],
                 ),
@@ -856,14 +836,14 @@ class _Panel extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 12),
           child,
@@ -924,7 +904,10 @@ class _MetricChip extends StatelessWidget {
       ),
       child: Text(
         '$label $value',
-        style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+        style: Theme.of(context)
+            .textTheme
+            .labelMedium
+            ?.copyWith(color: AppColors.textMuted),
       ),
     );
   }
@@ -943,7 +926,11 @@ class _TinyStat extends StatelessWidget {
       children: [
         Icon(icon, size: 14, color: AppColors.textFaint),
         const SizedBox(width: 4),
-        Text(text, style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+        Text(text,
+            style: Theme.of(context)
+                .textTheme
+                .labelMedium
+                ?.copyWith(color: AppColors.textMuted)),
       ],
     );
   }
@@ -976,7 +963,7 @@ class _SkeletonPanel extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -78,13 +78,14 @@ class ForumPager extends StatelessWidget {
                               child: Text(
                                 '第 $current / $total 页',
                                 textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: select == null
-                                      ? AppColors.textFaint
-                                      : AppColors.text,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(
+                                      color: select == null
+                                          ? AppColors.textFaint
+                                          : AppColors.text,
+                                    ),
                               ),
                             ),
                             const SizedBox(width: 4),
