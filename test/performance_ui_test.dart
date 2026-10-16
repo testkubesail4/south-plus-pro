@@ -165,7 +165,9 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.text('fixture-favorite'), findsOneWidget);
-    expect(find.textContaining('fixture-header'), findsOneWidget);
+    expect(find.text('1 个主题'), findsOneWidget);
+    expect(find.textContaining('fixture-header'), findsNothing,
+        reason: 'no account header card');
     expect(client.paths, [
       'u.php',
       'u.php?action-show-uid-123.html',
