@@ -53,21 +53,20 @@ void main() {
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byType(NavigationRail), findsNothing);
     expect(find.text('Fixture user'), findsOneWidget);
-    for (final label in ['回复提醒', '短消息']) {
-      final button = find.ancestor(
-          of: find.byTooltip(label), matching: find.byType(IconButton));
-      expect(tester.getSize(button).width, greaterThanOrEqualTo(48));
-      expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
-    }
     final account = find
         .ancestor(of: find.text('Fixture user'), matching: find.byType(InkWell))
         .first;
     expect(tester.getSize(account).height, greaterThanOrEqualTo(48));
+    // Notices live in the 消息 tab; the header has no copies, unread or not.
     repo.flags.value =
         const ForumNoticeFlags(replyNotice: true, unreadPm: true);
     await tester.pump();
-    expect(find.byTooltip('回复提醒，有未读'), findsOneWidget);
-    expect(find.byTooltip('短消息，有未读'), findsOneWidget);
+    final header = find.ancestor(
+        of: find.text('Fixture user'), matching: find.byType(Row));
+    for (final icon in [Icons.alternate_email, Icons.mail_outline]) {
+      expect(find.descendant(of: header, matching: find.byIcon(icon)),
+          findsNothing);
+    }
     repo.flags.value = const ForumNoticeFlags();
     await tester.pump();
     expect(repo.quickListLoads, ['最新回复', '提问求物'],
@@ -156,16 +155,14 @@ void main() {
     expect(rail.extended, isFalse);
     expect(rail.labelType, NavigationRailLabelType.all);
     expect(find.byType(NavigationBar), findsNothing);
-    expect(find.text('回复提醒'), findsOneWidget, reason: 'header chips');
+    for (final label in ['回复提醒', '短消息']) {
+      expect(find.widgetWithText(ActionChip, label), findsNothing,
+          reason: 'notices live in the 消息 tab');
+    }
     final account = find
         .ancestor(of: find.text('Fixture user'), matching: find.byType(InkWell))
         .first;
     expect(tester.getSize(account).height, greaterThanOrEqualTo(48));
-    for (final label in ['回复提醒', '短消息']) {
-      final chip = find.ancestor(
-          of: find.text(label), matching: find.byType(ActionChip));
-      expect(tester.getSize(chip).height, greaterThanOrEqualTo(48));
-    }
 
     // All three lists side by side, already loaded.
     for (final title in ['最新讨论', '最新回复', '提问求物']) {

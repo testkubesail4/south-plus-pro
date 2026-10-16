@@ -124,41 +124,28 @@ String _displayName(
         ForumRepository repository, ForumAccountIdentity? identity) =>
     accountDisplayName(identity) ?? repository.currentUsername ?? '已登录';
 
-void _openReplyNotices(BuildContext context, ForumRepository repository) {
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => ReplyNoticesScreen(repository: repository),
-    ),
-  );
-}
-
-/// Phone header: one 56px row. Signed in: avatar, name and the two notice
-/// buttons; guests: the S+ mark, a welcome and 登录.
-class _CompactHeader extends StatelessWidget {
-  const _CompactHeader({
-    required this.repository,
-    this.onAccountTap,
-    this.onMessagesTap,
-  });
+/// The home's header, one 56px row at every width. Signed in: avatar and
+/// name, opening 我的; guests: the S+ mark, a welcome and 登录. Notices live
+/// in the 消息 tab, whose nav icon carries the unread dot.
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader({required this.repository, this.onAccountTap});
 
   final ForumRepository repository;
   final VoidCallback? onAccountTap;
-  final VoidCallback? onMessagesTap;
 
   @override
   Widget build(BuildContext context) {
-    final nameStyle = TextStyle(
-      color: AppColors.text,
-      fontSize: 16,
-      fontWeight: FontWeight.w600,
-    );
+    final nameStyle = Theme.of(context)
+        .textTheme
+        .titleSmall
+        ?.copyWith(fontWeight: FontWeight.w600);
     if (!repository.isLoggedIn) {
-      return SizedBox(
-        height: 56,
+      return ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 56),
         child: Row(
           children: [
             const BrandMark(size: 32),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppSpace.md),
             Expanded(
               child: Text(
                 '欢迎来到南+',
@@ -190,7 +177,7 @@ class _CompactHeader extends StatelessWidget {
                   child: Row(
                     children: [
                       AccountAvatar(avatarUrl: identity?.avatarUrl, size: 32),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: AppSpace.md),
                       Flexible(
                         child: Text(
                           _displayName(repository, identity),
@@ -205,228 +192,7 @@ class _CompactHeader extends StatelessWidget {
               ),
             ),
           ),
-          ValueListenableBuilder<ForumNoticeFlags>(
-            valueListenable: repository.noticeFlags,
-            builder: (context, flags, _) => Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _NoticeIconButton(
-                  icon: Icons.alternate_email,
-                  label: '回复提醒',
-                  unread: flags.replyNotice,
-                  onPressed: () => _openReplyNotices(context, repository),
-                ),
-                _NoticeIconButton(
-                  icon: Icons.mail_outline,
-                  label: '短消息',
-                  unread: flags.unreadPm,
-                  onPressed: onMessagesTap,
-                ),
-              ],
-            ),
-          ),
         ],
-      ),
-    );
-  }
-}
-
-class _NoticeIconButton extends StatelessWidget {
-  const _NoticeIconButton({
-    required this.icon,
-    required this.label,
-    required this.unread,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool unread;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: unread ? '$label，有未读' : label,
-      onPressed: onPressed,
-      icon: Badge(
-        isLabelVisible: unread,
-        child: Icon(icon, color: AppColors.textMuted),
-      ),
-    );
-  }
-}
-
-/// Wide header: a softly tinted band with the account and notices, or a
-/// welcome and 登录 for guests.
-class _WideHeader extends StatelessWidget {
-  const _WideHeader({
-    required this.repository,
-    this.onAccountTap,
-    this.onMessagesTap,
-  });
-
-  final ForumRepository repository;
-  final VoidCallback? onAccountTap;
-  final VoidCallback? onMessagesTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final chipColor =
-        dark ? Colors.white.withValues(alpha: 0.07) : AppColors.surface;
-    final nameStyle = TextStyle(
-      color: AppColors.text,
-      fontSize: 20,
-      fontWeight: FontWeight.w600,
-    );
-    final Widget content;
-    if (repository.isLoggedIn) {
-      content = Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 16,
-        runSpacing: 12,
-        children: [
-          ValueListenableBuilder<ForumAccountIdentity?>(
-            valueListenable: repository.accountIdentity,
-            builder: (context, identity, _) => InkWell(
-              borderRadius: BorderRadius.circular(28),
-              onTap: onAccountTap,
-              child: Container(
-                constraints: const BoxConstraints(minHeight: 48),
-                padding: const EdgeInsets.only(right: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AccountAvatar(avatarUrl: identity?.avatarUrl, size: 44),
-                    const SizedBox(width: 16),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 360),
-                      child: Text(
-                        _displayName(repository, identity),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: nameStyle,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          ValueListenableBuilder<ForumNoticeFlags>(
-            valueListenable: repository.noticeFlags,
-            builder: (context, flags, _) => Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _NoticeChip(
-                  icon: Icons.alternate_email,
-                  label: '回复提醒',
-                  unread: flags.replyNotice,
-                  color: chipColor,
-                  onPressed: () => _openReplyNotices(context, repository),
-                ),
-                _NoticeChip(
-                  icon: Icons.mail_outline,
-                  label: '短消息',
-                  unread: flags.unreadPm,
-                  color: chipColor,
-                  onPressed: onMessagesTap,
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
-    } else {
-      content = Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('欢迎来到南+', style: nameStyle),
-                const SizedBox(height: 4),
-                Text(
-                  '登录后可以查看回复提醒、短消息和收藏的帖子',
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          FilledButton(
-            onPressed: () => openLogin(context, repository),
-            child: const Text('登录'),
-          ),
-        ],
-      );
-    }
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: LinearGradient(
-          colors: dark
-              ? const [Color(0xFF221C23), Color(0xFF1B1E28)]
-              : const [Color(0xFFFFF2F3), Color(0xFFF2F3FC)],
-        ),
-      ),
-      child: content,
-    );
-  }
-}
-
-class _NoticeChip extends StatelessWidget {
-  const _NoticeChip({
-    required this.icon,
-    required this.label,
-    required this.unread,
-    required this.color,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool unread;
-  final Color color;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      value: unread ? '有未读' : null,
-      child: ActionChip(
-        avatar: Icon(icon, size: 18, color: AppColors.textMuted),
-        label: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(label),
-            if (unread) ...[
-              const SizedBox(width: 8),
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: AppColors.noticeDot,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ],
-          ],
-        ),
-        labelStyle: TextStyle(
-          color: AppColors.text,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
-        side: BorderSide.none,
-        shape: const StadiumBorder(),
-        backgroundColor: color,
-        onPressed: onPressed,
       ),
     );
   }

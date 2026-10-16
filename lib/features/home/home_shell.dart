@@ -17,7 +17,6 @@ import '../common/async_state_view.dart';
 import '../common/brand_mark.dart';
 import '../common/forum_title_text.dart';
 import '../messages/messages_screen.dart';
-import '../messages/reply_notices_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';
 import '../profile/forum_tasks_screen.dart';
@@ -83,7 +82,6 @@ class _HomeShellState extends State<HomeShell> {
                     () => ForumHomePage(
                       repository: _repository,
                       onAccountTap: () => _select(4),
-                      onMessagesTap: () => _select(3),
                     ),
                   ),
                   tab(1, () => FavoriteThreadsPage(repository: _repository)),
@@ -209,16 +207,12 @@ class ForumHomePage extends StatefulWidget {
     super.key,
     required this.repository,
     this.onAccountTap,
-    this.onMessagesTap,
   });
 
   final ForumRepository repository;
 
   /// Shows the signed-in user's 我的 tab.
   final VoidCallback? onAccountTap;
-
-  /// Shows the 消息 (short messages) tab.
-  final VoidCallback? onMessagesTap;
 
   @override
   State<ForumHomePage> createState() => _ForumHomePageState();
@@ -370,18 +364,10 @@ class _ForumHomePageState extends State<ForumHomePage> {
                       32,
                     ),
                     children: [
-                      if (compact)
-                        _CompactHeader(
-                          repository: widget.repository,
-                          onAccountTap: widget.onAccountTap,
-                          onMessagesTap: widget.onMessagesTap,
-                        )
-                      else
-                        _WideHeader(
-                          repository: widget.repository,
-                          onAccountTap: widget.onAccountTap,
-                          onMessagesTap: widget.onMessagesTap,
-                        ),
+                      _HomeHeader(
+                        repository: widget.repository,
+                        onAccountTap: widget.onAccountTap,
+                      ),
                       SizedBox(height: compact ? 16 : 32),
                       if (snapshot.hasError)
                         AsyncErrorView(
