@@ -181,6 +181,8 @@ List<Widget> _buildChildren(
                   ),
                   child: Text(
                     linkBlock.text,
+                    // The paragraph already scales its inline widgets.
+                    textScaler: TextScaler.noScaling,
                     style: _threadTextStyle(
                       baseStyle,
                       linkBlock.style,
