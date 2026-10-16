@@ -177,286 +177,56 @@ String _orderLabel(ForumThreadOrder order) => switch (order) {
 /// Title (site colours kept), optional preview, then one faint meta line:
 /// 置顶 · author · time · replies.
 class _ThreadRow extends StatelessWidget {
-  const _ThreadRow({
-    required this.thread,
-    required this.repository,
-    required this.onTap,
-  });
+  const _ThreadRow({required this.thread, required this.onTap});
 
   final ForumThread thread;
-  final ForumRepository repository;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final previewImageUrl = thread.previewImageUrl;
-    final metaStyle = TextStyle(
-      color: AppColors.textFaint,
-      fontSize: 12,
-      height: 1.3,
+    final thumbnailDecode = ForumImageDecodeSpec.forDisplay(
+      logicalSize: const Size.square(56),
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      memoryScale: 3,
+      diskScale: 3,
     );
-    final author = thread.author ?? '匿名';
-    final rest = [
-      if (thread.lastPost != null && thread.lastPost!.isNotEmpty)
-        thread.lastPost!,
-      '${thread.replies} 回复',
-    ];
     return PerfTrace.span(
       'BoardThreadRow.build',
-      () {
-        return InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: _rowPadding,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ForumTitleText(
-                  thread.title,
-                  titleStyle: thread.titleStyle,
-                  maxLines: 2,
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 15.5,
-                    height: 1.4,
-                    fontWeight:
-                        thread.isSticky ? FontWeight.w600 : FontWeight.w500,
-                  ),
+      () => ForumThreadRow(
+        title: thread.title,
+        titleStyle: thread.titleStyle,
+        tag: thread.isSticky ? '置顶' : null,
+        emphasized: thread.isSticky,
+        meta: [
+          thread.author ?? '匿名',
+          if (thread.lastPost case final last? when last.isNotEmpty) last,
+          '${thread.replies} 回复',
+        ],
+        // The image-load setting applies: CachedForumImage keeps the policy.
+        thumbnail: previewImageUrl == null
+            ? null
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                child: CachedForumImage(
+                  url: previewImageUrl,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                  // Fit within three tiles a side: cover keeps a sharp short
+                  // side up to 3:1, and a long strip still decodes small.
+                  decodeToFit: true,
+                  memCacheWidth: thumbnailDecode.memCacheWidth,
+                  memCacheHeight: thumbnailDecode.memCacheHeight,
+                  maxWidthDiskCache: thumbnailDecode.maxWidthDiskCache,
+                  maxHeightDiskCache: thumbnailDecode.maxHeightDiskCache,
+                  placeholder: (_) => ColoredBox(color: AppColors.inkSoft),
+                  errorWidget: (_) => ColoredBox(color: AppColors.inkSoft),
                 ),
-                if (thread.bodyPreview != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    thread.bodyPreview!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 13,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-                if (previewImageUrl != null) ...[
-                  const SizedBox(height: 10),
-                  _ThreadPreviewImage(url: previewImageUrl),
-                ],
-                const SizedBox(height: 6),
-                // Wraps rather than truncating at large text sizes.
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    if (thread.isSticky) ...[
-                      Icon(
-                        Icons.push_pin_outlined,
-                        size: 14,
-                        color: AppColors.textFaint,
-                      ),
-                      const SizedBox(width: 2),
-                      Text('置顶 · ', style: metaStyle),
-                    ],
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 140),
-                      child: InkWell(
-                        onTap: thread.authorUrl == null
-                            ? null
-                            : () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => UserProfileScreen(
-                                      userUrl: thread.authorUrl!,
-                                      repository: repository,
-                                    ),
-                                  ),
-                                ),
-                        child: Text(
-                          author,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: metaStyle,
-                        ),
-                      ),
-                    ),
-                    Text(' · ${rest.join(' · ')}', style: metaStyle),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+              ),
+        onTap: onTap,
+      ),
       arguments: {'hasPreview': previewImageUrl != null},
-    );
-  }
-}
-
-class _ThreadPreviewImage extends StatefulWidget {
-  const _ThreadPreviewImage({required this.url});
-
-  final String url;
-
-  @override
-  State<_ThreadPreviewImage> createState() => _ThreadPreviewImageState();
-}
-
-class _ThreadPreviewImageState extends State<_ThreadPreviewImage> {
-  Size? _imageSize;
-  String? _metadataRequestUrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _imageSize = ForumImageMetadataCache.instance.peek(widget.url);
-  }
-
-  @override
-  void didUpdateWidget(covariant _ThreadPreviewImage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.url == widget.url) return;
-    _imageSize = ForumImageMetadataCache.instance.peek(widget.url);
-    _metadataRequestUrl = null;
-  }
-
-  void _ensureMetadata(ImageProvider provider) {
-    if (_imageSize != null || _metadataRequestUrl == widget.url) return;
-    final url = widget.url;
-    _metadataRequestUrl = url;
-    ForumImageMetadataCache.instance.get(url, provider).then((size) {
-      if (!mounted || widget.url != url) return;
-      if (size == null) {
-        _metadataRequestUrl = null;
-        return;
-      }
-      if (size == _imageSize) {
-        return;
-      }
-      setState(() {
-        _imageSize = size;
-      });
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final layout = _imageSize == null
-            ? ThreadPreviewImageLayout.fallback(constraints.maxWidth)
-            : ThreadPreviewImageLayout.resolve(
-                imageSize: _imageSize!,
-                maxWidth: constraints.maxWidth,
-              );
-        final spec = ForumImageDecodeSpec.forDisplay(
-          logicalSize: layout.size,
-          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-          maxLongEdge: 960,
-        );
-
-        return RepaintBoundary(
-          child: CachedForumImage(
-            url: widget.url,
-            width: layout.size.width,
-            height: layout.size.height,
-            fit: layout.fit,
-            memCacheWidth: spec.memCacheWidth,
-            memCacheHeight: spec.memCacheHeight,
-            maxWidthDiskCache: spec.maxWidthDiskCache,
-            maxHeightDiskCache: spec.maxHeightDiskCache,
-            placeholder: (context) => _ThreadPreviewPlaceholder(
-              layout: layout,
-            ),
-            imageBuilder: (context, provider) {
-              _ensureMetadata(provider);
-              return PerfTrace.span(
-                'BoardThreadPreviewImage.build',
-                () {
-                  return _ThreadPreviewFrame(
-                    layout: layout,
-                    child: Image(
-                      image: provider,
-                      width: layout.size.width,
-                      height: layout.size.height,
-                      fit: layout.fit,
-                    ),
-                  );
-                },
-                arguments: {'resolved': _imageSize != null},
-              );
-            },
-            errorWidget: (context) => _ThreadPreviewError(
-              width: layout.size.width,
-              height: layout.size.height,
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _ThreadPreviewFrame extends StatelessWidget {
-  const _ThreadPreviewFrame({
-    required this.layout,
-    required this.child,
-  });
-
-  final ThreadPreviewImageLayout layout;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(7),
-        child: SizedBox(
-          width: layout.size.width,
-          height: layout.size.height,
-          child: DecoratedBox(
-            decoration: BoxDecoration(color: AppColors.surfaceTint),
-            child: child,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ThreadPreviewPlaceholder extends StatelessWidget {
-  const _ThreadPreviewPlaceholder({required this.layout});
-
-  final ThreadPreviewImageLayout layout;
-
-  @override
-  Widget build(BuildContext context) {
-    return _ThreadPreviewFrame(
-      layout: layout,
-      child: const SizedBox.expand(),
-    );
-  }
-}
-
-class _ThreadPreviewError extends StatelessWidget {
-  const _ThreadPreviewError({
-    required this.width,
-    required this.height,
-  });
-
-  final double width;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      height: height,
-      child: Container(
-        color: AppColors.surfaceTint,
-        alignment: Alignment.center,
-        child: Icon(
-          Icons.image_not_supported_outlined,
-          size: 20,
-          color: AppColors.textMuted,
-        ),
-      ),
     );
   }
 }

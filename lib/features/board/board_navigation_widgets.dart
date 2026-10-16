@@ -1,14 +1,14 @@
 part of 'board_thread_list_screen.dart';
 
-// Board layout, in the home page's language: a centred column (max 1200) of
+// Board layout, in the home page's language: a centred column (AppWidths.list) of
 // soft surfaces on the background, section titles 20/w600, hairline rows.
 
-const _boardMaxWidth = 1200.0;
 const _wallSpacing = 12.0;
 const _siblingPanelWidth = 248.0;
 
-double _boardGutter(double width) =>
-    width < 600 ? 16 : math.max(24, (width - _boardMaxWidth) / 2);
+// The list keeps AppWidths.list; the sibling panel adds its own width.
+double _boardGutter(double width, {bool panel = false}) => appGutter(
+    width, AppWidths.list + (panel ? _siblingPanelWidth + AppSpace.xl : 0));
 
 int _subBoardColumns(double width) => width < 600
     ? 2

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
+import 'package:south_plus_rewrite/features/common/thread_row.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic boards, topics and names only.
 String _url(int fid) => 'https://south-plus.net/thread.php?fid-$fid.html';
@@ -82,6 +84,22 @@ class _Repo extends ForumRepository {
   }
 }
 
+class _LongRepo extends _Repo {
+  @override
+  Future<ForumThreadPage> fetchBoardThreadPage(
+    ForumCategory category, {
+    int page = 1,
+    ForumThreadOrder order = ForumThreadOrder.lastPost,
+    ForumBoardFilter? filter,
+  }) async =>
+      ForumThreadPage(
+        threads: [for (var i = 0; i < 14; i++) _topic('Long topic $i')],
+        currentPage: page,
+        totalPages: 3,
+        boardName: 'Child A',
+      );
+}
+
 Future<void> _pump(WidgetTester tester, Widget home, {Size? size}) async {
   tester.view.physicalSize = size ?? const Size(400, 800);
   tester.view.devicePixelRatio = 1;
@@ -156,6 +174,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Child B topic 1'), findsOneWidget);
   });
+
+  for (final size in const [Size(400, 800), Size(1440, 900)]) {
+    testWidgets(
+        'at ${size.width.toInt()} px topics keep the list width and the '
+        'pager ends clear of the 发帖 button', (tester) async {
+      await _pump(
+        tester,
+        BoardThreadListScreen(
+          category:
+              ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+          repository: _LongRepo(),
+        ),
+        size: size,
+      );
+      final row = tester.getRect(find.ancestor(
+          of: find.text('Long topic 0'), matching: find.byType(ForumThreadRow)));
+      expect(row.width, size.width < 600 ? size.width - 32 : AppWidths.list);
+      expect(row.center.dx, size.width / 2);
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -5000));
+      await tester.pumpAndSettle();
+      final pager = tester.getRect(find.text('第 1 / 3 页'));
+      final fab = tester.getRect(find.byType(FloatingActionButton));
+      expect(pager.bottom, lessThan(fab.top), reason: '$pager vs $fab');
+    });
+  }
 
   testWidgets('a filter tab refetches page one with that filter',
       (tester) async {

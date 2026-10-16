@@ -11,9 +11,9 @@ import '../common/async_state_view.dart';
 import '../common/forum_pager.dart';
 import '../common/forum_title_text.dart';
 import '../common/cached_forum_image.dart';
-import '../profile/user_profile_screen.dart';
+import '../common/content_width.dart';
+import '../common/thread_row.dart';
 import '../search/search_screen.dart';
-import 'thread_preview_image_layout.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_compose_screen.dart';
 
@@ -324,9 +324,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
               body: SafeArea(
                 bottom: false,
                 child: LayoutBuilder(builder: (context, constraints) {
-                  final gutter = _boardGutter(constraints.maxWidth);
                   final siblings = widget.siblings.length > 1;
                   final panel = siblings && constraints.maxWidth >= 1200;
+                  final gutter =
+                      _boardGutter(constraints.maxWidth, panel: panel);
                   final body = done && snapshot.hasError
                       ? AsyncErrorView(
                           title: '板块加载失败',
@@ -495,7 +496,6 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
           ),
         _BoardThreadItem(:final thread) => _ThreadRow(
             thread: thread,
-            repository: widget.repository,
             onTap: () => _openThread(thread),
           ),
       };

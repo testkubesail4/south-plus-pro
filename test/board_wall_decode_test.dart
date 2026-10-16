@@ -71,6 +71,49 @@ void main() {
     await fixture.close();
   });
 
+  // A 56 px list thumbnail at 2x fits within 336 px (three tiles) a side.
+  final thumbnails = <(String, Size)>[
+    // Cover keeps a short side above the tile's 112 px.
+    (_coverUrl, const Size(336 * 600 / 800, 336)),
+    // A very long strip stays small.
+    (_stripUrl, const Size(336 * 200 / 20000, 336)),
+  ];
+  for (final (url, want) in thumbnails) {
+    testWidgets('a list thumbnail decodes ${url.split('/').last} within '
+        'its bounds', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      await tester.runAsync(() async {
+        await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+        await tester.pumpWidget(MaterialApp(
+          home: BoardThreadListScreen(
+            category: const ForumCategory(name: 'Wall', slug: 'fid-936'),
+            repository: repos[url]!,
+          ),
+        ));
+        await tester.pumpAndSettle();
+        final decoded = find.byWidgetPredicate(
+          (widget) => widget is RawImage && widget.image != null,
+        );
+        for (var i = 0; i < 200 && decoded.evaluate().isEmpty; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(tester.getSize(decoded), const Size(56, 56));
+        final image = tester.widget<RawImage>(decoded).image!;
+        expect(
+          (image.width - want.width).abs() <= 2 &&
+              (image.height - want.height).abs() <= 2,
+          isTrue,
+          reason: 'decoded ${image.width}x${image.height}, want $want',
+        );
+        await tester.pumpWidget(const SizedBox());
+      });
+    });
+  }
+
   // (image, decoded size for a 2x card of the given on-screen size)
   final cases = <(String, Size Function(Size card))>[
     // A cover-sized image decodes at the card's pixel width.
@@ -96,6 +139,8 @@ void main() {
         ));
         await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('图墙'));
+        // Build the wall before looking, or a decoded list thumbnail counts.
+        await tester.pump();
         final decoded = find.byWidgetPredicate(
           (widget) => widget is RawImage && widget.image != null,
         );

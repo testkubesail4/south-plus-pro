@@ -30,6 +30,8 @@ void main() {
         '($mode)', (tester) async {
       AppThemeController.notifier.value = mode;
       await tester.pumpWidget(MaterialApp(
+        // Rows take their text colour from the app theme's roles.
+        theme: mode == ThemeMode.dark ? AppTheme.dark : AppTheme.light,
         home: BoardThreadListScreen(
           category: const ForumCategory(name: 'Board', slug: 'fid-42'),
           repository: _Repo(),
