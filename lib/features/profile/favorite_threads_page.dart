@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
@@ -7,6 +5,8 @@ import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/async_state_view.dart';
+import '../common/content_width.dart';
+import '../common/thread_row.dart';
 import '../thread/thread_detail_screen.dart';
 
 /// The 收藏 tab: the signed-in account's favourite threads as one plain
@@ -24,9 +24,6 @@ class FavoriteThreadsPage extends StatefulWidget {
   @override
   State<FavoriteThreadsPage> createState() => _FavoriteThreadsPageState();
 }
-
-/// Lists are centred at most this wide.
-const _maxWidth = 840.0;
 
 class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
   Future<UserProfile>? _future;
@@ -143,31 +140,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
               onRetry: _refresh,
             );
           } else if (favorites == null) {
-            body = DecoratedBox(
-              decoration: appSurface(context),
-              child: Semantics(
-                label: '加载中',
-                child: Column(
-                  children: [
-                    for (final width in const [0.9, 0.6, 0.75, 0.5, 0.8, 0.65])
-                      Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            FractionallySizedBox(
-                              widthFactor: width,
-                              child: const SkeletonBlock(height: 14),
-                            ),
-                            const SizedBox(height: 10),
-                            const SkeletonBlock(width: 96, height: 10),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            );
+            body = const ThreadRowSkeleton(itemCount: 6);
           } else if (favorites.isEmpty) {
             body = const EmptyStateView(
               title: '还没有收藏',
@@ -181,13 +154,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   for (final (i, item) in favorites.indexed) ...[
-                    if (i > 0)
-                      Divider(
-                        height: 1,
-                        indent: 16,
-                        endIndent: 16,
-                        color: AppColors.border.withValues(alpha: 0.6),
-                      ),
+                    if (i > 0) const Divider(indent: AppSpace.lg),
                     _FavoriteRow(
                       item: item,
                       repository: widget.repository,
@@ -206,11 +173,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
             onRefresh: _refresh,
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                final side = math.max(
-                  width < 600 ? 16.0 : 24.0,
-                  (width - _maxWidth) / 2,
-                );
+                final side = appGutter(constraints.maxWidth, AppWidths.list);
                 return ListView(
                   padding: EdgeInsets.fromLTRB(side, 8, side, 32),
                   children: [
@@ -247,7 +210,7 @@ class _PageTitle extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               '$count 个主题',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ],
@@ -281,16 +244,15 @@ class _FavoriteRowState extends State<_FavoriteRow> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
-    final meta = [
-      if (item.section != null) item.section!,
-      if (item.author != null) item.author!,
-      if (item.date != null) item.date!,
-      if (item.replies != null) '${item.replies} 回复',
-    ].join(' · ');
     final canRemove = widget.onRemove != null && !widget.busy;
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
+    return ForumThreadRow(
+      title: item.title,
+      meta: [
+        if (item.section != null) item.section!,
+        if (item.author != null) item.author!,
+        if (item.date != null) item.date!,
+        if (item.replies != null) '${item.replies} 回复',
+      ],
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ThreadDetailScreen(
@@ -309,53 +271,19 @@ class _FavoriteRowState extends State<_FavoriteRow> {
       ),
       onLongPress:
           canRemove ? () => _menu.currentState?.showButtonMenu() : null,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 56),
-        child: Padding(
-          padding:
-              EdgeInsets.fromLTRB(16, 12, widget.onRemove == null ? 16 : 4, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.text,
-                        fontSize: 15,
-                        height: 1.4,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    if (meta.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            TextStyle(color: AppColors.textMuted, fontSize: 12),
-                      ),
-                    ],
-                  ],
+      trailing: widget.busy
+          ? const SizedBox.square(
+              dimension: 48,
+              child: Center(
+                child: SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
-              if (widget.busy)
-                const SizedBox.square(
-                  dimension: 48,
-                  child: Center(
-                    child: SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                )
-              else if (widget.onRemove != null)
-                PopupMenuButton<void>(
+            )
+          : widget.onRemove == null
+              ? null
+              : PopupMenuButton<void>(
                   key: _menu,
                   tooltip: '更多',
                   icon: Icon(Icons.more_horiz, color: AppColors.textMuted),
@@ -365,17 +293,13 @@ class _FavoriteRowState extends State<_FavoriteRow> {
                       child: const Row(
                         children: [
                           Icon(Icons.star_outline, size: 20),
-                          SizedBox(width: 12),
+                          SizedBox(width: AppSpace.md),
                           Text('取消收藏'),
                         ],
                       ),
                     ),
                   ],
                 ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

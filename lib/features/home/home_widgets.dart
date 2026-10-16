@@ -231,42 +231,32 @@ const _quickListIcons = {
   '提问求物': Icons.help_outline,
 };
 
-TextStyle _quickTitleStyle() => TextStyle(
-      color: AppColors.text,
-      fontSize: 15,
-      height: 1.4,
-      fontWeight: FontWeight.w400,
-    );
+/// The row title's style, as [ForumThreadRow] draws it.
+TextStyle _quickTitleStyle(BuildContext context) =>
+    Theme.of(context).textTheme.titleSmall!;
 
 /// One row: 48 at 1x (the tap target), growing with the title line at
 /// larger text sizes.
-double _quickRowHeight(BuildContext context) =>
-    math.max(48, MediaQuery.textScalerOf(context).scale(15) * 1.4 + 22);
+double _quickRowHeight(BuildContext context) {
+  final style = _quickTitleStyle(context);
+  return math.max(
+    48,
+    MediaQuery.textScalerOf(context).scale(style.fontSize!) * style.height! +
+        2 * AppSpace.sm,
+  );
+}
 
 /// [_quickRowCount] rows and the hairlines between them.
 double _quickListHeight(BuildContext context) =>
     _quickRowCount * _quickRowHeight(context) + _quickRowCount - 1;
 
-/// One 速览 row; rows are split by hairlines so neighbours never read as one.
-Widget _quickRow(BuildContext context, Widget title, {Widget? trailing}) =>
-    SizedBox(
-      height: _quickRowHeight(context),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
-          children: [
-            Expanded(child: title),
-            if (trailing != null) ...[const SizedBox(width: 12), trailing],
-          ],
-        ),
-      ),
-    );
-
-Widget _quickRows(List<Widget> rows) => Column(
+/// Rows of exactly [_quickRowHeight], split by inset hairlines so
+/// neighbours never read as one.
+Widget _quickRows(BuildContext context, List<Widget> rows) => Column(
       children: [
         for (final (i, row) in rows.indexed) ...[
-          if (i > 0) _hairline(12),
-          row,
+          if (i > 0) _hairline(AppSpace.lg),
+          SizedBox(height: _quickRowHeight(context), child: row),
         ],
       ],
     );
@@ -336,13 +326,14 @@ class _QuickListsState extends State<_QuickLists>
   Widget _tabBar() {
     final placeholder = widget.lists == null;
     final scaler = MediaQuery.textScalerOf(context);
-    final style = TextStyle(fontSize: 14, fontWeight: FontWeight.w600);
+    final style = Theme.of(context).textTheme.labelLarge!;
     final bar = TabBar(
       controller: _tabs,
       isScrollable: true,
       tabAlignment: TabAlignment.start,
-      padding: EdgeInsets.zero,
-      labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+      // Labels start where the rows' titles do.
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.xs),
+      labelPadding: const EdgeInsets.symmetric(horizontal: AppSpace.md),
       indicatorSize: TabBarIndicatorSize.label,
       indicator: UnderlineTabIndicator(
         borderSide: BorderSide(
@@ -360,7 +351,7 @@ class _QuickListsState extends State<_QuickLists>
       tabs: [
         for (final list in _lists)
           Tab(
-            height: math.max(48, scaler.scale(14) * 1.4 + 20),
+            height: math.max(48, scaler.scale(style.fontSize!) * 1.4 + 20),
             // Placeholder tabs are as wide as the site's four-character titles.
             child: placeholder
                 ? _Bone(style, text: '\u3000' * 4)
@@ -373,16 +364,12 @@ class _QuickListsState extends State<_QuickLists>
 
   @override
   Widget build(BuildContext context) {
-    final labelStyle = TextStyle(
-      color: AppColors.textMuted,
-      fontSize: 13,
-      fontWeight: FontWeight.w500,
-    );
+    final labelStyle = Theme.of(context).textTheme.bodySmall!;
     if (!widget.columns || _lists.length == 1) {
       final scrolling = ScrollConfiguration.of(context);
       return Container(
         decoration: appSurface(context),
-        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        padding: const EdgeInsets.only(bottom: AppSpace.sm),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -417,18 +404,19 @@ class _QuickListsState extends State<_QuickLists>
     }
     return Container(
       decoration: appSurface(context),
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+      padding: const EdgeInsets.fromLTRB(
+          AppSpace.sm, AppSpace.lg, AppSpace.sm, AppSpace.sm),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (var i = 0; i < _lists.length; i++) ...[
-            if (i > 0) const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpace.lg, 0, AppSpace.lg, AppSpace.xs),
                     child: Row(
                       children: [
                         if (widget.lists == null)
@@ -511,15 +499,12 @@ class _QuickListBody extends StatelessWidget {
                     Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
               );
             }
-            final countStyle = TextStyle(
-              color: AppColors.textFaint,
-              fontSize: 12,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            );
-            return _quickRows([
+            return _quickRows(context, [
               for (final thread in shown.take(_quickRowCount))
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
+                ForumThreadRow.dense(
+                  title: thread.title,
+                  titleStyle: thread.titleStyle,
+                  count: thread.replies > 0 ? thread.replies : null,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => ThreadDetailScreen(
@@ -527,22 +512,6 @@ class _QuickListBody extends StatelessWidget {
                         repository: repository,
                       ),
                     ),
-                  ),
-                  child: _quickRow(
-                    context,
-                    ForumTitleText(
-                      thread.title,
-                      titleStyle: thread.titleStyle,
-                      maxLines: 1,
-                      style: _quickTitleStyle(),
-                    ),
-                    trailing: thread.replies > 0
-                        ? Text(
-                            '${thread.replies}',
-                            semanticsLabel: '${thread.replies} 回复',
-                            style: countStyle,
-                          )
-                        : null,
                   ),
                 ),
             ]);
@@ -561,13 +530,16 @@ class _QuickListSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       label: '加载中',
-      child: _quickRows([
+      child: _quickRows(context, [
         for (var i = 0; i < _quickRowCount; i++)
-          _quickRow(
-            context,
-            _Bone(
-              _quickTitleStyle(),
-              widthFactor: const [0.8, 0.6, 0.7, 0.5, 0.65][i % 5],
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _Bone(
+                _quickTitleStyle(context),
+                widthFactor: const [0.8, 0.6, 0.7, 0.5, 0.65][i % 5],
+              ),
             ),
           ),
       ]),

@@ -15,7 +15,7 @@ import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
 import '../common/brand_mark.dart';
-import '../common/forum_title_text.dart';
+import '../common/thread_row.dart';
 import '../messages/messages_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';
