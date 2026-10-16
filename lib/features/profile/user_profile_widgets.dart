@@ -44,13 +44,9 @@ class _ProfileHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceTint,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.brandSoft),
-            ),
+          // Identity sits on the header itself; no tinted card around it.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.xs),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -136,6 +132,7 @@ class _ProfileHeader extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               if (onMessage != null)
                 _ActionChip(
@@ -174,11 +171,11 @@ class _ProfileHeader extends StatelessWidget {
               _MetricChip(label: 'UID', value: profile.uid),
               if (profile.level != null && profile.level!.isNotEmpty)
                 _MetricChip(label: '等级', value: profile.level!),
-              ...profile.stats.take(3).map(
-                    (field) => _MetricChip(
-                      label: field.label,
-                      value: field.value,
-                    ),
+              ...profile.stats
+                  .take(3)
+                  .map(
+                    (field) =>
+                        _MetricChip(label: field.label, value: field.value),
                   ),
             ],
           ),
@@ -198,8 +195,8 @@ class _OnlineDot extends StatelessWidget {
     final color = isOnline == null
         ? AppColors.textFaint
         : isOnline!
-            ? AppColors.success
-            : AppColors.textFaint;
+        ? AppColors.success
+        : AppColors.textFaint;
     return Container(
       width: 15,
       height: 15,
@@ -224,13 +221,13 @@ class _OnlinePill extends StatelessWidget {
     final color = isOnline == null
         ? AppColors.textMuted
         : online
-            ? AppColors.success
-            : AppColors.textMuted;
+        ? AppColors.success
+        : AppColors.textMuted;
     final background = isOnline == null
         ? AppColors.inkSoft
         : online
-            ? AppColors.successSoft
-            : AppColors.inkSoft;
+        ? AppColors.successSoft
+        : AppColors.inkSoft;
     return Container(
       constraints: const BoxConstraints(minHeight: 28),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -274,48 +271,18 @@ class _ActionChip extends StatelessWidget {
   final VoidCallback? onTap;
   final bool busy;
 
+  // Secondary actions: small neutral tonal buttons (DESIGN.md §6).
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: onTap == null
-          ? AppColors.brand.withValues(alpha: .6)
-          : AppColors.brand,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: onTap,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 32),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (busy)
-                const SizedBox.square(
-                  dimension: 15,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              else
-                Icon(icon, size: 15, color: Colors.white),
-              const SizedBox(width: 5),
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return FilledButton.tonalIcon(
+      onPressed: onTap,
+      icon: busy
+          ? const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon),
+      label: Text(label, overflow: TextOverflow.ellipsis),
     );
   }
 }
@@ -361,7 +328,9 @@ class _LoadingProfileFrame extends StatelessWidget {
         children: [
           _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
           _RefreshTab(
-              onRefresh: onRefresh, child: const _ProfileInfoLoadingTab()),
+            onRefresh: onRefresh,
+            child: const _ProfileInfoLoadingTab(),
+          ),
           _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
           _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
           _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
@@ -399,13 +368,9 @@ class _ProfileLoadingHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceTint,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.brandSoft),
-            ),
+          // Identity sits on the header itself; no tinted card around it.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.xs),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -494,10 +459,7 @@ class _HomeTab extends StatelessWidget {
 }
 
 class _DetailsTab extends StatelessWidget {
-  const _DetailsTab({
-    required this.future,
-    required this.builder,
-  });
+  const _DetailsTab({required this.future, required this.builder});
 
   final Future<UserProfile>? future;
   final Widget Function(BuildContext context, UserProfile profile) builder;
@@ -514,12 +476,7 @@ class _DetailsTab extends StatelessWidget {
         if (snapshot.hasError) {
           return ListView(
             padding: const EdgeInsets.all(16),
-            children: [
-              _TextPanel(
-                title: '内容加载失败',
-                text: '${snapshot.error}',
-              ),
-            ],
+            children: [_TextPanel(title: '内容加载失败', text: '${snapshot.error}')],
           );
         }
         if (!snapshot.hasData) {
@@ -642,12 +599,7 @@ class _ActivitySection extends StatelessWidget {
       title: title,
       child: Column(
         children: items
-            .map(
-              (item) => _ActivityTile(
-                item: item,
-                repository: repository,
-              ),
-            )
+            .map((item) => _ActivityTile(item: item, repository: repository))
             .toList(),
       ),
     );
@@ -684,11 +636,7 @@ class _ActivityTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.bolt_outlined,
-              size: 18,
-              color: AppColors.textMuted,
-            ),
+            Icon(Icons.bolt_outlined, size: 18, color: AppColors.textMuted),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -696,10 +644,7 @@ class _ActivityTile extends StatelessWidget {
                 children: [
                   Text(
                     item.action ?? '动态',
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12),
                   ),
                   const SizedBox(height: 3),
                   Text(
@@ -770,10 +715,7 @@ class _ThreadLikeTile extends StatelessWidget {
                   meta,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Color(0xff777777),
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: Color(0xff777777), fontSize: 12),
                 ),
               ],
               if (item.author != null) ...[
@@ -791,7 +733,9 @@ class _ThreadLikeTile extends StatelessWidget {
                   children: [
                     if (item.replies != null)
                       _TinyStat(
-                          icon: Icons.forum_outlined, text: '${item.replies}'),
+                        icon: Icons.forum_outlined,
+                        text: '${item.replies}',
+                      ),
                     if (item.views != null)
                       _TinyStat(
                         icon: Icons.visibility_outlined,
@@ -826,13 +770,11 @@ class _AuthorLink extends StatelessWidget {
       onTap: url == null
           ? null
           : () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => UserProfileScreen(
-                    userUrl: url!,
-                    repository: repository,
-                  ),
-                ),
+              MaterialPageRoute(
+                builder: (_) =>
+                    UserProfileScreen(userUrl: url!, repository: repository),
               ),
+            ),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
@@ -842,19 +784,9 @@ class _AuthorLink extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.person_outline,
-              size: 14,
-              color: AppColors.textMuted,
-            ),
+            Icon(Icons.person_outline, size: 14, color: AppColors.textMuted),
             const SizedBox(width: 4),
-            Text(
-              name,
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 12,
-              ),
-            ),
+            Text(name, style: TextStyle(color: AppColors.text, fontSize: 12)),
           ],
         ),
       ),
@@ -892,10 +824,7 @@ class _FieldSection extends StatelessWidget {
                       ),
                     ),
                     Expanded(
-                      child: Text(
-                        field.value,
-                        style: TextStyle(fontSize: 14),
-                      ),
+                      child: Text(field.value, style: TextStyle(fontSize: 14)),
                     ),
                   ],
                 ),
@@ -927,10 +856,7 @@ class _Panel extends StatelessWidget {
         children: [
           Text(
             title,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
           child,
@@ -980,14 +906,18 @@ class _MetricChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      // A neutral tag, centred against the buttons it wraps with.
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpace.sm,
+        vertical: AppSpace.xs,
+      ),
       decoration: BoxDecoration(
-        color: AppColors.brandSoft,
-        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
       child: Text(
         '$label $value',
-        style: TextStyle(color: AppColors.brand, fontSize: 12),
+        style: TextStyle(color: AppColors.textMuted, fontSize: 12),
       ),
     );
   }
@@ -1006,10 +936,7 @@ class _TinyStat extends StatelessWidget {
       children: [
         Icon(icon, size: 14, color: AppColors.textFaint),
         const SizedBox(width: 4),
-        Text(
-          text,
-          style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-        ),
+        Text(text, style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
       ],
     );
   }
