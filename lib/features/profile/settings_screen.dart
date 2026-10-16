@@ -11,11 +11,13 @@ import '../../services/thread_paging_settings.dart';
 import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
+import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import 'network_settings_screen.dart';
 import 'network_setup_flow_screen.dart';
 
-/// Device-only preferences: network, appearance, images, text size, app.
+/// Device preferences, by how often they change: 外观 (theme, text size),
+/// 阅读 (paging, images), 网络 and 关于.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -138,20 +140,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
+              // The third option is a link in the body (DESIGN.md §9).
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    foregroundColor: AppColors.brand,
+                  ),
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await _openReleaseLink(release.htmlUrl);
+                  },
+                  child: const Text('查看版本详情'),
+                ),
+              ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: Text(result.hasUpdate ? '稍后' : '知道了'),
-            ),
-            TextButton.icon(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                await _openReleaseLink(release.htmlUrl);
-              },
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('版本详情'),
             ),
             FilledButton.icon(
               onPressed: () async {
@@ -180,6 +189,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _chooseImageMode(ImageLoadMode current) async {
+    final chosen = await showModalBottomSheet<ImageLoadMode>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
+                child: Text('图片加载',
+                    style: Theme.of(context).textTheme.titleMedium),
+              ),
+              for (final mode in ImageLoadMode.values)
+                AppRow(
+                  icon: _iconForImageMode(mode),
+                  title: Text(mode.label),
+                  subtitle: Text(mode.description),
+                  selected: mode == current,
+                  onTap: () => Navigator.of(context).pop(mode),
+                ),
+              const SizedBox(height: AppSpace.sm),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (chosen != null && chosen != current) await _setImageMode(chosen);
+  }
+
+  Future<void> _openNetworkSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NetworkSettingsScreen(repository: widget.repository),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final networkConfig = widget.repository.networkConfig;
@@ -187,203 +240,133 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('设置')),
       body: SafeArea(
         top: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-          children: [
-            Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final gutter = appGutter(constraints.maxWidth, AppWidths.form);
+            return ListView(
+              padding: EdgeInsets.fromLTRB(
+                  gutter, AppSpace.sm, gutter, AppSpace.xxl),
               children: [
-                Expanded(
-                  child: _StatusSummaryTile(
-                    icon: Icons.public_outlined,
-                    label: '访问入口',
-                    value: networkConfig.site.host,
-                  ),
+                AppGroup(
+                  label: '外观',
+                  children: [
+                    ValueListenableBuilder<ThemeMode>(
+                      valueListenable: AppThemeController.notifier,
+                      builder: (context, mode, _) => _SegmentRow<ThemeMode>(
+                        icon: Icons.contrast,
+                        title: '主题',
+                        value: mode,
+                        options: const {
+                          ThemeMode.system: '系统',
+                          ThemeMode.light: '浅色',
+                          ThemeMode.dark: '深色',
+                        },
+                        onChanged: AppThemeController.setMode,
+                      ),
+                    ),
+                    ValueListenableBuilder<ForumTextSize>(
+                      valueListenable: ForumTextSizeSettings.notifier,
+                      builder: (context, size, _) => _SegmentRow<ForumTextSize>(
+                        icon: Icons.format_size,
+                        title: '字体大小',
+                        value: size,
+                        options: const {
+                          ForumTextSize.small: '小',
+                          ForumTextSize.normal: '标准',
+                          ForumTextSize.large: '大',
+                        },
+                        onChanged: ForumTextSizeSettings.save,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _StatusSummaryTile(
-                    icon: networkConfig.dohEnabled
-                        ? Icons.enhanced_encryption_outlined
-                        : Icons.dns_outlined,
-                    label: '解析方式',
-                    value: networkConfig.dohEnabled ? '加密解析' : '系统默认',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpace.xl),
-            AppGroup(
-              label: '网络',
-              description: '调整访问入口、解析方式和连接探测',
-              children: [
-                AppRow(
-                  icon: Icons.public_outlined,
-                  title: const Text('连接设置'),
-                  subtitle: Text(
-                      '${networkConfig.site.host} · ${networkConfig.dohEnabled ? '加密解析' : '系统默认解析'}'),
-                  onTap: () async {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => NetworkSettingsScreen(
-                          repository: widget.repository,
+                const SizedBox(height: AppSpace.xl),
+                AppGroup(
+                  label: '阅读',
+                  children: [
+                    ValueListenableBuilder<bool>(
+                      valueListenable: ThreadPagingSettings.notifier,
+                      builder: (context, autoLoad, _) => MergeSemantics(
+                        child: AppRow(
+                          icon: Icons.vertical_align_bottom_outlined,
+                          title: const Text('自动加载下一页'),
+                          subtitle: const Text('滑到页尾时接上下一页'),
+                          onTap: () => _setAutoLoad(!autoLoad),
+                          trailing:
+                              Switch(value: autoLoad, onChanged: _setAutoLoad),
                         ),
                       ),
-                    );
-                    if (!mounted) return;
-                    setState(() {});
-                  },
-                ),
-                AppRow(
-                  icon: Icons.auto_fix_high_outlined,
-                  title: const Text('连接引导'),
-                  subtitle: const Text('重新探测解析线路、访问入口和直连线路'),
-                  onTap: _openNetworkSetup,
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpace.xl),
-            AppGroup(
-              label: '阅读',
-              description: '帖子的翻页方式',
-              children: [
-                ValueListenableBuilder<bool>(
-                  valueListenable: ThreadPagingSettings.notifier,
-                  builder: (context, autoLoad, _) => MergeSemantics(
-                    child: AppRow(
-                      icon: Icons.vertical_align_bottom_outlined,
-                      title: const Text('自动加载下一页'),
-                      subtitle: const Text('滑到页尾时自动接上下一页；关闭时用页尾的「下一页」翻页'),
-                      onTap: () => _setAutoLoad(!autoLoad),
-                      trailing:
-                          Switch(value: autoLoad, onChanged: _setAutoLoad),
                     ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpace.xl),
-            AppGroup(
-              label: '界面设置',
-              description: '选择应用配色偏好',
-              children: [
-                ValueListenableBuilder<ThemeMode>(
-                  valueListenable: AppThemeController.notifier,
-                  builder: (context, themeMode, _) {
-                    return Column(
-                      children: ThemeMode.values.map((mode) {
+                    FutureBuilder<ImageLoadMode>(
+                      future: _imageMode,
+                      builder: (context, snapshot) {
+                        final mode = snapshot.data ?? ImageLoadMode.automatic;
                         return AppRow(
-                          icon: _iconForThemeMode(mode),
-                          onTap: () => AppThemeController.setMode(mode),
-                          title: Text(_labelForThemeMode(mode)),
-                          subtitle: Text(_descriptionForThemeMode(mode)),
-                          selected: themeMode == mode,
+                          icon: Icons.image_outlined,
+                          title: const Text('图片加载'),
+                          value: mode.label,
+                          onTap: () => _chooseImageMode(mode),
                         );
-                      }).toList(),
-                    );
-                  },
+                      },
+                    ),
+                    AppRow(
+                      icon: Icons.cleaning_services_outlined,
+                      title: const Text('清理图片缓存'),
+                      value: _clearingCache ? '正在清理…' : null,
+                      trailing: const SizedBox.shrink(),
+                      onTap: _clearingCache ? null : _clearImageCache,
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: AppSpace.xl),
-            AppGroup(
-              label: '图片与流量',
-              description: '控制帖子图片的加载策略和本地缓存',
-              children: [
-                FutureBuilder<ImageLoadMode>(
-                  future: _imageMode,
-                  builder: (context, snapshot) {
-                    final mode = snapshot.data ?? ImageLoadMode.automatic;
-                    return Column(
-                      children: ImageLoadMode.values.map((item) {
-                        final selected = item == mode;
+                const SizedBox(height: AppSpace.xl),
+                AppGroup(
+                  label: '网络',
+                  children: [
+                    AppRow(
+                      icon: Icons.public_outlined,
+                      title: const Text('连接设置'),
+                      subtitle: Text('${networkConfig.site.host} · '
+                          '${networkConfig.dohEnabled ? '加密解析' : '系统解析'}'),
+                      onTap: _openNetworkSettings,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpace.xl),
+                AppGroup(
+                  label: '关于',
+                  children: [
+                    FutureBuilder<PackageInfo>(
+                      future: _packageInfo,
+                      builder: (context, snapshot) {
+                        final info = snapshot.data;
                         return AppRow(
-                          icon: _iconForImageMode(item),
-                          onTap: () => _setImageMode(item),
-                          title: Text(item.label),
-                          subtitle: Text(item.description),
-                          selected: selected,
+                          icon: Icons.info_outline,
+                          title: const Text('版本'),
+                          // Static information, not a disabled control.
+                          enabled: true,
+                          value: info == null
+                              ? '…'
+                              : 'v${info.version}+${info.buildNumber}',
                         );
-                      }).toList(),
-                    );
-                  },
-                ),
-                AppRow(
-                  icon: Icons.cleaning_services_outlined,
-                  title: const Text('清理图片缓存'),
-                  subtitle: Text(_clearingCache ? '正在清理...' : '释放本地图片缓存空间'),
-                  onTap: _clearingCache ? null : _clearImageCache,
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpace.xl),
-            AppGroup(
-              label: '字体大小',
-              description: '在系统字号基础上调整应用文字',
-              children: [
-                ValueListenableBuilder<ForumTextSize>(
-                  valueListenable: ForumTextSizeSettings.notifier,
-                  builder: (context, current, _) {
-                    return Column(
-                      children: ForumTextSize.values.map((size) {
-                        return AppRow(
-                          icon: switch (size) {
-                            ForumTextSize.small => Icons.text_decrease,
-                            ForumTextSize.normal => Icons.text_fields,
-                            ForumTextSize.large => Icons.text_increase,
-                          },
-                          onTap: () => ForumTextSizeSettings.save(size),
-                          title: Text(switch (size) {
-                            ForumTextSize.small => '小',
-                            ForumTextSize.normal => '标准',
-                            ForumTextSize.large => '大',
-                          }),
-                          subtitle:
-                              Text('系统字号的 ${(size.scale * 100).round()}%'),
-                          selected: current == size,
-                        );
-                      }).toList(),
-                    );
-                  },
+                      },
+                    ),
+                    AppRow(
+                      icon: Icons.system_update_alt_outlined,
+                      title: const Text('检查更新'),
+                      value: _checkingUpdate ? '正在检查…' : null,
+                      onTap: _checkingUpdate ? null : _checkForUpdate,
+                    ),
+                    if (kDebugMode)
+                      AppRow(
+                        icon: Icons.bug_report_outlined,
+                        title: const Text('重置网络引导'),
+                        onTap: _resetNetworkSetupAndOpen,
+                      ),
+                  ],
                 ),
               ],
-            ),
-            const SizedBox(height: AppSpace.xl),
-            AppGroup(
-              label: '应用',
-              description: '版本信息和开发调试入口',
-              children: [
-                FutureBuilder<PackageInfo>(
-                  future: _packageInfo,
-                  builder: (context, snapshot) {
-                    final info = snapshot.data;
-                    return AppRow(
-                      enabled: true,
-                      icon: Icons.info_outline,
-                      title: const Text('南+'),
-                      subtitle: Text(info == null
-                          ? '正在读取版本信息'
-                          : 'v${info.version}+${info.buildNumber}'),
-                    );
-                  },
-                ),
-                AppRow(
-                  icon: Icons.system_update_alt_outlined,
-                  title: const Text('检查更新'),
-                  subtitle: Text(_checkingUpdate
-                      ? '正在检查 GitHub Releases'
-                      : '查看是否有新版本可下载'),
-                  onTap: _checkingUpdate ? null : _checkForUpdate,
-                ),
-                if (kDebugMode)
-                  AppRow(
-                    icon: Icons.bug_report_outlined,
-                    title: const Text('重置网络引导'),
-                    subtitle: const Text('调试首次启动引导流程'),
-                    onTap: _resetNetworkSetupAndOpen,
-                  ),
-              ],
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -406,46 +389,49 @@ String _formatReleaseDate(DateTime dateTime) {
       '${twoDigits(local.hour)}:${twoDigits(local.minute)}';
 }
 
-class _StatusSummaryTile extends StatelessWidget {
-  const _StatusSummaryTile({
+/// A setting with a few short choices: the title row, then a full-width
+/// segmented control (DESIGN.md §7).
+class _SegmentRow<T> extends StatelessWidget {
+  const _SegmentRow({
     required this.icon,
-    required this.label,
+    required this.title,
     required this.value,
+    required this.options,
+    required this.onChanged,
   });
 
   final IconData icon;
-  final String label;
-  final String value;
+  final String title;
+  final T value;
+  final Map<T, String> options;
+  final ValueChanged<T> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 84),
-      padding: const EdgeInsets.all(12),
-      decoration: appSurface(context),
+    return Padding(
+      padding: const EdgeInsets.all(AppSpace.lg),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: AppColors.textMuted),
-              const SizedBox(width: 6),
+              Icon(icon, size: 22, color: AppColors.textMuted),
+              const SizedBox(width: AppSpace.lg),
               Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                child:
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
               ),
             ],
           ),
-          const SizedBox(height: 9),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleSmall,
+          const SizedBox(height: AppSpace.md),
+          SegmentedButton<T>(
+            showSelectedIcon: false,
+            segments: [
+              for (final MapEntry(:key, value: label) in options.entries)
+                ButtonSegment(value: key, label: Text(label)),
+            ],
+            selected: {value},
+            onSelectionChanged: (selection) => onChanged(selection.single),
           ),
         ],
       ),
@@ -459,29 +445,5 @@ IconData _iconForImageMode(ImageLoadMode mode) {
     ImageLoadMode.wifiOnly => Icons.wifi_outlined,
     ImageLoadMode.manual => Icons.touch_app_outlined,
     ImageLoadMode.noImages => Icons.hide_image_outlined,
-  };
-}
-
-IconData _iconForThemeMode(ThemeMode mode) {
-  return switch (mode) {
-    ThemeMode.system => Icons.settings_suggest_outlined,
-    ThemeMode.light => Icons.light_mode_outlined,
-    ThemeMode.dark => Icons.dark_mode_outlined,
-  };
-}
-
-String _labelForThemeMode(ThemeMode mode) {
-  return switch (mode) {
-    ThemeMode.system => '跟随系统',
-    ThemeMode.light => '白天模式',
-    ThemeMode.dark => '暗黑模式',
-  };
-}
-
-String _descriptionForThemeMode(ThemeMode mode) {
-  return switch (mode) {
-    ThemeMode.system => '自动使用系统外观设置',
-    ThemeMode.light => '始终使用浅色界面',
-    ThemeMode.dark => '始终使用深色界面',
   };
 }

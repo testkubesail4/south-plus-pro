@@ -588,25 +588,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.text('界面设置'),
-      180,
-      scrollable: find.byType(Scrollable).first,
-    );
+    // 外观 comes first: one segmented control per choice.
+    expect(find.text('外观'), findsOneWidget);
+    expect(find.byType(SegmentedButton<ThemeMode>), findsOneWidget);
+    for (final label in ['系统', '浅色', '深色']) {
+      expect(find.text(label), findsOneWidget);
+    }
 
-    expect(find.text('界面设置'), findsOneWidget);
-    expect(find.text('跟随系统'), findsOneWidget);
-    expect(find.text('白天模式'), findsOneWidget);
-    expect(find.text('暗黑模式'), findsOneWidget);
-
-    await tester.drag(find.byType(ListView), const Offset(0, -220));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.ancestor(
-        of: find.text('暗黑模式'),
-        matching: find.byType(InkWell),
-      ),
-    );
+    await tester.tap(find.text('深色'));
     await tester.pumpAndSettle();
 
     expect(AppThemeController.themeMode, ThemeMode.dark);
@@ -621,6 +610,25 @@ void main() {
     expect(AppThemeController.themeMode, ThemeMode.system);
   });
 
+  testWidgets('settings shows the connection once, in 连接设置', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = _FakeTasksRepository();
+    await tester.pumpWidget(MaterialApp(
+      home: SettingsScreen(
+        repository: repository,
+        packageInfoLoader: _fakePackageInfo,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('连接设置'), 180,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.textContaining(repository.networkConfig.site.host),
+        findsOneWidget);
+    for (final gone in ['访问入口', '解析方式', '连接引导']) {
+      expect(find.text(gone), findsNothing, reason: gone);
+    }
+  });
+
   testWidgets('account screen offers strict no-image mode', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(MaterialApp(
@@ -630,13 +638,17 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('图片与流量'), 180,
+    await tester.scrollUntilVisible(find.text('图片加载'), 180,
         scrollable: find.byType(Scrollable).first);
-    expect(find.text('无图模式'), findsOneWidget);
-    await tester.ensureVisible(find.text('无图模式'));
+    expect(find.text('自动加载'), findsOneWidget, reason: 'the current mode');
+    await tester.tap(find.text('图片加载'));
     await tester.pumpAndSettle();
+    // The choices open in a sheet; picking one closes it.
+    expect(find.text('仅 Wi-Fi 自动加载'), findsOneWidget);
     await tester.tap(find.text('无图模式'));
     await tester.pumpAndSettle();
+    expect(find.text('仅 Wi-Fi 自动加载'), findsNothing);
+    expect(find.text('无图模式'), findsOneWidget);
     expect(
         (await SharedPreferences.getInstance())
             .getString('settings.imageLoadMode'),
@@ -817,12 +829,13 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-      find.text('应用'),
+      find.text('检查更新'),
       180,
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('南+'), findsOneWidget);
+    expect(find.text('关于'), findsOneWidget);
+    expect(find.text('版本'), findsOneWidget);
     expect(find.text('v0.1.8+8'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
   });

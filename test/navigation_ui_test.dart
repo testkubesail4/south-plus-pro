@@ -76,12 +76,12 @@ void main() {
     await selectTab(tester, '我的');
     expect(find.text('未登录'), findsOneWidget);
     expect(find.text('登录南+账号'), findsOneWidget);
-    expect(find.text('界面设置'), findsNothing);
+    expect(find.text('外观'), findsNothing);
 
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
-    expect(find.text('界面设置'), findsOneWidget);
+    expect(find.text('外观'), findsOneWidget);
     expect(find.text('退出登录'), findsNothing);
   });
 

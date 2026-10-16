@@ -35,7 +35,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final toggle = await pumpSettings(tester);
     expect(tester.widget<Switch>(toggle).value, isFalse);
-    expect(find.text('滑到页尾时自动接上下一页；关闭时用页尾的「下一页」翻页'), findsOneWidget);
+    expect(find.text('滑到页尾时接上下一页'), findsOneWidget);
 
     await tester.tap(find.text('自动加载下一页'));
     await tester.pumpAndSettle();
@@ -68,7 +68,7 @@ void main() {
         scrollable: find.byType(Scrollable).first);
     Color? color(Finder text) =>
         tester.renderObject<RenderParagraph>(text).text.style?.color;
-    expect(color(find.text('南+')), AppColors.lightPalette.text);
+    expect(color(find.text('版本')), AppColors.lightPalette.text);
     expect(color(version), AppColors.lightPalette.textMuted);
   });
 }
