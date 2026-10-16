@@ -31,6 +31,12 @@ const _maxWidth = 840.0;
 class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
   Future<UserProfile>? _future;
 
+  /// Thread URLs removed on the site since the last refresh started, and
+  /// those being removed; by URL, so rows a refresh brings back as new
+  /// objects keep their state.
+  final _removed = <String>{};
+  final _removing = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -62,8 +68,47 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
     final next = _loadFavorites();
     setState(() {
       _future = next;
+      _removed.clear();
     });
     await next;
+  }
+
+  Future<void> _remove(UserListItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('取消收藏'),
+        content: Text('「${item.title}」将从收藏中移除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('保留'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('取消收藏'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _removing.add(item.url));
+    String message;
+    try {
+      final result = await widget.repository.removeFavoriteFromList(item);
+      message = result.success ? '已取消收藏' : '取消收藏失败：${result.message}';
+      if (result.success) _removed.add(item.url);
+    } catch (error) {
+      message = '取消收藏失败：${forumErrorText(error)}';
+    }
+    if (!mounted) return;
+    setState(() => _removing.remove(item.url));
+    messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -87,7 +132,9 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
       child: FutureBuilder<UserProfile>(
         future: future,
         builder: (context, snapshot) {
-          final favorites = snapshot.data?.favorites;
+          final favorites = snapshot.data?.favorites
+              .where((item) => !_removed.contains(item.url))
+              .toList();
           final Widget body;
           if (snapshot.hasError) {
             body = AsyncErrorView(
@@ -141,7 +188,14 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                         endIndent: 16,
                         color: AppColors.border.withValues(alpha: 0.6),
                       ),
-                    _FavoriteRow(item: item, repository: widget.repository),
+                    _FavoriteRow(
+                      item: item,
+                      repository: widget.repository,
+                      busy: _removing.contains(item.url),
+                      onRemove: item.favoriteRemoval == null
+                          ? null
+                          : () => _remove(item),
+                    ),
                   ],
                 ],
               ),
@@ -202,20 +256,38 @@ class _PageTitle extends StatelessWidget {
   }
 }
 
-class _FavoriteRow extends StatelessWidget {
-  const _FavoriteRow({required this.item, required this.repository});
+/// A favourite: opens the thread; long-press or ⋯ offers 取消收藏 when
+/// [onRemove] is set.
+class _FavoriteRow extends StatefulWidget {
+  const _FavoriteRow({
+    required this.item,
+    required this.repository,
+    required this.busy,
+    required this.onRemove,
+  });
 
   final UserListItem item;
   final ForumRepository repository;
+  final bool busy;
+  final VoidCallback? onRemove;
+
+  @override
+  State<_FavoriteRow> createState() => _FavoriteRowState();
+}
+
+class _FavoriteRowState extends State<_FavoriteRow> {
+  final _menu = GlobalKey<PopupMenuButtonState<void>>();
 
   @override
   Widget build(BuildContext context) {
+    final item = widget.item;
     final meta = [
       if (item.section != null) item.section!,
       if (item.author != null) item.author!,
       if (item.date != null) item.date!,
       if (item.replies != null) '${item.replies} 回复',
     ].join(' · ');
+    final canRemove = widget.onRemove != null && !widget.busy;
 
     return InkWell(
       borderRadius: BorderRadius.circular(12),
@@ -231,38 +303,75 @@ class _FavoriteRow extends StatelessWidget {
               authorUrl: item.authorUrl,
               lastPost: item.date,
             ),
-            repository: repository,
+            repository: widget.repository,
           ),
         ),
       ),
+      onLongPress:
+          canRemove ? () => _menu.currentState?.showButtonMenu() : null,
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 56),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
+          padding:
+              EdgeInsets.fromLTRB(16, 12, widget.onRemove == null ? 16 : 4, 12),
+          child: Row(
             children: [
-              Text(
-                item.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 15,
-                  height: 1.4,
-                  fontWeight: FontWeight.w500,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.text,
+                        fontSize: 15,
+                        height: 1.4,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (meta.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        meta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            TextStyle(color: AppColors.textMuted, fontSize: 12),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              if (meta.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  meta,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+              if (widget.busy)
+                const SizedBox.square(
+                  dimension: 48,
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              else if (widget.onRemove != null)
+                PopupMenuButton<void>(
+                  key: _menu,
+                  tooltip: '更多',
+                  icon: Icon(Icons.more_horiz, color: AppColors.textMuted),
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      onTap: widget.onRemove,
+                      child: const Row(
+                        children: [
+                          Icon(Icons.star_outline, size: 20),
+                          SizedBox(width: 12),
+                          Text('取消收藏'),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
             ],
           ),
         ),
