@@ -80,9 +80,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('共 42 条结果'), findsOneWidget);
 
-    await tester.scrollUntilVisible(find.text('下一页'), 100,
+    await tester.scrollUntilVisible(find.byTooltip('下一页'), 100,
         scrollable: find.byType(Scrollable).last);
-    await tester.tap(find.text('下一页'));
+    await tester.tap(find.byTooltip('下一页'));
     await tester.pump();
     expect(repository.pagePaths, ['search.php?step=2&page=2']);
     expect(repository.queries.last, same(query));

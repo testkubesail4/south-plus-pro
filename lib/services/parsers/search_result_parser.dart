@@ -16,8 +16,8 @@ class SearchResultParser {
     final totalMatch =
         RegExp(r'共\s*搜索到了\s*(\d+)\s*条信息').firstMatch(_pageText(document));
     final pages = document.querySelector('.pages');
-    final currentMatch =
-        RegExp(r'Pages:\s*(\d+)\s*/').firstMatch(_cleanText(pages?.text ?? ''));
+    final currentMatch = RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)?')
+        .firstMatch(_cleanText(pages?.text ?? ''));
     final current = int.tryParse(currentMatch?.group(1) ?? '') ??
         int.tryParse(
           _cleanText(pages?.querySelector('b, .current')?.text ?? ''),
@@ -64,6 +64,7 @@ class SearchResultParser {
       previousPagePath: previousPagePath,
       currentPage: current,
       pageLinks: List.unmodifiable(pageLinks),
+      totalPages: int.tryParse(currentMatch?.group(2) ?? ''),
     );
   }
 

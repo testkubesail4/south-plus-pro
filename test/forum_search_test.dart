@@ -171,6 +171,30 @@ void main() {
     expect(last.nextPagePath, isNull);
   });
 
+  test('every page up to the total is reachable, not only the listed links',
+      () async {
+    final client = _SearchClient();
+    final repository = ForumRepository(client: client);
+    const query = ForumSearchQuery(keyword: 'fixture-topic');
+    final first = await repository.searchForum(query);
+    client.pageResponse = '''
+      <html><body>共搜索到了170条信息
+        <div class="pages">Pages: 2/9
+          <a href="search.php?sid=fixture-session&amp;page=1">1</a>
+          <a href="search.php?sid=fixture-session&amp;page=3">3</a>
+          <a href="search.php?sid=fixture-session&amp;page=9">9</a>
+        </div>
+      </body></html>
+    ''';
+    final page = await repository.searchForumPage(query, first.nextPagePath!);
+    expect(page.totalPages, 9);
+    expect(page.pathForPage(9), 'search.php?sid=fixture-session&page=9');
+    expect(page.pathForPage(6), 'search.php?sid=fixture-session&page=6');
+    for (final outside in [0, 10]) {
+      expect(page.pathForPage(outside), isNull, reason: '$outside');
+    }
+  });
+
   test('empty query and external page paths fail without requests', () async {
     final client = _SearchClient();
     final repository = ForumRepository(client: client);

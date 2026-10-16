@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
@@ -8,7 +10,9 @@ import '../../services/forum_search_preferences.dart';
 import '../../services/search_board_hierarchy.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
-import '../common/forum_title_text.dart';
+import '../common/content_width.dart';
+import '../common/forum_pager.dart';
+import '../common/thread_row.dart';
 import '../thread/thread_detail_screen.dart';
 
 const _allBoards = ForumSearchBoard(id: 'all', name: '全部版块');
@@ -63,6 +67,9 @@ class _SearchScreenState extends State<SearchScreen> {
   late final _keyword = TextEditingController(text: widget.initialKeyword);
   late final _username = TextEditingController(text: widget.initialUsername);
   final _scroll = ScrollController();
+  // Field hints show only while their field is being edited.
+  final _keywordFocus = FocusNode();
+  final _usernameFocus = FocusNode();
 
   ForumSearchPreferences _prefs = const ForumSearchPreferences();
   String? _prefsAccount;
@@ -101,6 +108,9 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     widget.repository.sessionEpoch.addListener(_dropResults);
+    for (final focus in [_keywordFocus, _usernameFocus]) {
+      focus.addListener(_refreshFocus);
+    }
     _loadPrefs();
     // A board known only by id (e.g. from a link) gets its name from the list.
     if (_board.name.isEmpty) _loadBoards().ignore();
@@ -152,8 +162,14 @@ class _SearchScreenState extends State<SearchScreen> {
     _keyword.dispose();
     _username.dispose();
     _scroll.dispose();
+    _keywordFocus.dispose();
+    _usernameFocus.dispose();
     _scopeChanges.dispose();
     super.dispose();
+  }
+
+  void _refreshFocus() {
+    if (mounted) setState(() {});
   }
 
   // Preferences belong to the signed-in account (anonymous otherwise).
@@ -413,66 +429,100 @@ class _SearchScreenState extends State<SearchScreen> {
       appBar: AppBar(title: const Text('搜索')),
       body: SafeArea(
         top: false,
-        child: CustomScrollView(
-          controller: _scroll,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              sliver: SliverToBoxAdapter(
-                child: _editing || _query == null
-                    ? _buildForm(context)
-                    : _SearchSummary(
-                        query: _query!,
-                        filters: _filterSummary(_query),
-                        onEdit: () => setState(() => _editing = true),
-                      ),
-              ),
-            ),
-            if (page != null && page.threads.isNotEmpty) ...[
-              // Blocked authors' results disappear as soon as a rule changes.
-              ValueListenableBuilder<BlockingRules>(
-                valueListenable: widget.repository.blocking.notifier,
-                builder: (context, rules, _) => SliverPadding(
-                  // A fresh list per page, so old row offsets can't shift it.
-                  key: ObjectKey(page),
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                  sliver: SliverList.list(
-                    children: [
-                      Text(
-                        [
-                          if (page.total != null) '共 ${page.total} 条结果',
-                          '第 ${page.currentPage} 页',
-                        ].join(' · '),
-                        style: TextStyle(color: AppColors.textMuted),
-                      ),
-                      const SizedBox(height: 10),
-                      for (final thread in page.threads)
-                        if (!rules.isThreadBlocked(thread)) ...[
-                          _SearchResultTile(
-                            thread: thread,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => ThreadDetailScreen(
-                                  thread: thread,
-                                  repository: widget.repository,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final gutter = appGutter(constraints.maxWidth, AppWidths.list);
+            return CustomScrollView(
+              controller: _scroll,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              slivers: [
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 8),
+                  sliver: SliverToBoxAdapter(
+                    child: _editing || _query == null
+                        ? _buildForm(context)
+                        : _SearchSummary(
+                            query: _query!,
+                            filters: _filterSummary(_query),
+                            onEdit: () => setState(() => _editing = true),
+                          ),
+                  ),
+                ),
+                if (page != null && page.threads.isNotEmpty) ...[
+                  // Blocked authors' results disappear as soon as a rule changes.
+                  ValueListenableBuilder<BlockingRules>(
+                    valueListenable: widget.repository.blocking.notifier,
+                    builder: (context, rules, _) {
+                      final shown = [
+                        for (final thread in page.threads)
+                          if (!rules.isThreadBlocked(thread)) thread,
+                      ];
+                      return SliverPadding(
+                        // A fresh list per page, so old row offsets can't shift it.
+                        key: ObjectKey(page),
+                        padding: EdgeInsets.fromLTRB(gutter, 4, gutter, 16),
+                        sliver: SliverMainAxisGroup(
+                          slivers: [
+                            SliverToBoxAdapter(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                                child: Text(
+                                  [
+                                    if (page.total != null)
+                                      '共 ${page.total} 条结果',
+                                    '第 ${page.currentPage} 页',
+                                  ].join(' · '),
+                                  style: Theme.of(context).textTheme.bodySmall,
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 10),
-                        ],
-                    ],
+                            DecoratedSliver(
+                              decoration: appSurface(context),
+                              sliver: SliverList.separated(
+                                itemCount: shown.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(indent: AppSpace.lg),
+                                itemBuilder: (context, index) => ForumThreadRow(
+                                  title: shown[index].title,
+                                  titleStyle: shown[index].titleStyle,
+                                  // Board first: results span boards.
+                                  meta: [
+                                    if (shown[index].section.isNotEmpty)
+                                      shown[index].section,
+                                    if (shown[index].author case final author?)
+                                      author,
+                                    if (shown[index].lastPost case final last?)
+                                      last,
+                                    '${shown[index].replies} 回复',
+                                  ],
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => ThreadDetailScreen(
+                                        thread: shown[index],
+                                        repository: widget.repository,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                sliver: SliverToBoxAdapter(child: _buildPager(page)),
-              ),
-            ] else
-              SliverFillRemaining(hasScrollBody: false, child: _buildStatus()),
-          ],
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 24),
+                    sliver: SliverToBoxAdapter(child: _buildPager(page)),
+                  ),
+                ] else
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _buildStatus(),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -552,49 +602,40 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           const SizedBox(height: 8),
         ],
-        if (_searching) const LinearProgressIndicator(),
+        if (_searching) ...[
+          const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+        ],
         if (previous != null || next != null || page.pageLinks.isNotEmpty)
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: previous == null || _searching
+          Builder(
+            builder: (context) {
+              final current = page.currentPage;
+              final int total =
+                  page.totalPages ??
+                  page.pageLinks.fold<int>(
+                    next == null ? current : current + 1,
+                    (last, link) => math.max(last, link.page),
+                  );
+              return ForumPager(
+                current: current,
+                total: total,
+                onSelected: _searching
                     ? null
-                    : () => _openPage(previous),
-                icon: const Icon(Icons.chevron_left),
-                label: const Text('上一页'),
-              ),
-              if (page.pageLinks.isNotEmpty)
-                TextButton(
-                  onPressed: _searching ? null : () => _pickPage(page),
-                  child: Text('第 ${page.currentPage} 页'),
-                ),
-              OutlinedButton.icon(
-                onPressed: next == null || _searching
-                    ? null
-                    : () => _openPage(next),
-                icon: const Icon(Icons.chevron_right),
-                label: const Text('下一页'),
-              ),
-            ],
+                    : (number) {
+                        final path =
+                            switch (number - current) {
+                              1 => next,
+                              -1 => previous,
+                              _ => null,
+                            } ??
+                            page.pathForPage(number);
+                        if (path != null) _openPage(path);
+                      },
+              );
+            },
           ),
       ],
     );
-  }
-
-  Future<void> _pickPage(ForumSearchPage page) async {
-    final path = await _showChoiceSheet<String>(
-      context,
-      title: '跳转页码',
-      selected: null,
-      options: {
-        for (final link in page.pageLinks) link.path: '第 ${link.page} 页',
-      },
-    );
-    if (path != null && mounted) _openPage(path);
   }
 
   Widget _buildForm(BuildContext context) {
@@ -604,6 +645,7 @@ class _SearchScreenState extends State<SearchScreen> {
       children: [
         TextField(
           controller: _keyword,
+          focusNode: _keywordFocus,
           autofocus:
               widget.initialKeyword.isEmpty && widget.initialUsername.isEmpty,
           textInputAction: TextInputAction.search,
@@ -612,7 +654,7 @@ class _SearchScreenState extends State<SearchScreen> {
           decoration: InputDecoration(
             labelText: '关键词',
             hintText: '搜索主题标题',
-            helperText: '多个关键词用空格或 | 分隔',
+            helperText: _keywordFocus.hasFocus ? '多个关键词用空格或 | 分隔' : null,
             helperMaxLines: 2,
             prefixIcon: const Icon(Icons.search),
             suffixIcon: _keyword.text.isEmpty
@@ -627,20 +669,24 @@ class _SearchScreenState extends State<SearchScreen> {
         const SizedBox(height: 12),
         TextField(
           controller: _username,
+          focusNode: _usernameFocus,
           textInputAction: TextInputAction.search,
           onSubmitted: (_) => _search(),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: '用户名',
             hintText: '只看该用户的主题',
-            helperText: '填写登录名（非显示昵称），可用 * 通配，例如 abc*',
+            helperText: _usernameFocus.hasFocus
+                ? '填写登录名（非显示昵称），可用 * 通配，例如 abc*'
+                : null,
             helperMaxLines: 2,
-            prefixIcon: Icon(Icons.person_outline),
+            prefixIcon: const Icon(Icons.person_outline),
           ),
         ),
         const SizedBox(height: 8),
         _FiltersHeader(
           open: _filtersOpen,
           summary: _filterSummary(null),
+          onReset: _filtersAtDefault ? null : _resetFilters,
           onToggle: () {
             setState(() => _filtersOpen = !_filtersOpen);
             if (_filtersOpen) {
@@ -707,25 +753,13 @@ class _SearchScreenState extends State<SearchScreen> {
           const SizedBox(height: 4),
           Text(_formError!, style: TextStyle(color: theme.colorScheme.error)),
         ],
-        const SizedBox(height: 12),
-        Wrap(
-          alignment: WrapAlignment.end,
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            if (!_filtersAtDefault)
-              OutlinedButton.icon(
-                onPressed: _resetFilters,
-                icon: const Icon(Icons.restart_alt),
-                label: const Text('重置筛选'),
-              ),
-            FilledButton.icon(
-              key: const ValueKey('search-submit'),
-              onPressed: _searching ? null : _search,
-              icon: const Icon(Icons.search),
-              label: Text(_searching ? '搜索中...' : '搜索'),
-            ),
-          ],
+        const SizedBox(height: 16),
+        // The page's one primary action, full width.
+        FilledButton.icon(
+          key: const ValueKey('search-submit'),
+          onPressed: _searching ? null : _search,
+          icon: const Icon(Icons.search),
+          label: Text(_searching ? '搜索中...' : '搜索'),
         ),
       ],
     );
@@ -792,66 +826,48 @@ class _FiltersHeader extends StatelessWidget {
     required this.open,
     required this.summary,
     required this.onToggle,
+    this.onReset,
   });
 
   final bool open;
   final List<String> summary;
   final VoidCallback onToggle;
 
+  /// Shown while any filter differs from its default.
+  final VoidCallback? onReset;
+
   @override
   Widget build(BuildContext context) {
+    final reset = onReset;
+    final theme = Theme.of(context);
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onToggle,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('筛选条件', style: Theme.of(context).textTheme.titleSmall),
-                  if (!open) ...[
-                    const SizedBox(height: 6),
-                    _ChipSummary(items: summary),
-                  ],
+                  Text('筛选条件', style: theme.textTheme.titleSmall),
+                  if (!open)
+                    Text(
+                      summary.join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
                 ],
               ),
             ),
+            if (reset != null)
+              TextButton(onPressed: reset, child: const Text('重置筛选')),
             Icon(open ? Icons.expand_less : Icons.expand_more),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ChipSummary extends StatelessWidget {
-  const _ChipSummary({required this.items});
-
-  final List<String> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: [
-        for (final item in items)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceTint,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              item,
-              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-            ),
-          ),
-      ],
     );
   }
 }
@@ -989,38 +1005,46 @@ class _SearchSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // The submitted query reads like the search field it came from.
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      decoration: appSurface(context),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onEdit,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+            child: Row(
               children: [
-                if (query.keyword.isNotEmpty)
-                  Text(query.keyword, style: theme.textTheme.titleMedium),
-                if (query.username.isNotEmpty)
-                  Text(
-                    '用户：${query.username}',
-                    style: theme.textTheme.bodyMedium,
+                Icon(Icons.search, color: AppColors.textMuted),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (query.keyword.isNotEmpty)
+                        Text(query.keyword, style: theme.textTheme.titleSmall),
+                      if (query.username.isNotEmpty)
+                        Text(
+                          '用户：${query.username}',
+                          style: theme.textTheme.titleSmall,
+                        ),
+                      const SizedBox(height: 2),
+                      Text(
+                        filters.join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
                   ),
-                const SizedBox(height: 8),
-                _ChipSummary(items: filters),
+                ),
+                TextButton(onPressed: onEdit, child: const Text('修改')),
               ],
             ),
           ),
-          TextButton.icon(
-            onPressed: onEdit,
-            icon: const Icon(Icons.tune),
-            label: const Text('修改'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1497,110 +1521,6 @@ class _SheetHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       child: Text(text, style: Theme.of(context).textTheme.titleSmall),
-    );
-  }
-}
-
-class _SearchResultTile extends StatelessWidget {
-  const _SearchResultTile({required this.thread, required this.onTap});
-
-  final ForumThread thread;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ForumTitleText(
-                thread.title,
-                titleStyle: thread.titleStyle,
-                maxLines: 3,
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 16,
-                  height: 1.35,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (thread.section.isNotEmpty)
-                    _SearchMetaChip(
-                      icon: Icons.tag_outlined,
-                      text: thread.section,
-                    ),
-                  if (thread.author != null)
-                    _SearchMetaChip(
-                      icon: Icons.person_outline,
-                      text: thread.author!,
-                    ),
-                  if (thread.lastPost != null)
-                    _SearchMetaChip(
-                      icon: Icons.schedule_outlined,
-                      text: thread.lastPost!,
-                    ),
-                  _SearchMetaChip(
-                    icon: Icons.chat_bubble_outline,
-                    text: '${thread.replies} 回复',
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchMetaChip extends StatelessWidget {
-  const _SearchMetaChip({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 30),
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceTint,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: AppColors.textMuted),
-          const SizedBox(width: 4),
-          Flexible(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

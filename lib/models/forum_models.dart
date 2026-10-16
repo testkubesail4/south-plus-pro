@@ -122,6 +122,7 @@ class ForumSearchPage {
     this.previousPagePath,
     this.currentPage = 1,
     this.pageLinks = const [],
+    this.totalPages,
   });
 
   final List<ForumThread> threads;
@@ -130,6 +131,25 @@ class ForumSearchPage {
   final String? previousPagePath;
   final int currentPage;
   final List<ForumSearchPageLink> pageLinks;
+
+  /// From the site's "Pages: x/y"; null when the page did not say.
+  final int? totalPages;
+
+  static final _pageNumber = RegExp(r'([?&]page=|(?:^|-)page-)(\d+)');
+
+  /// The path of [page]: a listed link, or a listed link's path with its page
+  /// number swapped, since the site lists only a window of pages.
+  String? pathForPage(int page) {
+    final last = totalPages ??
+        pageLinks.fold<int>(currentPage, (max, l) => l.page > max ? l.page : max);
+    if (page < 1 || page > last) return null;
+    for (final link in pageLinks) {
+      if (link.page == page) return link.path;
+    }
+    if (pageLinks.isEmpty) return null;
+    return pageLinks.first.path.replaceFirstMapped(
+        _pageNumber, (m) => '${m.group(1)}$page');
+  }
 }
 
 class ForumSearchPageLink {

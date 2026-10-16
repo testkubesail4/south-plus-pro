@@ -157,7 +157,7 @@ void main() {
     await tapVisible(tester, find.text('筛选条件'));
     await tester.enterText(find.byType(TextField).at(1), 'other');
     await tester.pumpAndSettle();
-    await tapVisible(tester, find.text('下一页'), settle: false);
+    await tapVisible(tester, find.byTooltip('下一页'), settle: false);
     expect(repo.pagePaths, ['search.php?step=2&page=2']);
     expect(repo.queries.last.username, 'fixture*');
     expect(find.text('Result 11'), findsOneWidget,
@@ -183,7 +183,7 @@ void main() {
     // A new page starts at its own first result, even with the form open.
     expect(find.text('Result 100').hitTestable(), findsOneWidget);
     expect(find.textContaining('第 2 页').hitTestable(), findsOneWidget);
-    await tapVisible(tester, find.text('上一页'), settle: false);
+    await tapVisible(tester, find.byTooltip('上一页'), settle: false);
     expect(repo.pagePaths.last, 'search.php?step=2&page=1');
   });
 
@@ -924,7 +924,9 @@ void main() {
     expect(repo.boardRequests, 1);
     expect(repo.queries, isEmpty);
     expect(
-      find.text('An unusually long fictional board name that must wrap nicely'),
+      // The folded filter summary names the board.
+      find.textContaining(
+          'An unusually long fictional board name that must wrap nicely'),
       findsOneWidget,
     );
     await tapVisible(tester, _submit, settle: false);
@@ -940,7 +942,20 @@ void main() {
         initialBoard: const ForumSearchBoard(id: '404', name: ''),
       ),
     );
-    expect(find.text('版块 404'), findsOneWidget);
+    expect(find.textContaining('版块 404'), findsOneWidget);
+  });
+
+  testWidgets('field help shows only for the focused field', (tester) async {
+    await pump(tester);
+    const keywordHelp = '多个关键词用空格或 | 分隔';
+    const usernameHelp = '填写登录名（非显示昵称），可用 * 通配，例如 abc*';
+    expect(find.text(keywordHelp), findsOneWidget);
+    expect(find.text(usernameHelp), findsNothing);
+
+    await tester.tap(find.byType(TextField).at(1));
+    await tester.pumpAndSettle();
+    expect(find.text(keywordHelp), findsNothing);
+    expect(find.text(usernameHelp), findsOneWidget);
   });
 
   testWidgets('prefill from context does not submit; reset restores defaults',
@@ -955,7 +970,7 @@ void main() {
     );
     expect(repo.queries, isEmpty);
     expect(find.text('fixture-user'), findsOneWidget);
-    expect(find.text('Fixture board'), findsOneWidget);
+    expect(find.textContaining('Fixture board'), findsOneWidget);
 
     await tapVisible(tester, find.text('重置筛选'));
     expect(find.text('重置筛选'), findsNothing);
