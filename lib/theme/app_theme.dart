@@ -88,8 +88,8 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
 
 class AppColors {
   static const lightPalette = AppPalette(
-    // White on brand is 4.57:1 (AA).
-    brand: Color(0xFFD83A40),
+    // AA (>=4.5:1) with white, the canvas and brandSoft.
+    brand: Color(0xFFCE3038),
     onBrand: Color(0xFFFFFFFF),
     brandDark: Color(0xFFB93445),
     brandSoft: Color(0xFFFFEEF0),

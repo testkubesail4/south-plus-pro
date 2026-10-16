@@ -14,13 +14,27 @@ void main() {
     ('light', AppTheme.light, AppColors.lightPalette),
     ('dark', AppTheme.dark, AppColors.darkPalette),
   ]) {
-    test('$name: brand actions and text meet WCAG AA', () {
-      final s = theme.colorScheme;
-      expect(_contrast(s.primary, s.onPrimary), greaterThanOrEqualTo(4.5));
-      expect(_contrast(s.primary, s.surface), greaterThanOrEqualTo(4.5));
-      expect(_contrast(s.onSurface, s.surface), greaterThanOrEqualTo(4.5));
-      expect(_contrast(theme.textTheme.bodySmall!.color!, s.surface),
-          greaterThanOrEqualTo(4.5));
+    test('$name: the pairs the theme paints meet WCAG AA', () {
+      final p = palette;
+      // (foreground, background, where)
+      final pairs = [
+        (p.onBrand, p.brand, 'filled button, FAB'),
+        (p.brand, p.surface, 'brand text on cards, nav bar label'),
+        (p.brand, p.background, 'rail label, app bar actions'),
+        (p.brand, p.brandSoft, 'selected chip label'),
+        (p.brandDark, p.brandSoft, 'selected segment label'),
+        (p.text, p.surface, 'body'),
+        (p.text, p.surfaceTint, 'tonal button label'),
+        (p.textMuted, p.surface, 'meta, subtitles'),
+        (p.textMuted, p.background, 'meta on canvas'),
+      ];
+      for (final (fg, bg, where) in pairs) {
+        expect(_contrast(fg, bg), greaterThanOrEqualTo(4.5), reason: where);
+      }
+      expect(theme.colorScheme.primary, p.brand);
+      expect(theme.navigationRailTheme.backgroundColor, p.background);
+      expect(theme.navigationRailTheme.selectedLabelTextStyle?.color, p.brand);
+      expect(theme.chipTheme.secondaryLabelStyle?.color, p.brand);
     });
 
     testWidgets('$name: filled is brand, tonal and outlined are neutral',
