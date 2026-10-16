@@ -456,10 +456,8 @@ void showForumTaskClaimSnackBar(
     ..hideCurrentSnackBar()
     ..showSnackBar(
       forumTaskSnackBar(
-        context: context,
         title: title,
         lines: lines,
-        success: result.hasClaims && !result.hasFailures,
       ),
     );
 }
@@ -477,10 +475,8 @@ void showForumTaskAutoClaimSnackBar(
     ..hideCurrentSnackBar()
     ..showSnackBar(
       forumTaskSnackBar(
-        context: context,
         title: '自动签到完成',
         lines: lines,
-        success: !result.hasFailures,
       ),
     );
 }
@@ -490,83 +486,27 @@ void showForumTaskClaimErrorSnackBar(BuildContext context, Object error) {
     ..hideCurrentSnackBar()
     ..showSnackBar(
       forumTaskSnackBar(
-        context: context,
         title: '任务奖励领取失败',
         lines: ['请稍后重试：$error'],
-        success: false,
       ),
     );
 }
 
+/// A task result in the standard snackbar (DESIGN.md §9): the title in bold,
+/// then one line per claimed reward or problem.
 SnackBar forumTaskSnackBar({
-  required BuildContext context,
   required String title,
   required List<String> lines,
-  required bool success,
 }) {
-  final color = success ? AppColors.success : AppColors.brand;
-  final softColor = success ? AppColors.successSoft : AppColors.brandSoft;
-  final borderColor = success ? AppColors.successBorder : AppColors.brandSoft;
-
   return SnackBar(
-    behavior: SnackBarBehavior.floating,
     duration: const Duration(seconds: 4),
-    margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
-    padding: EdgeInsets.zero,
-    elevation: 8,
-    backgroundColor: AppColors.surface,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(8),
-      side: BorderSide(color: borderColor),
-    ),
-    content: Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: softColor,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              success ? Icons.check_circle_outline : Icons.info_outline,
-              color: color,
-              size: 21,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: AppColors.text,
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                for (final line in lines)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      line,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColors.textMuted,
-                            height: 1.35,
-                          ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        for (final line in lines) Text(line),
+      ],
     ),
   );
 }

@@ -888,6 +888,9 @@ void main() {
     expect(repository.claimRequests, 1);
     expect(find.text('任务奖励领取完成'), findsOneWidget);
     expect(find.text('日常奖励领取完成SP+2'), findsOneWidget);
+    // The theme's snackbar (DESIGN §9), not a custom bordered card.
+    final bar = tester.widget<SnackBar>(find.byType(SnackBar));
+    expect((bar.backgroundColor, bar.shape, bar.margin), (null, null, null));
   });
 
   testWidgets('forum tasks sit in the form width with text-only segments',
