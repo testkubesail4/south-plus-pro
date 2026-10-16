@@ -17,8 +17,10 @@ import '../../theme/app_theme.dart';
 import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
+import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
 import '../common/forum_pager.dart';
+import '../common/thread_row.dart' show AppTag;
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
 import '../search/search_screen.dart';
@@ -1468,10 +1470,7 @@ class _ThreadDetailContent extends StatelessWidget {
         final originalAuthor = detail.thread.author;
         final width = MediaQuery.sizeOf(context).width;
         // Page gutter, widening to centre a 760 reading column.
-        final side = math.max(
-          width < 600 ? AppSpace.lg : AppSpace.xl,
-          (width - AppWidths.reading) / 2,
-        );
+        final side = appGutter(width, AppWidths.reading);
         bool isReply(int i) =>
             i >= 0 &&
             i < entries.length &&
@@ -1904,7 +1903,7 @@ class _ThreadHeaderCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: AppSpace.sm),
-                  const _OriginalPosterBadge(),
+                  const AppTag('楼主', accent: true),
                 ],
               ),
               const SizedBox(height: AppSpace.lg),
@@ -2066,7 +2065,7 @@ class _FloorCard extends StatelessWidget {
                           ),
                           if (isOpeningPost || byOriginalPoster) ...[
                             const SizedBox(width: AppSpace.sm),
-                            const _OriginalPosterBadge(),
+                            const AppTag('楼主', accent: true),
                           ],
                         ],
                       ),
@@ -2271,32 +2270,6 @@ class _ThreadTitle extends StatelessWidget {
     return Text(
       title,
       style: Theme.of(context).textTheme.titleLarge,
-    );
-  }
-}
-
-class _OriginalPosterBadge extends StatelessWidget {
-  const _OriginalPosterBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    // shortcut: mirrors AppTag(accent: true); switch to it once
-    // lib/features/common/thread_row.dart is integrated.
-    return DecoratedBox(
-      decoration: ShapeDecoration(
-        color: AppColors.brandSoft,
-        shape: const StadiumBorder(),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: 2),
-        child: Text(
-          '楼主',
-          style: Theme.of(context)
-              .textTheme
-              .labelMedium
-              ?.copyWith(color: AppColors.brandDark),
-        ),
-      ),
     );
   }
 }
