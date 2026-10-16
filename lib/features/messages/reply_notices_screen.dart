@@ -4,6 +4,9 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/content_width.dart';
+import '../common/grouped_list.dart';
+import '../common/thread_row.dart';
 import '../thread/thread_detail_screen.dart';
 
 /// The site's 回复提醒 list: replies to the user's threads, each removable.
@@ -83,6 +86,25 @@ class _ReplyNoticesScreenState extends State<ReplyNoticesScreen> {
     );
   }
 
+  Widget _noticeRow(ForumReplyNotice notice) => ForumThreadRow(
+        title: notice.title,
+        meta: [notice.board, notice.date],
+        trailing: _deleting.contains(notice.tid)
+            ? const Padding(
+                padding: EdgeInsets.all(14),
+                child: SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            : IconButton(
+                tooltip: '删除提醒',
+                icon: const Icon(Icons.close),
+                onPressed: () => _delete(notice),
+              ),
+        onTap: () => _open(notice),
+      );
+
   @override
   Widget build(BuildContext context) {
     final notices = _notices;
@@ -110,56 +132,22 @@ class _ReplyNoticesScreenState extends State<ReplyNoticesScreen> {
                             ),
                           ],
                         )
-                      : ListView.separated(
-                          itemCount: notices.length,
-                          separatorBuilder: (_, __) =>
-                              Divider(height: 1, color: AppColors.border),
-                          itemBuilder: (context, index) {
-                            final notice = notices[index];
-                            final deleting = _deleting.contains(notice.tid);
-                            return ListTile(
-                              contentPadding:
-                                  const EdgeInsets.fromLTRB(16, 6, 4, 6),
-                              title: Text(
-                                notice.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: AppColors.text,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.35,
-                                ),
+                      // One grouped surface, as wide as any list (D§4, D§8).
+                      : ListView(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: AppSpace.md),
+                          children: [
+                            AppContentWidth(
+                              maxWidth: AppWidths.list,
+                              child: AppGroup(
+                                dividerIndent: AppSpace.lg,
+                                children: [
+                                  for (final notice in notices)
+                                    _noticeRow(notice),
+                                ],
                               ),
-                              subtitle: Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  '${notice.board} · ${notice.date}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: AppColors.textMuted,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                              trailing: deleting
-                                  ? const Padding(
-                                      padding: EdgeInsets.all(14),
-                                      child: SizedBox.square(
-                                        dimension: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                    )
-                                  : IconButton(
-                                      tooltip: '删除提醒',
-                                      icon: const Icon(Icons.close),
-                                      onPressed: () => _delete(notice),
-                                    ),
-                              onTap: () => _open(notice),
-                            );
-                          },
+                            ),
+                          ],
                         ),
                 ),
     );

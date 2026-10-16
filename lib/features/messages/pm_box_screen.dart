@@ -4,6 +4,9 @@ import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/content_width.dart';
+import '../common/grouped_list.dart';
+import '../common/thread_row.dart';
 import 'pm_compose_screen.dart';
 import 'pm_detail_screen.dart';
 
@@ -119,63 +122,66 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
           : null,
       body: SafeArea(
         top: false,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<ForumPmBox>(
-                  // Text-only segments stay on one line at large text.
-                  segments: const [
-                    ButtonSegment(
-                      value: ForumPmBox.inbox,
-                      label: Text('收件箱'),
-                    ),
-                    ButtonSegment(
-                      value: ForumPmBox.sendbox,
-                      label: Text('发件箱'),
-                    ),
-                    ButtonSegment(
-                      value: ForumPmBox.scout,
-                      // Short enough for one line at large text (D§7).
-                      label: Text('跟踪'),
-                    ),
-                  ],
-                  showSelectedIcon: false,
-                  selected: {_box},
-                  onSelectionChanged: (values) => _selectBox(values.single),
+        child: AppContentWidth(
+          maxWidth: AppWidths.list,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<ForumPmBox>(
+                    // Text-only segments stay on one line at large text.
+                    segments: const [
+                      ButtonSegment(
+                        value: ForumPmBox.inbox,
+                        label: Text('收件箱'),
+                      ),
+                      ButtonSegment(
+                        value: ForumPmBox.sendbox,
+                        label: Text('发件箱'),
+                      ),
+                      ButtonSegment(
+                        value: ForumPmBox.scout,
+                        // Short enough for one line at large text (D§7).
+                        label: Text('跟踪'),
+                      ),
+                    ],
+                    showSelectedIcon: false,
+                    selected: {_box},
+                    onSelectionChanged: (values) => _selectBox(values.single),
+                  ),
                 ),
               ),
-            ),
-            Divider(height: 1, color: AppColors.border),
-            Expanded(
-              child: FutureBuilder<ForumPmPage>(
-                future: _future,
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return AsyncErrorView(
-                      title: '短消息加载失败',
-                      message: forumErrorText(snapshot.error),
-                      onRetry: _refresh,
+              Divider(height: 1, color: AppColors.border),
+              Expanded(
+                child: FutureBuilder<ForumPmPage>(
+                  future: _future,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return AsyncErrorView(
+                        title: '短消息加载失败',
+                        message: forumErrorText(snapshot.error),
+                        onRetry: _refresh,
+                      );
+                    }
+                    if (!snapshot.hasData) {
+                      return const ThreadListSkeleton(itemCount: 6);
+                    }
+                    return RefreshIndicator(
+                      color: AppColors.brand,
+                      onRefresh: _refresh,
+                      child: _PmList(
+                        page: snapshot.data!,
+                        onOpen: _openMessage,
+                        onPage: _openPage,
+                      ),
                     );
-                  }
-                  if (!snapshot.hasData) {
-                    return const ThreadListSkeleton(itemCount: 6);
-                  }
-                  return RefreshIndicator(
-                    color: AppColors.brand,
-                    onRefresh: _refresh,
-                    child: _PmList(
-                      page: snapshot.data!,
-                      onOpen: _openMessage,
-                      onPage: _openPage,
-                    ),
-                  );
-                },
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -210,15 +216,17 @@ class _PmList extends StatelessWidget {
       ]) {
         final group = page.messages.where((m) => m.type == type).toList();
         if (group.isEmpty) continue;
-        children.add(_GroupLabel(label));
-        children.addAll(group.map(_tile));
+        if (children.isNotEmpty) {
+          children.add(const SizedBox(height: AppSpace.xl));
+        }
+        children.add(_group(group, label: label));
       }
     } else {
-      children.addAll(page.messages.map(_tile));
+      children.add(_group(page.messages));
     }
     if (page.pageLinks.isNotEmpty) {
       children.add(Padding(
-        padding: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.only(top: AppSpace.md),
         child: Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -235,111 +243,39 @@ class _PmList extends StatelessWidget {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       // Clear of the 写消息 FAB.
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
+      padding: const EdgeInsets.only(top: AppSpace.md, bottom: 88),
       children: children,
     );
   }
 
-  Widget _tile(ForumPmSummary message) =>
-      _PmTile(message: message, onTap: () => onOpen(message));
-}
-
-class _GroupLabel extends StatelessWidget {
-  const _GroupLabel(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 6, 2, 8),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: AppColors.textMuted,
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
-class _PmTile extends StatelessWidget {
-  const _PmTile({required this.message, required this.onTap});
-
-  final ForumPmSummary message;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final recipientRead = message.recipientRead;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 6, right: 10),
-                  child: Icon(
-                    Icons.circle,
-                    size: 8,
-                    color: message.unread
-                        ? AppColors.noticeDot
-                        : Colors.transparent,
-                    semanticLabel: message.unread ? '未读' : null,
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        message.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.text,
-                          fontSize: 15,
-                          height: 1.35,
-                          fontWeight: message.unread
-                              ? FontWeight.w800
-                              : FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        [
-                          message.peer,
-                          message.time,
-                          if (recipientRead != null)
-                            recipientRead ? '对方已读' : '对方未读',
-                        ].where((part) => part.isNotEmpty).join(' · '),
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+  // One surface per group, rows divided like any thread list (D§8).
+  Widget _group(List<ForumPmSummary> messages, {String? label}) => AppGroup(
+        label: label,
+        dividerIndent: AppSpace.lg,
+        children: [
+          for (final message in messages)
+            ForumThreadRow(
+              title: message.title,
+              meta: [
+                if (message.peer.isNotEmpty) message.peer,
+                if (message.time.isNotEmpty) message.time,
+                if (message.recipientRead case final read?)
+                  read ? '对方已读' : '对方未读',
               ],
+              emphasized: message.unread,
+              trailing: message.unread
+                  ? Padding(
+                      padding: const EdgeInsets.all(AppSpace.md),
+                      child: Icon(
+                        Icons.circle,
+                        size: 8,
+                        color: AppColors.noticeDot,
+                        semanticLabel: '未读',
+                      ),
+                    )
+                  : null,
+              onTap: () => onOpen(message),
             ),
-          ),
-        ),
-      ),
-    );
-  }
+        ],
+      );
 }

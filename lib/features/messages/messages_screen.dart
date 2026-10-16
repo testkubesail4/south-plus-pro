@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../../theme/app_theme.dart';
+import '../common/content_width.dart';
 import 'pm_box_screen.dart';
 import 'reply_notices_screen.dart';
 
@@ -39,13 +41,17 @@ class MessagesScreen extends StatelessWidget {
           title: const Text('消息'),
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(kTextTabBarHeight),
-            child: ValueListenableBuilder<ForumNoticeFlags>(
-              valueListenable: repository.noticeFlags,
-              builder: (context, flags, _) => TabBar(
-                tabs: [
-                  tab('短消息', flags.unreadPm),
-                  tab('回复提醒', flags.replyNotice),
-                ],
+            // The tabs line up with the lists below them.
+            child: AppContentWidth(
+              maxWidth: AppWidths.list,
+              child: ValueListenableBuilder<ForumNoticeFlags>(
+                valueListenable: repository.noticeFlags,
+                builder: (context, flags, _) => TabBar(
+                  tabs: [
+                    tab('短消息', flags.unreadPm),
+                    tab('回复提醒', flags.replyNotice),
+                  ],
+                ),
               ),
             ),
           ),

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/common/thread_row.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/messages_screen.dart';
 import 'package:south_plus_rewrite/features/messages/reply_notices_screen.dart';
@@ -11,6 +12,7 @@ import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic boards, titles and tids only.
 ForumReplyNotice _notice(int tid) => ForumReplyNotice(
@@ -111,6 +113,25 @@ void main() {
     }
     expect(repo.fetches, 1, reason: '回复提醒 loaded once');
     expect(repo.pmFetches, 1, reason: '短消息 loaded once');
+  });
+
+  testWidgets('on a wide window the 消息 tabs and rows keep the list width',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = _Repo(const ForumNoticeFlags());
+    await tester.pumpWidget(MaterialApp(home: MessagesScreen(repository: repo)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('回复提醒'));
+    await tester.pumpAndSettle();
+
+    final row = tester.getRect(find.ancestor(
+        of: find.text('Fixture topic 1'),
+        matching: find.byType(ForumThreadRow)));
+    expect(row.width, AppWidths.list);
+    expect(row.center.dx, 720);
+    expect(tester.getRect(find.byType(TabBar)).width, AppWidths.list);
   });
 
   testWidgets('a failed delete keeps the notice and says why', (tester) async {
