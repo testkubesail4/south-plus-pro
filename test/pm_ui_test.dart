@@ -117,13 +117,24 @@ void main() {
     expect(find.text('转发'), findsNothing);
     expect(find.text('编辑'), findsNothing);
     expect(find.text('标为未读'), findsNothing);
+    // 回复 is the one visible action; the rest wait behind ⋯.
+    expect(
+        find.ancestor(
+            of: find.text('回复'), matching: find.bySubtype<FilledButton>()),
+        findsOneWidget);
+    expect(find.text('删除'), findsNothing);
 
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    expect(find.text('转发'), findsNothing);
     await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(repository.deletes, 0);
 
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '删除'));
@@ -224,7 +235,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('personal title'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(OutlinedButton, '标为未读'));
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('标为未读'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '标为未读'));
     await tester.pumpAndSettle();

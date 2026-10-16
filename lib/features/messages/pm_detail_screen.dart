@@ -33,16 +33,14 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
       widget.repository.fetchPmDetail(widget.message);
 
   void _retry() => setState(() {
-        _future = _fetch();
-      });
+    _future = _fetch();
+  });
 
   Future<void> _openCompose(String path) async {
     final result = await Navigator.of(context).push<ForumPmActionResult>(
       MaterialPageRoute(
-        builder: (_) => PmComposeScreen(
-          repository: widget.repository,
-          path: path,
-        ),
+        builder: (_) =>
+            PmComposeScreen(repository: widget.repository, path: path),
       ),
     );
     if (mounted && result != null) Navigator.of(context).pop(result);
@@ -51,10 +49,8 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
   Future<void> _openChatlog(String path) async {
     final result = await Navigator.of(context).push<ForumPmActionResult>(
       MaterialPageRoute(
-        builder: (_) => PmChatlogScreen(
-          repository: widget.repository,
-          path: path,
-        ),
+        builder: (_) =>
+            PmChatlogScreen(repository: widget.repository, path: path),
       ),
     );
     if (mounted && result != null) Navigator.of(context).pop(result);
@@ -100,107 +96,119 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
     }
   }
 
+  /// Everything but 回复, for the app bar's ⋯ menu (AUDIT M5).
+  List<PopupMenuEntry<VoidCallback>> _moreActions(ForumPmDetail detail) {
+    final editPath = detail.editPath ?? detail.summary.editPath;
+    final canDelete = detail.deletePath != null || detail.summary.canDelete;
+    PopupMenuItem<VoidCallback> item(
+      IconData icon,
+      String label,
+      VoidCallback onTap, {
+      Color? color,
+    }) => PopupMenuItem(
+      value: onTap,
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: AppSpace.md),
+          Text(label, style: TextStyle(color: color)),
+        ],
+      ),
+    );
+    return [
+      if (detail.forwardPath case final path?)
+        item(Icons.forward_outlined, '转发', () => _openCompose(path)),
+      if (editPath != null)
+        item(Icons.edit_outlined, '编辑', () => _openCompose(editPath)),
+      if (detail.chatlogPath case final path?)
+        item(Icons.forum_outlined, '通信记录', () => _openChatlog(path)),
+      if (detail.markUnreadPath != null)
+        item(
+          Icons.mark_email_unread_outlined,
+          '标为未读',
+          () => _confirmAndRun(
+            title: '标为未读',
+            message: '确定将这条消息标为未读？',
+            confirmLabel: '标为未读',
+            action: () => widget.repository.markPmUnread(detail),
+          ),
+        ),
+      if (canDelete)
+        item(
+          Icons.delete_outline,
+          '删除',
+          () => _confirmAndRun(
+            title: '删除消息',
+            message: '删除后无法恢复，确定删除这条消息？',
+            confirmLabel: '删除',
+            action: () =>
+                widget.repository.deletePm(detail.summary, detail: detail),
+          ),
+          color: Theme.of(context).colorScheme.error,
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('短消息')),
-      body: SafeArea(
-        top: false,
-        child: FutureBuilder<ForumPmDetail>(
-          future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return AsyncErrorView(
-                title: '短消息加载失败',
-                message: forumErrorText(snapshot.error),
-                onRetry: _retry,
-              );
-            }
-            if (!snapshot.hasData) return const ThreadDetailSkeleton();
-            final detail = snapshot.data!;
-            final editPath = detail.editPath ?? detail.summary.editPath;
-            final canDelete =
-                detail.deletePath != null || detail.summary.canDelete;
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-              children: [
-                _PmMessageCard(
-                  repository: widget.repository,
-                  sender: detail.sender,
-                  title: detail.title,
-                  time: detail.time,
-                  content: detail.content,
-                  segments: detail.segments,
+    return FutureBuilder<ForumPmDetail>(
+      future: _future,
+      builder: (context, snapshot) {
+        final detail = snapshot.hasError ? null : snapshot.data;
+        final more = detail == null
+            ? const <PopupMenuEntry<VoidCallback>>[]
+            : _moreActions(detail);
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('短消息'),
+            actions: [
+              if (more.isNotEmpty)
+                PopupMenuButton<VoidCallback>(
+                  tooltip: '更多',
+                  enabled: !_busy,
+                  icon: const Icon(Icons.more_horiz),
+                  itemBuilder: (_) => more,
+                  onSelected: (action) => action(),
                 ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (detail.replyPath case final path?)
-                      FilledButton.icon(
-                        onPressed: _busy ? null : () => _openCompose(path),
-                        icon: Icon(Icons.reply_outlined, size: 18),
-                        label: const Text('回复'),
+            ],
+          ),
+          body: SafeArea(
+            top: false,
+            child: snapshot.hasError
+                ? AsyncErrorView(
+                    title: '短消息加载失败',
+                    message: forumErrorText(snapshot.error),
+                    onRetry: _retry,
+                  )
+                : detail == null
+                ? const ThreadDetailSkeleton()
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                    children: [
+                      _PmMessageCard(
+                        repository: widget.repository,
+                        sender: detail.sender,
+                        title: detail.title,
+                        time: detail.time,
+                        content: detail.content,
+                        segments: detail.segments,
                       ),
-                    if (detail.forwardPath case final path?)
-                      OutlinedButton.icon(
-                        onPressed: _busy ? null : () => _openCompose(path),
-                        icon: Icon(Icons.forward_outlined, size: 18),
-                        label: const Text('转发'),
-                      ),
-                    if (editPath != null)
-                      OutlinedButton.icon(
-                        onPressed: _busy ? null : () => _openCompose(editPath),
-                        icon: Icon(Icons.edit_outlined, size: 18),
-                        label: const Text('编辑'),
-                      ),
-                    if (detail.chatlogPath case final path?)
-                      OutlinedButton.icon(
-                        onPressed: _busy ? null : () => _openChatlog(path),
-                        icon: Icon(Icons.forum_outlined, size: 18),
-                        label: const Text('通信记录'),
-                      ),
-                    if (detail.markUnreadPath != null)
-                      OutlinedButton.icon(
-                        onPressed: _busy
-                            ? null
-                            : () => _confirmAndRun(
-                                  title: '标为未读',
-                                  message: '确定将这条消息标为未读？',
-                                  confirmLabel: '标为未读',
-                                  action: () =>
-                                      widget.repository.markPmUnread(detail),
-                                ),
-                        icon: Icon(Icons.mark_email_unread_outlined, size: 18),
-                        label: const Text('标为未读'),
-                      ),
-                    if (canDelete)
-                      OutlinedButton.icon(
-                        onPressed: _busy
-                            ? null
-                            : () => _confirmAndRun(
-                                  title: '删除消息',
-                                  message: '删除后无法恢复，确定删除这条消息？',
-                                  confirmLabel: '删除',
-                                  action: () => widget.repository.deletePm(
-                                    detail.summary,
-                                    detail: detail,
-                                  ),
-                                ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Theme.of(context).colorScheme.error,
+                      if (detail.replyPath case final path?) ...[
+                        const SizedBox(height: AppSpace.md),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: FilledButton.icon(
+                            onPressed: _busy ? null : () => _openCompose(path),
+                            icon: const Icon(Icons.reply_outlined),
+                            label: const Text('回复'),
+                          ),
                         ),
-                        icon: Icon(Icons.delete_outline, size: 18),
-                        label: const Text('删除'),
-                      ),
-                  ],
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+                      ],
+                    ],
+                  ),
+          ),
+        );
+      },
     );
   }
 }
@@ -235,10 +243,8 @@ class _PmChatlogScreenState extends State<PmChatlogScreen> {
   Future<void> _compose(String path) async {
     final result = await Navigator.of(context).push<ForumPmActionResult>(
       MaterialPageRoute(
-        builder: (_) => PmComposeScreen(
-          repository: widget.repository,
-          path: path,
-        ),
+        builder: (_) =>
+            PmComposeScreen(repository: widget.repository, path: path),
       ),
     );
     if (mounted && result != null) Navigator.of(context).pop(result);
