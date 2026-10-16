@@ -67,11 +67,12 @@ void main() {
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: mode,
-        home: const Scaffold(
+        home: Scaffold(
           body: ThreadSaleBoxView(
-            saleBox: ThreadSaleBox(summary: '售价 5', buyPath: 'buy.php'),
+            saleBox: const ThreadSaleBox(summary: '售价 5', buyPath: 'buy.php'),
             isBuying: true,
-            onBuy: null,
+            // A live callback: only the busy state may disable the button.
+            onBuy: () {},
           ),
         ),
       ));
