@@ -2,7 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
 
-enum ThreadFloorAction { showAuthorPosts, blockContent, blockUser, blockAvatar }
+enum ThreadFloorAction {
+  showAuthorPosts,
+  blockContent,
+  blockUser,
+  blockAvatar,
+  manageBlocking,
+}
 
 /// The rule state a floor's menu reflects, and which rules may change.
 class ThreadFloorBlockState {
@@ -173,14 +179,28 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                 color: AppColors.border.withValues(alpha: 0.6),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                child: Text(
-                  '屏蔽',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '屏蔽',
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                      ),
+                      onPressed: () => Navigator.of(context)
+                          .pop(ThreadFloorAction.manageBlocking),
+                      child: const Text('管理'),
+                    ),
+                  ],
                 ),
               ),
               item(

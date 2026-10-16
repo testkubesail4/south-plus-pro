@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
+import 'package:south_plus_rewrite/features/profile/blocking_settings_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
@@ -92,6 +93,17 @@ void main() {
     await tester.pumpAndSettle();
     await openMenu(tester, 'floor-actions-bob-B2F');
     expect(find.text('取消屏蔽此人'), findsOneWidget);
+  });
+
+  testWidgets('the 屏蔽 group\'s 管理 opens the blocking settings', (tester) async {
+    await pumpThread(tester);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    final manage = find.widgetWithText(TextButton, '管理');
+    expect(tester.getSize(manage).height, greaterThanOrEqualTo(48));
+
+    await tester.tap(manage);
+    await tester.pumpAndSettle();
+    expect(find.byType(BlockingSettingsScreen), findsOneWidget);
   });
 
   testWidgets('屏蔽头像 only swaps the avatar for the initial', (tester) async {

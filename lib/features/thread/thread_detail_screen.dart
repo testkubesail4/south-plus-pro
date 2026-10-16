@@ -21,6 +21,7 @@ import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
 import '../common/forum_pager.dart';
 import '../common/thread_row.dart' show AppTag;
+import '../profile/blocking_settings_screen.dart';
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
 import '../search/search_screen.dart';
@@ -751,6 +752,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     switch (action) {
       case ThreadFloorAction.showAuthorPosts:
         await _showAuthorPosts(reply);
+      case ThreadFloorAction.manageBlocking:
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) =>
+              BlockingSettingsScreen(repository: widget.repository),
+        ));
       case ThreadFloorAction.blockUser:
         await _applyBlock(
           userBlocked ? '已取消屏蔽此人' : '已屏蔽此人',
