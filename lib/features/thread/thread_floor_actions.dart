@@ -29,7 +29,8 @@ class ThreadFloorBlockState {
   final String? contentBlockUnavailableReason;
 }
 
-/// Footer of a floor: the two everyday actions in reach, the rest behind ⋯.
+/// Footer of a floor: quiet actions at the trailing edge, the everyday two
+/// then ⋯ for the rest. Labels show from 600 px wide; phones get icons.
 class ThreadFloorFooter extends StatelessWidget {
   const ThreadFloorFooter({
     super.key,
@@ -48,40 +49,52 @@ class ThreadFloorFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = TextButton.styleFrom(
-      foregroundColor: AppColors.textMuted,
-      minimumSize: const Size(48, 48),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-    );
+    final labels = MediaQuery.sizeOf(context).width >= 600;
+    Widget action(
+      String label,
+      Widget icon,
+      VoidCallback? onPressed,
+    ) =>
+        labels
+            ? TextButton.icon(
+                onPressed: onPressed,
+                icon: icon,
+                label: Text(label),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.textMuted,
+                  minimumSize: const Size(48, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+              )
+            : IconButton(
+                tooltip: label,
+                onPressed: onPressed,
+                color: AppColors.textMuted,
+                icon: icon,
+              );
     return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
         if (onReply != null)
-          TextButton.icon(
-            onPressed: onReply,
-            icon: const Icon(Icons.reply_outlined, size: 18),
-            label: const Text('回复'),
-            style: style,
-          ),
+          action('回复', const Icon(Icons.reply_outlined, size: 18), onReply),
         if (onQuote != null)
-          TextButton.icon(
-            onPressed: quoteLoading ? null : onQuote,
-            icon: quoteLoading
+          action(
+            quoteLoading ? '引用中…' : '引用',
+            quoteLoading
                 ? const SizedBox.square(
                     dimension: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.format_quote_outlined, size: 18),
-            label: Text(quoteLoading ? '引用中…' : '引用'),
-            style: style,
+            quoteLoading ? null : onQuote,
           ),
-        const Spacer(),
         if (onMore != null)
           IconButton(
             key: moreKey,
             tooltip: '更多操作',
             onPressed: onMore,
             color: AppColors.textMuted,
-            icon: const Icon(Icons.more_horiz),
+            icon: const Icon(Icons.more_horiz, size: 18),
           ),
       ],
     );

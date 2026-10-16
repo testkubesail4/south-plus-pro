@@ -46,11 +46,11 @@ void main() {
     return repository;
   }
 
-  void expectOnScreen(String floorLabel) {
+  void expectOnScreen(Finder floor) {
     expect(
-      find.text(floorLabel).hitTestable(),
+      floor.hitTestable(),
       findsOneWidget,
-      reason: '$floorLabel should be visible, not just built',
+      reason: '$floor should be visible, not just built',
     );
   }
 
@@ -58,7 +58,7 @@ void main() {
     tester,
   ) async {
     await pumpThread(tester, '$_base?tid-7.html#fl-20');
-    expectOnScreen('[B20F]');
+    expectOnScreen(floor('B20F'));
     expect(find.text(_notFound), findsNothing);
   });
 
@@ -67,13 +67,13 @@ void main() {
   ) async {
     // Post id 20 belongs to floor B11F (pid = page * 31 - floor).
     await pumpThread(tester, '$_base?tid-7.html#20');
-    expectOnScreen('[B11F]');
-    expect(find.text('[B20F]').hitTestable(), findsNothing);
+    expectOnScreen(floor('B11F'));
+    expect(floor('B20F').hitTestable(), findsNothing);
   });
 
   testWidgets('read_PID anchor at 1x scale reveals the reply', (tester) async {
     await pumpThread(tester, '$_base?tid-7.html#read_6', textScale: 1);
-    expectOnScreen('[B25F]');
+    expectOnScreen(floor('B25F'));
   });
 
   testWidgets('page-e with #a shows the real last page and its anchored row', (
@@ -81,9 +81,8 @@ void main() {
   ) async {
     final repository = await pumpThread(tester, '$_base?tid=7&page=e&#a');
     expect(repository.requested.first, contains('page=e'));
-    expectOnScreen('[B90F]');
-    // The page control sits after the last row, below the fold at 2x.
-    await tester.scrollUntilVisible(find.textContaining('第 3 /'), 200);
+    expectOnScreen(floor('B90F'));
+    // The page bar under the list shows the page.
     expect(find.textContaining('第 3 /'), findsWidgets);
   });
 
@@ -91,7 +90,7 @@ void main() {
     tester,
   ) async {
     final repository = await pumpThread(tester, '$_base?tid-7.html#tpc');
-    expectOnScreen('[楼主]');
+    expectOnScreen(find.text('楼主'));
     expect(find.text(_notFound), findsNothing);
     expect(repository.requested, hasLength(1));
   });
@@ -156,7 +155,7 @@ void main() {
     expect(requested, contains('job.php?action-topost-tid-7-pid-20.html'));
     expect(Uri.parse(requested).fragment, '20');
     // The server-chosen page 2 holds pid 20 on floor B42F.
-    expectOnScreen('[B42F]');
+    expectOnScreen(floor('B42F'));
     expect(find.text(_notFound), findsNothing);
   });
 
@@ -211,3 +210,6 @@ class _FakeRepository extends ForumRepository {
     );
   }
 }
+
+/// A floor by its label in the meta line (`time · B12F`).
+Finder floor(String label) => find.textContaining(RegExp('\\b$label\$'));

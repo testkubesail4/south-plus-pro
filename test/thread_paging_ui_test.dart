@@ -107,7 +107,7 @@ void main() {
     expect(before, greaterThan(0));
     expect(composerShown(tester), isFalse);
 
-    await tester.tap(find.descendant(of: footer, matching: find.text('回复')));
+    await tester.tap(find.descendant(of: footer, matching: find.byIcon(Icons.reply_outlined)));
     await tester.pumpAndSettle();
 
     expect(composerShown(tester), isTrue);
@@ -167,7 +167,7 @@ void main() {
     );
     await tester.ensureVisible(footer);
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(of: footer, matching: find.text('回复')));
+    await tester.tap(find.descendant(of: footer, matching: find.byIcon(Icons.reply_outlined)));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'to floor one');
     await tester.pump();

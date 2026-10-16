@@ -1466,8 +1466,13 @@ class _ThreadDetailContent extends StatelessWidget {
       'ThreadDetailContent.build',
       () {
         final originalAuthor = detail.thread.author;
-        final side =
-            math.max(20.0, (MediaQuery.sizeOf(context).width - 880) / 2);
+        final width = MediaQuery.sizeOf(context).width;
+        // Page gutter, widening to centre a 760 reading column.
+        final side = math.max(width < 600 ? 16.0 : 24.0, (width - 760) / 2);
+        bool isReply(int i) =>
+            i >= 0 &&
+            i < entries.length &&
+            entries[i].type == ThreadDetailListEntryType.reply;
         return Stack(
           children: [
             RefreshIndicator(
@@ -1479,11 +1484,20 @@ class _ThreadDetailContent extends StatelessWidget {
                 // and a comfortable reading width on wide windows.
                 padding: EdgeInsets.fromLTRB(side, 0, side, 88),
                 itemCount: entries.length,
-                itemBuilder: (context, index) => _buildEntry(
-                  context,
-                  entries[index],
-                  originalAuthor: originalAuthor,
-                ),
+                itemBuilder: (context, index) {
+                  final child = _buildEntry(
+                    context,
+                    entries[index],
+                    originalAuthor: originalAuthor,
+                  );
+                  if (!isReply(index)) return child;
+                  // Consecutive floors share one surface, split by hairlines.
+                  return _ReplyGroupSlot(
+                    first: !isReply(index - 1),
+                    last: !isReply(index + 1),
+                    child: child,
+                  );
+                },
               ),
             ),
             if (loading)
@@ -1558,7 +1572,6 @@ class _ThreadDetailContent extends StatelessWidget {
               onAuthorTap: detail.thread.authorUrl == null
                   ? null
                   : () => onAuthorTap(detail.thread.authorUrl!),
-              pagination: detail.pagination,
               actions: actions,
             ),
           );
@@ -1581,7 +1594,6 @@ class _ThreadDetailContent extends StatelessWidget {
               children: [
                 _ThreadHeaderCard(
                   title: detail.thread.title,
-                  pagination: detail.pagination,
                   actions: actions,
                 ),
                 const SizedBox(height: 12),
@@ -1614,7 +1626,7 @@ class _ThreadDetailContent extends StatelessWidget {
                 loadingQuoteDrafts.contains(detail.bodyQuoteUrl),
             onQuote: () => onQuoteReply(openingPost),
             onMore: () => onFloorMore(openingPost, true),
-            headerActions: actions,
+            threadActions: actions,
             child: ThreadPostBody(
               content: detail.body,
               segments: detail.bodySegments,
@@ -1671,7 +1683,7 @@ class _ThreadDetailContent extends StatelessWidget {
             key: entry.key,
             post: reply,
             child: Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               child: ThreadBlockedFloor(
                 label: _hiddenLabel(reply.floor, hidden),
                 onReveal: () => onReveal(reply),
@@ -1682,9 +1694,8 @@ class _ThreadDetailContent extends StatelessWidget {
         return _entryWithKey(
           key: entry.key,
           post: reply,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _FloorCard(
+          child: _FloorCard(
+              grouped: true,
               author: reply.author,
               avatarUrl: rules.isAvatarBlocked(reply.authorUid)
                   ? null
@@ -1698,6 +1709,8 @@ class _ThreadDetailContent extends StatelessWidget {
                 reply.replyTitle ?? 'Re:${detail.thread.title}',
               ),
               onMore: () => onFloorMore(reply, false),
+              byOriginalPoster:
+                  originalAuthor != null && reply.author == originalAuthor,
               quoteLoading: reply.quoteUrl != null &&
                   loadingQuoteDrafts.contains(reply.quoteUrl),
               onQuote: () => onQuoteReply(reply),
@@ -1715,7 +1728,6 @@ class _ThreadDetailContent extends StatelessWidget {
                 onOpenLink: onOpenLink,
               ),
             ),
-          ),
         );
       case ThreadDetailListEntryType.pageDivider:
         final page = (entry as ThreadDetailPageDividerEntry).page;
@@ -1849,7 +1861,6 @@ class _PostMountReporterState extends State<_PostMountReporter> {
 class _ThreadHeaderCard extends StatelessWidget {
   const _ThreadHeaderCard({
     required this.title,
-    required this.pagination,
     required this.actions,
     this.author,
     this.avatarUrl,
@@ -1860,7 +1871,6 @@ class _ThreadHeaderCard extends StatelessWidget {
   final String? author;
   final String? avatarUrl;
   final VoidCallback? onAuthorTap;
-  final ThreadPagination pagination;
   final Widget actions;
 
   @override
@@ -1868,44 +1878,33 @@ class _ThreadHeaderCard extends StatelessWidget {
     final authorName = author;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    height: 1.25,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                if (authorName != null && authorName.isNotEmpty) ...[
+            _ThreadTitle(title),
+            const SizedBox(height: 14),
+            if (authorName != null && authorName.isNotEmpty) ...[
+              Row(
+                children: [
                   _AuthorAvatar(
                     author: authorName,
                     avatarUrl: avatarUrl,
                     onTap: onAuthorTap,
                   ),
                   const SizedBox(width: 10),
-                ],
-                Expanded(
-                  child: Text(
-                    authorName == null || authorName.isEmpty
-                        ? '第 ${pagination.currentPage} 页'
-                        : '$authorName · 第 ${pagination.currentPage} 页',
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                  Flexible(
+                    child: _FloorAuthorName(
+                      author: authorName,
+                      onTap: onAuthorTap,
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
+                  const SizedBox(width: 6),
+                  const _OriginalPosterBadge(),
+                ],
+              ),
+              const SizedBox(height: 14),
+            ],
             actions,
           ],
         ),
@@ -1999,10 +1998,16 @@ class _FloorCard extends StatelessWidget {
     this.quoteLoading = false,
     this.onQuote,
     this.onMore,
-    this.headerActions,
+    this.threadActions,
+    this.byOriginalPoster = false,
+    this.grouped = false,
   });
 
   final String author;
+  final bool byOriginalPoster;
+
+  /// A row inside the shared replies surface instead of its own card.
+  final bool grouped;
   final String? title;
   final String? avatarUrl;
   final VoidCallback? onAuthorTap;
@@ -2012,30 +2017,32 @@ class _FloorCard extends StatelessWidget {
   final bool quoteLoading;
   final VoidCallback? onQuote;
   final VoidCallback? onMore;
-  final Widget? headerActions;
+
+  /// The thread action strip, under the opening post's body.
+  final Widget? threadActions;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final floorText = floor == null || floor!.isEmpty ? null : '[$floor]';
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+    // The opening post's "floor" is its author: a badge, not a number.
+    final isOpeningPost = floor == '楼主';
+    final meta = [
+      if (postedAt != null && postedAt!.isNotEmpty) postedAt!,
+      if (floor != null && floor!.isNotEmpty && !isOpeningPost) floor!,
+    ].join(' · ');
+    final content = Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 8, 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (title != null) ...[
-              Text(
-                title!,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      height: 1.25,
-                    ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _ThreadTitle(title!),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
             ],
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _AuthorAvatar(
                   author: author,
@@ -2044,45 +2051,54 @@ class _FloorCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 6,
-                    runSpacing: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _FloorAuthorName(
-                        author: author,
-                        onTap: onAuthorTap,
+                      Row(
+                        children: [
+                          Flexible(
+                            child: _FloorAuthorName(
+                              author: author,
+                              onTap: onAuthorTap,
+                            ),
+                          ),
+                          if (isOpeningPost || byOriginalPoster) ...[
+                            const SizedBox(width: 6),
+                            const _OriginalPosterBadge(),
+                          ],
+                        ],
                       ),
-                      if (postedAt != null)
+                      if (meta.isNotEmpty) ...[
+                        const SizedBox(height: 2),
                         Text(
-                          '- $postedAt',
+                          meta,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: AppColors.textMuted,
                             fontSize: 13,
                           ),
                         ),
+                      ],
                     ],
                   ),
                 ),
-                if (floorText != null)
-                  Text(
-                    floorText,
-                    style: TextStyle(
-                      color: AppColors.link,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
               ],
             ),
-            if (headerActions != null) ...[
-              const SizedBox(height: 12),
-              headerActions!,
-            ],
             const SizedBox(height: 12),
-            RepaintBoundary(child: child),
-            if (onReply != null || onQuote != null || onMore != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: RepaintBoundary(child: child),
+            ),
+            if (threadActions != null) ...[
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: threadActions!,
+              ),
               const SizedBox(height: 4),
+            ],
+            if (onReply != null || onQuote != null || onMore != null)
               ThreadFloorFooter(
                 moreKey: ValueKey('floor-actions-$author-$floor'),
                 onReply: onReply,
@@ -2090,7 +2106,50 @@ class _FloorCard extends StatelessWidget {
                 onMore: onMore,
                 quoteLoading: quoteLoading,
               ),
-            ],
+          ],
+        ),
+    );
+    return grouped ? content : Card(child: content);
+  }
+}
+
+/// One floor's slot in the replies surface: rounded at the run's ends,
+/// a hairline above every floor but the first.
+class _ReplyGroupSlot extends StatelessWidget {
+  const _ReplyGroupSlot({
+    required this.first,
+    required this.last,
+    required this.child,
+  });
+
+  final bool first;
+  final bool last;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = Radius.circular(16);
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 12 : 0),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(
+          top: first ? radius : Radius.zero,
+          bottom: last ? radius : Radius.zero,
+        ),
+        clipBehavior: first || last ? Clip.antiAlias : Clip.none,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (!first)
+              Divider(
+                height: 1,
+                thickness: 1,
+                indent: 16,
+                endIndent: 16,
+                color: AppColors.border,
+              ),
+            child,
           ],
         ),
       ),
@@ -2122,15 +2181,15 @@ class _AuthorAvatar extends StatelessWidget {
           customBorder: const CircleBorder(),
           onTap: onTap,
           child: SizedBox.square(
-            dimension: 44,
+            dimension: 40,
             child: ClipOval(
               child: imageUrl == null || imageUrl.isEmpty
                   ? _AvatarFallback(author: author)
                   : CachedForumImage(
                       url: imageUrl,
                       bypassLoadPolicy: true,
-                      width: 44,
-                      height: 44,
+                      width: 40,
+                      height: 40,
                       fit: BoxFit.cover,
                       errorWidget: (context) => _AvatarFallback(author: author),
                     ),
@@ -2182,20 +2241,65 @@ class _FloorAuthorName extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = TextStyle(
-      color: AppColors.brand,
-      fontSize: 15,
-      fontWeight: FontWeight.w800,
+    final name = Text(
+      author,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: AppColors.text,
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+      ),
     );
 
-    if (onTap == null) {
-      return Text(author, style: style);
-    }
+    if (onTap == null) return name;
 
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
-      child: Text(author, style: style),
+      child: name,
+    );
+  }
+}
+
+class _ThreadTitle extends StatelessWidget {
+  const _ThreadTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            height: 1.35,
+          ),
+    );
+  }
+}
+
+class _OriginalPosterBadge extends StatelessWidget {
+  const _OriginalPosterBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.brandSoft,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        child: Text(
+          '楼主',
+          style: TextStyle(
+            color: AppColors.brand,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
     );
   }
 }

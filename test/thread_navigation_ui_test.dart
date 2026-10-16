@@ -97,18 +97,18 @@ void main() {
     await jump(tester, '到底部');
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('购买查看').hitTestable(), 300);
-    final floorY = tester.getTopLeft(find.text('[B31F]')).dy;
+    final floorY = tester.getTopLeft(floor('B31F')).dy;
     await tester.tap(find.text('购买查看'));
     await tester.pumpAndSettle();
     expect(repository.pages, [1, 2, 2]);
     expect(find.text('unlocked paid content').hitTestable(), findsOneWidget);
     expect(find.text('购买查看'), findsNothing);
-    expect(find.text('[B31F]'), findsOneWidget);
-    expect(tester.getTopLeft(find.text('[B31F]')).dy, closeTo(floorY, 1));
-    await tester.scrollUntilVisible(find.text('[B1F]'), -300);
+    expect(floor('B31F'), findsOneWidget);
+    expect(tester.getTopLeft(floor('B31F')).dy, closeTo(floorY, 1));
+    await tester.scrollUntilVisible(floor('B1F'), -300);
     await tester.pumpAndSettle();
     expect(repository.pages, [1, 2, 2], reason: 'page 1 remains loaded');
-    expect(find.text('[B1F]').hitTestable(), findsOneWidget);
+    expect(floor('B1F').hitTestable(), findsOneWidget);
   });
 
   for (final reverseResponses in [false, true]) {
@@ -143,7 +143,7 @@ void main() {
         repository.held.first.complete(earlierResponse);
       }
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('[B31F]'), -200);
+      await tester.scrollUntilVisible(floor('B31F'), -200);
       await tester.pumpAndSettle();
       // Scrolling may also append page 3; page 2 is refetched once per buy.
       expect(repository.pages.take(4), [1, 2, 2, 2]);
@@ -214,8 +214,9 @@ void main() {
     }
     // A fling may carry on into page 2's own end zone.
     expect(repository.pages.take(2), [1, 2]);
-    await tester.scrollUntilVisible(find.text('第 2 页'), -300);
-    await tester.scrollUntilVisible(find.text('[B31F]'), 300);
+    // The append starts before page 1's end: its divider lies ahead.
+    await tester.scrollUntilVisible(find.text('第 2 页'), 300);
+    await tester.scrollUntilVisible(floor('B31F'), 300);
 
     for (var i = 0; i < 60 && find.text('已到最后一页').evaluate().isEmpty; i++) {
       await scrollBy(tester, 2000);
@@ -227,9 +228,9 @@ void main() {
   testWidgets('stopping saves the post at the top; reopening resumes there',
       (tester) async {
     final repository = await pumpThread(tester);
-    await tester.scrollUntilVisible(find.text('[B12F]'), 300);
+    await tester.scrollUntilVisible(floor('B12F'), 300);
     // Align B12F's header with the top edge; its post is the top one.
-    await Scrollable.ensureVisible(tester.element(find.text('[B12F]')));
+    await Scrollable.ensureVisible(tester.element(floor('B12F')));
     await tester.pumpAndSettle();
     final saved = await repository.loadThreadReadPosition(_thread);
     expect(saved?.page, 1);
@@ -239,7 +240,7 @@ void main() {
     final reopened = _FakeRepository();
     await pumpThread(tester, repository: reopened);
     expect(reopened.urls, [_url]);
-    expect(find.text('[B12F]').hitTestable(), findsOneWidget);
+    expect(floor('B12F').hitTestable(), findsOneWidget);
     expect(find.textContaining('已回到上次阅读位置'), findsOneWidget);
   });
 
@@ -251,13 +252,13 @@ void main() {
     );
     final repository = await pumpThread(tester);
     expect(repository.pages, [2]);
-    expect(find.text('[B40F]').hitTestable(), findsOneWidget);
+    expect(floor('B40F').hitTestable(), findsOneWidget);
 
     await tester.tap(find.text('从头看'));
     await tester.pumpAndSettle();
     expect(repository.pages, [2, 1]);
     expect(Uri.parse(repository.urls.last).fragment, 'tpc');
-    expect(find.text('[楼主]').hitTestable(), findsOneWidget);
+    expect(find.text('楼主').hitTestable(), findsOneWidget);
   });
 
   testWidgets('links to a floor or page ignore the saved position',
@@ -268,7 +269,7 @@ void main() {
     );
     final repository = await pumpThread(tester, url: '$_url#fl-20');
     expect(repository.pages, [1]);
-    expect(find.text('[B20F]').hitTestable(), findsOneWidget);
+    expect(floor('B20F').hitTestable(), findsOneWidget);
     expect(find.textContaining('已回到上次阅读位置'), findsNothing);
 
     for (final url in [
@@ -339,7 +340,7 @@ void main() {
     await jump(tester, '最新回复');
     await tester.pumpAndSettle();
     expect(repository.urls.last, contains('page-e'));
-    expect(find.text('[B90F]').hitTestable(), findsOneWidget);
+    expect(floor('B90F').hitTestable(), findsOneWidget);
 
     await jump(tester, '回到顶部');
     await tester.pumpAndSettle();
@@ -352,7 +353,7 @@ void main() {
     await jump(tester, '首楼');
     await tester.pumpAndSettle();
     expect(repository.pages.last, 1);
-    expect(find.text('[楼主]').hitTestable(), findsOneWidget);
+    expect(find.text('楼主').hitTestable(), findsOneWidget);
   });
 }
 
@@ -434,6 +435,9 @@ class _FakeRepository extends ForumRepository {
     );
   }
 }
+
+/// A floor by its label in the meta line (`time · B12F`).
+Finder floor(String label) => find.textContaining(RegExp('\\b$label\$'));
 
 /// Opens the 跳转 sheet from the page bar and taps one of its shortcuts;
 /// the caller pumps on.
