@@ -116,14 +116,25 @@ class WindCodeToolbar extends StatelessWidget {
         ),
       ),
       _WindCodeAction(
-        label: '字体',
-        icon: Icons.font_download_outlined,
-        onTap: () => _pickAndWrap(
-          context,
-          title: '字体',
-          options: {for (final font in fonts) font: font},
-          tag: 'font',
+        label: '链接',
+        icon: Icons.link,
+        onTap: () => _wrapSelection('[url]', '[/url]', 'https://'),
+      ),
+      _WindCodeAction(
+        label: '图片',
+        icon: Icons.image_outlined,
+        onTap: () => _wrapSelection('[img]', '[/img]', '图片地址'),
+      ),
+      if (allowSale)
+        _WindCodeAction(
+          label: '出售',
+          icon: Icons.sell_outlined,
+          onTap: () => _showSaleSheet(context),
         ),
+      _WindCodeAction(
+        label: '引用',
+        icon: Icons.format_quote,
+        onTap: () => _wrapSelection('[quote]', '[/quote]', '引用内容'),
       ),
       _WindCodeAction(
         label: '对齐',
@@ -144,41 +155,30 @@ class WindCodeToolbar extends StatelessWidget {
         icon: Icons.format_list_bulleted,
         onTap: () => _showListSheet(context),
       ),
-      if (allowSale)
-        _WindCodeAction(
-          label: '出售',
-          icon: Icons.sell_outlined,
-          onTap: () => _showSaleSheet(context),
-        ),
-      _WindCodeAction(
-        label: '引用',
-        icon: Icons.format_quote,
-        onTap: () => _wrapSelection('[quote]', '[/quote]', '引用内容'),
-      ),
-      _WindCodeAction(
-        label: '链接',
-        icon: Icons.link,
-        onTap: () => _wrapSelection('[url]', '[/url]', 'https://'),
-      ),
-      _WindCodeAction(
-        label: '图片',
-        icon: Icons.image_outlined,
-        onTap: () => _wrapSelection('[img]', '[/img]', '图片地址'),
-      ),
       _WindCodeAction(
         label: '代码',
         icon: Icons.code,
         onTap: () => _wrapSelection('[code]', '[/code]', '代码'),
       ),
+      _WindCodeAction(
+        label: '字体',
+        icon: Icons.font_download_outlined,
+        onTap: () => _pickAndWrap(
+          context,
+          title: '字体',
+          options: {for (final font in fonts) font: font},
+          tag: 'font',
+        ),
+      ),
+      _WindCodeAction(
+        label: '格式说明',
+        icon: Icons.help_outline,
+        onTap: () => _showHelpSheet(context),
+      ),
     ];
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceTint,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+    return IconTheme.merge(
+      data: IconThemeData(color: AppColors.textMuted),
       // One row of 48dp buttons; whatever does not fit goes into 更多.
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -225,6 +225,70 @@ class WindCodeToolbar extends StatelessWidget {
 
   static final _buttonStyle =
       IconButton.styleFrom(minimumSize: const Size.square(48));
+
+  Future<void> _showHelpSheet(BuildContext context) {
+    final rows = <(String, String)>[
+      ('粗体 / 斜体 / 下划线', '[b]文字[/b]  [i]文字[/i]  [u]文字[/u]'),
+      ('字号 / 颜色', '[size=4]文字[/size]  [color=red]文字[/color]'),
+      ('引用', '[quote]引用内容[/quote]'),
+      ('链接', '[url=https://地址]文字[/url]'),
+      ('图片', '[img]图片地址[/img]'),
+      ('代码', '[code]代码[/code]'),
+      ('列表', '[list][li]项目[/li][/list]'),
+      if (allowSale) ('出售', '[sell=售价]出售内容[/sell]'),
+    ];
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.8,
+            ),
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              children: [
+                Text('格式说明', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  '正文使用 WindCode。选中文字后点工具栏按钮可直接套用。',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                for (final (label, code) in rows)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(label, style: theme.textTheme.titleSmall),
+                        const SizedBox(height: 2),
+                        SelectableText(
+                          code,
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(fontFamily: 'monospace'),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (allowSale) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '整帖出售、隐藏帖和附件暂不支持。',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   void _wrapSelection(String prefix, String suffix, String placeholder) {
     _wrapRange(

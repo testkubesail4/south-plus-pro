@@ -122,6 +122,11 @@ class ReplyComposerState extends State<ReplyComposer> {
     _contentFocus.requestFocus();
   }
 
+  static final _well = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(12),
+    borderSide: BorderSide.none,
+  );
+
   @override
   Widget build(BuildContext context) {
     final muted = TextStyle(color: AppColors.textMuted, fontSize: 13);
@@ -201,7 +206,15 @@ class ReplyComposerState extends State<ReplyComposer> {
                   minLines: 3,
                   maxLines: 6,
                   enabled: !_submitting,
-                  decoration: const InputDecoration(hintText: '输入回复内容'),
+                  // A soft well rather than an outlined form field.
+                  decoration: InputDecoration(
+                    hintText: '输入回复内容',
+                    fillColor: AppColors.inkSoft,
+                    border: _well,
+                    enabledBorder: _well,
+                    disabledBorder: _well,
+                    focusedBorder: _well,
+                  ),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 8),

@@ -126,120 +126,184 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final error = _error;
+    // Borderless fields: the page itself is the editing surface.
+    InputDecoration bare(String hint) => InputDecoration(
+          hintText: hint,
+          filled: false,
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          disabledBorder: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+        );
+    Widget column(Widget child) => Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: child,
+          ),
+        );
+    final fields = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          TextField(
+            controller: _title,
+            enabled: !_submitting,
+            textInputAction: TextInputAction.next,
+            keyboardType: TextInputType.text,
+            // Long titles wrap instead of scrolling sideways.
+            minLines: 1,
+            maxLines: 3,
+            style: theme.textTheme.titleMedium,
+            decoration: bare('标题'),
+          ),
+          Divider(color: AppColors.border),
+          Expanded(
+            child: TextField(
+              controller: _content,
+              enabled: !_submitting,
+              expands: true,
+              maxLines: null,
+              textAlignVertical: TextAlignVertical.top,
+              style: theme.textTheme.bodyMedium,
+              decoration: bare('正文'),
+            ),
+          ),
+        ],
+      ),
+    );
     return Scaffold(
-      appBar: AppBar(title: Text('发布到 ${widget.category.name}')),
+      backgroundColor: AppColors.surface,
+      appBar: AppBar(
+        backgroundColor: AppColors.surface,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('发新帖'),
+            Text(
+              widget.category.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: '预览',
+            onPressed: _submitting || !_draftLoaded ? null : _preview,
+            icon: const Icon(Icons.visibility_outlined),
+          ),
+          IconButton(
+            tooltip: '存草稿',
+            onPressed: _submitting || !_draftLoaded ? null : _saveDraft,
+            icon: const Icon(Icons.save_outlined),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 12, 0),
+            // While sending, a spinner joins the label, which stays.
+            child: FilledButton.icon(
+              key: const ValueKey('compose-submit'),
+              onPressed: _submitting || !_draftLoaded ? null : _submit,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(64, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+              icon: _submitting
+                  // Drawn in the button's own (disabled) content colour.
+                  ? Builder(
+                      builder: (context) => SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: IconTheme.of(context).color,
+                        ),
+                      ),
+                    )
+                  : null,
+              label: const Text('发布'),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         top: false,
         child: !_draftLoaded
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+            : Column(
                 children: [
-                  TextField(
-                    controller: _title,
-                    enabled: !_submitting,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: '标题',
-                      prefixIcon: Icon(Icons.title_outlined),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _content,
-                    enabled: !_submitting,
-                    minLines: 10,
-                    maxLines: 16,
-                    decoration: const InputDecoration(
-                      labelText: '正文',
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  WindCodeToolbar(
-                    controller: _content,
-                    enabled: !_submitting,
-                    baseUri: widget.repository.networkConfig.baseUri,
-                  ),
-                  CheckboxListTile(
-                    value: _replyNotice,
-                    onChanged: _submitting
-                        ? null
-                        : (value) =>
-                            setState(() => _replyNotice = value ?? false),
-                    title: const Text('新回复站内通知'),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _submitting ? null : _submit,
-                    icon: _submitting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
+                  // Fills the space above the toolbar, and scrolls instead of
+                  // overflowing when a keyboard, a long title or an error
+                  // leaves too little room.
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints:
+                              BoxConstraints(minHeight: constraints.maxHeight),
+                          child: IntrinsicHeight(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (error != null)
+                                  MaterialBanner(
+                                    content: Text(error),
+                                    leading: Icon(
+                                      Icons.error_outline,
+                                      color: theme.colorScheme.error,
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            setState(() => _error = null),
+                                        child: const Text('知道了'),
+                                      ),
+                                    ],
+                                  ),
+                                Expanded(child: column(fields)),
+                              ],
                             ),
-                          )
-                        : Icon(Icons.send_outlined),
-                    label: Text(_submitting ? '提交中...' : '提交'),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _submitting ? null : _preview,
-                          icon: Icon(Icons.visibility_outlined),
-                          label: const Text('预览'),
+                          ),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _submitting ? null : _saveDraft,
-                          icon: Icon(Icons.save_outlined),
-                          label: const Text('存草稿'),
+                    ),
+                  ),
+                  // Follows the keyboard up, so formatting stays at hand.
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceTint,
+                      border: Border(top: BorderSide(color: AppColors.border)),
+                    ),
+                    child: column(
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Column(
+                          children: [
+                            WindCodeToolbar(
+                              controller: _content,
+                              enabled: !_submitting,
+                              baseUri: widget.repository.networkConfig.baseUri,
+                            ),
+                            SwitchListTile(
+                              value: _replyNotice,
+                              onChanged: _submitting
+                                  ? null
+                                  : (value) =>
+                                      setState(() => _replyNotice = value),
+                              dense: true,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              title: const Text('新回复站内通知'),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                  const SizedBox(height: 18),
-                  const _ComposeNote(),
                 ],
               ),
-      ),
-    );
-  }
-}
-
-class _ComposeNote extends StatelessWidget {
-  const _ComposeNote();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceTint,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Text(
-        '出售内容请使用 WindCode：[sell=0]出售内容[/sell]。整帖出售、隐藏帖和附件后续单独补。',
-        style: TextStyle(color: AppColors.textMuted, height: 1.45),
       ),
     );
   }

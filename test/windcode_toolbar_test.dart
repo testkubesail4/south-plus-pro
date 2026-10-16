@@ -196,6 +196,25 @@ void main() {
     await tapAction(tester, '出售');
     expect(find.text('出售选中内容'), findsOneWidget);
   });
+
+  testWidgets('format help lists sale syntax only where sale is offered',
+      (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    for (final allowSale in [true, false]) {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: WindCodeToolbar(controller: controller, allowSale: allowSale),
+        ),
+      ));
+      await tapAction(tester, '格式说明');
+      expect(find.text('[quote]引用内容[/quote]'), findsOneWidget);
+      expect(find.text('[sell=售价]出售内容[/sell]'),
+          allowSale ? findsOneWidget : findsNothing);
+      await tester.tapAt(Offset.zero);
+      await tester.pumpAndSettle();
+    }
+  });
 }
 
 class _ComposeRepository extends ForumRepository {

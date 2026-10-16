@@ -17,6 +17,7 @@ import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
 import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
+import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/history/browsing_history_screen.dart';
 import 'package:south_plus_rewrite/features/profile/account_screen.dart';
@@ -709,25 +710,95 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
-    final submit = find.text('提交');
+    final submit = find.text('发布');
 
-    expect(
-      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
-      isTrue,
-    );
-    await tester.scrollUntilVisible(submit, 200,
-        scrollable: find.byType(Scrollable).first);
     await tester.tap(submit);
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('新回复站内通知'));
     await tester.tap(find.text('新回复站内通知'));
     await tester.pump();
-    await tester.ensureVisible(submit);
     await tester.tap(submit);
     await tester.pumpAndSettle();
 
     expect(repository.replyNotices, [true, false]);
+  });
+
+  testWidgets(
+      'compose keeps every control reachable with a keyboard, large text, '
+      'a long title and an error', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 360);
+    addTearDown(tester.view.reset);
+    final repository = _FakeComposeRepository();
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(2)),
+        child: child!,
+      ),
+      home: const Scaffold(body: Text('board')),
+    ));
+    Navigator.of(tester.element(find.text('board'))).push(MaterialPageRoute(
+      builder: (_) => ThreadComposeScreen(
+        category: const ForumCategory(
+          name: 'A fictional board with a very long name that cannot fit',
+          slug: 'fid-1',
+        ),
+        repository: repository,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '很长的标题' * 12);
+    await tester.tap(find.text('发布'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('rejected'), findsOneWidget);
+    for (final control in [
+      find.byType(BackButton),
+      find.text('发布'),
+      find.byTooltip('表情'),
+      find.text('新回复站内通知'),
+    ]) {
+      expect(control.hitTestable(), findsOneWidget, reason: '$control');
+    }
+    // The body field scrolls into reach below the title and the error.
+    await tester.ensureVisible(find.byType(TextField).last);
+    await tester.pumpAndSettle();
+    final toolbarTop = tester.getRect(find.byType(WindCodeToolbar)).top;
+    expect(tester.getRect(find.byType(TextField).last).top,
+        lessThan(toolbarTop - 40));
+  });
+
+  testWidgets('compose keeps the 发布 label while a submit is pending',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = _FakeComposeRepository()..pending = Completer();
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadComposeScreen(
+        category: _FakeBoardRepository.category,
+        repository: repository,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('发布'));
+    await tester.pump();
+
+    final submit = find.byKey(const ValueKey('compose-submit'));
+    expect(
+        find.descendant(of: submit, matching: find.text('发布')), findsOneWidget);
+    expect(
+        find.descendant(
+            of: submit, matching: find.byType(CircularProgressIndicator)),
+        findsOneWidget);
+    expect(tester.widget<ButtonStyleButton>(submit).enabled, isFalse);
+    await tester.tap(find.text('发布'));
+    expect(repository.replyNotices, hasLength(1), reason: 'no double submit');
+
+    repository.pending!.complete();
+    await tester.pumpAndSettle();
+    expect(tester.widget<ButtonStyleButton>(submit).enabled, isTrue);
   });
 
   testWidgets('account screen exposes app version and update check',
@@ -1989,6 +2060,7 @@ class _FakeBoardRepository extends ForumRepository {
 
 class _FakeComposeRepository extends ForumRepository {
   final replyNotices = <bool>[];
+  Completer<void>? pending;
 
   @override
   Future<ReplyResult> submitThread({
@@ -1998,6 +2070,7 @@ class _FakeComposeRepository extends ForumRepository {
     bool enableReplyNotice = false,
   }) async {
     replyNotices.add(enableReplyNotice);
+    await pending?.future;
     // Fail so the screen stays open for the next submit.
     return const ReplyResult(success: false, message: 'rejected');
   }
