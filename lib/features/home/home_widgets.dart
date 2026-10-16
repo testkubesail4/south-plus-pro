@@ -762,47 +762,56 @@ class _QuickListBody extends StatelessWidget {
         }
         final threads = snapshot.data;
         if (threads == null) return const _QuickListSkeleton();
-        if (threads.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
-          );
-        }
-        final countStyle = TextStyle(
-          color: AppColors.textFaint,
-          fontSize: 12,
-          fontFeatures: const [FontFeature.tabularFigures()],
-        );
-        return _quickRows([
-          for (final thread in threads.take(_quickRowCount))
-            InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ThreadDetailScreen(
-                    thread: thread,
-                    repository: repository,
+        // Blocked authors' threads leave the list as soon as a rule changes.
+        return ValueListenableBuilder(
+          valueListenable: repository.blocking.notifier,
+          builder: (context, rules, _) {
+            final shown =
+                threads.where((thread) => !rules.isThreadBlocked(thread));
+            if (shown.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.all(12),
+                child:
+                    Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
+              );
+            }
+            final countStyle = TextStyle(
+              color: AppColors.textFaint,
+              fontSize: 12,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            );
+            return _quickRows([
+              for (final thread in shown.take(_quickRowCount))
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ThreadDetailScreen(
+                        thread: thread,
+                        repository: repository,
+                      ),
+                    ),
+                  ),
+                  child: _quickRow(
+                    context,
+                    ForumTitleText(
+                      thread.title,
+                      titleStyle: thread.titleStyle,
+                      maxLines: 1,
+                      style: _quickTitleStyle(),
+                    ),
+                    trailing: thread.replies > 0
+                        ? Text(
+                            '${thread.replies}',
+                            semanticsLabel: '${thread.replies} 回复',
+                            style: countStyle,
+                          )
+                        : null,
                   ),
                 ),
-              ),
-              child: _quickRow(
-                context,
-                ForumTitleText(
-                  thread.title,
-                  titleStyle: thread.titleStyle,
-                  maxLines: 1,
-                  style: _quickTitleStyle(),
-                ),
-                trailing: thread.replies > 0
-                    ? Text(
-                        '${thread.replies}',
-                        semanticsLabel: '${thread.replies} 回复',
-                        style: countStyle,
-                      )
-                    : null,
-              ),
-            ),
-        ]);
+            ]);
+          },
+        );
       },
     );
   }

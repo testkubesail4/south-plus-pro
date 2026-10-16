@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_search_preferences.dart';
 
@@ -111,6 +112,23 @@ void main() {
     expect(find.text('Latest 1'), findsOneWidget);
     expect(tabs.index, 0);
     expect(repo.quickListLoads, hasLength(2), reason: 'no reload on swipe');
+  });
+
+  testWidgets('速览 hides blocked authors as soon as a rule changes',
+      (tester) async {
+    final repo = await pumpAt(tester, 360);
+    await tester.tap(find.text('最新回复'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reply 2'), findsOneWidget);
+
+    repo.blocking.notifier.value = const BlockingRules(users: [
+      BlockedUser(
+          uid: '1002', name: 'B', userBlocked: true, avatarBlocked: false),
+    ]);
+    await tester.pump();
+    expect(find.text('Reply 1'), findsOneWidget);
+    expect(find.text('Reply 2'), findsNothing);
+    expect(repo.quickListLoads, hasLength(2), reason: 'filtered locally');
   });
 
   testWidgets('a hidden list that fails offers retry when opened',
@@ -430,7 +448,9 @@ class _Repo extends ForumRepository {
             title: 'Reply $i',
             url: 'read.php?tid-1.html',
             replies: i - 1,
-            section: ''),
+            section: '',
+            authorUrl:
+                'https://south-plus.net/u.php?action-show-uid-${1000 + i}.html'),
     ];
   }
 
