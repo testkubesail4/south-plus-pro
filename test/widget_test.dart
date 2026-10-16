@@ -1697,12 +1697,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.ancestor(
-        of: find.text('只看楼主'),
-        matching: find.byType(FilterChip),
-      ),
-    );
+    await tester.tap(find.text('只看楼主'));
     await tester.pumpAndSettle();
 
     expect(repository.requestedThreadUrls, [
@@ -1715,15 +1710,8 @@ void main() {
     expect(find.text('第 1 / 2 页'), findsWidgets);
     expect(find.text('第 2 / 4 页'), findsNothing);
     expect(
-      tester
-          .widget<FilterChip>(
-            find.ancestor(
-              of: find.text('只看楼主'),
-              matching: find.byType(FilterChip),
-            ),
-          )
-          .selected,
-      isTrue,
+      tester.getSemantics(find.text('只看楼主')),
+      containsSemantics(isSelected: true),
     );
 
     await tester.tap(find.byTooltip('下一页').first);
@@ -1736,12 +1724,7 @@ void main() {
     expect(find.text('第 2 / 2 页'), findsWidgets);
     expect(find.text('第 2 / 2 页 · 本页 1 楼'), findsOneWidget);
 
-    await tester.tap(
-      find.ancestor(
-        of: find.text('只看楼主'),
-        matching: find.byType(FilterChip),
-      ),
-    );
+    await tester.tap(find.text('只看楼主'));
     await tester.pumpAndSettle();
 
     expect(repository.requestedThreadUrls.last,

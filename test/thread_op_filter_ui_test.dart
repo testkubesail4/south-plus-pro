@@ -47,11 +47,10 @@ void main() {
     return repository;
   }
 
-  Finder opChip() =>
-      find.ancestor(of: find.text('只看楼主'), matching: find.byType(FilterChip));
-
   Future<void> tapOpChip(WidgetTester tester) async {
-    await tester.ensureVisible(opChip());
+    // Centred, so the floating reply button cannot cover it.
+    Scrollable.ensureVisible(tester.element(opChip()), alignment: 0.5);
+    await tester.pumpAndSettle();
     await tester.tap(opChip());
     await tester.pumpAndSettle();
   }
@@ -72,8 +71,10 @@ void main() {
 
     expect(Uri.parse(repository.requested.last).query, 'tid-7-uid-3.html');
     expect(find.text('没有楼主回复'), findsNothing);
+    // At text scale 2 the strip takes two rows; the chip follows it.
+    await tester.scrollUntilVisible(find.text('第 1 / 1 页 · 本页 2 楼'), 200);
     expect(find.text('第 1 / 1 页 · 本页 2 楼'), findsOneWidget);
-    expect(tester.widget<FilterChip>(opChip()).selected, isTrue);
+    expectOpSelected(tester, true);
     expect(find.text('»'), findsNothing,
         reason: 'filtered server response has a single page');
   });
@@ -108,8 +109,11 @@ void main() {
 
       expect(find.text(_unavailable), findsOneWidget);
       expect(repository.requested, hasLength(before));
-      expect(tester.widget<FilterChip>(opChip()).selected, isFalse);
+      expectOpSelected(tester, false);
       expect(find.text('没有楼主回复'), findsNothing);
+      // The unfiltered replies stay, below the opening post.
+      await tester.scrollUntilVisible(
+          find.text('reply by other', findRichText: true), 200);
       expect(find.text('reply by other', findRichText: true), findsOneWidget);
     });
   }
@@ -125,17 +129,15 @@ void main() {
           ForumRepository(client: client, historyStore: _NoHistoryStore());
     });
 
-    bool opChipSelected(WidgetTester tester) =>
-        tester.widget<FilterChip>(opChip()).selected;
-
     testWidgets(
         'another author filter never becomes the OP filter; '
         'OP toggle then requests the original OP uid', (tester) async {
       await pumpWith(tester, repository, _threadUrl);
-      expect(opChipSelected(tester), isFalse);
+      expectOpSelected(tester, false);
 
       final otherActions =
           find.byKey(const ValueKey('floor-actions-other-B1F'));
+      await tester.scrollUntilVisible(otherActions, 200);
       // Centre it so the floating reply button cannot cover the menu.
       Scrollable.ensureVisible(tester.element(otherActions), alignment: 0.5);
       await tester.pumpAndSettle();
@@ -146,16 +148,16 @@ void main() {
 
       expect(client.paths.last, 'read.php?tid-7-uid-902.html');
       expect(find.text('只看 other'), findsOneWidget);
-      expect(opChipSelected(tester), isFalse);
+      expectOpSelected(tester, false);
 
       await tapOpChip(tester);
 
       expect(client.paths.last, 'read.php?tid-7-uid-901.html');
-      expect(opChipSelected(tester), isTrue);
+      expectOpSelected(tester, true);
 
       await tapOpChip(tester);
       expect(client.paths.last, 'read.php?tid-7.html');
-      expect(opChipSelected(tester), isFalse);
+      expectOpSelected(tester, false);
     });
 
     testWidgets('uid deep link can be cleared to the unfiltered thread',
@@ -164,7 +166,9 @@ void main() {
           'https://south-plus.net/read.php?tid-7-uid-902.html#11');
 
       final clear = find.byTooltip('取消只看该作者');
-      await tester.ensureVisible(clear);
+      // Centre it so the floating reply button cannot cover it.
+      Scrollable.ensureVisible(tester.element(clear), alignment: 0.5);
+      await tester.pumpAndSettle();
       await tester.tap(clear);
       await tester.pumpAndSettle();
 
@@ -182,7 +186,7 @@ void main() {
 
       // Either no OP chip or an unselected one that cannot request uid 902.
       if (opChip().evaluate().isNotEmpty) {
-        expect(opChipSelected(tester), isFalse);
+        expectOpSelected(tester, false);
         await tapOpChip(tester);
         expect(client.paths.where((p) => p.contains('uid-902')), hasLength(1));
       }
@@ -282,3 +286,13 @@ class _FakeRepository extends ForumRepository {
     );
   }
 }
+
+/// The thread action strip's 只看楼主 slot.
+Finder opChip() => find
+    .ancestor(of: find.text('只看楼主'), matching: find.byType(InkWell))
+    .first;
+
+void expectOpSelected(WidgetTester tester, bool selected) => expect(
+      tester.getSemantics(find.text('只看楼主')),
+      containsSemantics(isSelected: selected),
+    );

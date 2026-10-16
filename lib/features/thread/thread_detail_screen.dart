@@ -2225,69 +2225,148 @@ class _ThreadHeaderActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        if (previousThread != null)
-          OutlinedButton.icon(
-            onPressed: () => onThreadLink(previousThread!),
-            icon: Icon(Icons.chevron_left, size: 18),
-            label: Text(previousThread!.label),
-            style: _compactActionStyle(),
-          ),
-        if (nextThread != null)
-          OutlinedButton.icon(
-            onPressed: () => onThreadLink(nextThread!),
-            icon: Icon(Icons.chevron_right, size: 18),
-            label: Text(nextThread!.label),
-            style: _compactActionStyle(),
-          ),
-        if (favorite != null)
-          OutlinedButton.icon(
-            onPressed: favoriteBusy ? null : onFavorite,
-            icon: favoriteBusy
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(
-                    favorite!.canRemove ? Icons.star : Icons.star_outline,
-                    size: 17,
+    final fav = favorite;
+    final onlyOp = onOnlyOriginalPosterChanged;
+    final previous = previousThread;
+    final next = nextThread;
+    final slots = [
+                _ThreadActionButton(
+                  icon: onlyOriginalPoster ? Icons.person : Icons.person_outline,
+                  label: '只看楼主',
+                  active: onlyOriginalPoster,
+                  onTap: originalAuthor == null || onlyOp == null
+                      ? null
+                      : () => onlyOp(!onlyOriginalPoster),
+                ),
+                if (fav != null)
+                  _ThreadActionButton(
+                    icon: fav.canRemove ? Icons.star : Icons.star_outline,
+                    label: fav.canRemove ? '已收藏' : '收藏',
+                    active: fav.canRemove,
+                    busy: favoriteBusy,
+                    onTap: onFavorite,
                   ),
-            label: Text(favorite!.canRemove ? '取消收藏' : '收藏'),
-            style: _compactActionStyle(),
+                _ThreadActionButton(
+                  icon: Icons.chevron_left,
+                  label: '上一主题',
+                  onTap: previous == null ? null : () => onThreadLink(previous),
+                ),
+                _ThreadActionButton(
+                  icon: Icons.chevron_right,
+                  label: '下一主题',
+                  onTap: next == null ? null : () => onThreadLink(next),
+                ),
+    ];
+    // Phone width on wide windows, so the slots stay a thumb apart.
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.inkSoft,
+            borderRadius: BorderRadius.circular(12),
           ),
-        FilterChip(
-          selected: onlyOriginalPoster,
-          showCheckmark: false,
-          avatar: Icon(
-            onlyOriginalPoster ? Icons.person : Icons.person_outline,
-            size: 17,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // A four-character label that no longer fits its slot at
+                // large text sizes moves the strip to two per row.
+                final label = MediaQuery.textScalerOf(context).scale(12) * 4;
+                final perRow =
+                    constraints.maxWidth / slots.length >= label + 8 ? slots.length : 2;
+                return Column(
+                  children: [
+                    for (var i = 0; i < slots.length; i += perRow)
+                      // Equal slots of equal height in every row.
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final slot
+                                in slots.skip(i).take(perRow))
+                              Expanded(child: slot),
+                            // A short last row keeps the column widths.
+                            for (var gap = slots.length - i; gap < perRow; gap++)
+                              const Spacer(),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
-          label: const Text('只看楼主'),
-          onSelected:
-              originalAuthor == null ? null : onOnlyOriginalPosterChanged,
-          materialTapTargetSize: MaterialTapTargetSize.padded,
-          labelStyle: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 4),
         ),
-      ],
+      ),
     );
   }
+}
 
-  ButtonStyle _compactActionStyle() {
-    return OutlinedButton.styleFrom(
-      minimumSize: const Size(44, 44),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      tapTargetSize: MaterialTapTargetSize.padded,
-      textStyle: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
+/// One slot of the thread action strip: icon over label. Muted at rest,
+/// brand on brandSoft when on, faint when unavailable.
+class _ThreadActionButton extends StatelessWidget {
+  const _ThreadActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+    this.busy = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool active;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = onTap == null
+        ? AppColors.textFaint
+        : active
+            ? AppColors.brand
+            : AppColors.textMuted;
+    return Semantics(
+      container: true,
+      button: true,
+      enabled: onTap != null,
+      selected: active,
+      child: Material(
+        color: active ? AppColors.brandSoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(9),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(9),
+          onTap: busy ? null : onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 52),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  busy
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(icon, size: 20, color: color),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
