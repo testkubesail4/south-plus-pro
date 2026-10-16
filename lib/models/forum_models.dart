@@ -739,11 +739,17 @@ class ForumReplyNotice {
 }
 
 class ForumQuickList {
-  const ForumQuickList({required this.title, this.threads, this.scriptUrl});
+  const ForumQuickList({
+    required this.title,
+    this.threads,
+    this.scriptUrl,
+    this.fallbackThreads = const [],
+  });
 
   final String title;
   final List<ForumThread>? threads;
   final String? scriptUrl;
+  final List<ForumThread> fallbackThreads;
 }
 
 class ForumHomeSnapshot {

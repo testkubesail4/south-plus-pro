@@ -750,6 +750,11 @@ class ForumRepository {
       final threads = _homePageParser.parseLatestThreadsFromScript(response);
       if (threads.isEmpty) throw const ForumRepositoryException('没有解析到讨论列表');
       return threads;
+    }).catchError((Object error, StackTrace stack) {
+      if (generation == _homeGeneration &&
+          identical(client, _client) &&
+          list.fallbackThreads.isNotEmpty) return list.fallbackThreads;
+      Error.throwWithStackTrace(error, stack);
     });
     _quickListRequests[list] = request;
     try {

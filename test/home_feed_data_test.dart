@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,6 +49,32 @@ void main() {
     expect(home.latest.first.title, 'Preview 0');
   });
 
+  test(
+      'lazy expanded-feed failures retain inline previews only in their session',
+      () async {
+    final client = _FeedClient();
+    final repository = ForumRepository(client: client);
+    final home = await repository.fetchHome();
+    client.failScript = true;
+    final fallbacks = await Future.wait([
+      repository.fetchQuickList(home.quickLists[1]),
+      repository.fetchQuickList(home.quickLists[1]),
+    ]);
+    for (final fallback in fallbacks) {
+      expect(fallback, hasLength(3));
+      expect(fallback.first.title, 'Preview 0');
+    }
+
+    client.failScript = false;
+    client.pendingScript = Completer<String>();
+    final fresh = await repository.fetchHome();
+    final pending = repository.fetchQuickList(fresh.quickLists[1]);
+    await repository.clearSession();
+    final assertion = expectLater(pending, throwsException);
+    client.pendingScript!.complete(_feed());
+    await assertion;
+  });
+
   test('active and lazy tabs request eight longer titles and metadata',
       () async {
     final client = _FeedClient();
@@ -82,12 +110,19 @@ String _feed({bool simple = true}) => List.generate(8, (i) {
 class _FeedClient extends ForumClient {
   final scripts = <String>[];
   bool failScript = false;
+  Completer<String>? pendingScript;
+
+  @override
+  Future<void> clearSession() async {}
 
   @override
   Future<String> get(String path) async {
     if (path.contains('new.php')) {
       scripts.add(path);
       if (failScript) throw const ForumRepositoryException('Synthetic failure');
+      if (path.contains('order=1') && pendingScript != null) {
+        return pendingScript!.future;
+      }
       return _feed();
     }
     if (path == 'index.php') return '';

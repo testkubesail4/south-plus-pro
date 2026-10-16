@@ -70,6 +70,7 @@ class HomePageParser {
                 ? inline
                 : null,
         scriptUrl: script,
+        fallbackThreads: inline,
       ));
     }
     return lists.isEmpty
