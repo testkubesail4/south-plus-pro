@@ -2219,6 +2219,8 @@ class _AvatarFallback extends StatelessWidget {
       child: Center(
         child: Text(
           initial,
+          // The circle is a fixed 40 px; its letter must fit it at any scale.
+          textScaler: TextScaler.noScaling,
           style: TextStyle(
             color: AppColors.link,
             fontSize: 17,
