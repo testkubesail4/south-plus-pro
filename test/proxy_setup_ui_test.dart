@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -111,6 +113,112 @@ void main() {
     expect(repo.saved.single.proxy, isNull);
   });
 
+  // A pending save keeps its label and adds a spinner (DESIGN §6).
+  void expectPending(WidgetTester tester, String label) {
+    final button = find
+        .ancestor(
+            of: find.text(label),
+            matching: find.byWidgetPredicate((w) => w is ButtonStyleButton))
+        .first;
+    expect(tester.widget<ButtonStyleButton>(button).onPressed, isNull,
+        reason: '$label is disabled while saving');
+    expect(
+        find.descendant(
+            of: button, matching: find.byType(CircularProgressIndicator)),
+        findsOneWidget,
+        reason: '$label shows a spinner beside its label');
+  }
+
+  testWidgets('saving keeps the button labels', (tester) async {
+    final repo = await pumpFlow(tester);
+    final gate = repo.gate = Completer<void>();
+    await tester.tap(find.text('使用代理'));
+    await settle(tester);
+    await tester.enterText(find.widgetWithText(TextField, '主机'), '127.0.0.1');
+    await tester.enterText(find.widgetWithText(TextField, '端口'), '8080');
+    await tester.tap(find.text('使用此代理'));
+    await settle(tester);
+    await tester.tap(find.text('开始使用'));
+    await settle(tester);
+    expectPending(tester, '开始使用');
+    gate.complete();
+    await settle(tester);
+    expect(repo.saved.single.proxy, _proxy);
+  });
+
+  testWidgets('settings saves keep the button labels', (tester) async {
+    tester.view.physicalSize = const Size(400, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = _Repo(const ForumNetworkConfig(
+      site: ForumNetworkConfig.defaultSite,
+      dohEnabled: true,
+      dohProvider: ForumNetworkConfig.defaultProvider,
+    ));
+    await tester.pumpWidget(
+      MaterialApp(home: NetworkSettingsScreen(repository: repo)),
+    );
+    await settle(tester);
+
+    var gate = repo.gate = Completer<void>();
+    await tester.tap(find.text('代理'));
+    await settle(tester);
+    await tester.enterText(find.widgetWithText(TextField, '主机'), '127.0.0.1');
+    await tester.enterText(find.widgetWithText(TextField, '端口'), '8080');
+    await tester.tap(find.text('保存代理'));
+    await settle(tester);
+    expectPending(tester, '保存代理');
+    gate.complete();
+    await settle(tester);
+    expect(repo.networkConfig.proxy, _proxy);
+
+    gate = repo.gate = Completer<void>();
+    await tester.tap(find.text('访问入口').last);
+    await settle(tester);
+    await tester.tap(find.byTooltip('添加访问入口'));
+    await settle(tester);
+    await tester.enterText(find.byType(TextField), 'example.invalid');
+    await tester.tap(find.text('保存入口'));
+    await settle(tester);
+    expectPending(tester, '保存入口');
+    gate.complete();
+    await settle(tester);
+    expect(repo.networkConfig.site.host, 'example.invalid');
+  });
+
+  testWidgets('proxy types stay on one line at large text', (tester) async {
+    tester.view.physicalSize = const Size(360, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+        child: NetworkSetupFlowScreen(
+            repository: _Repo(const ForumNetworkConfig(
+              site: ForumNetworkConfig.defaultSite,
+              dohEnabled: true,
+              dohProvider: ForumNetworkConfig.defaultProvider,
+            )),
+            allowSkip: true),
+      ),
+    ));
+    await settle(tester);
+    await tester.tap(find.text('使用代理'));
+    await settle(tester);
+    final height = tester.getRect(find.text('HTTP')).height;
+    for (final label in ['HTTPS', 'SOCKS5']) {
+      final text = tester.getRect(find.text(label));
+      expect(text.height, moreOrLessEquals(height, epsilon: 0.5),
+          reason: '$label is one line');
+      expect(text.size, tester.getSize(find.text(label)),
+          reason: '$label renders at the requested size, not scaled down');
+      final chip = tester.getRect(find.widgetWithText(ChoiceChip, label));
+      expect(chip.contains(text.topLeft) && chip.contains(text.bottomRight),
+          isTrue,
+          reason: '$label fits its chip');
+    }
+  });
+
   testWidgets('skip saves a plain direct setup', (tester) async {
     final repo = await pumpFlow(tester);
     await tester.tap(find.text('跳过'));
@@ -193,11 +301,15 @@ class _Repo extends ForumRepository {
   final saved = <ForumNetworkConfig>[];
   var failSaves = 0;
 
+  /// While set, saves wait for it.
+  Completer<void>? gate;
+
   @override
   ForumNetworkConfig get networkConfig => _config;
 
   @override
   Future<void> updateNetworkConfig(ForumNetworkConfig config) async {
+    await gate?.future;
     if (failSaves > 0) {
       failSaves--;
       throw StateError('leaked proxy-secret-token');

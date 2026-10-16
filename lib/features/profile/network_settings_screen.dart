@@ -1052,7 +1052,11 @@ class _ManualNetworkInputPageState extends State<_ManualNetworkInputPage> {
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+        padding: EdgeInsets.fromLTRB(
+            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            14,
+            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            28),
         children: [
           TextField(
             controller: _controller,
@@ -1061,7 +1065,9 @@ class _ManualNetworkInputPageState extends State<_ManualNetworkInputPage> {
               labelText: widget.label,
               hintText: widget.hintText,
               helperText: widget.helperText,
+              helperMaxLines: 3,
               errorText: _error,
+              errorMaxLines: 3,
               border: const OutlineInputBorder(),
             ),
             onChanged: (_) {
@@ -1094,14 +1100,15 @@ class _ManualNetworkInputPageState extends State<_ManualNetworkInputPage> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: FilledButton(
+                child: FilledButton.icon(
                   onPressed: _testing || _saving ? null : _save,
-                  child: _saving
+                  icon: _saving
                       ? const SizedBox.square(
-                          dimension: 18,
+                          dimension: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text(widget.actionLabel),
+                      : null,
+                  label: Text(widget.actionLabel),
                 ),
               ),
             ],

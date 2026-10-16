@@ -151,10 +151,20 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
       );
 
   Widget _siteSection(BlockingRules rules) {
-    return AppGroup(
-      label: '南+ 屏蔽名单',
-      description: '与网页版同步。隐藏主题和回复：不显示 TA 的主题与所有楼层；替换头像：只换掉头像',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        AppGroup(
+          label: '南+ 屏蔽名单',
+          description: '与网页版同步。隐藏主题和回复：不显示 TA 的主题与所有楼层；替换头像：只换掉头像',
+          children: [
+            if (rules.users.isEmpty)
+              _emptyRow('没有屏蔽任何人。在楼层的「⋯」里可以屏蔽此人或屏蔽头像。')
+            else
+              for (final user in rules.users) _siteUserRow(user),
+          ],
+        ),
+        // Sync state is a caption under the list, not one of its rows.
         FutureBuilder<void>(
           future: _sync,
           builder: (context, snapshot) {
@@ -185,15 +195,11 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
             }
             return Padding(
               padding: const EdgeInsets.fromLTRB(
-                  AppSpace.lg, AppSpace.md, AppSpace.lg, AppSpace.sm),
+                  AppSpace.lg, AppSpace.sm, AppSpace.lg, 0),
               child: status,
             );
           },
         ),
-        if (rules.users.isEmpty)
-          _emptyRow('没有屏蔽任何人。在楼层的「⋯」里可以屏蔽此人或屏蔽头像。')
-        else
-          for (final user in rules.users) _siteUserRow(user),
       ],
     );
   }

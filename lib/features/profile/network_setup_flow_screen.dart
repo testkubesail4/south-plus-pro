@@ -1258,14 +1258,15 @@ class _BottomBar extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: FilledButton(
+              child: FilledButton.icon(
                 onPressed: onNext,
-                child: saving
+                icon: saving
                     ? const SizedBox.square(
-                        dimension: 18,
+                        dimension: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(nextLabel),
+                    : null,
+                label: Text(nextLabel),
               ),
             ),
           ],

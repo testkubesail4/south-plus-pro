@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/forum_network_config.dart';
 import '../../theme/app_theme.dart';
+import '../common/content_width.dart';
 
 /// "SOCKS5 [::1]:1080"-style summary; credentials are never included.
 String proxyLabel(ForumProxy proxy) {
@@ -102,17 +103,24 @@ class _ProxyFormState extends State<ProxyForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SegmentedButton<ForumProxyType>(
-            segments: const [
-              ButtonSegment(value: ForumProxyType.http, label: Text('HTTP')),
-              ButtonSegment(value: ForumProxyType.https, label: Text('HTTPS')),
-              ButtonSegment(
-                value: ForumProxyType.socks5,
-                label: Text('SOCKS5'),
-              ),
+          // Choice chips, not segments: at large text a chip moves to the
+          // next line whole instead of splitting or shrinking SOCKS5.
+          Wrap(
+            spacing: AppSpace.sm,
+            runSpacing: AppSpace.sm,
+            children: [
+              for (final (type, label) in const [
+                (ForumProxyType.http, 'HTTP'),
+                (ForumProxyType.https, 'HTTPS'),
+                (ForumProxyType.socks5, 'SOCKS5'),
+              ])
+                ChoiceChip(
+                  label: Text(label),
+                  showCheckmark: false,
+                  selected: _type == type,
+                  onSelected: (_) => setState(() => _type = type),
+                ),
             ],
-            selected: {_type},
-            onSelectionChanged: (value) => setState(() => _type = value.single),
           ),
           const SizedBox(height: 12),
           Row(
@@ -175,14 +183,16 @@ class _ProxyFormState extends State<ProxyForm> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 14),
-          FilledButton(
+          // While saving, a spinner joins the label (DESIGN §6).
+          FilledButton.icon(
             onPressed: _saving ? null : _submit,
-            child: _saving
+            icon: _saving
                 ? const SizedBox.square(
-                    dimension: 18,
+                    dimension: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Text(widget.submitLabel),
+                : null,
+            label: Text(widget.submitLabel),
           ),
         ],
       ),
@@ -220,7 +230,11 @@ class ProxyRepairScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('代理设置无法使用')),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.symmetric(
+            horizontal:
+                appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            vertical: 20,
+          ),
           children: [
             Text(
               '保存的代理设置无效，为避免绕过代理直接连接，已暂停所有网络请求。请重新填写代理，或明确停用代理。',
