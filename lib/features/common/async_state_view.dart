@@ -38,33 +38,15 @@ class AsyncErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: padding,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.cloud_off_outlined,
-              size: 34,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 12),
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: Icon(Icons.refresh),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
+    return EmptyStateView(
+      icon: Icons.cloud_off_outlined,
+      title: title,
+      message: message,
+      padding: padding,
+      action: FilledButton.tonalIcon(
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh),
+        label: const Text('重试'),
       ),
     );
   }
@@ -88,32 +70,36 @@ class EmptyStateView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Center(
       child: Padding(
         padding: padding,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 34, color: AppColors.textFaint),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            if (message != null) ...[
-              const SizedBox(height: 6),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 40, color: AppColors.textFaint),
+              const SizedBox(height: AppSpace.md),
               Text(
-                message!,
+                title,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: theme.textTheme.titleMedium,
               ),
+              if (message != null) ...[
+                const SizedBox(height: AppSpace.xs),
+                Text(
+                  message!,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+              if (action != null) ...[
+                const SizedBox(height: AppSpace.lg),
+                action!,
+              ],
             ],
-            if (action != null) ...[
-              const SizedBox(height: 16),
-              action!,
-            ],
-          ],
+          ),
         ),
       ),
     );
@@ -151,16 +137,53 @@ class ThreadListSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-      itemCount: itemCount,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        return const SkeletonCard(
-          height: 86,
-          lines: [0.92, 0.58, 0.36],
-        );
-      },
+    return ListView(
+      padding: const EdgeInsets.all(AppSpace.lg),
+      children: [ThreadRowSkeleton(itemCount: itemCount)],
+    );
+  }
+}
+
+/// Thread rows still loading: title and meta bones in one surface, shaped
+/// like [ForumThreadRow]s (DESIGN.md §10).
+class ThreadRowSkeleton extends StatelessWidget {
+  const ThreadRowSkeleton({super.key, this.itemCount = 8});
+
+  final int itemCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = MediaQuery.textScalerOf(context);
+    return DecoratedBox(
+      decoration: appSurface(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < itemCount; i++) ...[
+            if (i > 0) const Divider(indent: AppSpace.lg),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpace.lg, vertical: AppSpace.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FractionallySizedBox(
+                    widthFactor: i.isEven ? 0.86 : 0.64,
+                    child: SkeletonBlock(
+                        height: scale.scale(15), borderRadius: 999),
+                  ),
+                  const SizedBox(height: AppSpace.sm),
+                  FractionallySizedBox(
+                    widthFactor: 0.42,
+                    child: SkeletonBlock(
+                        height: scale.scale(11), borderRadius: 999),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -198,12 +221,8 @@ class SkeletonCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: height,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: appSurface(context),
       child: LayoutBuilder(
         builder: (context, constraints) {
           if (lines.isEmpty) return const SizedBox.shrink();

@@ -6,6 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/async_state_view.dart';
 
 /// Opens the login page; true once a login succeeded. The app shell follows
 /// the session itself, so callers only refresh their own screen.
@@ -16,7 +17,7 @@ Future<bool> openLogin(BuildContext context, ForumRepository repository) async {
   return loggedIn ?? false;
 }
 
-/// The card shown in place of account-only content while logged out.
+/// Shown in place of account-only content while logged out (DESIGN.md §10).
 class LoginPrompt extends StatelessWidget {
   const LoginPrompt({
     super.key,
@@ -33,40 +34,18 @@ class LoginPrompt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    // Scrollable so it fits at large text sizes.
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 28),
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.xxl * 2),
       children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  color: AppColors.inkSoft,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: AppColors.textMuted, size: 28),
-              ),
-              const SizedBox(height: 16),
-              Text(title, style: theme.textTheme.headlineSmall),
-              const SizedBox(height: 8),
-              Text(message, style: theme.textTheme.bodyMedium),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: onLogin,
-                icon: const Icon(Icons.login),
-                label: const Text('去登录'),
-              ),
-            ],
+        EmptyStateView(
+          icon: icon,
+          title: title,
+          message: message,
+          action: FilledButton.icon(
+            onPressed: onLogin,
+            icon: const Icon(Icons.login),
+            label: const Text('去登录'),
           ),
         ),
       ],
