@@ -136,11 +136,7 @@ class _BoardHeader extends StatelessWidget {
                               parentName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: AppColors.textMuted,
-                                fontSize: 12.5,
-                                height: 1.3,
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall,
                             ),
                           Row(
                             children: [
@@ -149,12 +145,7 @@ class _BoardHeader extends StatelessWidget {
                                   title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: AppColors.text,
-                                    fontSize: 18,
-                                    height: 1.3,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                  style: Theme.of(context).textTheme.titleMedium,
                                 ),
                               ),
                               if (onSwitch != null) ...[
@@ -213,17 +204,12 @@ class _SubBoardSection extends StatelessWidget {
             children: [
               Text(
                 '子版块',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 20,
-                  height: 1.3,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(width: 10),
               Text(
                 '${boards.length} 个',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),
@@ -281,12 +267,7 @@ class _SubBoardTile extends StatelessWidget {
               board.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 15,
-                height: 1.35,
-                fontWeight: FontWeight.w500,
-              ),
+              style: Theme.of(context).textTheme.titleSmall,
             ),
             if (meta.isNotEmpty) ...[
               const SizedBox(height: 3),
@@ -294,11 +275,7 @@ class _SubBoardTile extends StatelessWidget {
                 meta,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: AppColors.textFaint,
-                  fontSize: 12,
-                  height: 1.3,
-                ),
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ],
@@ -341,15 +318,12 @@ class _SiblingList extends StatelessWidget {
             ),
             title: Text(
               parent.name,
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
+              style: Theme.of(context).textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(
               '返回上级版块',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 12.5),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             onTap: onParent,
           ),
@@ -361,18 +335,17 @@ class _SiblingList extends StatelessWidget {
             selected: board.url == currentUrl,
             title: Text(
               board.name,
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 15,
-                fontWeight:
-                    board.url == currentUrl ? FontWeight.w600 : FontWeight.w400,
-              ),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: board.url == currentUrl
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                  ),
             ),
             subtitle: switch (_subBoardMeta(board)) {
               '' => null,
               final meta => Text(
                   meta,
-                  style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
             },
             trailing: board.url == currentUrl
@@ -537,8 +510,7 @@ class _BoardToolbar extends StatelessWidget {
                     const SizedBox(width: 4),
                     Text(
                       _orderLabel(order),
-                      style:
-                          TextStyle(color: AppColors.textMuted, fontSize: 13),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ],
@@ -593,12 +565,10 @@ class _FilterTab extends StatelessWidget {
             ),
             child: Text(
               label,
-              style: TextStyle(
-                color: selected ? AppColors.text : AppColors.textMuted,
-                fontSize: 14,
-                height: 1.4,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-              ),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: selected ? AppColors.text : AppColors.textMuted,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
             ),
           ),
         ),
@@ -664,7 +634,7 @@ class _EmptyTopics extends StatelessWidget {
       child: Text(
         inSubBoards ? '这个板块的主题在子版块中' : '暂无主题',
         textAlign: TextAlign.center,
-        style: TextStyle(color: AppColors.textMuted, fontSize: 14),
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
       ),
     );
   }
@@ -739,18 +709,13 @@ class _WallCard extends StatelessWidget {
                     ConstrainedBox(
                       constraints: BoxConstraints(
                         minHeight:
-                            MediaQuery.textScalerOf(context).scale(14) * 2.8,
+                            MediaQuery.textScalerOf(context).scale(15) * 2.9,
                       ),
                       child: ForumTitleText(
                         thread.title,
                         titleStyle: thread.titleStyle,
                         maxLines: 2,
-                        style: TextStyle(
-                          color: AppColors.text,
-                          fontSize: 14,
-                          height: 1.4,
-                          fontWeight: FontWeight.w500,
-                        ),
+                        style: Theme.of(context).textTheme.titleSmall!,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -758,11 +723,7 @@ class _WallCard extends StatelessWidget {
                       meta,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.textFaint,
-                        fontSize: 12,
-                        height: 1.3,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),

@@ -6,6 +6,7 @@ import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
 import '../thread/thread_rich_content.dart';
 import 'pm_compose_screen.dart';
@@ -183,7 +184,7 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
                 : detail == null
                 ? const ThreadDetailSkeleton()
                 : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                    padding: _readingPadding(context),
                     children: [
                       _PmMessageCard(
                         repository: widget.repository,
@@ -211,6 +212,12 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
       },
     );
   }
+}
+
+// A message reads like a post: centred at the reading width (D§4).
+EdgeInsets _readingPadding(BuildContext context) {
+  final side = appGutter(MediaQuery.sizeOf(context).width, AppWidths.reading);
+  return EdgeInsets.fromLTRB(side, AppSpace.md, side, AppSpace.xl);
 }
 
 class PmChatlogScreen extends StatefulWidget {
@@ -269,7 +276,7 @@ class _PmChatlogScreenState extends State<PmChatlogScreen> {
             if (!snapshot.hasData) return const ThreadDetailSkeleton();
             final chatlog = snapshot.data!;
             return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+              padding: _readingPadding(context),
               children: [
                 if (chatlog.records.isEmpty)
                   const EmptyStateView(
@@ -334,28 +341,19 @@ class _PmMessageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: appSurface(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SelectableText(
             title,
-            style: TextStyle(
-              color: AppColors.text,
-              fontSize: 17,
-              height: 1.35,
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 6),
           Text(
             [sender, time].where((part) => part.isNotEmpty).join(' · '),
-            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           Divider(height: 24, color: AppColors.border),
           if (segments.isEmpty)

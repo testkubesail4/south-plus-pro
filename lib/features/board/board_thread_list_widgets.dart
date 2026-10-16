@@ -89,12 +89,12 @@ class _BoardAdBanner extends StatelessWidget {
 
             return Material(
               color: AppColors.surface,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(AppRadius.md),
               child: InkWell(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppRadius.md),
                 onTap: onTap,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   child: SizedBox(
                     width: double.infinity,
                     height: height,
@@ -142,23 +142,14 @@ class _BoardAdBanner extends StatelessWidget {
               ad.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AppColors.text,
-                fontSize: 15.5,
-                height: 1.4,
-                fontWeight: FontWeight.w500,
-              ),
+              style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 6),
             Text(
               subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AppColors.textFaint,
-                fontSize: 12,
-                height: 1.3,
-              ),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),

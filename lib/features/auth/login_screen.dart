@@ -552,18 +552,22 @@ class _LoadingButtonLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
-      key: ValueKey('login-loading-label'),
+    return Row(
+      key: const ValueKey('login-loading-label'),
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
           width: 16,
           height: 16,
-          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+          // The button's own (disabled) label colour, in light and dark.
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: DefaultTextStyle.of(context).style.color,
+          ),
         ),
-        SizedBox(width: 10),
-        Text('登录中...'),
+        const SizedBox(width: 10),
+        const Text('登录中...'),
       ],
     );
   }
