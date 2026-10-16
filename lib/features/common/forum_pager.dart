@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
@@ -232,23 +234,40 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
           ),
           const SizedBox(height: AppSpace.sm),
           if (widget.shortcuts.isNotEmpty) ...[
-            Row(
-              children: [
-                for (final (label, icon, onTap) in widget.shortcuts)
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpace.xs),
-                      child: _ShortcutTile(
-                        label: label,
-                        icon: icon,
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          onTap();
-                        },
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final count = widget.shortcuts.length;
+                final longest = widget.shortcuts
+                    .map((s) => s.$1.characters.length)
+                    .reduce(math.max);
+                // Labels that no longer fit one line at large text sizes
+                // move the tiles to two per row.
+                final label =
+                    MediaQuery.textScalerOf(context).scale(12) * longest;
+                final perRow = constraints.maxWidth / count >=
+                        label + 4 * AppSpace.xs
+                    ? count
+                    : 2;
+                return Wrap(
+                  children: [
+                    for (final (label, icon, onTap) in widget.shortcuts)
+                      SizedBox(
+                        width: constraints.maxWidth / perRow,
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppSpace.xs),
+                          child: _ShortcutTile(
+                            label: label,
+                            icon: icon,
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              onTap();
+                            },
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-              ],
+                  ],
+                );
+              },
             ),
             const SizedBox(height: AppSpace.sm),
           ],
