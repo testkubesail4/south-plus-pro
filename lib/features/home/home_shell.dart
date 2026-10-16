@@ -14,6 +14,7 @@ import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
+import '../common/brand_mark.dart';
 import '../common/forum_title_text.dart';
 import '../messages/messages_screen.dart';
 import '../messages/reply_notices_screen.dart';
@@ -155,7 +156,7 @@ class _HomeShellState extends State<HomeShell> {
                           labelType: NavigationRailLabelType.all,
                           leading: const Padding(
                             padding: EdgeInsets.only(top: 4, bottom: 12),
-                            child: _BrandMark(size: 40),
+                            child: BrandMark(size: 40),
                           ),
                           destinations: [
                             for (final (icon, selected, label) in destinations)

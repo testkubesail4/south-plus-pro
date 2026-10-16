@@ -157,7 +157,7 @@ class _CompactHeader extends StatelessWidget {
         height: 56,
         child: Row(
           children: [
-            const _BrandMark(size: 32),
+            const BrandMark(size: 32),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -427,36 +427,6 @@ class _NoticeChip extends StatelessWidget {
         shape: const StadiumBorder(),
         backgroundColor: color,
         onPressed: onPressed,
-      ),
-    );
-  }
-}
-
-class _BrandMark extends StatelessWidget {
-  const _BrandMark({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return ExcludeSemantics(
-      child: Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.brand,
-          borderRadius: BorderRadius.circular(size * 0.3),
-        ),
-        child: Text(
-          'S+',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: size * 0.4,
-            fontWeight: FontWeight.w800,
-            fontStyle: FontStyle.italic,
-          ),
-        ),
       ),
     );
   }
