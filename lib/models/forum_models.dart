@@ -875,6 +875,13 @@ class UserActivityItem {
   final String? date;
 }
 
+class FavoriteListRemoval {
+  const FavoriteListRemoval({required this.id, required this.verify});
+
+  final String id;
+  final String verify;
+}
+
 class UserListItem {
   const UserListItem({
     required this.title,
@@ -885,6 +892,7 @@ class UserListItem {
     this.authorUrl,
     this.replies,
     this.views,
+    this.favoriteRemoval,
   });
 
   final String title;
@@ -895,6 +903,7 @@ class UserListItem {
   final String? authorUrl;
   final int? replies;
   final int? views;
+  final FavoriteListRemoval? favoriteRemoval;
 }
 
 class LoginChallenge {

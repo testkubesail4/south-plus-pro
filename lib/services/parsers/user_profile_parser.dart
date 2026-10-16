@@ -90,8 +90,10 @@ class UserProfileParser {
     );
   }
 
-  UserProfile appendFavorites(UserProfile overview, dom.Document document) =>
-      overview.copyWith(favorites: _parseFavorites(document));
+  UserProfile appendFavorites(UserProfile overview, dom.Document document,
+          {bool allowRemoval = false}) =>
+      overview.copyWith(
+          favorites: _parseFavorites(document, allowRemoval: allowRemoval));
 
   UserProfile appendDetails({
     required UserProfile overview,
@@ -280,8 +282,11 @@ class UserProfileParser {
     return items;
   }
 
-  List<UserListItem> _parseFavorites(dom.Document document) {
-    final table = document.querySelector('.u-table');
+  List<UserListItem> _parseFavorites(dom.Document document,
+      {bool allowRemoval = false}) {
+    final table =
+        document.querySelector('form[action*="action=favor"] .u-table') ??
+            document.querySelector('.u-table');
     if (table == null) return const [];
     final items = <UserListItem>[];
     for (final row in table.querySelectorAll('tr')) {
@@ -299,10 +304,39 @@ class UserProfileParser {
           url: urls.absoluteUrl(href),
           author: authorLink == null ? null : _cleanText(authorLink.text),
           authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
+          favoriteRemoval: allowRemoval &&
+                  urls.forumLinkTarget(href) is ForumThreadLinkTarget
+              ? _favoriteRemoval(row)
+              : null,
         ),
       );
     }
     return items;
+  }
+
+  FavoriteListRemoval? _favoriteRemoval(dom.Element row) {
+    var form = row.parent;
+    while (form != null && form.localName != 'form') {
+      form = form.parent;
+    }
+    if (form == null) return null;
+    final action = form.attributes['action'] ?? '';
+    if (!urls.isForumUrl(action)) return null;
+    final uri = Uri.parse(urls.absoluteUrl(action));
+    if (uri.path != '/u.php' || uri.queryParameters['action'] != 'favor') {
+      return null;
+    }
+    final id = row
+        .querySelector('input[type="checkbox"][name="selid[]"]')
+        ?.attributes['value'];
+    final verify = form
+        .querySelector('input[type="hidden"][name="verify"]')
+        ?.attributes['value'];
+    if (id == null ||
+        !RegExp(r'^[1-9]\d*$').hasMatch(id) ||
+        verify == null ||
+        verify.isEmpty) return null;
+    return FavoriteListRemoval(id: id, verify: verify);
   }
 
   int? _valueAfterLabel(String text, String label) {

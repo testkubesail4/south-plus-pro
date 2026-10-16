@@ -80,6 +80,7 @@ class ForumRepository {
     _sessionEpoch.addListener(() {
       _restoredDesktopHtml = null;
       _replyNoticeVerify = null;
+      _favoriteListItems.clear();
       _blocking?.reset();
       _blockingLoadedEpoch = null;
       _noticeFlags.value = const ForumNoticeFlags();
@@ -119,6 +120,7 @@ class ForumRepository {
   String? _profileDetailsUid;
   Timer? _profileDetailsTimer;
   int _profileDetailsGeneration = 0;
+  final _favoriteListItems = Set<UserListItem>.identity();
   final BrowsingHistoryStore _historyStore;
   final _readPositions = ThreadReadPositionStore();
   final ForumTaskStateStore _taskStateStore;
@@ -1948,13 +1950,61 @@ class ForumRepository {
   }
 
   Future<UserProfile> fetchUserProfileFavorites(String url) async {
+    final epoch = _sessionEpoch.value;
+    final client = _client;
     final overview = await fetchUserProfileOverview(url);
     final document = await _fetchStructuredDocument(
       _urls.relativePath(
           _urls.userTabUrl(overview.uid, UserProfileTab.favorites)),
       _profileDetailsDocument,
     );
-    return _userProfileParser.appendFavorites(overview, document);
+    if (epoch != _sessionEpoch.value || !identical(client, _client)) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变，请刷新收藏');
+    }
+    final ownList =
+        isLoggedIn && _urls.absoluteUrl(url) == _urls.absoluteUrl('u.php');
+    final profile = _userProfileParser.appendFavorites(overview, document,
+        allowRemoval: ownList);
+    if (ownList) {
+      _favoriteListItems
+        ..clear()
+        ..addAll(
+            profile.favorites.where((item) => item.favoriteRemoval != null));
+    }
+    return profile;
+  }
+
+  Future<FavoriteResult> removeFavoriteFromList(UserListItem item) async {
+    final removal = item.favoriteRemoval;
+    if (!isLoggedIn || removal == null || !_favoriteListItems.contains(item)) {
+      throw const ForumRepositoryException('收藏列表已更新，请刷新后重试');
+    }
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final response = await client.post('u.php?action=favor&', {
+      'verify': removal.verify,
+      'selid[]': removal.id,
+      'job': 'clear',
+      'type': '0',
+    });
+    if (epoch != _sessionEpoch.value || !identical(client, _client)) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变，请刷新收藏');
+    }
+    final message = _responseParser.pageMessage(response);
+    final success = _responseParser.isFavoriteRemoveSuccess(response, message);
+    if (success) {
+      _favoriteListItems.remove(item);
+      _clearProfileDetails();
+    }
+    return FavoriteResult(
+      success: success,
+      message: success ? '已取消收藏' : message,
+      state: success
+          ? ThreadFavoriteState.notFavorite
+          : ThreadFavoriteState.favorite,
+    );
   }
 
   void _evictProfileDetails() {
