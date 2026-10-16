@@ -907,6 +907,27 @@ void main() {
         findsNothing);
   });
 
+  testWidgets('profile sits in the list width with a neutral placeholder',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: UserProfileScreen(
+        userUrl: 'https://south-plus.net/u.php?action-show-uid-1.html',
+        repository: _CachedProfileRepository(),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    final avatar = find.byType(CircleAvatar).first;
+    expect(tester.widget<CircleAvatar>(avatar).backgroundColor,
+        AppColors.lightPalette.inkSoft);
+    expect(tester.getTopLeft(avatar).dx,
+        greaterThanOrEqualTo((1440 - AppWidths.list) / 2));
+  });
+
   testWidgets('profile uses cached overview while refreshing fresh data',
       (tester) async {
     final repository = _CachedProfileRepository();

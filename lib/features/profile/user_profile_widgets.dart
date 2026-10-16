@@ -1,5 +1,10 @@
 part of 'user_profile_screen.dart';
 
+/// Page padding that centres the profile at [AppWidths.list] (DESIGN.md §4).
+/// The profile is a full-screen route, so the window width is its width.
+double _gutter(BuildContext context) =>
+    appGutter(MediaQuery.sizeOf(context).width, AppWidths.list);
+
 class _ProfileHeader extends StatelessWidget {
   const _ProfileHeader({
     required this.profile,
@@ -26,7 +31,7 @@ class _ProfileHeader extends StatelessWidget {
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+      padding: EdgeInsets.fromLTRB(_gutter(context), 8, _gutter(context), 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -55,15 +60,14 @@ class _ProfileHeader extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 36,
-                      backgroundColor: AppColors.brandSoft,
+                      backgroundColor: AppColors.inkSoft,
                       child: profile.avatarUrl == null
                           ? Text(
                               profile.name.characters.firstOrNull ?? '?',
-                              style: TextStyle(
-                                color: AppColors.brandDark,
-                                fontSize: 26,
-                                fontWeight: FontWeight.w800,
-                              ),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(color: AppColors.textMuted),
                             )
                           : ClipOval(
                               child: CachedForumImage(
@@ -294,6 +298,8 @@ class _ProfileTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: AppColors.surface,
+      padding: EdgeInsets.symmetric(
+          horizontal: _gutter(context) - AppSpace.lg),
       child: TabBar(
         isScrollable: true,
         tabAlignment: TabAlignment.start,
@@ -350,7 +356,7 @@ class _ProfileLoadingHeader extends StatelessWidget {
         color: AppColors.surface,
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+      padding: EdgeInsets.fromLTRB(_gutter(context), 8, _gutter(context), 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -379,7 +385,7 @@ class _ProfileLoadingHeader extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 36,
-                      backgroundColor: AppColors.brandSoft,
+                      backgroundColor: AppColors.inkSoft,
                       child: _SkeletonBox(width: 32, height: 32, radius: 16),
                     ),
                     Positioned(
@@ -440,7 +446,7 @@ class _HomeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
       children: [
         _ActivitySection(
           title: '个人动态',
@@ -475,7 +481,8 @@ class _DetailsTab extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.symmetric(
+                horizontal: _gutter(context), vertical: AppSpace.lg),
             children: [_TextPanel(title: '内容加载失败', text: '${snapshot.error}')],
           );
         }
@@ -504,7 +511,7 @@ class _ProfileInfoTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
       children: [
         _FieldSection(title: '个人信息', fields: profile.info),
         const SizedBox(height: 14),
@@ -524,7 +531,7 @@ class _ProfileInfoLoadingTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
       children: const [
         _SkeletonPanel(),
         SizedBox(height: 14),
@@ -551,7 +558,7 @@ class _ItemList extends StatelessWidget {
       return _EmptyList(text: emptyText);
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
       itemCount: items.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
@@ -993,7 +1000,7 @@ class _TabLoadingSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
       children: const [
         _SkeletonPanel(),
         SizedBox(height: 12),
