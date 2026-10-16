@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_floor_actions.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
@@ -12,6 +15,14 @@ String _profile(int uid) =>
     'https://south-plus.net/u.php?action-show-uid-$uid.html';
 
 class _Repo extends ForumRepository {
+  // The profile screen a tap opens never finishes loading here.
+  @override
+  Future<UserProfile?> cachedUserProfileOverview(String url) async => null;
+
+  @override
+  Future<UserProfile> fetchUserProfileOverview(String url) =>
+      Completer<UserProfile>().future;
+
   @override
   Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread t) async =>
       null;
@@ -105,6 +116,24 @@ void main() {
       expect(size.height, greaterThanOrEqualTo(48), reason: label);
     }
     expect(find.descendant(of: footer, matching: find.text('回复')), findsNothing);
+  });
+
+  testWidgets('the whole author row is one 48 px tap target to the profile',
+      (tester) async {
+    await pumpThread(tester, const Size(400, 1600));
+    final row = find
+        .ancestor(of: find.text('路人乙'), matching: find.byType(InkWell))
+        .first;
+    expect(tester.getSize(row).height, greaterThanOrEqualTo(48));
+
+    // The meta line is part of the target, not only the name.
+    await tester.tap(find.text('2026-10-12 10:20 · B1F'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      tester.widget<UserProfileScreen>(find.byType(UserProfileScreen)).userUrl,
+      _profile(4),
+    );
   });
 
   testWidgets('wide windows spell the actions out', (tester) async {

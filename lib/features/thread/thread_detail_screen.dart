@@ -725,7 +725,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       avatar: _AuthorAvatar(
         author: reply.author,
         avatarUrl: avatarBlocked ? null : reply.authorAvatarUrl,
-        onTap: null,
       ),
       canShowAuthorPosts: reply.authorPostsUrl != null,
       block: ThreadFloorBlockState(
@@ -1888,23 +1887,20 @@ class _ThreadHeaderCard extends StatelessWidget {
             _ThreadTitle(title),
             const SizedBox(height: AppSpace.lg),
             if (authorName != null && authorName.isNotEmpty) ...[
-              Row(
-                children: [
-                  _AuthorAvatar(
-                    author: authorName,
-                    avatarUrl: avatarUrl,
-                    onTap: onAuthorTap,
-                  ),
-                  const SizedBox(width: AppSpace.md),
-                  Flexible(
-                    child: _FloorAuthorName(
+              _AuthorTapArea(
+                onTap: onAuthorTap,
+                child: Row(
+                  children: [
+                    _AuthorAvatar(
                       author: authorName,
-                      onTap: onAuthorTap,
+                      avatarUrl: avatarUrl,
                     ),
-                  ),
-                  const SizedBox(width: AppSpace.sm),
-                  const AppTag('楼主', accent: true),
-                ],
+                    const SizedBox(width: AppSpace.md),
+                    Flexible(child: _FloorAuthorName(author: authorName)),
+                    const SizedBox(width: AppSpace.sm),
+                    const AppTag('楼主', accent: true),
+                  ],
+                ),
               ),
               const SizedBox(height: AppSpace.lg),
             ],
@@ -2043,12 +2039,13 @@ class _FloorCard extends StatelessWidget {
               ),
               const SizedBox(height: AppSpace.lg),
             ],
-            Row(
+            _AuthorTapArea(
+              onTap: onAuthorTap,
+              child: Row(
               children: [
                 _AuthorAvatar(
                   author: author,
                   avatarUrl: avatarUrl,
-                  onTap: onAuthorTap,
                 ),
                 const SizedBox(width: AppSpace.md),
                 Expanded(
@@ -2057,12 +2054,7 @@ class _FloorCard extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Flexible(
-                            child: _FloorAuthorName(
-                              author: author,
-                              onTap: onAuthorTap,
-                            ),
-                          ),
+                          Flexible(child: _FloorAuthorName(author: author)),
                           if (isOpeningPost || byOriginalPoster) ...[
                             const SizedBox(width: AppSpace.sm),
                             const AppTag('楼主', accent: true),
@@ -2082,6 +2074,7 @@ class _FloorCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
             ),
             const SizedBox(height: AppSpace.md),
             Padding(
@@ -2155,16 +2148,37 @@ class _ReplyGroupSlot extends StatelessWidget {
   }
 }
 
+/// The author row as one tap target (avatar, name and meta), at least
+/// 48 px high, opening the author's profile.
+class _AuthorTapArea extends StatelessWidget {
+  const _AuthorTapArea({required this.onTap, required this.child});
+
+  final VoidCallback? onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: child,
+    );
+    if (onTap == null) return target;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: target,
+    );
+  }
+}
+
 class _AuthorAvatar extends StatelessWidget {
   const _AuthorAvatar({
     required this.author,
     required this.avatarUrl,
-    required this.onTap,
   });
 
   final String author;
   final String? avatarUrl;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2172,27 +2186,19 @@ class _AuthorAvatar extends StatelessWidget {
     return Semantics(
       label: '$author 的头像',
       image: true,
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox.square(
-            dimension: 40,
-            child: ClipOval(
-              child: imageUrl == null || imageUrl.isEmpty
-                  ? _AvatarFallback(author: author)
-                  : CachedForumImage(
-                      url: imageUrl,
-                      bypassLoadPolicy: true,
-                      width: 40,
-                      height: 40,
-                      fit: BoxFit.cover,
-                      errorWidget: (context) => _AvatarFallback(author: author),
-                    ),
-            ),
-          ),
+      child: SizedBox.square(
+        dimension: 40,
+        child: ClipOval(
+          child: imageUrl == null || imageUrl.isEmpty
+              ? _AvatarFallback(author: author)
+              : CachedForumImage(
+                  url: imageUrl,
+                  bypassLoadPolicy: true,
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
+                  errorWidget: (context) => _AvatarFallback(author: author),
+                ),
         ),
       ),
     );
@@ -2230,17 +2236,13 @@ class _AvatarFallback extends StatelessWidget {
 }
 
 class _FloorAuthorName extends StatelessWidget {
-  const _FloorAuthorName({
-    required this.author,
-    this.onTap,
-  });
+  const _FloorAuthorName({required this.author});
 
   final String author;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final name = Text(
+    return Text(
       author,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
@@ -2248,14 +2250,6 @@ class _FloorAuthorName extends StatelessWidget {
           .textTheme
           .titleSmall
           ?.copyWith(fontWeight: FontWeight.w600),
-    );
-
-    if (onTap == null) return name;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: name,
     );
   }
 }
