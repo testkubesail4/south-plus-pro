@@ -463,11 +463,11 @@ class _BrandMark extends StatelessWidget {
 }
 
 /// 最新讨论 and the site's other quick lists: side-by-side columns when
-/// there is room, tabs otherwise. Rows are one line each, so every title
-/// reads as one and the placeholders match the loaded height.
-/// Lists the snapshot did not include load right after the home's first
-/// frame, so they never delay it. Null [lists] (the home is loading) shows
-/// three placeholder lists.
+/// there is room, otherwise swipeable tabs. Every list area is
+/// [_quickRowCount] one-line rows tall, so switching tabs and loading never
+/// moves the page. Lists the snapshot did not include load right after the
+/// home's first frame, so they never delay it. Null [lists] (the home is
+/// loading) shows three placeholder lists.
 class _QuickLists extends StatefulWidget {
   const _QuickLists({
     super.key,
@@ -486,6 +486,9 @@ class _QuickLists extends StatefulWidget {
   State<_QuickLists> createState() => _QuickListsState();
 }
 
+/// Rows per 速览 list; the repository asks the site for this many.
+const _quickRowCount = 8;
+
 const _quickListIcons = {
   '最新讨论': Icons.forum_outlined,
   '最新回复': Icons.mode_comment_outlined,
@@ -499,14 +502,28 @@ TextStyle _quickTitleStyle() => TextStyle(
       fontWeight: FontWeight.w400,
     );
 
-/// One 速览 row; rows are split by hairlines so two wrapped titles never
-/// read as one.
-Widget _quickRow(Widget child) => Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 48),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      alignment: Alignment.centerLeft,
-      child: child,
+/// One row: 48 at 1x (the tap target), growing with the title line at
+/// larger text sizes.
+double _quickRowHeight(BuildContext context) =>
+    math.max(48, MediaQuery.textScalerOf(context).scale(15) * 1.4 + 22);
+
+/// [_quickRowCount] rows and the hairlines between them.
+double _quickListHeight(BuildContext context) =>
+    _quickRowCount * _quickRowHeight(context) + _quickRowCount - 1;
+
+/// One 速览 row; rows are split by hairlines so neighbours never read as one.
+Widget _quickRow(BuildContext context, Widget title, {Widget? trailing}) =>
+    SizedBox(
+      height: _quickRowHeight(context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            Expanded(child: title),
+            if (trailing != null) ...[const SizedBox(width: 12), trailing],
+          ],
+        ),
+      ),
     );
 
 Widget _quickRows(List<Widget> rows) => Column(
@@ -518,7 +535,8 @@ Widget _quickRows(List<Widget> rows) => Column(
       ],
     );
 
-class _QuickListsState extends State<_QuickLists> {
+class _QuickListsState extends State<_QuickLists>
+    with SingleTickerProviderStateMixin {
   late final _lists = switch (widget.lists) {
     null => const [
         ForumQuickList(title: ''),
@@ -528,12 +546,13 @@ class _QuickListsState extends State<_QuickLists> {
     [] => [ForumQuickList(title: '最新讨论', threads: widget.latest)],
     final lists => lists,
   };
+  late final TabController _tabs;
   final _loads = <int, Future<List<ForumThread>>>{};
-  var _tab = 0;
 
   @override
   void initState() {
     super.initState();
+    _tabs = TabController(length: _lists.length, vsync: this);
     if (widget.lists == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -541,6 +560,12 @@ class _QuickListsState extends State<_QuickLists> {
         _load(i);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
   }
 
   Future<List<ForumThread>>? _loaded(int index) {
@@ -563,11 +588,52 @@ class _QuickListsState extends State<_QuickLists> {
     _load(index);
   }
 
-  Widget _body(int index) => _QuickListBody(
-        future: _loaded(index),
-        onRetry: () => _retry(index),
-        repository: widget.repository,
+  Widget _body(int index) => SizedBox(
+        height: _quickListHeight(context),
+        child: _QuickListBody(
+          future: _loaded(index),
+          onRetry: () => _retry(index),
+          repository: widget.repository,
+        ),
       );
+
+  Widget _tabBar() {
+    final placeholder = widget.lists == null;
+    final scaler = MediaQuery.textScalerOf(context);
+    final style = TextStyle(fontSize: 14, fontWeight: FontWeight.w600);
+    final bar = TabBar(
+      controller: _tabs,
+      isScrollable: true,
+      tabAlignment: TabAlignment.start,
+      padding: EdgeInsets.zero,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+      indicatorSize: TabBarIndicatorSize.label,
+      indicator: UnderlineTabIndicator(
+        borderSide: BorderSide(
+          width: 3,
+          color: placeholder ? Colors.transparent : AppColors.brand,
+        ),
+        borderRadius: BorderRadius.circular(2),
+      ),
+      dividerColor: Colors.transparent,
+      labelColor: AppColors.text,
+      unselectedLabelColor: AppColors.textMuted,
+      labelStyle: style,
+      unselectedLabelStyle: style.copyWith(fontWeight: FontWeight.w500),
+      splashBorderRadius: BorderRadius.circular(8),
+      tabs: [
+        for (final list in _lists)
+          Tab(
+            height: math.max(48, scaler.scale(14) * 1.4 + 20),
+            // Placeholder tabs are as wide as the site's four-character titles.
+            child: placeholder
+                ? _Bone(style, text: '\u3000' * 4)
+                : Text(list.title),
+          ),
+      ],
+    );
+    return placeholder ? IgnorePointer(child: bar) : bar;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -577,26 +643,38 @@ class _QuickListsState extends State<_QuickLists> {
       fontWeight: FontWeight.w500,
     );
     if (!widget.columns || _lists.length == 1) {
+      final scrolling = ScrollConfiguration.of(context);
       return Container(
         decoration: appSurface(context),
         padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (_lists.length > 1)
-              Wrap(
-                children: [
-                  for (var i = 0; i < _lists.length; i++)
-                    _QuickListTab(
-                      title: _lists[i].title,
-                      selected: widget.lists != null && _tab == i,
-                      onTap: widget.lists == null
-                          ? null
-                          : () => setState(() => _tab = i),
-                    ),
-                ],
+            if (_lists.length > 1) ...[
+              _tabBar(),
+              SizedBox(
+                height: _quickListHeight(context),
+                child: ScrollConfiguration(
+                  // Mice swipe the lists too.
+                  behavior: scrolling.copyWith(
+                    dragDevices: {
+                      ...scrolling.dragDevices,
+                      PointerDeviceKind.mouse,
+                    },
+                  ),
+                  child: TabBarView(
+                    controller: _tabs,
+                    physics: widget.lists == null
+                        ? const NeverScrollableScrollPhysics()
+                        : null,
+                    children: [
+                      for (var i = 0; i < _lists.length; i++) _body(i),
+                    ],
+                  ),
+                ),
               ),
-            _body(_tab),
+            ] else
+              _body(0),
           ],
         ),
       );
@@ -654,53 +732,6 @@ class _QuickListsState extends State<_QuickLists> {
   }
 }
 
-class _QuickListTab extends StatelessWidget {
-  const _QuickListTab({
-    required this.title,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String title;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final style = TextStyle(
-      color: selected ? AppColors.text : AppColors.textMuted,
-      fontSize: 14,
-      fontWeight: FontWeight.w500,
-    );
-    return Semantics(
-      selected: selected,
-      button: true,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 48),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  width: 2,
-                  color: selected ? AppColors.text : Colors.transparent,
-                ),
-              ),
-            ),
-            // Placeholder tabs are as wide as the site's four-character titles.
-            child: title.isEmpty
-                ? _Bone(style, text: '\u3000' * 4)
-                : Text(title, style: style),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _QuickListBody extends StatelessWidget {
   const _QuickListBody({
     required this.future,
@@ -716,28 +747,12 @@ class _QuickListBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final pending = future;
     if (pending == null) return const _QuickListSkeleton();
-    // The card keeps five rows' height for short, empty and failed lists.
-    return Stack(
-      children: [
-        const Visibility(
-          visible: false,
-          maintainSize: true,
-          maintainAnimation: true,
-          maintainState: true,
-          child: _QuickListSkeleton(),
-        ),
-        _list(pending),
-      ],
-    );
-  }
-
-  Widget _list(Future<List<ForumThread>> pending) {
     return FutureBuilder<List<ForumThread>>(
       future: pending,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Align(
-            alignment: Alignment.centerLeft,
+            alignment: Alignment.topLeft,
             child: TextButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh, size: 18),
@@ -753,8 +768,13 @@ class _QuickListBody extends StatelessWidget {
             child: Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
           );
         }
+        final countStyle = TextStyle(
+          color: AppColors.textFaint,
+          fontSize: 12,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        );
         return _quickRows([
-          for (final thread in threads.take(5))
+          for (final thread in threads.take(_quickRowCount))
             InkWell(
               borderRadius: BorderRadius.circular(8),
               onTap: () => Navigator.of(context).push(
@@ -766,12 +786,20 @@ class _QuickListBody extends StatelessWidget {
                 ),
               ),
               child: _quickRow(
+                context,
                 ForumTitleText(
                   thread.title,
                   titleStyle: thread.titleStyle,
                   maxLines: 1,
                   style: _quickTitleStyle(),
                 ),
+                trailing: thread.replies > 0
+                    ? Text(
+                        '${thread.replies}',
+                        semanticsLabel: '${thread.replies} 回复',
+                        style: countStyle,
+                      )
+                    : null,
               ),
             ),
         ]);
@@ -780,7 +808,7 @@ class _QuickListBody extends StatelessWidget {
   }
 }
 
-/// Five placeholder rows, laid out like loaded one-line rows.
+/// Placeholder rows, laid out like loaded rows.
 class _QuickListSkeleton extends StatelessWidget {
   const _QuickListSkeleton();
 
@@ -789,8 +817,14 @@ class _QuickListSkeleton extends StatelessWidget {
     return Semantics(
       label: '加载中',
       child: _quickRows([
-        for (final widthFactor in const [0.8, 0.6, 0.7, 0.5, 0.65])
-          _quickRow(_Bone(_quickTitleStyle(), widthFactor: widthFactor)),
+        for (var i = 0; i < _quickRowCount; i++)
+          _quickRow(
+            context,
+            _Bone(
+              _quickTitleStyle(),
+              widthFactor: const [0.8, 0.6, 0.7, 0.5, 0.65][i % 5],
+            ),
+          ),
       ]),
     );
   }

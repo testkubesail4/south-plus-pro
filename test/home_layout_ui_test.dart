@@ -76,8 +76,10 @@ void main() {
     await tester.tap(find.text('最新回复'));
     await tester.pumpAndSettle();
     expect(repo.quickListLoads, hasLength(2), reason: 'no reload on tab');
-    expect(find.text('Reply 5'), findsOneWidget);
-    expect(find.text('Reply 6'), findsNothing, reason: 'five rows at most');
+    expect(find.text('Reply 8'), findsOneWidget);
+    expect(find.text('Reply 9'), findsNothing, reason: 'eight rows at most');
+    expect(find.text('7'), findsOneWidget, reason: 'Reply 8 has 7 replies');
+    expect(find.text('0'), findsNothing, reason: 'no count without replies');
     expect(find.text('Latest 1'), findsNothing);
 
     await showBoard(tester);
@@ -92,6 +94,23 @@ void main() {
     expect(find.bySemanticsLabel('有新帖'), findsNothing);
     expect(find.byIcon(Icons.chevron_right), findsNothing);
     expect(find.textContaining('fid-'), findsNothing, reason: 'no slugs');
+  });
+
+  testWidgets('phone: swiping the 速览 lists switches tabs both ways',
+      (tester) async {
+    final repo = await pumpAt(tester, 360);
+    await tester.fling(find.text('Latest 1'), const Offset(-300, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('Reply 1'), findsOneWidget);
+    expect(find.text('Latest 1'), findsNothing);
+    final tabs = tester.widget<TabBar>(find.byType(TabBar)).controller!;
+    expect(tabs.index, 1, reason: 'the tab follows the swipe');
+
+    await tester.fling(find.text('Reply 1'), const Offset(300, 0), 1000);
+    await tester.pumpAndSettle();
+    expect(find.text('Latest 1'), findsOneWidget);
+    expect(tabs.index, 0);
+    expect(repo.quickListLoads, hasLength(2), reason: 'no reload on swipe');
   });
 
   testWidgets('a hidden list that fails offers retry when opened',
@@ -169,20 +188,12 @@ void main() {
     await pumpAt(tester, 360);
     await tester.tap(find.text('最新回复'));
     await tester.pumpAndSettle();
-    for (var i = 1; i < 5; i++) {
+    for (var i = 1; i < 8; i++) {
       final above = tester.getRect(find.text('Reply $i'));
       final below = tester.getRect(find.text('Reply ${i + 1}'));
-      // The card's hidden height keeper has its own.
-      final hidden = find
-          .descendant(
-              of: find.byWidgetPredicate((w) => w is Visibility && !w.visible),
-              matching: find.byType(Divider))
-          .evaluate()
-          .toSet();
       final dividers = find
           .byType(Divider)
           .evaluate()
-          .where((e) => !hidden.contains(e))
           .map((e) => tester.getRect(find.byWidget(e.widget)));
       expect(
         dividers.where((d) => d.top >= above.bottom && d.bottom <= below.top),
@@ -414,8 +425,12 @@ class _Repo extends ForumRepository {
     }
     // 提问求物 is short, for the card height.
     return [
-      for (var i = 1; i <= (list.title == '提问求物' ? 2 : 6); i++)
-        _thread('Reply $i'),
+      for (var i = 1; i <= (list.title == '提问求物' ? 2 : 9); i++)
+        ForumThread(
+            title: 'Reply $i',
+            url: 'read.php?tid-1.html',
+            replies: i - 1,
+            section: ''),
     ];
   }
 
