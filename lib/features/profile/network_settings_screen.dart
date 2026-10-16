@@ -7,6 +7,7 @@ import '../../services/forum_network_config.dart';
 import '../../services/forum_network_probe.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/content_width.dart';
 import 'network_setup_flow_screen.dart';
 import 'proxy_form.dart';
 
@@ -147,7 +148,11 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
           return Scaffold(
             appBar: AppBar(title: const Text('代理')),
             body: ListView(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.symmetric(
+                horizontal: appGutter(
+                    MediaQuery.sizeOf(pageContext).width, AppWidths.form),
+                vertical: AppSpace.lg,
+              ),
               children: [
                 ProxyForm(
                   initial: _config.proxy,
@@ -327,7 +332,11 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen>
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        padding: EdgeInsets.fromLTRB(
+            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            12,
+            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            28),
         children: [
           _ConnectionOverviewCard(
             controller: _pulseController,
@@ -888,7 +897,11 @@ class _SelectionPageState extends State<_SelectionPage> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        padding: EdgeInsets.fromLTRB(
+            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            12,
+            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            28),
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(2, 0, 2, 12),
@@ -919,11 +932,7 @@ class _ConnectionSwitchCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: value ? AppColors.brand : AppColors.border),
-      ),
+      decoration: appSurface(context),
       child: Row(
         children: [
           _LeadingIcon(
@@ -1090,10 +1099,7 @@ class _ManualNetworkInputPageState extends State<_ManualNetworkInputPage> {
                   child: _saving
                       ? const SizedBox.square(
                           dimension: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Text(widget.actionLabel),
                 ),
@@ -1116,17 +1122,16 @@ class _InlineProbeResult extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: status.success ? AppColors.successSoft : AppColors.brandSoft,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: status.success ? AppColors.successBorder : AppColors.brand,
-        ),
+        color: status.success ? AppColors.successSoft : AppColors.inkSoft,
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Row(
         children: [
           Icon(
             status.success ? Icons.check_circle : Icons.error_outline,
-            color: status.success ? AppColors.success : AppColors.brand,
+            color: status.success
+                ? AppColors.success
+                : Theme.of(context).colorScheme.error,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1172,18 +1177,7 @@ class _ConnectionOverviewCard extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 18,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
+      decoration: appSurface(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1254,8 +1248,7 @@ class _OverviewValueTile extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1314,19 +1307,13 @@ class _ConnectionEntryTile extends StatelessWidget {
 
     return Material(
       color: AppColors.surface,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(AppRadius.lg),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         onTap: onTap,
         child: Container(
           constraints: const BoxConstraints(minHeight: 78),
           padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: active ? AppColors.brand : AppColors.border,
-            ),
-          ),
           child: Row(
             children: [
               _LeadingIcon(icon: icon, active: active),
@@ -1385,7 +1372,8 @@ class _SignalLight extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = stable ? const Color(0xFF16A34A) : const Color(0xFFB93445);
+    final color =
+        stable ? AppColors.success : Theme.of(context).colorScheme.error;
 
     return AnimatedBuilder(
       animation: controller,
@@ -1466,11 +1454,7 @@ class _Section extends StatelessWidget {
     }
 
     return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+      decoration: appSurface(context),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
@@ -1712,13 +1696,13 @@ class _LeadingIcon extends StatelessWidget {
         ? AppColors.textFaint
         : active
             ? AppColors.brand
-            : AppColors.link;
+            : AppColors.textMuted;
     return Container(
       width: 38,
       height: 38,
       decoration: BoxDecoration(
         color: active ? AppColors.brandSoft : AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Icon(icon, color: color, size: 21),
     );
@@ -1734,25 +1718,23 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = status.success ? AppColors.success : AppColors.brandDark;
+    final color = status.success
+        ? AppColors.success
+        : Theme.of(context).colorScheme.error;
     final background =
-        status.success ? AppColors.successSoft : AppColors.brandSoft;
+        status.success ? AppColors.successSoft : AppColors.inkSoft;
     return Container(
       constraints: const BoxConstraints(minHeight: 24),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(8),
+        shape: const StadiumBorder(),
       ),
       child: Text(
         status.label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
+        style: Theme.of(context).textTheme.labelMedium!.copyWith(color: color),
       ),
     );
   }

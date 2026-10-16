@@ -167,10 +167,10 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
                   Expanded(
                     child: Text(
                       _blockingError(snapshot.error),
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                        fontSize: 13,
-                      ),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall!
+                          .copyWith(color: Theme.of(context).colorScheme.error),
                     ),
                   ),
                   TextButton(onPressed: _refresh, child: const Text('重试')),
@@ -180,7 +180,7 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
               final synced = _blocking.nativeSyncedAt;
               status = Text(
                 synced == null ? '' : '已同步 · ${_clock(synced)}',
-                style: TextStyle(color: AppColors.textFaint, fontSize: 12),
+                style: Theme.of(context).textTheme.bodySmall,
               );
             }
             return Padding(
@@ -326,7 +326,7 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
         padding: const EdgeInsets.all(AppSpace.lg),
         child: Text(
           text,
-          style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+          style: Theme.of(context).textTheme.bodySmall,
         ),
       );
 }

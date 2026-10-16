@@ -172,7 +172,7 @@ class _ProxyFormState extends State<ProxyForm> {
           Text(
             '使用代理时，所有请求都经由代理发送，网络优化与加密解析会关闭。'
             '${_type == ForumProxyType.http ? 'HTTP 代理的用户名和密码以明文发送给代理，请只使用可信任的代理。' : ''}',
-            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 14),
           FilledButton(

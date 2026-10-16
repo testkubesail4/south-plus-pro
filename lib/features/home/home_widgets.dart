@@ -7,12 +7,8 @@ part of 'home_shell.dart';
 
 const _homeMaxWidth = 1200.0;
 
-TextStyle _sectionTitleStyle() => TextStyle(
-      color: AppColors.text,
-      fontSize: 20,
-      height: 1.3,
-      fontWeight: FontWeight.w600,
-    );
+TextStyle _sectionTitleStyle(BuildContext context) =>
+    Theme.of(context).textTheme.titleMedium!;
 
 Widget _hairline(double indent) => Divider(
       height: 1,
@@ -47,7 +43,7 @@ class _Bone extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: AppColors.inkSoft,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(999),
               ),
             ),
           ),
@@ -88,12 +84,12 @@ class _SectionHeader extends StatelessWidget {
                   ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: constraints.maxWidth),
                     child: title == null
-                        ? _Bone(_sectionTitleStyle(), text: '\u3000' * 4)
+                        ? _Bone(_sectionTitleStyle(context), text: '\u3000' * 4)
                         : Text(
                             title!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: _sectionTitleStyle(),
+                            style: _sectionTitleStyle(context),
                           ),
                   ),
                   if (note != null)
@@ -104,8 +100,7 @@ class _SectionHeader extends StatelessWidget {
                           note!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: AppColors.textMuted, fontSize: 13),
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
                     ),
@@ -340,7 +335,7 @@ class _QuickListsState extends State<_QuickLists>
           width: 3,
           color: placeholder ? Colors.transparent : AppColors.brand,
         ),
-        borderRadius: BorderRadius.circular(2),
+        borderRadius: BorderRadius.circular(999),
       ),
       dividerColor: Colors.transparent,
       labelColor: AppColors.text,
@@ -607,11 +602,9 @@ class _BoardChipsState extends State<_BoardChips> {
     }
     Widget chip(String label, {ForumCategory? board}) => ActionChip(
           label: Text(label),
-          labelStyle: TextStyle(
-            color: board == null ? Colors.transparent : AppColors.text,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
+          labelStyle: Theme.of(context).textTheme.labelLarge!.copyWith(
+                color: board == null ? Colors.transparent : AppColors.text,
+              ),
           shape: const StadiumBorder(),
           side: BorderSide(
               color: board == null ? AppColors.inkSoft : AppColors.border),
@@ -760,16 +753,11 @@ class _BoardTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final nameStyle = TextStyle(
-      color: AppColors.text,
-      fontSize: 15,
-      fontWeight: FontWeight.w500,
-    );
-    final lastPostStyle = TextStyle(
-      color: Color.lerp(AppColors.textMuted, AppColors.text, 0.35),
-      fontSize: 13,
-    );
-    final metaStyle = TextStyle(color: AppColors.textMuted, fontSize: 12);
+    final textTheme = Theme.of(context).textTheme;
+    final nameStyle = textTheme.titleSmall!;
+    // The latest topic is a thread title, so it keeps the text colour.
+    final lastPostStyle = textTheme.bodySmall!.copyWith(color: AppColors.text);
+    final metaStyle = textTheme.bodySmall!;
     final board = this.board;
     if (board == null) {
       return Container(
@@ -822,11 +810,8 @@ class _BoardTile extends StatelessWidget {
                   const SizedBox(width: 10),
                   Text(
                     '今日 $today',
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: textTheme.labelMedium!
+                        .copyWith(color: AppColors.textMuted),
                   ),
                 ],
               ],
@@ -865,11 +850,7 @@ Widget _taskButton({
     TextButton.icon(
       onPressed: onPressed,
       icon: icon,
-      // Styled on the Text so it keeps the theme's font family.
-      label: Text(
-        label,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-      ),
+      label: Text(label),
       style: TextButton.styleFrom(foregroundColor: foreground),
     );
 

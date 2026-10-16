@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +10,7 @@ import '../../services/forum_network_probe.dart';
 import '../../services/forum_network_setup_store.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/content_width.dart';
 import 'proxy_form.dart';
 
 enum _SetupStep {
@@ -38,15 +38,10 @@ class NetworkSetupFlowScreen extends StatefulWidget {
   State<NetworkSetupFlowScreen> createState() => _NetworkSetupFlowScreenState();
 }
 
-class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
-    with TickerProviderStateMixin {
+class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
   final ForumNetworkProbe _probe =
       const ForumNetworkProbe(timeout: Duration(seconds: 6));
   late ForumNetworkConfig _draft = widget.repository.networkConfig;
-  late final AnimationController _ambientController = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 9),
-  )..repeat();
   final Map<DohProvider, DohProbeResult> _dohResults = {};
   final Map<String, ForumSiteProbeResult> _siteResults = {};
   final Map<String, ForumAddressProbeResult> _addressResults = {};
@@ -79,12 +74,6 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
   }
 
   int get _stepIndex => _steps.indexOf(_step);
-
-  @override
-  void dispose() {
-    _ambientController.dispose();
-    super.dispose();
-  }
 
   Future<void> _loadCachedAddresses() async {
     final addresses = await ForumResolvedAddressStore.load();
@@ -292,107 +281,96 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen>
   Widget build(BuildContext context) {
     final stepMeta = _step.meta;
     return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: AnimatedBuilder(
-              animation: _ambientController,
-              builder: (context, child) {
-                return CustomPaint(
-                  painter: _NetworkBackdropPainter(_ambientController.value),
-                );
-              },
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Row(
+                children: [
+                  if (widget.allowSkip)
+                    TextButton(
+                      onPressed: _saving ? null : _skip,
+                      child: const Text('跳过'),
+                    )
+                  else
+                    IconButton(
+                      tooltip: '关闭',
+                      onPressed:
+                          _saving ? null : () => Navigator.of(context).pop(),
+                      icon: Icon(Icons.close),
+                    ),
+                  const Spacer(),
+                  _ProbeBadge(
+                    probing: _probing,
+                    onTap: _probing ? null : _probeCurrentStep,
+                  ),
+                ],
+              ),
             ),
-          ),
-          SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                  child: Row(
-                    children: [
-                      if (widget.allowSkip)
-                        TextButton(
-                          onPressed: _saving ? null : _skip,
-                          child: const Text('跳过'),
-                        )
-                      else
-                        IconButton(
-                          tooltip: '关闭',
-                          onPressed: _saving
-                              ? null
-                              : () => Navigator.of(context).pop(),
-                          icon: Icon(Icons.close),
-                        ),
-                      const Spacer(),
-                      _ProbeBadge(
-                        probing: _probing,
-                        onTap: _probing ? null : _probeCurrentStep,
-                      ),
-                    ],
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                    appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+                    8,
+                    appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+                    18),
+                children: [
+                  const _SignalHeroVisual(),
+                  const SizedBox(height: 16),
+                  _SegmentedProgress(
+                    current: _steps.indexOf(_step),
+                    total: _steps.length,
                   ),
-                ),
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
-                    children: [
-                      const _SignalHeroVisual(),
-                      const SizedBox(height: 16),
-                      _SegmentedProgress(
-                        current: _steps.indexOf(_step),
-                        total: _steps.length,
-                      ),
-                      const SizedBox(height: 18),
-                      Text(
-                        stepMeta.title,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.08),
-                      const SizedBox(height: 8),
-                      Text(
-                        stepMeta.subtitle,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: AppColors.textMuted,
-                              height: 1.45,
-                            ),
-                      ),
-                      const SizedBox(height: 20),
-                      PageTransitionSwitcher(
-                        duration: 320.ms,
-                        reverse: false,
-                        transitionBuilder:
-                            (child, primaryAnimation, secondaryAnimation) {
-                          return SharedAxisTransition(
-                            animation: primaryAnimation,
-                            secondaryAnimation: secondaryAnimation,
-                            transitionType: SharedAxisTransitionType.horizontal,
-                            fillColor: Colors.transparent,
-                            child: child,
-                          );
-                        },
-                        child: KeyedSubtree(
-                          key: ValueKey(_step),
-                          child: _buildStepContent(),
+                  const SizedBox(height: 18),
+                  Text(
+                    stepMeta.title,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.08),
+                  const SizedBox(height: 8),
+                  Text(
+                    stepMeta.subtitle,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.textMuted,
+                          height: 1.45,
                         ),
-                      ),
-                    ],
                   ),
-                ),
-                _BottomBar(
-                  backLabel: _stepIndex <= 0 ? '关闭' : '上一步',
-                  nextLabel: _step == _SetupStep.summary ? '开始使用' : '下一步',
-                  saving: _saving,
-                  onBack: _saving ? null : _goBack,
-                  onNext: _saving ||
-                          (_step == _SetupStep.proxy && _draft.proxy == null)
+                  const SizedBox(height: 20),
+                  PageTransitionSwitcher(
+                    duration: 320.ms,
+                    reverse: false,
+                    transitionBuilder:
+                        (child, primaryAnimation, secondaryAnimation) {
+                      return SharedAxisTransition(
+                        animation: primaryAnimation,
+                        secondaryAnimation: secondaryAnimation,
+                        transitionType: SharedAxisTransitionType.horizontal,
+                        fillColor: Colors.transparent,
+                        child: child,
+                      );
+                    },
+                    child: KeyedSubtree(
+                      key: ValueKey(_step),
+                      child: _buildStepContent(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _BottomBar(
+              backLabel: _stepIndex <= 0 ? '关闭' : '上一步',
+              nextLabel: _step == _SetupStep.summary ? '开始使用' : '下一步',
+              saving: _saving,
+              onBack: _saving ? null : _goBack,
+              onNext:
+                  _saving || (_step == _SetupStep.proxy && _draft.proxy == null)
                       ? null
                       : _goNext,
-                ),
-              ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -831,18 +809,7 @@ class _SignalHeroVisual extends StatelessWidget {
             height: 132,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFFFFFFF), Color(0xFFFFEEF0)],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Color(0x1FFF5F6D),
-                  blurRadius: 24,
-                  offset: Offset(0, 10),
-                ),
-              ],
+              color: AppColors.surface,
             ),
             child: Stack(
               alignment: Alignment.center,
@@ -886,7 +853,7 @@ class _SignalHeroVisual extends StatelessWidget {
                   ),
                   child: Icon(
                     Icons.hub_outlined,
-                    color: Colors.white,
+                    color: AppColors.onBrand,
                     size: 28,
                   ),
                 ),
@@ -914,17 +881,15 @@ class _ProbeBadge extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        customBorder: const StadiumBorder(),
         onTap: onTap,
         child: AnimatedContainer(
           duration: 220.ms,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpace.md, vertical: AppSpace.sm),
+          decoration: ShapeDecoration(
             color: AppColors.successSoft,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: const Color(0xFF9DE7B4),
-            ),
+            shape: const StadiumBorder(),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -941,11 +906,10 @@ class _ProbeBadge extends StatelessWidget {
               const SizedBox(width: 7),
               Text(
                 probing ? '线路探测中' : '重新测速',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium!
+                    .copyWith(color: AppColors.text),
               ),
             ],
           ),
@@ -972,11 +936,8 @@ class _SegmentedProgress extends StatelessWidget {
             height: 5,
             margin: EdgeInsets.only(right: index == total - 1 ? 0 : 6),
             decoration: BoxDecoration(
-              color: active ? AppColors.brand : Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: active ? AppColors.brand : AppColors.border,
-              ),
+              color: active ? AppColors.brand : AppColors.inkSoft,
+              borderRadius: BorderRadius.circular(999),
             ),
           ),
         );
@@ -1014,25 +975,16 @@ class _SetupOptionCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         onTap: onTap,
         child: AnimatedContainer(
           duration: 220.ms,
           constraints: const BoxConstraints(minHeight: 84),
-          padding: const EdgeInsets.all(13),
+          padding: const EdgeInsets.all(AppSpace.md),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: selected ? 0.94 : 0.78),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: borderColor, width: selected ? 1.4 : 1),
-            boxShadow: [
-              BoxShadow(
-                color: selected
-                    ? AppColors.brand.withValues(alpha: 0.14)
-                    : const Color(0x08000000),
-                blurRadius: selected ? 20 : 12,
-                offset: const Offset(0, 8),
-              ),
-            ],
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: borderColor, width: 1.5),
           ),
           child: Row(
             children: [
@@ -1130,26 +1082,24 @@ class _MiniPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = positive ? AppColors.success : AppColors.brandDark;
-    final background = positive ? AppColors.successSoft : AppColors.brandSoft;
+    final color =
+        positive ? AppColors.success : Theme.of(context).colorScheme.error;
+    final background = positive ? AppColors.successSoft : AppColors.inkSoft;
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 22, maxWidth: 96),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        decoration: BoxDecoration(
+        decoration: ShapeDecoration(
           color: background,
-          borderRadius: BorderRadius.circular(8),
+          shape: const StadiumBorder(),
         ),
         child: Text(
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: color,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-          ),
+          style:
+              Theme.of(context).textTheme.labelMedium!.copyWith(color: color),
         ),
       ),
     );
@@ -1162,12 +1112,8 @@ class _SetupEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.74),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: appSurface(context),
       child: Row(
         children: [
           const _SetupIcon(icon: Icons.route_outlined, selected: false),
@@ -1192,12 +1138,8 @@ class _SummaryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.84),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: appSurface(context),
       child: Column(
         children: rows.map((row) {
           return Padding(
@@ -1246,26 +1188,18 @@ class _ConfidencePanel extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.successSoft,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.successBorder),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
       child: Row(
         children: [
-          const SizedBox.square(
+          SizedBox.square(
             dimension: 46,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: Color(0xFF16A34A),
+                color: AppColors.success,
                 shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x6616A34A),
-                    blurRadius: 18,
-                    spreadRadius: 3,
-                  ),
-                ],
               ),
-              child: Icon(Icons.done, color: Colors.white),
+              child: Icon(Icons.done, color: AppColors.surface),
             ),
           ),
           const SizedBox(width: 14),
@@ -1281,10 +1215,7 @@ class _ConfidencePanel extends StatelessWidget {
           ),
         ],
       ),
-    ).animate(onPlay: (controller) => controller.repeat()).shimmer(
-          duration: 2200.ms,
-          color: Colors.white.withValues(alpha: 0.35),
-        );
+    );
   }
 }
 
@@ -1308,9 +1239,13 @@ class _BottomBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+        padding: EdgeInsets.fromLTRB(
+            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            12,
+            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+            14),
         decoration: BoxDecoration(
-          color: AppColors.surface.withValues(alpha: 0.92),
+          color: AppColors.surface,
           border: Border(top: BorderSide(color: AppColors.border)),
         ),
         child: Row(
@@ -1328,10 +1263,7 @@ class _BottomBar extends StatelessWidget {
                 child: saving
                     ? const SizedBox.square(
                         dimension: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : Text(nextLabel),
               ),
@@ -1340,61 +1272,5 @@ class _BottomBar extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _NetworkBackdropPainter extends CustomPainter {
-  const _NetworkBackdropPainter(this.t);
-
-  final double t;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    const background = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        Color(0xFFFFF7F8),
-        Color(0xFFF7FBFF),
-        Color(0xFFF5FFF8),
-      ],
-    );
-    canvas.drawRect(rect, Paint()..shader = background.createShader(rect));
-
-    final nodes = List.generate(8, (index) {
-      final angle = t * math.pi * 2 + index * 0.72;
-      final x = size.width * (0.15 + (index % 4) * 0.24) + math.sin(angle) * 10;
-      final y = size.height * (0.12 + (index ~/ 4) * 0.34) +
-          math.cos(angle * 0.8) * 16;
-      return Offset(x, y);
-    });
-
-    final linePaint = Paint()
-      ..color = AppColors.brand.withValues(alpha: 0.12)
-      ..strokeWidth = 1.2;
-    for (var i = 0; i < nodes.length - 1; i++) {
-      canvas.drawLine(nodes[i], nodes[i + 1], linePaint);
-    }
-
-    for (var i = 0; i < nodes.length; i++) {
-      final pulse = (math.sin((t * math.pi * 2) + i) + 1) / 2;
-      final point = nodes[i];
-      canvas.drawCircle(
-        point,
-        10 + pulse * 10,
-        Paint()..color = const Color(0xFF16A34A).withValues(alpha: 0.05),
-      );
-      canvas.drawCircle(
-        point,
-        3.4,
-        Paint()..color = AppColors.brand.withValues(alpha: 0.32),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _NetworkBackdropPainter oldDelegate) {
-    return oldDelegate.t != t;
   }
 }
