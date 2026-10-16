@@ -1343,7 +1343,7 @@ class _ComposerDock extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(20)),
+                  const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
               border: dark ? Border.all(color: AppColors.border) : null,
               boxShadow: dark
                   ? null
@@ -1360,7 +1360,7 @@ class _ComposerDock extends StatelessWidget {
               child: Center(
                 heightFactor: 1,
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 920),
+                  constraints: const BoxConstraints(maxWidth: AppWidths.reading),
                   child: SingleChildScrollView(child: child),
                 ),
               ),
@@ -1468,7 +1468,10 @@ class _ThreadDetailContent extends StatelessWidget {
         final originalAuthor = detail.thread.author;
         final width = MediaQuery.sizeOf(context).width;
         // Page gutter, widening to centre a 760 reading column.
-        final side = math.max(width < 600 ? 16.0 : 24.0, (width - 760) / 2);
+        final side = math.max(
+          width < 600 ? AppSpace.lg : AppSpace.xl,
+          (width - AppWidths.reading) / 2,
+        );
         bool isReply(int i) =>
             i >= 0 &&
             i < entries.length &&
@@ -1683,7 +1686,7 @@ class _ThreadDetailContent extends StatelessWidget {
             key: entry.key,
             post: reply,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              padding: const EdgeInsets.all(AppSpace.sm),
               child: ThreadBlockedFloor(
                 label: _hiddenLabel(reply.floor, hidden),
                 onReveal: () => onReveal(reply),
@@ -1879,12 +1882,12 @@ class _ThreadHeaderCard extends StatelessWidget {
     final authorName = author;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _ThreadTitle(title),
-            const SizedBox(height: 14),
+            const SizedBox(height: AppSpace.lg),
             if (authorName != null && authorName.isNotEmpty) ...[
               Row(
                 children: [
@@ -1893,18 +1896,18 @@ class _ThreadHeaderCard extends StatelessWidget {
                     avatarUrl: avatarUrl,
                     onTap: onAuthorTap,
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: AppSpace.md),
                   Flexible(
                     child: _FloorAuthorName(
                       author: authorName,
                       onTap: onAuthorTap,
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: AppSpace.sm),
                   const _OriginalPosterBadge(),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: AppSpace.lg),
             ],
             actions,
           ],
@@ -1931,21 +1934,23 @@ class _ActiveAuthorFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.lg,
+        AppSpace.xs,
+        AppSpace.xs,
+        AppSpace.xs,
       ),
+      decoration: appSurface(context),
       child: Row(
         children: [
           Icon(
             Icons.person_search_outlined,
-            size: 18,
+            size: 20,
             color: AppColors.textMuted,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpace.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1954,22 +1959,13 @@ class _ActiveAuthorFilterChip extends StatelessWidget {
                   '只看 $author',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 2),
                 Text(
                   '第 ${pagination.currentPage} / ${pagination.totalPages} 页 · 本页 $visibleFloorCount 楼',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: text.bodySmall,
                 ),
               ],
             ),
@@ -2032,16 +2028,21 @@ class _FloorCard extends StatelessWidget {
       if (floor != null && floor!.isNotEmpty && !isOpeningPost) floor!,
     ].join(' · ');
     final content = Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 8, 4),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.lg,
+          AppSpace.lg,
+          AppSpace.sm,
+          AppSpace.xs,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (title != null) ...[
               Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.only(right: AppSpace.sm),
                 child: _ThreadTitle(title!),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpace.lg),
             ],
             Row(
               children: [
@@ -2050,7 +2051,7 @@ class _FloorCard extends StatelessWidget {
                   avatarUrl: avatarUrl,
                   onTap: onAuthorTap,
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppSpace.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2064,21 +2065,18 @@ class _FloorCard extends StatelessWidget {
                             ),
                           ),
                           if (isOpeningPost || byOriginalPoster) ...[
-                            const SizedBox(width: 6),
+                            const SizedBox(width: AppSpace.sm),
                             const _OriginalPosterBadge(),
                           ],
                         ],
                       ),
                       if (meta.isNotEmpty) ...[
-                        const SizedBox(height: 2),
+                        const SizedBox(height: AppSpace.xs),
                         Text(
                           meta,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.textMuted,
-                            fontSize: 13,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
                     ],
@@ -2086,18 +2084,18 @@ class _FloorCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.md),
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(right: AppSpace.sm),
               child: RepaintBoundary(child: child),
             ),
             if (threadActions != null) ...[
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpace.lg),
               Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.only(right: AppSpace.sm),
                 child: threadActions!,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpace.xs),
             ],
             if (onReply != null || onQuote != null || onMore != null)
               ThreadFloorFooter(
@@ -2129,9 +2127,9 @@ class _ReplyGroupSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const radius = Radius.circular(16);
+    const radius = Radius.circular(AppRadius.lg);
     return Padding(
-      padding: EdgeInsets.only(bottom: last ? 12 : 0),
+      padding: EdgeInsets.only(bottom: last ? AppSpace.md : 0),
       child: Material(
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(
@@ -2222,11 +2220,10 @@ class _AvatarFallback extends StatelessWidget {
           initial,
           // The circle is a fixed 40 px; its letter must fit it at any scale.
           textScaler: TextScaler.noScaling,
-          style: TextStyle(
-            color: AppColors.link,
-            fontSize: 17,
-            fontWeight: FontWeight.w800,
-          ),
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(color: AppColors.textMuted),
         ),
       ),
     );
@@ -2248,11 +2245,10 @@ class _FloorAuthorName extends StatelessWidget {
       author,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        color: AppColors.text,
-        fontSize: 15,
-        fontWeight: FontWeight.w600,
-      ),
+      style: Theme.of(context)
+          .textTheme
+          .titleSmall
+          ?.copyWith(fontWeight: FontWeight.w600),
     );
 
     if (onTap == null) return name;
@@ -2274,10 +2270,7 @@ class _ThreadTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title,
-      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-            height: 1.35,
-          ),
+      style: Theme.of(context).textTheme.titleLarge,
     );
   }
 }
@@ -2287,20 +2280,21 @@ class _OriginalPosterBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // shortcut: mirrors AppTag(accent: true); switch to it once
+    // lib/features/common/thread_row.dart is integrated.
     return DecoratedBox(
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: AppColors.brandSoft,
-        borderRadius: BorderRadius.circular(6),
+        shape: const StadiumBorder(),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: 2),
         child: Text(
           '楼主',
-          style: TextStyle(
-            color: AppColors.brand,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
+          style: Theme.of(context)
+              .textTheme
+              .labelMedium
+              ?.copyWith(color: AppColors.brandDark),
         ),
       ),
     );
@@ -2368,14 +2362,14 @@ class _ThreadHeaderActions extends StatelessWidget {
     return Align(
       alignment: Alignment.centerLeft,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
+        constraints: const BoxConstraints(maxWidth: AppWidths.dialog),
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: AppColors.inkSoft,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(AppSpace.xs),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 // A four-character label that no longer fits its slot at
@@ -2442,14 +2436,17 @@ class _ThreadActionButton extends StatelessWidget {
       selected: active,
       child: Material(
         color: active ? AppColors.brandSoft : Colors.transparent,
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
         child: InkWell(
-          borderRadius: BorderRadius.circular(9),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
           onTap: busy ? null : onTap,
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 52),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpace.xs,
+                vertical: AppSpace.sm,
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -2459,15 +2456,14 @@ class _ThreadActionButton extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Icon(icon, size: 20, color: color),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: AppSpace.xs),
                   Text(
                     label,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelMedium
+                        ?.copyWith(color: color),
                   ),
                 ],
               ),
@@ -2495,7 +2491,7 @@ class _BoardTitle extends StatelessWidget {
       message: '打开版块',
       child: InkWell(
         onTap: tap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
         // A full 48 px target, however short the title line is.
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 48),
@@ -2538,7 +2534,7 @@ class _ThreadMoreMenu extends StatelessWidget {
             child: Row(
               children: [
                 Icon(icon, size: 20, color: AppColors.textMuted),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpace.md),
                 Text(label),
               ],
             ),
@@ -2585,7 +2581,10 @@ class _ThreadPageBar extends StatelessWidget {
           child: Center(
             heightFactor: 1,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480, minHeight: 52),
+              constraints: const BoxConstraints(
+                maxWidth: AppWidths.dialog,
+                minHeight: 52,
+              ),
               child: Row(
                 children: [
                   arrow('上一页', Icons.chevron_left, current - 1, current > 1),
@@ -2594,9 +2593,10 @@ class _ThreadPageBar extends StatelessWidget {
                       message: '跳转',
                       child: InkWell(
                         onTap: onJump,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: AppSpace.md),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -2604,14 +2604,13 @@ class _ThreadPageBar extends StatelessWidget {
                                 child: Text(
                                   '第 $current / $total 页',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: AppColors.text,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelLarge
+                                      ?.copyWith(color: AppColors.text),
                                 ),
                               ),
-                              const SizedBox(width: 4),
+                              const SizedBox(width: AppSpace.xs),
                               Icon(
                                 Icons.expand_less,
                                 size: 18,

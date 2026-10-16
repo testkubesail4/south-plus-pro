@@ -174,7 +174,12 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
     final media = MediaQuery.of(context);
     final textTheme = Theme.of(context).textTheme;
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 0, 20, 16 + media.viewInsets.bottom),
+      padding: EdgeInsets.fromLTRB(
+        AppSpace.lg,
+        0,
+        AppSpace.lg,
+        AppSpace.xl + media.viewInsets.bottom,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -184,18 +189,16 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
               Expanded(
                 child: Text(
                   widget.shortcuts.isEmpty ? '选择页码' : '跳转',
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: textTheme.titleMedium,
                 ),
               ),
               Text(
                 '共 ${widget.total} 页',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                style: textTheme.bodySmall,
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpace.md),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -217,7 +220,7 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpace.md),
               FilledButton(
                 onPressed: _submit,
                 style: FilledButton.styleFrom(
@@ -227,14 +230,14 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpace.sm),
           if (widget.shortcuts.isNotEmpty) ...[
             Row(
               children: [
                 for (final (label, icon, onTap) in widget.shortcuts)
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(AppSpace.xs),
                       child: _ShortcutTile(
                         label: label,
                         icon: icon,
@@ -247,7 +250,7 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpace.sm),
           ],
           Flexible(
             child: LayoutBuilder(
@@ -300,24 +303,26 @@ class _ShortcutTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: AppColors.inkSoft,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpace.xs,
+            vertical: AppSpace.md,
+          ),
           child: Column(
             children: [
               Icon(icon, size: 22, color: AppColors.text),
-              const SizedBox(height: 6),
+              const SizedBox(height: AppSpace.sm),
               Text(
                 label,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: AppColors.textMuted),
               ),
             ],
           ),
@@ -336,21 +341,19 @@ class _PageTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(AppSpace.xs),
       child: Material(
         color: selected ? AppColors.brand : AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.md),
           onTap: () => Navigator.of(context).pop(page),
           child: Center(
             child: Text(
               '$page',
-              style: TextStyle(
-                color: selected ? Colors.white : AppColors.text,
-                fontSize: 14,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              ),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: selected ? AppColors.onBrand : AppColors.text,
+                  ),
             ),
           ),
         ),

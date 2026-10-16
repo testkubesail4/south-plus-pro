@@ -63,7 +63,7 @@ class ThreadFloorFooter extends StatelessWidget {
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.textMuted,
                   minimumSize: const Size(48, 48),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpace.md),
                 ),
               )
             : IconButton(

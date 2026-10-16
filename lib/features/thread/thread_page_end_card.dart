@@ -25,7 +25,7 @@ class ThreadPageEndCard extends StatelessWidget {
     final select = onPageSelected;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -33,13 +33,9 @@ class ThreadPageEndCard extends StatelessWidget {
               Text(
                 '已是最后一页',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(context).textTheme.titleSmall,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.md),
             ],
             if (pagination.hasNext)
               FilledButton.icon(
