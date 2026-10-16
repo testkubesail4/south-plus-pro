@@ -1562,14 +1562,14 @@ void main() {
     expect(
       find.descendant(
         of: find.byType(AppBar),
-        matching: find.text('南+ / 事务受理'),
+        matching: find.text('事务受理'),
       ),
       findsOneWidget,
     );
     expect(find.text('南+ South Plus'), findsNothing);
     expect(find.text('上一主题'), findsOneWidget);
     expect(find.text('下一主题'), findsOneWidget);
-    expect(find.text('RSS'), findsOneWidget);
+    expect(find.text('RSS 订阅'), findsNothing, reason: 'RSS lives in ⋮');
     expect(find.byTooltip('更多操作'), findsOneWidget);
     expect(find.text('只看该作者'), findsNothing);
     expect(find.text('第 2 / 4 页'), findsNWidgets(2));

@@ -82,7 +82,9 @@ void main() {
       (tester) async {
     final repository = await pumpThread(tester, authorUrl: _opProfile);
 
-    await tester.tap(find.byTooltip('搜索同名主题'));
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('搜索同名主题'));
     await tester.pumpAndSettle();
 
     final search = tester.widget<SearchScreen>(find.byType(SearchScreen));

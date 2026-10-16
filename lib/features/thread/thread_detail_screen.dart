@@ -12,7 +12,9 @@ import '../../services/perf_trace.dart';
 import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
 import '../../services/thread_paging_settings.dart';
+import '../../services/thread_share_service.dart';
 import '../../theme/app_theme.dart';
+import '../board/board_thread_list_screen.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../common/forum_link_opener.dart';
@@ -1109,6 +1111,24 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
   }
 
+  Future<void> _share() async {
+    final thread = _detail?.thread;
+    final url = thread == null
+        ? null
+        : widget.repository.threadShareUrl(thread);
+    if (thread == null || url == null) return;
+    try {
+      final opened =
+          await ThreadShareService.share(title: thread.title, url: url);
+      if (!opened && mounted) {
+        _messenger.showSnackBar(const SnackBar(content: Text('已复制链接')));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _messenger.showSnackBar(const SnackBar(content: Text('分享失败')));
+    }
+  }
+
   Widget _threadList(ThreadDetail detail) {
     return NotificationListener<ScrollNotification>(
       onNotification: _onScroll,
@@ -1147,7 +1167,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           onPageSelected: _goToPage,
           autoLoadNextPage: _autoLoadNextPage,
           onThreadLink: _openThreadLink,
-          onExternalLink: _openExternalLink,
           onOpenLink: _openContentLink,
         ),
       ),
@@ -1165,17 +1184,30 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           key: _messengerKey,
           child: Scaffold(
             appBar: AppBar(
-              title: Text(
-                '南+ / ${detail?.thread.section ?? widget.thread.section}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              title: _BoardTitle(
+                name: detail?.board?.name ??
+                    detail?.thread.section ??
+                    widget.thread.section,
+                onTap: detail?.board == null
+                    ? null
+                    : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => BoardThreadListScreen(
+                              category: detail!.board!,
+                              repository: widget.repository,
+                            ),
+                          ),
+                        ),
               ),
-              centerTitle: true,
               actions: [
                 IconButton(
-                  tooltip: '搜索同名主题',
+                  tooltip: '分享',
+                  onPressed: detail == null ? null : _share,
+                  icon: const Icon(Icons.share_outlined),
+                ),
+                _ThreadMoreMenu(
                   // Loaded title only; the pre-load title can be a placeholder.
-                  onPressed:
+                  onSearchTitle:
                       detail == null || detail.thread.title.trim().isEmpty
                           ? null
                           : () => Navigator.of(context).push(
@@ -1186,12 +1218,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                                   ),
                                 ),
                               ),
-                  icon: const Icon(Icons.manage_search),
-                ),
-                IconButton(
-                  tooltip: '回复',
-                  onPressed: () => _openComposer(),
-                  icon: Icon(Icons.reply_outlined),
+                  onRss: detail?.rssFeed == null
+                      ? null
+                      : () => _openExternalLink(detail!.rssFeed!),
                 ),
               ],
             ),
@@ -1395,7 +1424,6 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.onPageSelected,
     required this.autoLoadNextPage,
     required this.onThreadLink,
-    required this.onExternalLink,
     required this.onOpenLink,
   });
 
@@ -1430,7 +1458,6 @@ class _ThreadDetailContent extends StatelessWidget {
   final ValueChanged<int> onPageSelected;
   final bool autoLoadNextPage;
   final ValueChanged<ThreadActionLink> onThreadLink;
-  final ValueChanged<ThreadActionLink> onExternalLink;
   final Future<void> Function(String url, String label) onOpenLink;
 
   @override
@@ -1527,9 +1554,7 @@ class _ThreadDetailContent extends StatelessWidget {
                   : onClearAuthorFilter(),
           previousThread: detail.previousThread,
           nextThread: detail.nextThread,
-          rssFeed: detail.rssFeed,
           onThreadLink: onThreadLink,
-          onExternalLink: onExternalLink,
         );
         if (!openingEntry.hasBody) {
           return _entryWithKey(
@@ -2195,9 +2220,7 @@ class _ThreadHeaderActions extends StatelessWidget {
     required this.onOnlyOriginalPosterChanged,
     required this.previousThread,
     required this.nextThread,
-    required this.rssFeed,
     required this.onThreadLink,
-    required this.onExternalLink,
   });
 
   final ThreadFavorite? favorite;
@@ -2208,9 +2231,7 @@ class _ThreadHeaderActions extends StatelessWidget {
   final ValueChanged<bool>? onOnlyOriginalPosterChanged;
   final ThreadActionLink? previousThread;
   final ThreadActionLink? nextThread;
-  final ThreadActionLink? rssFeed;
   final ValueChanged<ThreadActionLink> onThreadLink;
-  final ValueChanged<ThreadActionLink> onExternalLink;
 
   @override
   Widget build(BuildContext context) {
@@ -2230,13 +2251,6 @@ class _ThreadHeaderActions extends StatelessWidget {
             onPressed: () => onThreadLink(nextThread!),
             icon: Icon(Icons.chevron_right, size: 18),
             label: Text(nextThread!.label),
-            style: _compactActionStyle(),
-          ),
-        if (rssFeed != null)
-          OutlinedButton.icon(
-            onPressed: () => onExternalLink(rssFeed!),
-            icon: Icon(Icons.rss_feed_outlined, size: 18),
-            label: const Text('RSS'),
             style: _compactActionStyle(),
           ),
         if (favorite != null)
@@ -2285,6 +2299,74 @@ class _ThreadHeaderActions extends StatelessWidget {
         fontSize: 12,
         fontWeight: FontWeight.w700,
       ),
+    );
+  }
+}
+
+/// The board name as the app bar title; opens the board when it is known.
+class _BoardTitle extends StatelessWidget {
+  const _BoardTitle({required this.name, required this.onTap});
+
+  final String name;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(name, maxLines: 1, overflow: TextOverflow.ellipsis);
+    final tap = onTap;
+    if (tap == null) return text;
+    return Tooltip(
+      message: '打开版块',
+      child: InkWell(
+        onTap: tap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: text),
+              Icon(Icons.chevron_right, size: 20, color: AppColors.textFaint),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Rare thread actions behind ⋮; an action without a target is omitted.
+class _ThreadMoreMenu extends StatelessWidget {
+  const _ThreadMoreMenu({required this.onSearchTitle, required this.onRss});
+
+  final VoidCallback? onSearchTitle;
+  final VoidCallback? onRss;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      if (onSearchTitle != null)
+        ('搜索同名主题', Icons.manage_search, onSearchTitle!),
+      if (onRss != null) ('RSS 订阅', Icons.rss_feed_outlined, onRss!),
+    ];
+    return PopupMenuButton<VoidCallback>(
+      tooltip: '更多',
+      enabled: items.isNotEmpty,
+      icon: const Icon(Icons.more_vert),
+      onSelected: (action) => action(),
+      itemBuilder: (context) => [
+        for (final (label, icon, action) in items)
+          PopupMenuItem(
+            value: action,
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: AppColors.textMuted),
+                const SizedBox(width: 12),
+                Text(label),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
