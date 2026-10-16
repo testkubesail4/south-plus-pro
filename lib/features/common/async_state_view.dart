@@ -40,6 +40,7 @@ class AsyncErrorView extends StatelessWidget {
   Widget build(BuildContext context) {
     return EmptyStateView(
       icon: Icons.cloud_off_outlined,
+      iconColor: AppColors.textMuted,
       title: title,
       message: message,
       padding: padding,
@@ -58,6 +59,7 @@ class EmptyStateView extends StatelessWidget {
     required this.title,
     this.message,
     this.icon = Icons.inbox_outlined,
+    this.iconColor,
     this.padding = const EdgeInsets.all(28),
     this.action,
   });
@@ -65,13 +67,16 @@ class EmptyStateView extends StatelessWidget {
   final String title;
   final String? message;
   final IconData icon;
+  final Color? iconColor;
   final EdgeInsetsGeometry padding;
   final Widget? action;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Center(
+    // Upper third: the eye lands there first, and it stays clear of the FAB.
+    return Align(
+      alignment: const Alignment(0, -1 / 3),
       child: Padding(
         padding: padding,
         child: ConstrainedBox(
@@ -79,7 +84,7 @@ class EmptyStateView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 40, color: AppColors.textFaint),
+              Icon(icon, size: 40, color: iconColor ?? AppColors.textFaint),
               const SizedBox(height: AppSpace.md),
               Text(
                 title,

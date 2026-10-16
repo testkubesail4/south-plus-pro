@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:south_plus_rewrite/features/common/async_state_view.dart';
 import 'package:south_plus_rewrite/features/common/content_width.dart';
 import 'package:south_plus_rewrite/features/common/grouped_list.dart';
 import 'package:south_plus_rewrite/features/common/thread_row.dart';
@@ -15,6 +16,23 @@ void main() {
     expect(appGutter(400, AppWidths.list), AppSpace.lg);
     expect(appGutter(700, AppWidths.list), AppSpace.xl);
     expect(appGutter(1440, AppWidths.list), (1440 - 840) / 2);
+  });
+
+  testWidgets('empty and error views sit in the upper third', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pump(tester, const EmptyStateView(title: '暂无内容'));
+    expect(tester.getCenter(find.text('暂无内容')).dy, lessThan(800 / 2));
+    expect(tester.widget<Icon>(find.byType(Icon)).color,
+        AppColors.lightPalette.textFaint);
+
+    await _pump(tester,
+        AsyncErrorView(title: '加载失败', message: '网络失败', onRetry: () {}));
+    expect(tester.getCenter(find.text('加载失败')).dy, lessThan(800 / 2));
+    // An error is information, not a placeholder.
+    expect(tester.widget<Icon>(find.byIcon(Icons.cloud_off_outlined)).color,
+        AppColors.lightPalette.textMuted);
   });
 
   testWidgets('a row shows a chevron, a check or nothing by its role',
