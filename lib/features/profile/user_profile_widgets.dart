@@ -802,13 +802,15 @@ class _FieldSection extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: 86,
+                    // A floor, not a fixed width: labels stay one line at large text.
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minWidth: 86),
                       child: Text(
                         field.label,
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
+                    const SizedBox(width: AppSpace.md),
                     Expanded(
                       child: Text(field.value,
                           style: Theme.of(context).textTheme.bodyMedium),

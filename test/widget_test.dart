@@ -931,6 +931,26 @@ void main() {
         greaterThanOrEqualTo((1440 - AppWidths.list) / 2));
   });
 
+  testWidgets('资料 labels stay on one line at large text', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(2)),
+        child: child!,
+      ),
+      home: UserProfileScreen(
+          userUrl: 'u.php', repository: _InfoProfileRepository()),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('资料'));
+    await tester.pumpAndSettle();
+
+    final label = tester.renderObject<RenderParagraph>(find.text('注册时间'));
+    expect(label.size.height, lessThan(label.text.style!.fontSize! * 2 * 2));
+  });
+
   testWidgets('profile uses cached overview while refreshing fresh data',
       (tester) async {
     final repository = _CachedProfileRepository();
@@ -2561,6 +2581,24 @@ const _onePixelPng = <int>[
   0x60,
   0x82,
 ];
+
+class _InfoProfileRepository extends ForumRepository {
+  @override
+  Future<UserProfile?> cachedUserProfileOverview(String url) async => null;
+
+  @override
+  Future<UserProfile> fetchUserProfileOverview(String url) async => UserProfile(
+        uid: '1',
+        name: 'sample',
+        url: url,
+        info: const [UserProfileField(label: '注册时间', value: '2020-01-01')],
+      );
+
+  @override
+  Future<UserProfile> fetchUserProfileDetails(UserProfile overview,
+          {bool forceReload = false}) async =>
+      overview;
+}
 
 class _CachedProfileRepository extends ForumRepository {
   _CachedProfileRepository();
