@@ -50,30 +50,12 @@ void main() {
   });
 
   test('screens take type and colour from the theme roles', () {
-    // Files still carrying literals, owner in brackets (DESIGN §2/§3, #448).
-    // Shrinks to empty; a file not listed here must stay clean.
-    const pending = {
-      'board/board_navigation_widgets.dart', // misc
-      'board/board_thread_list_widgets.dart', // misc
-      'history/browsing_history_screen.dart', // misc
-      'messages/pm_box_screen.dart', // misc
-      'messages/pm_detail_screen.dart', // misc
-      'messages/reply_notices_screen.dart', // misc
-      'home/home_widgets.dart', // home
-      'profile/blocking_settings_screen.dart', // home
-      'profile/network_settings_screen.dart', // home
-      'profile/network_setup_flow_screen.dart', // home
-      'profile/proxy_form.dart', // home
-    };
+    // DESIGN §2/§3: screens use the theme roles, never their own literals.
     final literal = RegExp(r'fontSize: [0-9]|FontWeight\.w[89]00|Color\(0x');
     final offenders = <String>[];
     for (final file in Directory('lib/features').listSync(recursive: true)) {
       if (file is! File || !file.path.endsWith('.dart')) continue;
-      final name = file.path
-          .replaceAll('\\', '/')
-          .substring('lib/features/'.length);
-      if (pending.contains(name)) continue;
-      if (literal.hasMatch(file.readAsStringSync())) offenders.add(name);
+      if (literal.hasMatch(file.readAsStringSync())) offenders.add(file.path);
     }
     expect(offenders, isEmpty);
   });
