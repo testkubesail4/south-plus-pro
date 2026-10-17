@@ -421,6 +421,24 @@ void main() {
     expect(avatarUploadProblem(up('a.JPG', 'image/jpeg', 10), limited), isNull);
   });
 
+  test('avatar row and accept hint read in plain words', () {
+    expect(systemAvatarValue(null, 'none.gif'), '未选择');
+    expect(systemAvatarValue(null, ''), '未选择');
+    expect(systemAvatarValue(null, 'a/None.GIF'), '未选择');
+    expect(systemAvatarValue(null, '12.gif'), '已选择');
+    final f = ForumAccountField(
+        name: 'proicon',
+        label: '系统头像',
+        type: 'hidden',
+        values: const ['12.gif'],
+        options: const [ForumAccountOption(value: '12.gif', label: '小猫')]);
+    expect(systemAvatarValue(f, '12.gif'), '小猫');
+    expect(acceptLabel('image/png'), 'PNG');
+    expect(acceptLabel('.JPG'), 'JPG');
+    expect(acceptLabel('image/*'), '图片');
+    expect(acceptLabel('application/x-foo'), 'application/x-foo');
+  });
+
   testWidgets('a claimed task shows the threshold, never a countdown',
       (tester) async {
     await tester.pumpWidget(MaterialApp(

@@ -225,6 +225,14 @@ class ThreadSaleBoxView extends StatelessWidget {
                 width: double.infinity,
                 child: SelectionContainer.disabled(
                   child: FilledButton(
+                    // The theme pads only sideways; a label at a large text
+                    // scale needs its own room. 40 stays the minimum.
+                    style: const ButtonStyle(
+                      padding: WidgetStatePropertyAll(EdgeInsets.symmetric(
+                        horizontal: AppSpace.lg,
+                        vertical: AppSpace.sm,
+                      )),
+                    ),
                     onPressed: isBuying
                         ? null
                         : bought
@@ -233,8 +241,22 @@ class ThreadSaleBoxView extends StatelessWidget {
                                 : () =>
                                     purchase!.onRefreshBox!(saleBox.buyPath))
                             : onBuy,
-                    child: isBuying
-                        ? SizedBox(
+                    // The label keeps its room while busy, so the button does
+                    // not change height when the spinner takes its place.
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Visibility(
+                          visible: !isBuying,
+                          maintainSize: true,
+                          maintainAnimation: true,
+                          maintainState: true,
+                          child: Text(
+                            bought ? '刷新页面' : (notice == null ? '购买查看' : '重试'),
+                          ),
+                        ),
+                        if (isBuying)
+                          SizedBox(
                             width: 18,
                             height: 18,
                             // The busy button has the disabled neutral fill.
@@ -242,10 +264,9 @@ class ThreadSaleBoxView extends StatelessWidget {
                               strokeWidth: 2,
                               color: AppColors.textMuted,
                             ),
-                          )
-                        : Text(
-                            bought ? '刷新页面' : (notice == null ? '购买查看' : '重试'),
                           ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -301,8 +322,9 @@ class _SaleMetaPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      // 32 is the least; the label's own height wins at a large text scale.
+      constraints: const BoxConstraints(minHeight: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(999),
