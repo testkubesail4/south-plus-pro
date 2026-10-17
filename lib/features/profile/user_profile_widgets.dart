@@ -14,9 +14,13 @@ class _ProfileHeader extends StatelessWidget {
     this.onShowLoginName,
     this.onCopyLoginName,
     this.onSearchByUser,
+    this.note,
+    this.onEditNote,
   });
 
   final UserProfile profile;
+  final String? note;
+  final VoidCallback? onEditNote;
   final VoidCallback? onMessage;
   final String? loginName;
   final bool lookingUp;
@@ -106,6 +110,8 @@ class _ProfileHeader extends StatelessWidget {
                           ),
                         ],
                       ),
+                      if (onEditNote != null)
+                        _NoteLine(note: note, onEdit: onEditNote!),
                       if (profile.tagline != null) ...[
                         const SizedBox(height: 7),
                         Text(
@@ -164,9 +170,7 @@ class _ProfileHeader extends StatelessWidget {
               _MetricChip(label: 'UID', value: profile.uid),
               if (profile.level != null && profile.level!.isNotEmpty)
                 _MetricChip(label: '等级', value: profile.level!),
-              ...profile.stats
-                  .take(3)
-                  .map(
+              ...profile.stats.take(3).map(
                     (field) =>
                         _MetricChip(label: field.label, value: field.value),
                   ),
@@ -174,6 +178,59 @@ class _ProfileHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The local, device-only note under the name: shown with an edit pencil, or
+/// a single add button when none is set.
+class _NoteLine extends StatelessWidget {
+  const _NoteLine({required this.note, required this.onEdit});
+
+  final String? note;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = note;
+    final style = TextButton.styleFrom(
+      foregroundColor: AppColors.textMuted,
+      alignment: AlignmentDirectional.centerStart,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.xs),
+      minimumSize: const Size(48, 36),
+    );
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: text == null
+          ? TextButton.icon(
+              style: style,
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_note, size: 18),
+              label: const Text('添加备注'),
+            )
+          : Semantics(
+              button: true,
+              label: '编辑备注，当前：$text',
+              excludeSemantics: true,
+              child: TextButton(
+                style: style,
+                onPressed: onEdit,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        '备注：$text',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpace.xs),
+                    const Icon(Icons.edit_outlined, size: 16),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }
@@ -188,8 +245,8 @@ class _OnlineDot extends StatelessWidget {
     final color = isOnline == null
         ? AppColors.textFaint
         : isOnline!
-        ? AppColors.success
-        : AppColors.textFaint;
+            ? AppColors.success
+            : AppColors.textFaint;
     return Container(
       width: 15,
       height: 15,
@@ -214,13 +271,13 @@ class _OnlinePill extends StatelessWidget {
     final color = isOnline == null
         ? AppColors.textMuted
         : online
-        ? AppColors.success
-        : AppColors.textMuted;
+            ? AppColors.success
+            : AppColors.textMuted;
     final background = isOnline == null
         ? AppColors.inkSoft
         : online
-        ? AppColors.successSoft
-        : AppColors.inkSoft;
+            ? AppColors.successSoft
+            : AppColors.inkSoft;
     return Container(
       constraints: const BoxConstraints(minHeight: 28),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
@@ -239,10 +296,8 @@ class _OnlinePill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             text ?? '未知',
-            style: Theme.of(context)
-                .textTheme
-                .labelMedium
-                ?.copyWith(color: color),
+            style:
+                Theme.of(context).textTheme.labelMedium?.copyWith(color: color),
           ),
         ],
       ),
@@ -286,8 +341,7 @@ class _ProfileTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: AppColors.surface,
-      padding: EdgeInsets.symmetric(
-          horizontal: _gutter(context) - AppSpace.lg),
+      padding: EdgeInsets.symmetric(horizontal: _gutter(context) - AppSpace.lg),
       child: TabBar(
         isScrollable: true,
         tabAlignment: TabAlignment.start,
@@ -550,38 +604,7 @@ class _ItemList extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
       children: [
-        AppGroup(
-          dividerIndent: AppSpace.lg,
-          children: [
-            for (final item in items)
-              ForumThreadRow(
-                title: item.title,
-                meta: [
-                  if (item.section case final section?) section,
-                  if (showAuthor && item.author != null) item.author!,
-                  if (item.date case final date?) date,
-                  if (item.replies case final replies?) '$replies 回复',
-                  if (item.views case final views?) '$views 浏览',
-                ],
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ThreadDetailScreen(
-                      thread: ForumThread(
-                        title: item.title,
-                        url: item.url,
-                        replies: item.replies ?? 0,
-                        section: item.section ?? '用户中心',
-                        author: item.author,
-                        authorUrl: item.authorUrl,
-                        lastPost: item.date,
-                      ),
-                      repository: repository,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+        _threadGroup(context, items, repository, showAuthor: showAuthor),
       ],
     );
   }
@@ -902,4 +925,816 @@ class _SkeletonBox extends StatelessWidget {
       onEnd: () {},
     );
   }
+}
+
+const _allBoardsOption = ForumSearchBoard(id: 'all', name: '全部版块');
+
+String _articleTypeLabel(UserContentArticleType type) => switch (type) {
+      UserContentArticleType.all => '全部',
+      UserContentArticleType.digest => '精华',
+      UserContentArticleType.poll => '投票',
+      UserContentArticleType.sale => '交易',
+    };
+
+// Search-form option names carry tree prefixes such as "|- ".
+String _boardLabel(String name) =>
+    name.replaceFirst(RegExp(r'^[\s|\-\u00a0>]+'), '').trim();
+
+Duration _motion(BuildContext context, Duration normal) =>
+    MediaQuery.disableAnimationsOf(context) ? Duration.zero : normal;
+
+/// The selectors of one 主题/回复 tab. Owned by the screen so a pull-to-refresh
+/// that rebuilds the tab keeps what the user picked.
+class _ContentSelection {
+  ForumSearchBoard? board;
+  UserContentArticleType type = UserContentArticleType.all;
+  UserContentClassification? classification;
+}
+
+/// 主题 / 回复: the first page as loaded, plus board, type and classification
+/// selectors. Every search step is one user action; nothing scans on its own.
+class _ContentTab extends StatefulWidget {
+  const _ContentTab({
+    required this.uid,
+    required this.tab,
+    required this.defaultItems,
+    required this.emptyText,
+    required this.repository,
+    required this.loadBoards,
+    required this.selection,
+    required this.refreshGeneration,
+  });
+
+  final String uid;
+  final UserProfileTab tab;
+
+  /// The page the profile already loaded; shown while no selector is set.
+  final List<UserListItem> defaultItems;
+  final String emptyText;
+  final ForumRepository repository;
+  final Future<List<ForumSearchBoard>> Function() loadBoards;
+
+  final _ContentSelection selection;
+
+  /// Counts the screen's refreshes. A new value restarts the active query
+  /// with fresh service state; the first query after one also passes
+  /// `refresh: true`.
+  final int refreshGeneration;
+
+  @override
+  State<_ContentTab> createState() => _ContentTabState();
+}
+
+class _ContentTabState extends State<_ContentTab>
+    with AutomaticKeepAliveClientMixin {
+  ForumSearchBoard? get _board => widget.selection.board;
+  set _board(ForumSearchBoard? value) => widget.selection.board = value;
+  UserContentArticleType get _type => widget.selection.type;
+  set _type(UserContentArticleType value) => widget.selection.type = value;
+  UserContentClassification? get _classification =>
+      widget.selection.classification;
+  set _classification(UserContentClassification? value) =>
+      widget.selection.classification = value;
+  List<UserContentClassification>? _classifications;
+  bool _loadingClassifications = false;
+
+  UserContentResult? _result;
+  bool _loading = false;
+  Object? _error;
+  bool _unresolvedOpen = false;
+  late bool _restart = widget.refreshGeneration > 0;
+  // Bumped on every selector change; results of older queries are dropped.
+  int _epoch = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Selectors survive a rebuilt tab: carry on with the same query.
+    if (!_isDefault) _advanceAfterFrame();
+  }
+
+  @override
+  void didUpdateWidget(_ContentTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshGeneration == widget.refreshGeneration) return;
+    // Refreshed: whatever the old query accumulated is stale. Drop it (and any
+    // reply still in flight), keep the selectors, restart from page one.
+    _epoch++;
+    _result = null;
+    _error = null;
+    _loading = false;
+    _unresolvedOpen = false;
+    _classifications = null;
+    _loadingClassifications = false;
+    _restart = true;
+    if (!_isDefault) _advanceAfterFrame();
+  }
+
+  void _advanceAfterFrame() =>
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _advance();
+      });
+
+  @override
+  bool get wantKeepAlive => true;
+
+  bool get _isDefault => _board == null && _type == UserContentArticleType.all;
+
+  UserContentQuery get _query => UserContentQuery(
+        uid: widget.uid,
+        tab: widget.tab,
+        boardId: _board?.id,
+        articleType: _type,
+        classificationId: _classification?.id,
+      );
+
+  List<UserListItem> get _items =>
+      _result?.items ??
+      (_isDefault ? widget.defaultItems : const <UserListItem>[]);
+
+  bool get _canContinue {
+    if (_loading || _error != null) return false;
+    final result = _result;
+    return result == null
+        ? _isDefault && widget.defaultItems.isNotEmpty
+        : result.hasMore;
+  }
+
+  void _select({
+    ForumSearchBoard? board,
+    bool clearBoard = false,
+    UserContentArticleType? type,
+    UserContentClassification? classification,
+    bool clearClassification = false,
+  }) {
+    setState(() {
+      if (clearBoard || board != null) {
+        _board = board;
+        _classification = null;
+        _classifications = null;
+      }
+      if (type != null) _type = type;
+      if (clearClassification || classification != null) {
+        _classification = classification;
+      }
+      _epoch++;
+      _result = null;
+      _error = null;
+      _loading = false;
+      _unresolvedOpen = false;
+    });
+    if (!_isDefault) _advance();
+  }
+
+  Future<void> _advance() async {
+    if (_loading) return;
+    final epoch = _epoch;
+    final restart = _restart;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result =
+          await widget.repository.fetchUserContent(_query, refresh: restart);
+      if (!mounted || epoch != _epoch) return;
+      setState(() {
+        _result = result;
+        _loading = false;
+        _restart = false;
+      });
+    } catch (error) {
+      if (!mounted || epoch != _epoch) return;
+      // The accumulated result stays on screen under the error.
+      setState(() {
+        _error = error;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _pickBoard() async {
+    final picked = await showModalBottomSheet<ForumSearchBoard>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
+      builder: (_) => _BoardSheet(
+        loadBoards: widget.loadBoards,
+        selectedId: _board?.id ?? _allBoardsOption.id,
+      ),
+    );
+    if (picked == null || !mounted || picked.id == (_board?.id ?? 'all')) {
+      return;
+    }
+    picked.id == 'all' ? _select(clearBoard: true) : _select(board: picked);
+  }
+
+  Future<void> _pickType() async {
+    final picked = await _showChoiceSheet<UserContentArticleType>(
+      context,
+      title: '文章类型',
+      selected: _type,
+      options: [
+        for (final type in UserContentArticleType.values)
+          (type, _articleTypeLabel(type)),
+      ],
+    );
+    if (picked != null && picked != _type && mounted) _select(type: picked);
+  }
+
+  Future<void> _pickClassification() async {
+    final board = _board;
+    if (board == null || _loadingClassifications) return;
+    var options = _classifications;
+    if (options == null) {
+      setState(() => _loadingClassifications = true);
+      final epoch = _epoch;
+      try {
+        options =
+            await widget.repository.fetchUserContentBoardFilters(board.id);
+      } catch (error) {
+        if (!mounted) return;
+        setState(() => _loadingClassifications = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('分类加载失败：${forumErrorText(error)}')),
+        );
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _loadingClassifications = false);
+      if (epoch != _epoch) return;
+      setState(() => _classifications = options);
+    }
+    if (!mounted) return;
+    if (options.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('该版块没有分类')),
+      );
+      return;
+    }
+    final picked = await _showChoiceSheet<String>(
+      context,
+      title: '${_boardLabel(board.name)} 分类',
+      selected: _classification?.id ?? '',
+      options: [
+        ('', '全部分类'),
+        for (final item in options) (item.id, item.label),
+      ],
+    );
+    if (picked == null || !mounted || picked == (_classification?.id ?? '')) {
+      return;
+    }
+    picked.isEmpty
+        ? _select(clearClassification: true)
+        : _select(
+            classification: options.firstWhere((item) => item.id == picked));
+  }
+
+  // totalPages is unknown (<= 0) until the first page is read.
+  String _scanned(UserContentResult result) => result.totalPages > 0
+      ? '已扫描 ${result.scannedPages}/${result.totalPages} 页'
+      : '已扫描 ${result.scannedPages} 页';
+
+  String _statusText(UserContentResult result) {
+    return [
+      _scanned(result),
+      if (result.checkedThreads > 0) '已核对 ${result.checkedThreads} 帖',
+      if (result.lookupPagesTotal > 0)
+        '分类列表已查 ${result.lookupPagesScanned}/${result.lookupPagesTotal} 页',
+      if (result.pendingMetadataCount > 0)
+        '未核对 ${result.pendingMetadataCount} 条',
+      if (result.unresolvedItems.isNotEmpty)
+        '待确认 ${result.unresolvedItems.length} 条',
+    ].join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final theme = Theme.of(context);
+    final result = _result;
+    final items = _items;
+    final unresolved = result?.unresolvedItems ?? const <UserListItem>[];
+    final gutter = _gutter(context);
+    final filtered = !_isDefault;
+    return NotificationListener<ScrollEndNotification>(
+      onNotification: (notification) {
+        if (notification.depth == 0 &&
+            notification.metrics.extentAfter < 240 &&
+            items.isNotEmpty &&
+            _canContinue) {
+          _advance();
+        }
+        return false;
+      },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(gutter, AppSpace.sm, gutter, 28),
+        children: [
+          Wrap(
+            spacing: AppSpace.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _FilterChipButton(
+                label: '版块',
+                value: _board == null ? '全部' : _boardLabel(_board!.name),
+                active: _board != null,
+                onTap: _pickBoard,
+              ),
+              _FilterChipButton(
+                label: '类型',
+                value: _articleTypeLabel(_type),
+                active: _type != UserContentArticleType.all,
+                onTap: _pickType,
+              ),
+              _FilterChipButton(
+                label: '分类',
+                value: _classification?.label ?? '全部',
+                active: _classification != null,
+                busy: _loadingClassifications,
+                // Needs a board: classifications belong to one board.
+                onTap: _board == null ? null : _pickClassification,
+              ),
+            ],
+          ),
+          // Before the first answer the footer carries the loading/error state.
+          if (filtered && result != null) ...[
+            const SizedBox(height: AppSpace.xs),
+            Semantics(
+              liveRegion: true,
+              child:
+                  Text(_statusText(result), style: theme.textTheme.bodySmall),
+            ),
+          ],
+          const SizedBox(height: AppSpace.sm),
+          if (items.isNotEmpty)
+            _threadGroup(context, items, widget.repository, showAuthor: false)
+          else if (_loading && result == null)
+            const _SkeletonPanel()
+          else if (result != null || (!filtered && _error == null))
+            _InlineEmpty(
+              text: !filtered
+                  ? widget.emptyText
+                  : result!.hasMore || unresolved.isNotEmpty
+                      ? '${_scanned(result)}，暂未找到匹配'
+                      : '没有符合条件的内容',
+            ),
+          if (unresolved.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.md),
+            _UnresolvedGroup(
+              items: unresolved,
+              expanded: _unresolvedOpen,
+              onToggle: () =>
+                  setState(() => _unresolvedOpen = !_unresolvedOpen),
+              repository: widget.repository,
+            ),
+          ],
+          _ContentFooter(
+            loading: _loading,
+            error: _error,
+            canContinue: _canContinue,
+            filtered: filtered,
+            finished: result != null && !result.hasMore,
+            unresolvedCount: unresolved.length,
+            onContinue: _advance,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChipButton extends StatelessWidget {
+  const _FilterChipButton({
+    required this.label,
+    required this.value,
+    required this.onTap,
+    this.active = false,
+    this.busy = false,
+  });
+
+  final String label;
+  final String value;
+  final bool active;
+  final bool busy;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null && !busy;
+    final color = !enabled && !busy
+        ? AppColors.textFaint
+        : active
+            ? AppColors.brandDark
+            : AppColors.textMuted;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: '$label筛选，当前$value',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        customBorder: const StadiumBorder(),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48, maxWidth: 220),
+          child: Center(
+            widthFactor: 1,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpace.md,
+                vertical: AppSpace.xs + 2,
+              ),
+              decoration: ShapeDecoration(
+                color: active ? AppColors.brandSoft : null,
+                shape: StadiumBorder(
+                  side: BorderSide(
+                    color: active ? AppColors.brandSoft : AppColors.border,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      '$label：$value',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelLarge
+                          ?.copyWith(color: color),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpace.xs),
+                  busy
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(Icons.arrow_drop_down, size: 20, color: color),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Footer of the content list: one state at a time, never a silent end.
+class _ContentFooter extends StatelessWidget {
+  const _ContentFooter({
+    required this.loading,
+    required this.error,
+    required this.canContinue,
+    required this.filtered,
+    required this.finished,
+    required this.unresolvedCount,
+    required this.onContinue,
+  });
+
+  final bool loading;
+  final Object? error;
+  final bool canContinue;
+  final bool filtered;
+  final bool finished;
+  final int unresolvedCount;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodySmall;
+    final Widget child;
+    if (loading) {
+      child = Semantics(
+        liveRegion: true,
+        label: '正在查找',
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: AppSpace.sm),
+            Text('正在查找…', style: style),
+          ],
+        ),
+      );
+    } else if (error != null) {
+      child = Column(
+        children: [
+          Text('查找失败：${forumErrorText(error)}',
+              textAlign: TextAlign.center, style: style),
+          TextButton(onPressed: onContinue, child: const Text('重试')),
+        ],
+      );
+    } else if (canContinue) {
+      child = TextButton(
+        onPressed: onContinue,
+        child: Text(filtered ? '继续查找' : '加载更多'),
+      );
+    } else if (finished) {
+      child = Text(
+        unresolvedCount > 0 ? '已查完，另有 $unresolvedCount 条无法确认' : '已到最后一页',
+        textAlign: TextAlign.center,
+        style: style,
+      );
+    } else {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpace.md),
+      child: Center(child: child),
+    );
+  }
+}
+
+/// Rows whose board, classification or type could not be verified. Shown in
+/// full on demand; never folded into the matches and never dropped.
+class _UnresolvedGroup extends StatelessWidget {
+  const _UnresolvedGroup({
+    required this.items,
+    required this.expanded,
+    required this.onToggle,
+    required this.repository,
+  });
+
+  final List<UserListItem> items;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final ForumRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          button: true,
+          expanded: expanded,
+          child: InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Row(
+                children: [
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    color: AppColors.textMuted,
+                  ),
+                  const SizedBox(width: AppSpace.sm),
+                  Expanded(
+                    child: Text(
+                      '未确认分类 (${items.length})',
+                      style: theme.textTheme.titleSmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        AnimatedSize(
+          duration: _motion(context, AppMotion.short),
+          curve: AppMotion.enter,
+          alignment: Alignment.topCenter,
+          child: expanded
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                      child: Text(
+                        '这些内容的版块、分类或类型暂时无法核实，可能符合条件。',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
+                    _threadGroup(context, items, repository, showAuthor: false),
+                  ],
+                )
+              : const SizedBox(width: double.infinity),
+        ),
+      ],
+    );
+  }
+}
+
+Future<T?> _showChoiceSheet<T extends Object>(
+  BuildContext context, {
+  required String title,
+  required T selected,
+  required List<(T, String)> options,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
+    builder: (context) => SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
+            child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+          ),
+          for (final (value, label) in options)
+            ListTile(
+              title: Text(label),
+              selected: value == selected,
+              selectedColor: AppColors.brandDark,
+              trailing: value == selected ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(value),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _BoardSheet extends StatefulWidget {
+  const _BoardSheet({required this.loadBoards, required this.selectedId});
+
+  final Future<List<ForumSearchBoard>> Function() loadBoards;
+  final String selectedId;
+
+  @override
+  State<_BoardSheet> createState() => _BoardSheetState();
+}
+
+class _BoardSheetState extends State<_BoardSheet> {
+  final _filter = TextEditingController();
+  late Future<List<ForumSearchBoard>> _boards = widget.loadBoards();
+
+  @override
+  void dispose() {
+    _filter.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final needle = _filter.text.trim();
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * .75,
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
+              child: TextField(
+                controller: _filter,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: '筛选版块',
+                  prefixIcon: Icon(Icons.search),
+                ),
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder<List<ForumSearchBoard>>(
+                future: _boards,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return AsyncErrorView(
+                      title: '版块列表加载失败',
+                      message: forumErrorText(snapshot.error),
+                      onRetry: () =>
+                          setState(() => _boards = widget.loadBoards()),
+                    );
+                  }
+                  final boards = snapshot.data;
+                  if (boards == null) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final shown = [
+                    if (needle.isEmpty) _allBoardsOption,
+                    for (final board in boards)
+                      if (board.id != 'all' &&
+                          (needle.isEmpty
+                              ? true
+                              : board.selectable &&
+                                  _boardLabel(board.name).contains(needle)))
+                        board,
+                  ];
+                  if (shown.isEmpty) {
+                    return const EmptyStateView(title: '没有匹配的版块');
+                  }
+                  return ListView.builder(
+                    itemCount: shown.length,
+                    itemBuilder: (context, index) {
+                      final board = shown[index];
+                      if (!board.selectable) {
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(AppSpace.lg,
+                              AppSpace.md, AppSpace.lg, AppSpace.xs),
+                          child: Semantics(
+                            header: true,
+                            child: Text(
+                              _boardLabel(board.name),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      final selected = board.id == widget.selectedId;
+                      return ListTile(
+                        contentPadding: EdgeInsetsDirectional.only(
+                          start: AppSpace.lg +
+                              (needle.isEmpty ? board.depth * AppSpace.lg : 0),
+                          end: AppSpace.lg,
+                        ),
+                        title: Text(_boardLabel(board.name)),
+                        selected: selected,
+                        selectedColor: AppColors.brandDark,
+                        trailing: selected ? const Icon(Icons.check) : null,
+                        onTap: () => Navigator.of(context).pop(board),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineEmpty extends StatelessWidget {
+  const _InlineEmpty({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(28),
+      child: Center(
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppColors.textMuted),
+        ),
+      ),
+    );
+  }
+}
+
+/// One grouped surface of shared thread rows. Replies keep one row per post
+/// (postId), so several replies in one thread stay separate.
+Widget _threadGroup(
+  BuildContext context,
+  List<UserListItem> items,
+  ForumRepository repository, {
+  required bool showAuthor,
+}) {
+  return AppGroup(
+    dividerIndent: AppSpace.lg,
+    children: [
+      for (final item in items)
+        ForumThreadRow(
+          key: ValueKey(item.postId ?? item.url),
+          title: item.title,
+          meta: [
+            if (item.section case final section?) section,
+            if (showAuthor && item.author != null) item.author!,
+            if (item.date case final date?) date,
+            if (item.replies case final replies?) '$replies 回复',
+            if (item.views case final views?) '$views 浏览',
+          ],
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ThreadDetailScreen(
+                thread: ForumThread(
+                  title: item.title,
+                  url: item.url,
+                  replies: item.replies ?? 0,
+                  section: item.section ?? '用户中心',
+                  author: item.author,
+                  authorUrl: item.authorUrl,
+                  lastPost: item.date,
+                ),
+                repository: repository,
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
 }

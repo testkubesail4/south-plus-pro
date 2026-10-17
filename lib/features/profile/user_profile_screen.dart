@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
+import '../../models/user_content_query.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
@@ -9,6 +10,7 @@ import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../common/thread_row.dart';
+import '../common/user_note.dart';
 import '../messages/pm_compose_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
@@ -35,6 +37,14 @@ class UserProfileScreen extends StatefulWidget {
 
 class _UserProfileScreenState extends State<UserProfileScreen> {
   late Future<UserProfile> _overviewFuture;
+  late UserNoteController _notes = UserNoteController(widget.repository);
+  // Board options for the 主题/回复 filters; loaded on first use per session.
+  Future<List<ForumSearchBoard>>? _boards;
+  // Counts pull-to-refresh restarts so filter tabs restart their queries.
+  int _contentRefresh = 0;
+  // Board ids belong to one session; a new session starts unfiltered.
+  var _topicSelection = _ContentSelection();
+  var _postSelection = _ContentSelection();
   Future<UserProfile>? _detailsFuture;
 
   // Login name from the explicit lookup; lives only as long as this screen
@@ -59,6 +69,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   void didUpdateWidget(UserProfileScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.repository == widget.repository) return;
+    _notes.dispose();
+    _notes = UserNoteController(widget.repository);
     oldWidget.repository.sessionEpoch.removeListener(_onSessionChanged);
     widget.repository.sessionEpoch.addListener(_onSessionChanged);
     _onSessionChanged();
@@ -67,6 +79,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   void dispose() {
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
+    _notes.dispose();
     super.dispose();
   }
 
@@ -84,6 +97,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _forgetLoginName();
       _sessionChanged = true;
       _detailsFuture = null;
+      _boards = null;
+      _topicSelection = _ContentSelection();
+      _postSelection = _ContentSelection();
     });
   }
 
@@ -126,6 +142,30 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       ),
     );
   }
+
+  Future<void> _editNote(UserProfile profile) async {
+    final saved = await showUserNoteEditor(
+      context,
+      repository: widget.repository,
+      uid: profile.uid.trim(),
+      name: profile.name,
+      note: _notes.noteFor(profile.uid.trim()),
+    );
+    if (saved && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('备注已更新')),
+      );
+    }
+  }
+
+  Future<List<ForumSearchBoard>> _loadBoards() =>
+      _boards ??= widget.repository.fetchSearchBoards().catchError(
+        (Object error) {
+          // A failed load must not stay cached; the sheet's retry asks again.
+          _boards = null;
+          throw error;
+        },
+      );
 
   void _copyLoginName(String name) {
     Clipboard.setData(ClipboardData(text: name));
@@ -184,6 +224,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     setState(() {
       _forgetLoginName();
       _sessionChanged = false;
+      _boards = null;
+      _contentRefresh++;
       _loadProfile(forceReload: true);
     });
     final overview = await _overviewFuture;
@@ -238,26 +280,32 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     return NestedScrollView(
                       headerSliverBuilder: (context, _) => [
                         SliverToBoxAdapter(
-                          child: _ProfileHeader(
-                            profile: profile,
-                            onMessage: switch (profile.messageUrl) {
-                              final url? => () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => PmComposeScreen(
-                                        repository: widget.repository,
-                                        path: url,
+                          child: ListenableBuilder(
+                            listenable: _notes,
+                            builder: (context, _) => _ProfileHeader(
+                              profile: profile,
+                              note: hasUid ? _notes.noteFor(uid) : null,
+                              onEditNote:
+                                  hasUid ? () => _editNote(profile) : null,
+                              onMessage: switch (profile.messageUrl) {
+                                final url? => () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => PmComposeScreen(
+                                          repository: widget.repository,
+                                          path: url,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                              null => null,
-                            },
-                            loginName: _loginName,
-                            lookingUp: _lookingUp,
-                            onShowLoginName:
-                                hasUid ? () => _lookupLoginName(uid) : null,
-                            onCopyLoginName: _copyLoginName,
-                            onSearchByUser:
-                                hasUid ? () => _searchByUser(uid) : null,
+                                null => null,
+                              },
+                              loginName: _loginName,
+                              lookingUp: _lookingUp,
+                              onShowLoginName:
+                                  hasUid ? () => _lookupLoginName(uid) : null,
+                              onCopyLoginName: _copyLoginName,
+                              onSearchByUser:
+                                  hasUid ? () => _searchByUser(uid) : null,
+                            ),
                           ),
                         ),
                         const SliverToBoxAdapter(child: _ProfileTabs()),
@@ -282,22 +330,44 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
-                              builder: (context, details) => _ItemList(
-                                items: details.topics,
-                                emptyText: '没有主题',
-                                repository: widget.repository,
-                              ),
+                              builder: (context, details) => hasUid
+                                  ? _ContentTab(
+                                      uid: uid,
+                                      tab: UserProfileTab.topics,
+                                      defaultItems: details.topics,
+                                      emptyText: '没有主题',
+                                      repository: widget.repository,
+                                      loadBoards: _loadBoards,
+                                      selection: _topicSelection,
+                                      refreshGeneration: _contentRefresh,
+                                    )
+                                  : _ItemList(
+                                      items: details.topics,
+                                      emptyText: '没有主题',
+                                      repository: widget.repository,
+                                    ),
                             ),
                           ),
                           _RefreshTab(
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
-                              builder: (context, details) => _ItemList(
-                                items: details.posts,
-                                emptyText: '没有回复',
-                                repository: widget.repository,
-                              ),
+                              builder: (context, details) => hasUid
+                                  ? _ContentTab(
+                                      uid: uid,
+                                      tab: UserProfileTab.posts,
+                                      defaultItems: details.posts,
+                                      emptyText: '没有回复',
+                                      repository: widget.repository,
+                                      loadBoards: _loadBoards,
+                                      selection: _postSelection,
+                                      refreshGeneration: _contentRefresh,
+                                    )
+                                  : _ItemList(
+                                      items: details.posts,
+                                      emptyText: '没有回复',
+                                      repository: widget.repository,
+                                    ),
                             ),
                           ),
                           _RefreshTab(
