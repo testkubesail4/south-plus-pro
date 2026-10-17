@@ -97,28 +97,10 @@ class ForumThreadRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (tag == null)
-                  titleText
-                else
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(
-                            top: 2, right: AppSpace.sm),
-                        child: AppTag(tag!, accent: true),
-                      ),
-                      Flexible(child: titleText),
-                    ],
-                  ),
-                if (meta.isNotEmpty) ...[
+                titleText,
+                if (meta.isNotEmpty || tag != null) ...[
                   const SizedBox(height: AppSpace.xs),
-                  Text(
-                    meta.join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall,
-                  ),
+                  _MetaLine(tag: tag, meta: meta.join(' · ')),
                 ],
               ],
             ),
@@ -152,6 +134,44 @@ class ForumThreadRow extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The meta line. A tag such as 置顶 leads it as an accent word that never
+/// ellipsizes; only the joined meta does.
+class _MetaLine extends StatelessWidget {
+  const _MetaLine({required this.tag, required this.meta});
+
+  final String? tag;
+  final String meta;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodySmall;
+    final metaText = Text(
+      meta,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: style,
+    );
+    final tag = this.tag;
+    if (tag == null) return metaText;
+    return Row(
+      children: [
+        Text(
+          tag,
+          maxLines: 1,
+          style: style?.copyWith(
+            color: AppColors.brandDark,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (meta.isNotEmpty) ...[
+          Text(' · ', style: style),
+          Flexible(child: metaText),
+        ],
+      ],
     );
   }
 }

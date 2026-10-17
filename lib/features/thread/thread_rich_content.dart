@@ -22,6 +22,7 @@ class ThreadRichContent extends StatelessWidget {
     this.onOpenLink,
     this.privateMedia = false,
   })  : alignment = ThreadContentAlignment.start,
+        revealPrefix = '',
         renderModel = ThreadPostRenderModel.fromSegments(segments);
 
   const ThreadRichContent.renderModel({
@@ -32,9 +33,15 @@ class ThreadRichContent extends StatelessWidget {
     this.onOpenLink,
     this.privateMedia = false,
     this.alignment = ThreadContentAlignment.start,
+    this.revealPrefix = '',
   });
 
   final ThreadPostRenderModel renderModel;
+
+  /// Where this content sits in its post, as the block index path of its
+  /// parent plus a '/', for matching ThreadPurchaseScope.revealPaths; null
+  /// for content that never reveals (table cells).
+  final String? revealPrefix;
   final Set<String> buyingSaleBoxes;
   final ValueChanged<ThreadSaleBox>? onBuySaleBox;
   final Future<void> Function(String url, String label)? onOpenLink;
@@ -66,6 +73,8 @@ class ThreadRichContent extends StatelessWidget {
           onOpenLink,
           privateMedia,
           alignment,
+          revealPrefix == null ? null : ThreadPurchaseScope.maybeOf(context),
+          revealPrefix,
         );
 
         final column = Column(
@@ -98,6 +107,8 @@ List<Widget> _buildChildren(
   Future<void> Function(String url, String label)? onOpenLink,
   bool privateMedia,
   ThreadContentAlignment alignment,
+  ThreadPurchaseScope? purchase,
+  String? revealPrefix,
 ) {
   final children = <Widget>[];
   final inlineSpans = <InlineSpan>[];
@@ -105,6 +116,7 @@ List<Widget> _buildChildren(
   Widget nested(
     ThreadPostRenderModel model, {
     ThreadContentAlignment alignment = ThreadContentAlignment.start,
+    String? path,
   }) =>
       ThreadRichContent.renderModel(
         renderModel: model,
@@ -113,6 +125,7 @@ List<Widget> _buildChildren(
         onOpenLink: onOpenLink,
         privateMedia: privateMedia,
         alignment: alignment,
+        revealPrefix: path == null ? null : '$path/',
       );
 
   void addBlockChild(Widget child) {
@@ -143,7 +156,14 @@ List<Widget> _buildChildren(
     inlineSpans.clear();
   }
 
-  for (final block in blocks) {
+  for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+    final block = blocks[blockIndex];
+    final path = '${revealPrefix ?? ''}$blockIndex';
+    final reveals = revealPrefix != null &&
+        purchase != null &&
+        purchase.revealPaths.contains(path);
+    if (reveals) flushInline();
+    final revealStart = children.length;
     switch (block.type) {
       case ThreadRenderBlockType.text:
         final textBlock = block as ThreadTextRenderBlock;
@@ -240,6 +260,7 @@ List<Widget> _buildChildren(
               onBuySaleBox: onBuySaleBox,
               onOpenLink: onOpenLink,
               privateMedia: privateMedia,
+              revealPrefix: revealPrefix == null ? null : '$path/',
             ),
           ),
         );
@@ -263,7 +284,11 @@ List<Widget> _buildChildren(
         flushInline();
         children.add(SizedBox(
           width: double.infinity,
-          child: nested(paragraph.renderModel, alignment: paragraph.alignment),
+          child: nested(
+            paragraph.renderModel,
+            alignment: paragraph.alignment,
+            path: revealPrefix == null ? null : path,
+          ),
         ));
       case ThreadRenderBlockType.code:
         flushInline();
@@ -289,7 +314,12 @@ List<Widget> _buildChildren(
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Expanded(child: nested(listBlock.items[i])),
+                    Expanded(
+                      child: nested(
+                        listBlock.items[i],
+                        path: revealPrefix == null ? null : '$path/$i',
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -309,6 +339,18 @@ List<Widget> _buildChildren(
           label: media.label,
           onOpenLink: onOpenLink,
         ));
+    }
+    if (reveals) {
+      flushInline();
+      for (var j = revealStart; j < children.length; j++) {
+        final id = '${purchase.postKey}|$path|${j - revealStart}';
+        children[j] = ThreadPurchaseReveal(
+          key: ValueKey(id),
+          id: id,
+          played: purchase.played,
+          child: children[j],
+        );
+      }
     }
   }
 
@@ -1190,6 +1232,7 @@ class _RichQuoteBlock extends StatelessWidget {
     required this.onBuySaleBox,
     required this.onOpenLink,
     required this.privateMedia,
+    required this.revealPrefix,
   });
 
   final ThreadPostRenderModel renderModel;
@@ -1197,6 +1240,7 @@ class _RichQuoteBlock extends StatelessWidget {
   final ValueChanged<ThreadSaleBox>? onBuySaleBox;
   final Future<void> Function(String url, String label)? onOpenLink;
   final bool privateMedia;
+  final String? revealPrefix;
 
   @override
   Widget build(BuildContext context) {
@@ -1220,6 +1264,7 @@ class _RichQuoteBlock extends StatelessWidget {
           onBuySaleBox: onBuySaleBox,
           onOpenLink: onOpenLink,
           privateMedia: privateMedia,
+          revealPrefix: revealPrefix,
         ),
       ),
     );

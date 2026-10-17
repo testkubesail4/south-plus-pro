@@ -4,9 +4,11 @@ import '../../models/forum_models.dart';
 import '../../theme/app_theme.dart';
 
 /// A thread title with the site's highlight: bold and italic on the text, the
-/// site colour on a short bar before it (kept readable on the surface). The
-/// text stays in the body colour and is never underlined, so a highlighted
-/// title does not read as a raw link.
+/// site colour on a short bar hanging in the left margin beside the first line
+/// (kept readable on the surface). The title is never inset, so a wrapped line
+/// starts at the same x as the first. The text stays in the body colour and is
+/// never underlined, so a highlighted title does not read as a raw link. The
+/// parent leaves at least [markGutter] of padding at the start.
 class ForumTitleText extends StatelessWidget {
   const ForumTitleText(
     this.title, {
@@ -20,6 +22,9 @@ class ForumTitleText extends StatelessWidget {
   final ForumTitleStyle? titleStyle;
   final TextStyle style;
   final int? maxLines;
+
+  /// The bar sits this far left of the text (its own 4 px included).
+  static const markGutter = 8.0;
 
   @override
   Widget build(BuildContext context) {
@@ -38,18 +43,21 @@ class ForumTitleText extends StatelessWidget {
     );
     if (color == null) return text;
     // The bar is centred on the first line at any text scale.
-    final fontSize = MediaQuery.textScalerOf(context).scale(style.fontSize ?? 14);
+    final fontSize =
+        MediaQuery.textScalerOf(context).scale(style.fontSize ?? 14);
     final line = fontSize * (style.height ?? 1.3);
     final bar = fontSize * 0.9;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Stack(
+      clipBehavior: Clip.none,
       children: [
-        Padding(
-          padding: EdgeInsets.only(top: (line - bar) / 2, right: 6),
-          child: SizedBox(
-            width: 4,
-            height: bar,
+        text,
+        PositionedDirectional(
+          start: -markGutter,
+          top: (line - bar) / 2,
+          width: 4,
+          height: bar,
+          child: Semantics(
+            label: '高亮标题',
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: readableTitleColor(Color(color), AppColors.surface),
@@ -58,7 +66,6 @@ class ForumTitleText extends StatelessWidget {
             ),
           ),
         ),
-        Flexible(child: text),
       ],
     );
   }
