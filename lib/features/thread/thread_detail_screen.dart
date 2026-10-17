@@ -2354,11 +2354,8 @@ class _ThreadHeaderActions extends StatelessWidget {
             label: const Text('下一主题'),
           );
     if (back != null && forward != null) {
-      // Too narrow for one line, 下一主题 goes under 上一主题.
-      return Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        children: [back, forward],
-      );
+      // Too narrow for one line, 下一主题 goes under 上一主题, still at the end.
+      return _SplitRow(leading: back, trailing: forward);
     }
     if (back != null) {
       return Align(alignment: AlignmentDirectional.centerStart, child: back);

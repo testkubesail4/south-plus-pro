@@ -175,6 +175,9 @@ void main() {
         expect(tester.getTopRight(find.text(label)).dx,
             lessThanOrEqualTo(width), reason: label);
       }
+      // 下一主题 keeps the end, even on a line of its own.
+      expect(tester.getTopRight(button('下一主题')).dx,
+          greaterThan(tester.getTopRight(find.byTooltip('更多操作')).dx - 16));
     });
   }
 
