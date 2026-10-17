@@ -482,7 +482,7 @@ void main() {
     final snapshot = await repository.loadCachedForumTaskSnapshot();
     expect(snapshot?.taskNamed('日常')?.availability,
         ForumTaskAvailability.completed);
-    expect(snapshot?.taskNamed('日常')?.cooldownRemaining,
+    expect(snapshot?.taskNamed('日常')?.cooldownThreshold,
         const Duration(hours: 18));
 
     final repeated = await repository.claimForumTaskRewards();
@@ -1075,9 +1075,23 @@ void main() {
     final daily = snapshot.taskNamed('日常');
 
     expect(daily?.availability, ForumTaskAvailability.completed);
-    expect(daily?.cooldownRemaining, const Duration(hours: 18));
-    expect(daily?.nextAvailableAt, isNotNull);
+    expect(daily?.cooldownThreshold, const Duration(hours: 18));
+    expect(daily?.cooldownRemaining, isNull);
+    expect(daily?.cooldownRemainingFrom(DateTime.now()), isNull);
+    expect(daily?.nextAvailableAt, isNull);
     expect(daily?.completedAt, '2026-06-17 AM:11:37:46');
+    final reentered =
+        await ForumRepository(client: client).loadCachedForumTaskSnapshot();
+    expect(reentered?.taskNamed('日常')?.availability,
+        ForumTaskAvailability.completed);
+    expect(reentered?.taskNamed('日常')?.cooldownThreshold,
+        const Duration(hours: 18));
+    expect(reentered?.taskNamed('日常')?.nextAvailableAt, isNull);
+    expect(client.paths, [
+      'plugin.php?H_name-tasks-actions-newtasks.html.html',
+      'plugin.php?H_name-tasks-actions-endtasks.html.html',
+      'plugin.php?H_name-tasks.html',
+    ]);
   });
 
   test(
@@ -1125,7 +1139,7 @@ void main() {
 
     expect(daily?.availability, ForumTaskAvailability.claimable);
     expect(daily?.completedAt, completedAt);
-    expect(daily?.cooldownRemaining, const Duration(hours: 18));
+    expect(daily?.cooldownThreshold, const Duration(hours: 18));
   });
 
   test(
@@ -1173,7 +1187,7 @@ void main() {
 
     expect(daily?.availability, ForumTaskAvailability.completed);
     expect(daily?.completedAt, completedAt);
-    expect(daily?.cooldownRemaining, const Duration(hours: 18));
+    expect(daily?.cooldownThreshold, const Duration(hours: 18));
   });
 
   test('refreshForumTaskSnapshot matches current live daily-claimable state',
@@ -1223,9 +1237,9 @@ void main() {
     final weekly = snapshot.taskNamed('周常');
 
     expect(daily?.availability, ForumTaskAvailability.claimable);
-    expect(daily?.cooldownRemaining, const Duration(hours: 18));
+    expect(daily?.cooldownThreshold, const Duration(hours: 18));
     expect(weekly?.availability, ForumTaskAvailability.completed);
-    expect(weekly?.cooldownRemaining, const Duration(hours: 158));
+    expect(weekly?.cooldownThreshold, const Duration(hours: 158));
     expect(snapshot.autoTaskSummary.hasClaimable, isTrue);
     expect(snapshot.autoTaskSummary.isFullyHandled, isFalse);
   });
@@ -1376,6 +1390,16 @@ class _FakeForumClient extends ForumClient {
   Future<String> get(String path) async => html;
 
   @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
+    final response = await get(path);
+    requireCurrentSession?.call();
+    return response;
+  }
+
+  @override
   Future<Uint8List> getBytes(String path) async {
     bytesPath = path;
     return Uint8List.fromList([1, 2, 3]);
@@ -1394,6 +1418,16 @@ class _PathForumClient extends ForumClient {
 
   @override
   Future<String> getOnce(String path) => get(path);
+
+  @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
+    final response = await get(path);
+    requireCurrentSession?.call();
+    return response;
+  }
 
   @override
   Future<String> get(String path) async {

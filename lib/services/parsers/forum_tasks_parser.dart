@@ -40,7 +40,7 @@ class ForumTasksParser {
           progressPercent: _intMatch(detailText, RegExp(r'已完成\s*(\d+)\s*%')),
           completedAt: _matchText(detailText, RegExp(r'完成时间\s*(.+)$')),
           actionLabel: _actionLabel(row),
-          cooldownRemaining: _cooldownRemaining(text),
+          cooldownThreshold: _cooldownThreshold(text),
         ),
       );
     }
@@ -86,7 +86,7 @@ class ForumTasksParser {
     return value == null ? null : int.tryParse(value);
   }
 
-  Duration? _cooldownRemaining(String text) {
+  Duration? _cooldownThreshold(String text) {
     final match = RegExp(r'上次领取未超过\s*(\d+)\s*小时').firstMatch(text);
     final hours = int.tryParse(match?.group(1) ?? '');
     return hours == null ? null : Duration(hours: hours);

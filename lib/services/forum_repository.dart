@@ -7,9 +7,14 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
 
 import '../models/forum_models.dart';
+import '../models/forum_account_models.dart';
+import '../models/user_content_query.dart';
 import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
+import 'forum_account_service.dart';
+import 'home_reading_preferences.dart';
+import 'user_content_query_service.dart';
 import 'forum_blocking_settings.dart';
 import 'forum_http_routing.dart';
 import 'forum_network_config.dart';
@@ -86,6 +91,8 @@ class ForumRepository {
       _noticeFlags.value = const ForumNoticeFlags();
       _accountIdentity.value = null;
       _accountNicknameFuture = null;
+      _taskReadRequests.clear();
+      _taskSnapshotRefreshes.clear();
       _invalidateQuickLists();
     });
     _sessionUser.addListener(() {
@@ -114,6 +121,16 @@ class ForumRepository {
     contentParser: ThreadContentParser(urls: _urls),
   );
   late UserProfileParser _userProfileParser = UserProfileParser(urls: _urls);
+  late final ForumAccountService _accountService = ForumAccountService(
+    client: () => _client,
+    sessionEpoch: () => _sessionEpoch.value,
+    isLoggedIn: () => isLoggedIn,
+  );
+  late UserContentQueryService _userContentQueries = UserContentQueryService(
+    getDocument: _fetchUserContentDocument,
+    urls: _urls,
+    sessionEpoch: () => _sessionEpoch.value,
+  );
   UserProfileCache _profileCache;
   Future<_ProfileDetailsData>? _profileDetailsFuture;
   _ProfileDetailsData? _profileDetailsData;
@@ -124,6 +141,14 @@ class ForumRepository {
   final BrowsingHistoryStore _historyStore;
   final _readPositions = ThreadReadPositionStore();
   final ForumTaskStateStore _taskStateStore;
+  final _taskReadRequests = <({
+    ForumTaskStatus status,
+    ForumClient client,
+    int epoch
+  }),
+      Future<List<ForumTask>>>{};
+  final _taskSnapshotRefreshes =
+      <({ForumClient client, int epoch}), Future<ForumTaskSnapshot>>{};
   int _homeGeneration = 0;
   Set<ForumQuickList> _homeQuickLists = {};
   final _quickListRequests = <ForumQuickList, Future<List<ForumThread>>>{};
@@ -236,6 +261,15 @@ class ForumRepository {
 
   String? get currentUsername => _sessionUser.value;
 
+  String? get localPreferenceAccount {
+    final account = currentUsername;
+    if (ForumNetworkConfig.sites.contains(_config.site)) return account;
+    final origin = _config.baseUri.origin;
+    return account == null
+        ? '$origin:anonymous'
+        : '$origin:account:${Uri.encodeComponent(account)}';
+  }
+
   ForumNetworkConfig get networkConfig => _config;
 
   bool isAttachmentUrl(String url) => _client.isAttachmentUrl(url);
@@ -317,6 +351,11 @@ class ForumRepository {
       contentParser: ThreadContentParser(urls: _urls),
     );
     _userProfileParser = UserProfileParser(urls: _urls);
+    _userContentQueries = UserContentQueryService(
+      getDocument: _fetchUserContentDocument,
+      urls: _urls,
+      sessionEpoch: () => _sessionEpoch.value,
+    );
     _profileCache = UserProfileCache(urls: _urls);
     _client = ForumClient(config: config);
     _sessionUser.value = null;
@@ -349,6 +388,77 @@ class ForumRepository {
     _maybeLoadBlocking();
   }
 
+  Future<ForumAccountForm> fetchForumPreferences() =>
+      _accountService.fetchForumPreferences();
+
+  Future<ForumAccountForm> fetchAccountProfileForm() =>
+      _accountService.fetchAccountProfileForm();
+
+  Future<ForumAccountAvatarPage> fetchAccountSystemAvatars({int page = 1}) =>
+      _accountService.fetchAccountSystemAvatars(page: page);
+
+  Future<void> saveForumPreferences(
+    ForumAccountForm form,
+    Map<String, List<String>> changes,
+  ) async {
+    final epoch = _sessionEpoch.value;
+    await _accountService.saveForumPreferences(form, changes);
+    await _refreshEditedAccount(epoch);
+  }
+
+  Future<void> saveAccountProfileForm(
+    ForumAccountForm form,
+    Map<String, List<String>> changes, {
+    ForumAccountUpload? avatar,
+  }) async {
+    final epoch = _sessionEpoch.value;
+    await _accountService.saveAccountProfileForm(form, changes, avatar: avatar);
+    await _refreshEditedAccount(epoch);
+  }
+
+  Future<void> _refreshEditedAccount(int epoch) async {
+    if (epoch != _sessionEpoch.value) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+    }
+    final uid = _accountIdentity.value?.uid;
+    _clearProfileDetails();
+    _accountNicknameFuture = null;
+    if (uid == null) return;
+    try {
+      await fetchUserProfileOverview(
+          _urls.userTabUrl(uid, UserProfileTab.profile));
+    } catch (_) {
+      // The native save succeeded; an optional header refresh must not retry it.
+    }
+    if (epoch != _sessionEpoch.value) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+    }
+  }
+
+  Future<UserContentResult> fetchUserContent(
+    UserContentQuery query, {
+    bool refresh = false,
+  }) =>
+      _userContentQueries.fetch(query, refresh: refresh);
+
+  Future<List<UserContentClassification>> fetchUserContentBoardFilters(
+    String boardId,
+  ) =>
+      _userContentQueries.fetchBoardFilters(boardId);
+
+  Future<dom.Document> _fetchUserContentDocument(String path) async {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final response = await client.get(path);
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+    }
+    return html_parser.parse(response);
+  }
+
   Future<void> loadAccountNickname() {
     final uid = _accountIdentity.value?.uid;
     if (!isLoggedIn || uid == null) return SynchronousFuture(null);
@@ -357,13 +467,15 @@ class ForumRepository {
 
   Future<void> _loadAccountNickname(String uid) async {
     final epoch = _sessionEpoch.value;
+    final generation = _profileDetailsGeneration;
     final profileUrl = _urls.userTabUrl(uid, UserProfileTab.profile);
     try {
       var profile = await _profileCache.loadOverview(profileUrl);
       if (epoch != _sessionEpoch.value) return;
       if (profile?.uid != uid) profile = null;
       profile ??= await fetchUserProfileOverview(profileUrl);
-      if (epoch != _sessionEpoch.value) return;
+      if (epoch != _sessionEpoch.value ||
+          generation != _profileDetailsGeneration) return;
       _applyAccountProfile(profile);
     } catch (_) {
       // Optional nickname loading keeps the verified header identity on failure.
@@ -838,7 +950,22 @@ class ForumRepository {
     return home.latest;
   }
 
-  Future<List<ForumTask>> fetchForumTasks(ForumTaskStatus status) async {
+  Future<List<ForumTask>> fetchForumTasks(ForumTaskStatus status) {
+    final key = (status: status, client: _client, epoch: _sessionEpoch.value);
+    final pending = _taskReadRequests[key];
+    if (pending != null) return pending;
+    late Future<List<ForumTask>> request;
+    request = _readForumTasks(status, key.client, key.epoch).whenComplete(() {
+      if (identical(_taskReadRequests[key], request)) {
+        _taskReadRequests.remove(key);
+      }
+    });
+    _taskReadRequests[key] = request;
+    return request;
+  }
+
+  Future<List<ForumTask>> _readForumTasks(
+      ForumTaskStatus status, ForumClient client, int epoch) async {
     final path = switch (status) {
       ForumTaskStatus.available => 'plugin.php?H_name-tasks.html',
       ForumTaskStatus.inProgress =>
@@ -848,7 +975,11 @@ class ForumRepository {
       ForumTaskStatus.failed =>
         'plugin.php?H_name-tasks-actions-errotasks.html.html',
     };
-    final html = await _client.get(path);
+    final html = await client.get(path);
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
+    _throwIfBlockedPage(html);
     final tasks = _tasksParser.parse(html_parser.parse(html), status);
     ForumTraceLogger.log(
       'Tasks',
@@ -858,6 +989,12 @@ class ForumRepository {
       ForumTraceLogger.log('Tasks', '  ${_describeTask(task)}');
     }
     return tasks;
+  }
+
+  void _requireTaskSession(ForumClient client, int epoch) {
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
   }
 
   Future<ForumTaskActionResult> runForumTask(
@@ -872,6 +1009,8 @@ class ForumRepository {
       );
     }
 
+    final client = _client;
+    final epoch = _sessionEpoch.value;
     final expectation = claimReward
         ? _ForumTaskActionExpectation.claimReward
         : _ForumTaskActionExpectation.start;
@@ -880,9 +1019,12 @@ class ForumRepository {
       'Action',
       'runForumTask task=${_describeTask(task)} expectation=$expectation action=$action',
     );
-    final response = await _client.get(
+    final response = await client.getForm(
       'plugin.php?H_name=tasks&action=ajax&actions=$action&cid=$id',
+      followRedirects: false,
+      requireCurrentSession: () => _requireTaskSession(client, epoch),
     );
+    _requireTaskSession(client, epoch);
     final payload = _responseParser.ajaxPayload(response);
     final parts = payload?.split('\t') ?? const <String>[];
     final status = parts.isEmpty ? '' : parts.first.trim().toLowerCase();
@@ -908,6 +1050,8 @@ class ForumRepository {
 
   Future<ForumTaskQuickClaimResult> claimForumTaskRewards() async {
     ForumTraceLogger.log('Claim', 'claimForumTaskRewards BEGIN');
+    final client = _client;
+    final epoch = _sessionEpoch.value;
     final now = _nowUtc();
     final failures = <String>[];
     final skipped = <String>[];
@@ -917,6 +1061,7 @@ class ForumRepository {
     var shouldRefresh = false;
     var checkedRecovery = false;
     var pages = await _fetchTaskPages();
+    _requireTaskSession(client, epoch);
     _logTaskPages('Claim', 'initial pages', pages);
 
     final baselineDecisions = _buildTaskDecisions(
@@ -935,11 +1080,13 @@ class ForumRepository {
       );
       switch (decision.kind) {
         case _ForumTaskDecisionKind.startThenClaim:
+          _requireTaskSession(client, epoch);
           final outcome = await _startAutoTask(
             decision.task!,
             claimedRewards: claimedRewards,
             failures: failures,
           );
+          _requireTaskSession(client, epoch);
           appliedCount += outcome.appliedCount;
           shouldRefresh = shouldRefresh || outcome.shouldRefresh;
           if (outcome.handled) handledNames.add(decision.name);
@@ -978,6 +1125,7 @@ class ForumRepository {
         available: pages.available,
         inProgress: await fetchForumTasks(ForumTaskStatus.inProgress),
       );
+      _requireTaskSession(client, epoch);
       _logTaskPages('Claim', 'recovery pages', pages);
       final recoveryDecisions = _buildTaskDecisions(
         pages,
@@ -994,11 +1142,13 @@ class ForumRepository {
         );
         if (!recoveryNames.contains(decision.name)) continue;
         if (decision.kind != _ForumTaskDecisionKind.claimInProgress) continue;
+        _requireTaskSession(client, epoch);
         final outcome = await _claimTaskReward(
           decision.task!,
           claimedRewards: claimedRewards,
           failures: failures,
         );
+        _requireTaskSession(client, epoch);
         shouldRefresh = shouldRefresh || outcome.shouldRefresh;
         if (outcome.handled) handledNames.add(decision.name);
         ForumTraceLogger.log(
@@ -1011,6 +1161,7 @@ class ForumRepository {
     if (shouldRefresh) {
       ForumTraceLogger.log('Claim', 'refresh pages after actions');
       pages = await _refreshTaskPages();
+      _requireTaskSession(client, epoch);
       _logTaskPages('Claim', 'refreshed pages', pages);
     }
 
@@ -1023,11 +1174,13 @@ class ForumRepository {
       handledNames: handledNames,
     );
     _logDecisions('Claim', 'final decisions', finalDecisions);
+    _requireTaskSession(client, epoch);
     final snapshot = await _saveTaskSnapshotFromPages(
       inProgress: pages.inProgress,
       available: pages.available,
       completed: pages.completed,
     );
+    _requireTaskSession(client, epoch);
     ForumTraceLogger.log(
       'Claim',
       'snapshot saved ${_describeSnapshot(snapshot)}',
@@ -1074,6 +1227,8 @@ class ForumRepository {
   }
 
   Future<ForumTaskQuickClaimResult?> autoClaimForumTaskRewardsIfDue() async {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
     ForumTraceLogger.log(
       'AutoClaim',
       'autoClaimForumTaskRewardsIfDue BEGIN isLoggedIn=$isLoggedIn',
@@ -1084,6 +1239,7 @@ class ForumRepository {
     }
 
     final cached = await loadCachedForumTaskSnapshot();
+    _requireTaskSession(client, epoch);
     ForumTraceLogger.log(
       'AutoClaim',
       'cached snapshot=${cached == null ? 'null' : _describeSnapshot(cached)}',
@@ -1317,19 +1473,45 @@ class ForumRepository {
         text.contains('login.php');
   }
 
-  Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() {
-    return _taskStateStore.load();
+  String? get _taskSnapshotScope => currentUsername == null
+      ? null
+      : '${_urls.baseUri.origin}:$currentUsername';
+
+  Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() async {
+    final epoch = _sessionEpoch.value;
+    final snapshot = await _taskStateStore.load(scope: _taskSnapshotScope);
+    return epoch == _sessionEpoch.value ? snapshot : null;
   }
 
-  Future<ForumTaskSnapshot> refreshForumTaskSnapshot() async {
+  Future<ForumTaskSnapshot> refreshForumTaskSnapshot() {
+    final key = (client: _client, epoch: _sessionEpoch.value);
+    final pending = _taskSnapshotRefreshes[key];
+    if (pending != null) return pending;
+    late Future<ForumTaskSnapshot> request;
+    request = _refreshForumTaskSnapshot(key.client, key.epoch).whenComplete(() {
+      if (identical(_taskSnapshotRefreshes[key], request)) {
+        _taskSnapshotRefreshes.remove(key);
+      }
+    });
+    _taskSnapshotRefreshes[key] = request;
+    return request;
+  }
+
+  Future<ForumTaskSnapshot> _refreshForumTaskSnapshot(
+      ForumClient client, int epoch) async {
     ForumTraceLogger.log('Snapshot', 'refreshForumTaskSnapshot BEGIN');
-    final inProgress = await fetchForumTasks(ForumTaskStatus.inProgress);
-    final completed = await fetchForumTasks(ForumTaskStatus.completed);
-    final available = await fetchForumTasks(ForumTaskStatus.available);
+    final pages = await Future.wait([
+      fetchForumTasks(ForumTaskStatus.inProgress),
+      fetchForumTasks(ForumTaskStatus.completed),
+      fetchForumTasks(ForumTaskStatus.available),
+    ]);
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
     return _saveTaskSnapshotFromPages(
-      inProgress: inProgress,
-      completed: completed,
-      available: available,
+      inProgress: pages[0],
+      completed: pages[1],
+      available: pages[2],
     );
   }
 
@@ -1338,6 +1520,8 @@ class ForumRepository {
     required List<ForumTask> completed,
     required List<ForumTask> available,
   }) async {
+    final epoch = _sessionEpoch.value;
+    final scope = _taskSnapshotScope;
     final now = _nowUtc();
     final currentCycleCompletedNames =
         _currentCycleCompletedNames(completed, now: now);
@@ -1362,7 +1546,10 @@ class ForumRepository {
       ),
       ...available.map((task) => _taskStateFromTask(task, now: now)),
     ]);
-    await _taskStateStore.save(snapshot);
+    await _taskStateStore.save(snapshot, scope: scope);
+    if (epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
     ForumTraceLogger.log(
       'Snapshot',
       '_saveTaskSnapshotFromPages ${_describeSnapshot(snapshot)}',
@@ -1387,6 +1574,7 @@ class ForumRepository {
       progressPercent: task.progressPercent,
       completedAt: task.completedAt,
       cooldownRemaining: cooldown,
+      cooldownThreshold: task.cooldownThreshold,
       nextAvailableAt:
           cooldown == null ? null : now.toUtc().add(cooldown).toUtc(),
     );
@@ -1405,7 +1593,7 @@ class ForumRepository {
           ? ForumTaskAvailability.claimable
           : ForumTaskAvailability.inProgress;
     }
-    if (task.cooldownRemaining != null) {
+    if (task.isCoolingDown) {
       return ForumTaskAvailability.coolingDown;
     }
     if (task.canRun) return ForumTaskAvailability.available;
@@ -1421,14 +1609,20 @@ class ForumRepository {
       'Pages',
       '_fetchTaskPages includeInProgress=$includeInProgress',
     );
+    final client = _client;
+    final epoch = _sessionEpoch.value;
     final completed = await fetchForumTasks(ForumTaskStatus.completed);
+    _requireTaskSession(client, epoch);
     final available = await fetchForumTasks(ForumTaskStatus.available);
+    _requireTaskSession(client, epoch);
+    final inProgress = includeInProgress
+        ? await fetchForumTasks(ForumTaskStatus.inProgress)
+        : const <ForumTask>[];
+    _requireTaskSession(client, epoch);
     return _ForumTaskPages(
       completed: completed,
       available: available,
-      inProgress: includeInProgress
-          ? await fetchForumTasks(ForumTaskStatus.inProgress)
-          : const <ForumTask>[],
+      inProgress: inProgress,
     );
   }
 
@@ -1509,7 +1703,7 @@ class ForumRepository {
       final coolingDown = _firstMatchingTask(
         pages.available,
         name,
-        predicate: (task) => task.cooldownRemaining != null,
+        predicate: (task) => task.isCoolingDown,
       );
       if (coolingDown != null) {
         return _ForumTaskDecision(name, _ForumTaskDecisionKind.handled);
@@ -1756,6 +1950,9 @@ class ForumRepository {
     ForumThreadOrder order = ForumThreadOrder.lastPost,
     ForumBoardFilter? filter,
   }) async {
+    final account = localPreferenceAccount;
+    final client = _client;
+    final epoch = _sessionEpoch.value;
     filter ??= _urls.boardFilterFromUrl(
       category,
       label: '',
@@ -1820,6 +2017,18 @@ class ForumRepository {
         filters.isNotEmpty) {
       final pages = _boardThreadPageParser.wallPages(desktopDocument) ??
           (current: normalizedPage, total: normalizedPage);
+      if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+        throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+      }
+      try {
+        await HomeReadingPreferences.recordBoardVisit(category,
+            account: account);
+      } catch (_) {
+        // A local history failure must not discard the fetched board.
+      }
+      if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+        throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+      }
       return ForumThreadPage(
         threads: threads,
         currentPage: pages.current,
@@ -1924,6 +2133,7 @@ class ForumRepository {
 
   Future<UserProfile> fetchUserProfileOverview(String url) async {
     final epoch = _sessionEpoch.value;
+    final generation = _profileDetailsGeneration;
     final client = _client;
     final profileUrl = _urls.absoluteUrl(url);
     final uid = await _uidFromProfileUrl(profileUrl);
@@ -1945,8 +2155,12 @@ class ForumRepository {
       profileUrl: profileUrl,
       profileDocument: profileDocument,
     );
-    await _profileCache.saveOverview(url, profile);
-    if (epoch == _sessionEpoch.value) _applyAccountProfile(profile);
+    if (generation == _profileDetailsGeneration) {
+      await _profileCache.saveOverview(url, profile);
+      if (epoch == _sessionEpoch.value &&
+          generation == _profileDetailsGeneration)
+        _applyAccountProfile(profile);
+    }
     return profile;
   }
 
@@ -2193,6 +2407,8 @@ class ForumRepository {
       bodyReplyUrl: first?.replyUrl,
       bodyQuoteUrl: first?.quoteUrl,
       bodyContentKey: first?.blockContentKey,
+      personalSignature: first?.personalSignature,
+      bodyPostedAt: first?.postedAt,
       replies: isOpeningPage ? posts.skip(1).toList() : posts,
       pagination: pagination,
       favorite: favorite,
@@ -2332,8 +2548,28 @@ class ForumRepository {
       return const ReplyResult(success: false, message: '没有找到购买链接');
     }
 
-    final response = await _client
-        .get(_urls.relativePath(_urls.absoluteUrl(saleBox.buyPath)));
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final raw = saleBox.buyPath.trim();
+    final parsed = Uri.tryParse(raw);
+    final uri = parsed == null ? null : _urls.baseUri.resolveUri(parsed);
+    if (uri == null ||
+        RegExp(r'[\s\x00-\x1f\x7f\\]').hasMatch(raw) ||
+        !_isNativePurchaseUri(uri)) {
+      return const ReplyResult(success: false, message: '购买链接无效，请刷新帖子');
+    }
+    void requireCurrentSession() {
+      if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+        throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+      }
+    }
+
+    final response = await client.getForm(
+      _urls.relativePath(uri.toString()),
+      followRedirects: false,
+      requireCurrentSession: requireCurrentSession,
+    );
+    requireCurrentSession();
     final message = _responseParser.pageMessage(response);
     final success = _responseParser.isPurchaseSuccess(response, message);
     if (success) _clearProfileDetails();
@@ -2341,6 +2577,32 @@ class ForumRepository {
       success: success,
       message: success ? '购买完成' : message,
     );
+  }
+
+  bool _isNativePurchaseUri(Uri uri) {
+    if (!{'http', 'https'}.contains(uri.scheme) ||
+        !uri.hasAuthority ||
+        uri.origin != _urls.baseUri.origin ||
+        uri.userInfo.isNotEmpty ||
+        uri.path != '/job.php' ||
+        uri.hasFragment) return false;
+    try {
+      final fields = uri.queryParametersAll;
+      if (fields.length != 4 ||
+          fields.values.any((values) => values.length != 1)) {
+        return false;
+      }
+      final tid = fields['tid']?.single ?? '';
+      final pid = fields['pid']?.single ?? '';
+      final verify = fields['verify']?.single ?? '';
+      return fields['action']?.single == 'buytopic' &&
+          RegExp(r'^[1-9]\d*$').hasMatch(tid) &&
+          (pid == 'tpc' || RegExp(r'^[1-9]\d*$').hasMatch(pid)) &&
+          verify.isNotEmpty &&
+          !RegExp(r'[\x00-\x1f\x7f]').hasMatch(verify);
+    } on FormatException {
+      return false;
+    }
   }
 
   Future<FavoriteResult> addFavorite(ThreadFavorite favorite) async {
