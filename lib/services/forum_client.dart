@@ -495,6 +495,7 @@ class ForumClient {
         : await _httpClient.getUrl(uri);
     request.followRedirects = false;
     if (method == 'POST') {
+      if (body != null) request.contentLength = body.length;
       request.headers.contentType = contentType ??
           ContentType(
             'application',
