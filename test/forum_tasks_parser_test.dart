@@ -89,11 +89,13 @@ void main() {
     expect(tasks, hasLength(2));
     expect(tasks.first.name, '周常');
     expect(tasks.first.reward, 'SP币 7 G');
-    expect(tasks.first.cooldownRemaining, const Duration(hours: 158));
+    expect(tasks.first.cooldownThreshold, const Duration(hours: 158));
+    expect(tasks.first.cooldownRemaining, isNull);
     expect(tasks.first.canRun, isFalse);
     expect(tasks.last.name, '日常');
     expect(tasks.last.reward, 'SP币 2 G');
-    expect(tasks.last.cooldownRemaining, const Duration(hours: 18));
+    expect(tasks.last.cooldownThreshold, const Duration(hours: 18));
+    expect(tasks.last.cooldownRemaining, isNull);
     expect(tasks.last.canRun, isFalse);
   });
 }

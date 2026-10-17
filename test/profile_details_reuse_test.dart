@@ -24,6 +24,16 @@ class _DetailsClient extends ForumClient {
   Future<String> getOnce(String path) => get(path);
 
   @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
+    final response = await get(path);
+    requireCurrentSession?.call();
+    return response;
+  }
+
+  @override
   Future<String> get(String path) async {
     paths.add(path);
     if (failTransport) {
@@ -389,7 +399,9 @@ void main() {
             expect(
                 (await repository.buySaleBox(
                   const ThreadSaleBox(
-                      summary: 'fixture', buyPath: 'job.php?action-buy'),
+                      summary: 'fixture',
+                      buyPath:
+                          'job.php?action=buytopic&tid=456&pid=tpc&verify=fixture'),
                 ))
                     .success,
                 isTrue);

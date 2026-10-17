@@ -1,6 +1,8 @@
 import 'package:html/dom.dart' as dom;
 
 import '../../models/forum_models.dart';
+import '../../models/user_content_query.dart';
+import 'board_thread_page_parser.dart';
 import '../forum_url_resolver.dart';
 import '../forum_request_exception.dart';
 
@@ -241,6 +243,157 @@ class UserProfileParser {
     return replies;
   }
 
+  UserContentPage parseContentPage(
+    dom.Document document, {
+    required String uid,
+    required UserProfileTab tab,
+    required int page,
+    UserContentArticleType articleType = UserContentArticleType.all,
+  }) {
+    if (document.querySelector('.u-table') == null) {
+      throw const ForumRequestException(ForumRequestKind.server, '无法识别用户文章列表');
+    }
+    var totalPages = page;
+    for (final link in document.querySelectorAll('.pages a[href]')) {
+      final href = link.attributes['href'] ?? '';
+      if (!urls.isForumUrl(href) || urls.uidFromUrl(href) != uid) continue;
+      final uri = Uri.parse(urls.absoluteUrl(href));
+      if (uri.path != '/u.php') continue;
+      final action = tab == UserProfileTab.topics ? 'topic' : 'post';
+      if (!RegExp('(?:[?&]|^)action[-=]$action(?:[-&]|\$)').hasMatch(href))
+        continue;
+      final target = int.tryParse(
+          RegExp(r'(?:[-?&])page[-=]([1-9]\d*)').firstMatch(href)?.group(1) ??
+              '');
+      if (target != null && target > totalPages) totalPages = target;
+    }
+    final count = RegExp(r'Pages:\s*\d+\s*/\s*(\d+)', caseSensitive: false)
+        .firstMatch(document.querySelector('.pages')?.text ?? '');
+    final total = int.tryParse(count?.group(1) ?? '');
+    if (total != null && total > totalPages) totalPages = total;
+    return UserContentPage(
+      items: _parseThreadRows(document,
+          includeMetrics: tab == UserProfileTab.topics,
+          includeAuthor: tab == UserProfileTab.posts),
+      totalPages: totalPages,
+    );
+  }
+
+  List<UserContentClassification> parseContentClassifications(
+      dom.Document document, String boardId) {
+    final category = ForumCategory(name: '', slug: 'f$boardId');
+    return [
+      for (final filter
+          in BoardThreadPageParser(urls: urls).parseFilters(document, category))
+        if (filter.kind == ForumBoardFilterKind.topicType)
+          UserContentClassification(
+            id: RegExp(r'(?:[-?&])type[-=]([1-9]\d*)')
+                .firstMatch(filter.url)!
+                .group(1)!,
+            label: filter.label,
+          ),
+    ];
+  }
+
+  Map<String, UserContentThreadMetadata> parseContentBoardMetadata(
+    dom.Document document, {
+    required String boardId,
+    required List<UserContentClassification> classifications,
+  }) {
+    final result = <String, UserContentThreadMetadata>{};
+    for (final row in document.querySelectorAll('#ajaxtable tr.tr3')) {
+      if (row.querySelector(
+              'img[src*="headtopic_2"], img[src*="headtopic_3"]') !=
+          null) {
+        continue;
+      }
+      final threadLink =
+          row.querySelector('a[id^="a_ajax_"][href], h3 a[href*="read.php"]');
+      final tid = urls.tidFromUrl(threadLink?.attributes['href'] ?? '');
+      if (tid == null) continue;
+      String? classificationId;
+      var unknownClassification = false;
+      for (final link in row.querySelectorAll('a[href*="thread.php"]')) {
+        final href = link.attributes['href'] ?? '';
+        if (urls.fidFromUrl(href) != boardId) continue;
+        final filter = urls.boardFilterFromUrl(
+            ForumCategory(name: '', slug: 'f$boardId'),
+            label: '',
+            url: href);
+        if (filter?.kind != ForumBoardFilterKind.topicType) continue;
+        final id =
+            RegExp(r'(?:[-?&])type[-=]([1-9]\d*)').firstMatch(href)?.group(1);
+        if (classifications.any((item) => item.id == id)) {
+          classificationId = id;
+        } else {
+          unknownClassification = true;
+        }
+      }
+      result[tid] = UserContentThreadMetadata(
+        boardId: boardId,
+        classificationId: classificationId,
+        classificationKnown:
+            classifications.isNotEmpty && !unknownClassification,
+        digest: row.querySelector('img[src*="/file/digest_"]') != null,
+      );
+    }
+    return result;
+  }
+
+  UserContentThreadMetadata parseContentThreadMetadata(
+    dom.Document document, {
+    required List<UserContentClassification> classifications,
+    String? profileTitle,
+    String? threadId,
+  }) {
+    final subject = document.querySelector('#subject_tpc');
+    if (subject == null) return const UserContentThreadMetadata();
+    String? boardId;
+    for (final link in document.querySelectorAll(
+        '#breadcrumbs a[href], #breadCrumb a[href], .breadcrumb a[href], .crumb a[href]')) {
+      final href = link.attributes['href'] ?? '';
+      if (urls.forumLinkTarget(href) is ForumBoardLinkTarget) {
+        boardId = urls.fidFromUrl(href) ?? boardId;
+      }
+    }
+    final title = _cleanText(subject.text);
+    final original = _cleanText(profileTitle ?? '');
+    final classification = classifications.where((item) {
+      final prefix = '[${item.label}]';
+      return original.isNotEmpty &&
+          !original.startsWith('[') &&
+          !original.contains('…') &&
+          !original.contains('...') &&
+          title.startsWith(prefix) &&
+          _cleanText(title.substring(prefix.length)) == original;
+    }).firstOrNull;
+    final openingPost = document.querySelector('table.js-post');
+    final authorCell = openingPost?.querySelector('th.r_two');
+    final authorLink =
+        authorCell?.querySelector('a[href*="uid"] strong')?.parent ??
+            authorCell?.querySelector('a[href*="action-show-uid"]');
+    final authorUid = openingPost?.querySelector('#read_tpc') == null
+        ? null
+        : urls.uidFromUrl(authorLink?.attributes['href'] ?? '');
+    final poll = document.querySelectorAll('form[action]').any((form) {
+      final action = form.attributes['action'] ?? '';
+      return urls.isForumUrl(action) &&
+          Uri.parse(urls.absoluteUrl(action)).path == '/job.php' &&
+          RegExp(r'(?:[?&]|-)action[-=]vote(?:[&-]|$)').hasMatch(action) &&
+          form.querySelector('input[name="voteid[]"]') != null &&
+          (threadId == null ||
+              form.querySelector('input[name="tid"]')?.attributes['value'] ==
+                  threadId);
+    });
+    return UserContentThreadMetadata(
+      authorUid: authorUid,
+      boardId: boardId,
+      classificationId: classification?.id,
+      classificationKnown: boardId != null && classification != null,
+      poll: poll ? true : null,
+    );
+  }
+
   List<UserListItem> _parseThreadRows(
     dom.Document document, {
     bool includeMetrics = false,
@@ -251,15 +404,24 @@ class UserProfileParser {
     final items = <UserListItem>[];
     for (final row in table.querySelectorAll('tr')) {
       final threadLink = row.querySelector(
-        'a[href*="read.php"], a[href*="job.php?action-topost"]',
+        'a[href*="read.php"], a[href*="job.php"]',
       );
       if (threadLink == null) continue;
       final href = threadLink.attributes['href'] ?? '';
       final title = _cleanText(threadLink.text);
-      if (href.isEmpty || title.isEmpty) continue;
+      if (href.isEmpty || title.isEmpty || urls.tidFromUrl(href) == null)
+        continue;
 
-      final section =
-          _cleanText(row.querySelector('a[href*="thread.php"]')?.text ?? '');
+      final boardLink = row.querySelector('a[href*="thread.php"]');
+      final boardHref = boardLink?.attributes['href'] ?? '';
+      final section = _cleanText(boardLink?.text ?? '');
+      final boardId = urls.forumLinkTarget(boardHref) is ForumBoardLinkTarget
+          ? urls.fidFromUrl(boardHref)
+          : null;
+      final threadId = urls.tidFromUrl(href);
+      final postId = urls.isForumUrl(href)
+          ? RegExp(r'(?:[-?&])pid[-=]([1-9]\d*)').firstMatch(href)?.group(1)
+          : null;
       final text = _cleanText(row.text);
       final date =
           RegExp(r'\[(\d{4}-\d{2}-\d{2})\]').firstMatch(text)?.group(1);
@@ -271,6 +433,10 @@ class UserProfileParser {
           title: title,
           url: urls.absoluteUrl(href),
           section: section.isEmpty ? null : section,
+          boardId: boardId,
+          boardUrl: boardId == null ? null : urls.absoluteUrl(boardHref),
+          threadId: threadId,
+          postId: postId,
           date: date,
           author: author == null || author.isEmpty ? null : author,
           authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
