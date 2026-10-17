@@ -84,6 +84,7 @@ class ThreadDetailParser {
                   contentCell.querySelector('.tiptop > .js-puremark-content') !=
                       null),
           postedAt: postedAt.isEmpty ? null : postedAt,
+          personalSignature: _personalSignature(contentCell),
           floor: floor.isEmpty ? null : floor,
           quote: quote,
           quoteUrl: quoteHref == null ? null : urls.absoluteUrl(quoteHref),
@@ -412,11 +413,22 @@ class ThreadDetailParser {
     final time = contentCell.querySelector('.tiptop .gray');
     final title = _cleanText(time?.attributes['title'] ?? '');
     final text = _cleanText(time?.text ?? '');
-    final source = title.isNotEmpty ? title : text;
-    return RegExp(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}')
-            .firstMatch(source)
-            ?.group(0) ??
+    final pattern = RegExp(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}');
+    return pattern.firstMatch(title)?.group(0) ??
+        pattern.firstMatch(text)?.group(0) ??
         '';
+  }
+
+  String? _personalSignature(dom.Element contentCell) {
+    final text = _cleanText(
+      contentCell.querySelector('.tiptop .bianji')?.text ?? '',
+    );
+    if (text.isEmpty) return null;
+    final signature = text
+        .replaceFirst(RegExp(r'^[（(]'), '')
+        .replaceFirst(RegExp(r'[）)]$'), '')
+        .trim();
+    return signature.isEmpty ? null : signature;
   }
 
   String? _authorPostsHref(dom.Element contentCell) {

@@ -141,14 +141,15 @@ class ForumSearchPage {
   /// number swapped, since the site lists only a window of pages.
   String? pathForPage(int page) {
     final last = totalPages ??
-        pageLinks.fold<int>(currentPage, (max, l) => l.page > max ? l.page : max);
+        pageLinks.fold<int>(
+            currentPage, (max, l) => l.page > max ? l.page : max);
     if (page < 1 || page > last) return null;
     for (final link in pageLinks) {
       if (link.page == page) return link.path;
     }
     if (pageLinks.isEmpty) return null;
-    return pageLinks.first.path.replaceFirstMapped(
-        _pageNumber, (m) => '${m.group(1)}$page');
+    return pageLinks.first.path
+        .replaceFirstMapped(_pageNumber, (m) => '${m.group(1)}$page');
   }
 }
 
@@ -337,6 +338,8 @@ class ThreadDetail {
     this.bodyReplyUrl,
     this.bodyQuoteUrl,
     this.bodyContentKey,
+    this.bodyPostedAt,
+    this.personalSignature,
     this.favorite,
     this.previousThread,
     this.nextThread,
@@ -358,6 +361,8 @@ class ThreadDetail {
   final String? bodyReplyUrl;
   final String? bodyQuoteUrl;
   final String? bodyContentKey;
+  final String? bodyPostedAt;
+  final String? personalSignature;
   final ThreadFavorite? favorite;
   final ThreadActionLink? previousThread;
   final ThreadActionLink? nextThread;
@@ -385,6 +390,7 @@ class ThreadReply {
     this.authorUrl,
     this.authorAvatarUrl,
     this.authorPostsUrl,
+    this.personalSignature,
     this.postedAt,
     this.floor,
     this.quote,
@@ -405,6 +411,7 @@ class ThreadReply {
   final String? authorUrl;
   final String? authorAvatarUrl;
   final String? authorPostsUrl;
+  final String? personalSignature;
   final String? postedAt;
   final String? floor;
   final String? quote;
@@ -919,6 +926,10 @@ class UserListItem {
     this.replies,
     this.views,
     this.favoriteRemoval,
+    this.boardId,
+    this.boardUrl,
+    this.threadId,
+    this.postId,
   });
 
   final String title;
@@ -930,6 +941,10 @@ class UserListItem {
   final int? replies;
   final int? views;
   final FavoriteListRemoval? favoriteRemoval;
+  final String? boardId;
+  final String? boardUrl;
+  final String? threadId;
+  final String? postId;
 }
 
 class LoginChallenge {
@@ -983,6 +998,7 @@ class ForumTask {
     this.completedAt,
     this.actionLabel,
     this.cooldownRemaining,
+    this.cooldownThreshold,
   });
 
   final String? id;
@@ -997,7 +1013,10 @@ class ForumTask {
   final String? completedAt;
   final String? actionLabel;
   final Duration? cooldownRemaining;
+  final Duration? cooldownThreshold;
 
+  bool get isCoolingDown =>
+      cooldownRemaining != null || cooldownThreshold != null;
   bool get canRun => id != null && actionLabel != null;
 }
 
@@ -1077,6 +1096,7 @@ class ForumTaskState {
     this.progressPercent,
     this.completedAt,
     this.cooldownRemaining,
+    this.cooldownThreshold,
     this.nextAvailableAt,
   });
 
@@ -1088,6 +1108,7 @@ class ForumTaskState {
   final int? progressPercent;
   final String? completedAt;
   final Duration? cooldownRemaining;
+  final Duration? cooldownThreshold;
   final DateTime? nextAvailableAt;
 
   bool get isDoneToday =>
@@ -1146,6 +1167,7 @@ class ForumTaskState {
       progressPercent: preferred.progressPercent ?? fallback.progressPercent,
       completedAt: preferred.completedAt ?? fallback.completedAt,
       cooldownRemaining: cooldownRemaining,
+      cooldownThreshold: cooldownThreshold ?? other.cooldownThreshold,
       nextAvailableAt: nextAvailableAt,
     );
   }
@@ -1160,6 +1182,7 @@ class ForumTaskState {
       'progressPercent': progressPercent,
       'completedAt': completedAt,
       'cooldownRemainingMinutes': cooldownRemaining?.inMinutes,
+      'cooldownThresholdMinutes': cooldownThreshold?.inMinutes,
       'nextAvailableAt': nextAvailableAt?.toIso8601String(),
     };
   }
@@ -1173,6 +1196,7 @@ class ForumTaskState {
       orElse: () => ForumTaskAvailability.unknown,
     );
     final cooldownMinutes = json['cooldownRemainingMinutes'];
+    final thresholdMinutes = json['cooldownThresholdMinutes'];
     final nextAvailableAtValue = json['nextAvailableAt'];
     return ForumTaskState(
       name: name,
@@ -1187,6 +1211,8 @@ class ForumTaskState {
           json['completedAt'] is String ? json['completedAt'] as String : null,
       cooldownRemaining:
           cooldownMinutes is int ? Duration(minutes: cooldownMinutes) : null,
+      cooldownThreshold:
+          thresholdMinutes is int ? Duration(minutes: thresholdMinutes) : null,
       nextAvailableAt: nextAvailableAtValue is String
           ? DateTime.tryParse(nextAvailableAtValue)?.toUtc()
           : null,
