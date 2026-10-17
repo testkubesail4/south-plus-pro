@@ -136,6 +136,8 @@ void main() {
         )));
     final title = find.text('Fixture highlighted title');
     await waitFor(tester, title);
+    // Finding the title only proves it is built; settle so it is presented.
+    await tester.pumpAndSettle();
     expectHighlight(tester, title);
     await screenshot('board-highlight-light');
     await AppThemeController.setMode(ThemeMode.dark);
