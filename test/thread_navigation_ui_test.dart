@@ -123,7 +123,7 @@ void main() {
       await tester.tap(find.text('购买查看').first);
       await tester.pump();
       await tester.scrollUntilVisible(find.text('购买查看').hitTestable(), 100);
-      await tester.tap(find.text('购买查看'));
+      await tester.tap(find.text('购买查看').hitTestable());
       await tester.pump();
       expect(repository.heldPurchases.keys, containsAll(['/buy', '/buy-b']));
 

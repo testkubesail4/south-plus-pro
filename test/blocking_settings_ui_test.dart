@@ -95,7 +95,7 @@ void main() {
         home: Scaffold(
             body: AccountScreen(repository: repo, onLoggedOut: () {}))));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('屏蔽配置'), 180,
+    await tester.scrollUntilVisible(find.text('屏蔽配置').hitTestable(), 180,
         scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('屏蔽配置'));
     await tester.pumpAndSettle();
