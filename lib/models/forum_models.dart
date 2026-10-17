@@ -655,16 +655,32 @@ class ThreadFavorite {
   }
 }
 
+class FavoriteCategory {
+  const FavoriteCategory({required this.id, required this.label});
+
+  final String id;
+  final String label;
+}
+
+class FavoriteCategorySelection {
+  FavoriteCategorySelection({required List<FavoriteCategory> categories})
+      : categories = List.unmodifiable(categories);
+
+  final List<FavoriteCategory> categories;
+}
+
 class FavoriteResult {
   const FavoriteResult({
     required this.success,
     required this.message,
     required this.state,
+    this.categorySelection,
   });
 
   final bool success;
   final String message;
   final ThreadFavoriteState state;
+  final FavoriteCategorySelection? categorySelection;
 }
 
 class ForumSection {

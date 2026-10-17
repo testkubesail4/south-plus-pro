@@ -223,15 +223,14 @@ class ForumAccountParser {
               label: _label(document, option, nameFallback: false)));
         }
       }
-      final row = _ancestor(element, 'tr');
       final attributes = element.attributes;
+      final description = _fieldHint(element, entry.key);
       final dimension =
           RegExp(r'^(?:httpurl|uploadurl)\[([12])\]$').firstMatch(entry.key);
       final dimensionLabel = dimension?.group(1) == '1' ? '头像宽度' : '头像高度';
       final range = dimension == null
           ? null
-          : RegExp('$dimensionLabel.*?(\\d+)\\s*(?:--|[-–—~至])\\s*(\\d+)')
-              .firstMatch(_clean(row?.text ?? ''));
+          : RegExp(r'(\d+)\s*(?:--|[-–—~至])\s*(\d+)').firstMatch(description);
       final introLimit = entry.key != 'prointroduce'
           ? null
           : RegExp(r'prointroduce\.value\.length\s*>\s*(\d+)')
@@ -239,13 +238,8 @@ class ForumAccountParser {
               ?.group(1);
       fields.add(ForumAccountField(
         name: entry.key,
-        label: entry.key == 'proicon'
-            ? '系统头像'
-            : dimension != null
-                ? dimensionLabel
-                : entry.key == 'facetype'
-                    ? '头像类型'
-                    : _label(document, element),
+        label: _fieldLabels[entry.key] ??
+            (dimension != null ? dimensionLabel : _label(document, element)),
         type: entry.key == 'proicon'
             ? 'system-avatar'
             : range != null
@@ -262,7 +256,7 @@ class ForumAccountParser {
         max: num.tryParse(attributes['max'] ?? range?.group(2) ?? ''),
         pattern: attributes['pattern'],
         accept: attributes['accept'],
-        hint: _clean(row?.text ?? ''),
+        hint: description,
         group: kind == ForumAccountFormKind.preferences
             ? ({'msggroups[]', 'banidinfo'}.contains(entry.key)
                 ? 'pm'
@@ -351,7 +345,25 @@ class ForumAccountParser {
   String parseUploadedAvatar(String response, Uri base) {
     final document = html_parser.parse(response);
     final scripts = document.querySelectorAll('script');
-    final source = scripts.length == 1 ? scripts.single.text : response;
+    final callbacks = scripts
+        .where((script) => RegExp(r'\bfacepath\s*\(').hasMatch(script.text))
+        .toList();
+    final source = scripts.isEmpty
+        ? response
+        : callbacks.length == 1
+            ? callbacks.single.text
+            : '';
+    // Native responses include unrelated common-header scripts; inspect one isolated literal callback.
+    final failure = RegExp(
+            r'''^\s*(?:(?:window\.)?parent\.)?facepath\(\s*(['"])\1\s*,\s*(['"])\2\s*,\s*(['"])([^'"\\\r\n]+)\3\s*,\s*(['"])\5\s*,\s*(['"])\6\s*\)\s*;?\s*$''')
+        .firstMatch(source);
+    final error = failure?.group(4);
+    if (error != null &&
+        error.startsWith('上传附件失败') &&
+        error.length <= 160 &&
+        !RegExp(r'[<>\x00-\x1f\x7f]').hasMatch(error)) {
+      throw ForumAccountValidationException('upload', error);
+    }
     // Accept only the native callback's literal arguments, never execute returned JavaScript.
     final callback = RegExp(
             r'''^\s*(?:(?:window\.)?parent\.)?facepath\(\s*(['"])([^'"\\\r\n]+)\1\s*,\s*(['"])([^'"\\\r\n]+)\3\s*,\s*(['"])success\5(?:\s*,\s*(?:\d+|['"]\d+['"]|undefined|false)\s*,\s*(?:\d+|['"]\d+['"]|undefined|false))?\s*\)\s*;?\s*$''')
@@ -448,6 +460,68 @@ class ForumAccountParser {
 
   String _optionValue(dom.Element option) =>
       option.attributes['value'] ?? _clean(option.text);
+
+  static const _fieldLabels = {
+    'tpskin': '原站网页风格',
+    'editor': '原站默认编辑器',
+    'timedf': '时区',
+    'd_type': '日期格式',
+    'date_f': '自定义日期格式',
+    'time_f': '时间格式',
+    't_num': '每页主题数',
+    'p_num': '每页文章数',
+    'proreceivemail': '接收论坛邮件',
+    'friendcheck': '好友验证',
+    'banidinfo': '私信黑名单',
+    'facetype': '头像类型',
+    'proicon': '系统头像',
+    'httpurl[0]': '头像链接',
+    'upload': '头像文件',
+  };
+
+  String _fieldHint(dom.Element element, String name) {
+    final question = _ancestor(element, 'tr')?.querySelector('td, th');
+    if (name == 'banidinfo') return _clean(question?.text ?? '');
+    if (name == 'date_f') return _clean(question?.text ?? '');
+    if (name == 'editor') return '设置原站发帖时默认使用的编辑器。';
+    if (name == 'tpskin') return '设置原站网页使用的风格。';
+    if (name == 'friendcheck') return '设置其他用户添加您为好友时的验证方式。';
+    if (name == 'proreceivemail') return '设置是否接收论坛邮件，不会修改邮箱地址。';
+    if (name == 'd_type') return '使用论坛默认日期格式，或选择自定义格式。';
+    if (name == 'time_f') return '24 小时制或 12 小时制。';
+    if (name == 't_num' || name == 'p_num') return '设置为 0 时使用论坛默认。';
+    if (name == 'facetype' || name == 'proicon') return '';
+    final text = StringBuffer();
+    final siblings = element.parentNode?.nodes ?? const <dom.Node>[];
+    final type = (element.attributes['type'] ?? '').toLowerCase();
+    for (final next in {'radio', 'checkbox'}.contains(type)
+        ? const <dom.Node>[]
+        : siblings.skip(siblings.indexOf(element) + 1)) {
+      if (next is dom.Element &&
+          (next.localName == 'br' ||
+              {'input', 'select', 'textarea', 'button', 'a'}
+                  .contains(next.localName) ||
+              next.querySelector('input, select, textarea, button') != null))
+        break;
+      text.write(next.text);
+    }
+    final nearby = _clean(text.toString());
+    if (nearby.isNotEmpty) return nearby;
+    if (name == 'upload') return '';
+    if (question == null || _inside(element, question)) return '';
+    final lines = <String>[];
+    var line = StringBuffer();
+    for (final node in question.nodes) {
+      if (node is dom.Element && node.localName == 'br') {
+        lines.add(_clean(line.toString()));
+        line = StringBuffer();
+      } else {
+        line.write(node.text);
+      }
+    }
+    lines.add(_clean(line.toString()));
+    return lines.skip(1).where((line) => line.isNotEmpty).join(' ');
+  }
 
   String _label(dom.Document document, dom.Element element,
       {bool nameFallback = true}) {

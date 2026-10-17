@@ -2605,17 +2605,89 @@ class ForumRepository {
     }
   }
 
+  final _favoriteSelections =
+      Expando<({ForumClient client, int epoch, ThreadFavorite favorite})>();
+
   Future<FavoriteResult> addFavorite(ThreadFavorite favorite) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final response = await _client.get(
-      'pw_ajax.php?action=favor&tid=${favorite.tid}&nowtime=$now&verify=${favorite.verify}',
-    );
+    if (!RegExp(r'^[1-9]\d*$').hasMatch(favorite.tid) ||
+        favorite.verify.isEmpty ||
+        RegExp(r'[\x00-\x20\x7f]').hasMatch(favorite.verify)) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '收藏信息无效，请刷新主题');
+    }
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final response = await _requestFavorite(client, epoch, favorite);
+    final categories =
+        _responseParser.favoriteCategories(response, client.baseUri);
+    if (categories != null) {
+      final selection = FavoriteCategorySelection(categories: categories);
+      _favoriteSelections[selection] =
+          (client: client, epoch: epoch, favorite: favorite);
+      return FavoriteResult(
+        success: false,
+        message: '选择收藏分类',
+        state: favorite.state,
+        categorySelection: selection,
+      );
+    }
+    return _favoriteAddResult(response, favorite);
+  }
+
+  Future<FavoriteResult> selectFavoriteCategory(
+      FavoriteCategorySelection selection, String categoryId) async {
+    final context = _favoriteSelections[selection];
+    if (context == null ||
+        !selection.categories.any((category) => category.id == categoryId)) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '请重新选择论坛提供的收藏分类');
+    }
+    _checkFavoriteSession(context.client, context.epoch);
+    // Consume the offered menu before sending a write, including uncertain replies.
+    _favoriteSelections[selection] = null;
+    final response = await _requestFavorite(
+        context.client, context.epoch, context.favorite,
+        categoryId: categoryId);
+    return _favoriteAddResult(response, context.favorite);
+  }
+
+  void _checkFavoriteSession(ForumClient client, int epoch) {
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已变更，请重新打开主题');
+    }
+  }
+
+  Future<String> _requestFavorite(
+      ForumClient client, int epoch, ThreadFavorite favorite,
+      {String? categoryId}) async {
+    _checkFavoriteSession(client, epoch);
+    final path = Uri(path: 'pw_ajax.php', queryParameters: {
+      'action': 'favor',
+      'tid': favorite.tid,
+      if (categoryId != null) 'type': categoryId,
+      'nowtime': '${DateTime.now().millisecondsSinceEpoch}',
+      'verify': favorite.verify,
+    }).toString();
+    final response = await client.getForm(path,
+        requireCurrentSession: () => _checkFavoriteSession(client, epoch),
+        followRedirects: false);
+    _checkFavoriteSession(client, epoch);
+    return response;
+  }
+
+  FavoriteResult _favoriteAddResult(String response, ThreadFavorite favorite) {
     final message = _responseParser.ajaxMessage(response);
-    final success = _responseParser.isFavoriteAddSuccess(message);
+    final success = _responseParser.isFavoriteAddSuccess(response);
     if (success) _clearProfileDetails();
     return FavoriteResult(
       success: success,
-      message: success ? '已收藏该主题' : message,
+      message: success
+          ? '已收藏该主题'
+          : message.contains(RegExp(r'[<>\x00-\x1f\x7f]')) ||
+                  message.length > 240
+              ? '论坛未确认收藏，请刷新主题后重试'
+              : message,
       state: success ? ThreadFavoriteState.favorite : favorite.state,
     );
   }

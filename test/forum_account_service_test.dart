@@ -72,14 +72,65 @@ void main() {
 <table>$rows</table><textarea name="banidinfo"></textarea></form>
 ''');
       final form = await accountService(client).fetchForumPreferences();
-      expect(form.field('editor')!.label, '选择默认使用的编辑器');
-      expect(form.field('friendcheck')!.label, '加我为好友时身份验证');
-      expect(form.field('p_num')!.label, '文章列表每页个数(设置为0使用默认)');
+      expect(form.field('editor')!.label, '原站默认编辑器');
+      expect(form.field('friendcheck')!.label, '好友验证');
+      expect(form.field('p_num')!.label, '每页文章数');
       expect(form.field('p_num')!.value, '0');
       expect(form.field('editor')!.options.map((option) => option.label),
           ['所见即所得', 'code 模式']);
       expect(form.field('friendcheck')!.options.map((option) => option.label),
           ['允许任何人加我为好友', '需要身份验证才能加我为好友', '不允许任何人加我为好友']);
+    }
+  });
+
+  test(
+      'native shared-row metadata keeps each date and avatar control independent',
+      () async {
+    final prefs =
+        preferences().replaceFirst('<table>', '<table>$_nativeDateRow');
+    final prefsClient = _Client()..responses.add(prefs);
+    final settings = await accountService(prefsClient).fetchForumPreferences();
+    expect(settings.field('d_type')!.label, '日期格式');
+    expect(settings.field('date_f')!.label, '自定义日期格式');
+    expect(settings.field('time_f')!.label, '时间格式');
+    expect(settings.field('d_type')!.type, 'radio');
+    expect(settings.field('d_type')!.value, '0');
+    expect(settings.field('d_type')!.options.map((o) => o.value), ['0', '1']);
+    expect(settings.field('date_f')!.type, 'text');
+    expect(settings.field('date_f')!.value, 'yyyy-mm-dd');
+    expect(settings.field('date_f')!.hint, contains('yyyy:4位数年份'));
+    expect(settings.field('time_f')!.options.map((o) => o.value), ['24', '12']);
+    expect(settings.field('time_f')!.hint, isNot(contains('yyyy')));
+    expect(settings.field('banidinfo')!.label, '私信黑名单');
+
+    for (final row in [
+      _nativeAvatarRow,
+      _nativeAvatarRow.replaceFirst(
+          '1 -- 150', '2 -- 120', _nativeAvatarRow.indexOf('id="face3"')),
+    ]) {
+      final source = profile()
+          .replaceFirst(RegExp(r'<tr><td>头像</td>.*?</tr>', dotAll: true), row);
+      final client = _Client()..responses.add(source);
+      final form = await accountService(client).fetchAccountProfileForm();
+      expect(form.field('facetype')!.label, '头像类型');
+      expect(
+          form.field('facetype')!.options.map((o) => o.value), ['1', '2', '3']);
+      expect(form.field('httpurl[0]')!.label, '头像链接');
+      expect(form.field('httpurl[0]')!.hint, '必须以 http://开头');
+      expect(form.field('httpurl[1]')!.min, 1);
+      expect(form.field('httpurl[1]')!.max, 150);
+      expect(form.field('httpurl[1]')!.hint, '必须是 1 -- 150 之间的一个整数。');
+      expect(form.field('httpurl[2]')!.max, 270);
+      expect(form.field('httpurl[2]')!.hint, contains('头像高度留空，则根据宽度自适应'));
+      expect(form.field('httpurl[2]')!.hint, isNot(contains('头像上传')));
+      expect(form.field('uploadurl[1]')!.min, row == _nativeAvatarRow ? 1 : 2);
+      expect(
+          form.field('uploadurl[1]')!.max, row == _nativeAvatarRow ? 150 : 120);
+      expect(form.field('uploadurl[2]')!.max, 270);
+      expect(form.field('upload')!.type, 'file');
+      expect(form.field('upload')!.accept, isNull);
+      expect(form.field('upload')!.hint, isEmpty);
+      expect(form.field('proicon')!.value, 'none.gif');
     }
   });
 
@@ -464,7 +515,8 @@ void main() {
       ..responses.addAll([
         profile(),
         profile(),
-        '<script>parent.facepath("attachment/face/", "uploaded.png", "success", 150, 100);</script>',
+        _uploadPage(
+            'parent.facepath("attachment/face/", "uploaded.png", "success", 150, 100);'),
         profile(token: 'after-upload', sensitive: 'after-upload'),
         success
       ]);
@@ -493,6 +545,38 @@ void main() {
   });
 
   test(
+      'native full-page upload failure reports plain error and never modifies profile',
+      () async {
+    const error = '上传附件失败，造成的原因可能有:附件目录不可写(777)、空间在安全模式下、空间大小已不足。';
+    final client = _Client()
+      ..responses.addAll([
+        profile(),
+        profile(),
+        _uploadPage("parent.facepath('','','$error','','');")
+      ]);
+    final service = accountService(client);
+    final form = await service.fetchAccountProfileForm();
+    await expectLater(
+        service.saveAccountProfileForm(
+            form,
+            {
+              'facetype': ['3'],
+              'uploadurl[1]': ['150'],
+              'uploadurl[2]': ['']
+            },
+            avatar: ForumAccountUpload(
+                bytes: pngBytes,
+                fileName: 'avatar.png',
+                mimeType: 'image/png')),
+        throwsA(isA<ForumAccountValidationException>()
+            .having((e) => e.fieldErrors['upload'], 'upload error', error)));
+    expect(
+        client.posts.map((post) => post.path), ['profile.php?action=ajaxface']);
+    expect(form.field('facetype')!.value, '1');
+    expect(form.field('proicon')!.value, 'old.gif');
+  });
+
+  test(
       'avatar callback rejection never proceeds to final save or evaluates JavaScript',
       () async {
     for (final response in [
@@ -504,6 +588,11 @@ void main() {
       '<script>parent.facepath("attachment/face/","../a.png","success",1,1);</script>',
       '<script>parent.facepath("attachment/face/","%2e%2e/a.png","success",1,1);</script>',
       '<script>parent.facepath("attachment/face/","a.png",false,1,1);</script>',
+      _uploadPage(
+              'parent.facepath("attachment/face/","a.png","success",1,1);') +
+          '<script>parent.facepath("attachment/face/","b.png","success",1,1);</script>',
+      _uploadPage("parent.facepath('','','上传附件失败<script>','','');"),
+      _uploadPage("parent.facepath('','','上传附件失败','','');alert(1);"),
     ]) {
       final client = _Client()
         ..responses.addAll([profile(), profile(), response]);
@@ -564,6 +653,34 @@ void main() {
                 bytes: pngBytes, fileName: 'x.png', mimeType: 'image/png')),
         invalidInput);
     expect(client.posts, isEmpty);
+  });
+
+  test('final PNG upload obeys fresh native accept and byte limits', () async {
+    for (final fresh in [
+      profile().replaceFirst('type="file" name="upload"',
+          'type="file" name="upload" accept="image/jpeg"'),
+      profile().replaceFirst('</form>',
+          '<input type="hidden" name="MAX_FILE_SIZE" value="2"></form>'),
+    ]) {
+      final client = _Client()..responses.addAll([profile(), fresh]);
+      final service = accountService(client);
+      final form = await service.fetchAccountProfileForm();
+      await expectLater(
+          service.saveAccountProfileForm(
+              form,
+              {
+                'facetype': ['3'],
+                'uploadurl[1]': ['150'],
+                'uploadurl[2]': ['']
+              },
+              avatar: ForumAccountUpload(
+                  bytes: pngBytes,
+                  fileName: 'avatar.png',
+                  mimeType: 'image/png')),
+          invalidInput);
+      expect(client.posts, isEmpty);
+      expect(client.getPaths, hasLength(2));
+    }
   });
 
   test(
@@ -782,6 +899,35 @@ class _Client extends ForumClient {
 }
 
 const success = '<html><body>操作完成</body></html>';
+String _uploadPage(String callback) => '<html><head>'
+    '${List.filled(12, '<script src="images/common-header.js"></script>').join()}'
+    '</head><body><script>$callback</script></body></html>';
+// Captured native rows, with account values cleared; controls intentionally share one tr/td.
+const _nativeDateRow = '''
+<tr><td class="td1">时间格式(格式如:yyyy-mm-dd,yy-m-d)<br>yyyy:4位数年份,yy:2位数年份<br>mm:有前导零01-12,m:没前导零1-12<br>dd:有前导零01-31,d:没前导零1-31</td>
+<td><input type="radio" name="d_type" value="0" checked>使用默认<br>
+<input type="radio" name="d_type" value="1">自定义 <input class="input" type="text" name="date_f" value="yyyy-mm-dd">
+<input type="radio" name="time_f" value="24" checked>24 <input type="radio" name="time_f" value="12">12</td></tr>
+''';
+const _nativeAvatarRow = '''
+<tr><td class="td1" width="25%"><img src="images/face/none.gif" name="useravatars"></td><td>
+<div id="openchang" style="float:left;width:100%;margin-top:1%;">
+<div style="float:left;margin-right:1%;"><input type="radio" name="facetype" value="1" onclick="CkFaceType(this.value)">系统头像</div>
+<div style="float:left;margin-right:1%;"><input type="radio" name="facetype" value="2" onclick="CkFaceType(this.value)">头像链接</div>
+<div style="float:left;"><input type="radio" name="facetype" value="3" onclick="CkFaceType(this.value)">头像上传</div>
+<div class="c"></div>
+<div id="face1" style="float:left;width:100%;margin-top:1%;"><a id="profile" style="cursor:pointer" onclick="sendmsg('pw_ajax.php','action=showface',this.id);" title="头像列表"><b>[头像列表]</b></a><input type="hidden" name="proicon" value="none.gif"></div>
+<div id="face2" style="float:left;width:100%;margin-top:1%;display:none;">
+头像链接 <input name="httpurl[0]" value="" class="input" type="text" size="40"> 必须以 http://开头<br>
+头像宽度 <input name="httpurl[1]" value="" class="input" size="2" maxlength="3"> 必须是 1 -- 150 之间的一个整数。<br>
+头像高度 <input name="httpurl[2]" value="" class="input" size="2" maxlength="3"> 必须是 1 -- 270 之间的一个整数。<b>头像高度留空，则根据宽度自适应</b>
+</div>
+<div id="face3" style="float:left;width:100%;margin-top:1%;display:none;">
+头像上传 <span id="reupload" style="margin-left:1px"><input class="input file" type="file" id="upload" name="upload"><a class="abtn" unselectable="on" onclick="UpLoadFace()">上传</a></span><br>
+头像宽度 <input name="uploadurl[1]" value="" class="input" size="2" maxlength="3"> 必须是 1 -- 150 之间的一个整数。<br>
+头像高度 <input name="uploadurl[2]" value="" class="input" size="2" maxlength="3"> 必须是 1 -- 270 之间的一个整数。<b>头像高度留空，则根据宽度自适应</b>
+</div></div></td></tr>
+''';
 String preferences({String token = 'fixture', String blacklist = ''}) => '''
 <form id="preferences" method="post" action="profile.php?action=bbsset">
 <input type="hidden" name="verify" value="$token"><input type="hidden" name="step" value="2">

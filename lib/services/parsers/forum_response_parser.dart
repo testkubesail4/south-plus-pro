@@ -1,5 +1,7 @@
 import 'package:html/parser.dart' as html_parser;
 
+import '../../models/forum_models.dart';
+
 class ForumResponseParser {
   const ForumResponseParser();
 
@@ -58,16 +60,64 @@ class ForumResponseParser {
         message.contains('购买成功');
   }
 
-  bool isFavoriteAddSuccess(String message) {
-    if (message.contains('非法') ||
-        message.contains('错误') ||
-        message.contains('失败') ||
-        message.contains('权限') ||
-        message.contains('认证码')) {
-      return false;
-    }
-    return message.contains('收藏');
+  bool isFavoriteAddSuccess(String response) {
+    final text = _cleanText(_favoritePayload(response) ?? response)
+        .replaceFirst(RegExp(r'[!！。]$'), '');
+    return const {
+      '帖子收藏成功',
+      '收藏成功',
+      '您已经收藏了该主题',
+    }.contains(text);
   }
+
+  List<FavoriteCategory>? favoriteCategories(String xml, Uri base) {
+    final payload = _favoritePayload(xml);
+    if (payload == null ||
+        RegExp(r'[\x00-\x1f\x7f]')
+            .hasMatch(payload.replaceAll(RegExp(r'[\r\n\t]'), ''))) return null;
+    final document = html_parser.parse(payload);
+    if (document.querySelector('script, iframe, form, base') != null ||
+        !(document.body?.text ?? '').contains('选择分类')) return null;
+    final categories = <FavoriteCategory>[];
+    final ids = <String>{};
+    for (final link in document.querySelectorAll('a')) {
+      final callback = RegExp(
+              r'''^\s*favor\(\s*(['"])(0|[1-9]\d*)\1\s*\)\s*;?\s*(?:return\s+false\s*;?)?\s*$''')
+          .firstMatch(link.attributes['onclick'] ?? '');
+      final label = _cleanText(link.text);
+      final href = link.attributes['href'];
+      if (callback == null ||
+          label.isEmpty ||
+          RegExp(r'[\x00-\x1f\x7f]').hasMatch(
+              '${link.text}${link.attributes['onclick'] ?? ''}${href ?? ''}')) {
+        return null;
+      }
+      // The native inert href is literal data; no returned JavaScript is executed.
+      if (href != null &&
+          href.isNotEmpty &&
+          href != '#' &&
+          href != 'javascript:') {
+        final uri = Uri.tryParse(href);
+        final resolved = uri == null ? null : base.resolveUri(uri);
+        if (resolved == null ||
+            !{'http', 'https'}.contains(resolved.scheme) ||
+            resolved.userInfo.isNotEmpty ||
+            resolved.origin != base.origin) {
+          return null;
+        }
+      }
+      final id = callback.group(2)!;
+      if (!ids.add(id)) return null;
+      categories.add(FavoriteCategory(id: id, label: label));
+    }
+    return categories.isEmpty ? null : List.unmodifiable(categories);
+  }
+
+  String? _favoritePayload(String response) => RegExp(
+          r'^\s*(?:<\?xml[^>]*\?>\s*)?<ajax>\s*<!\[CDATA\[(.*?)\]\]>\s*</ajax>\s*$',
+          dotAll: true)
+      .firstMatch(response)
+      ?.group(1);
 
   bool isFavoriteRemoveSuccess(String html, String message) {
     if (message.contains('错误') ||
