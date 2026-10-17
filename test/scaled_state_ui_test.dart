@@ -15,6 +15,32 @@ double _contrast(Color a, Color b) {
 void main() {
   tearDown(() => AppThemeController.notifier.value = ThemeMode.system);
 
+  for (final width in [72.0, 320.0, 360.0, 400.0, 600.0]) {
+    for (final scale in [1.0, 1.3]) {
+      testWidgets('emoji tiles are 48 px targets at $width px, x$scale',
+          (tester) async {
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(
+              size: Size(width, 800),
+              textScaler: TextScaler.linear(scale),
+            ),
+            child: Scaffold(body: SouthPlusEmojiPicker(onSelected: (_) {})),
+          ),
+        ));
+        final id = southPlusEmojiCategories.first.items.first.id;
+        final tile = tester.getSize(find
+            .ancestor(of: find.text(id), matching: find.byType(InkWell))
+            .first);
+        expect(tile.width, greaterThanOrEqualTo(48));
+        expect(tile.height, greaterThanOrEqualTo(48));
+      });
+    }
+  }
+
   testWidgets('emoji code labels fit their tiles at large text',
       (tester) async {
     tester.view.physicalSize = const Size(400, 800);

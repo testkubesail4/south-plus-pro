@@ -24,6 +24,16 @@ class SouthPlusEmojiPicker extends StatelessWidget {
   String get _emojiBaseUrl =>
       (baseUri ?? Uri.https('south-plus.net', '/')).toString();
 
+  static const _gap = 8.0;
+
+  /// As many columns as fit tiles of at least a 48 px target, wider at
+  /// large text so a scaled code label stays on one line.
+  static int _columns(BuildContext context, double width) {
+    final minTile =
+        math.max(48.0, MediaQuery.textScalerOf(context).scale(40));
+    return math.max(1, ((width + _gap) / (minTile + _gap)).floor());
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -55,26 +65,26 @@ class SouthPlusEmojiPicker extends StatelessWidget {
                   builder: (context, mode, _) => TabBarView(
                     children: [
                       for (final category in southPlusEmojiCategories)
-                        GridView.builder(
-                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
-                          gridDelegate:
-                              SliverGridDelegateWithMaxCrossAxisExtent(
-                            // Tiles grow with large text so a code label
-                            // still fits.
-                            maxCrossAxisExtent: math.max(
-                              52,
-                              MediaQuery.textScalerOf(context).scale(52),
+                        LayoutBuilder(
+                          builder: (context, constraints) => GridView.builder(
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: _columns(
+                                context,
+                                constraints.maxWidth - 24,
+                              ),
+                              mainAxisSpacing: _gap,
+                              crossAxisSpacing: _gap,
                             ),
-                            mainAxisSpacing: 8,
-                            crossAxisSpacing: 8,
-                          ),
-                          itemCount: category.items.length,
-                          itemBuilder: (context, index) => _EmojiTile(
-                            emoji: category.items[index],
-                            baseUrl: _emojiBaseUrl,
-                            showImage:
-                                mode != null && mode != ImageLoadMode.noImages,
-                            onSelected: onSelected,
+                            itemCount: category.items.length,
+                            itemBuilder: (context, index) => _EmojiTile(
+                              emoji: category.items[index],
+                              baseUrl: _emojiBaseUrl,
+                              showImage: mode != null &&
+                                  mode != ImageLoadMode.noImages,
+                              onSelected: onSelected,
+                            ),
                           ),
                         ),
                     ],
