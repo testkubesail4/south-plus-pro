@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -190,10 +191,17 @@ void main() {
     await pumpShell(tester,
         user: _userA, textScale: 2, size: const Size(320, 640));
     expect(tester.takeException(), isNull);
-    expect(
-      tester.widget<NavigationBar>(find.byType(NavigationBar)).labelBehavior,
-      NavigationDestinationLabelBehavior.onlyShowSelected,
-    );
+    // Every tab keeps its label: icons alone don't say where they go.
+    final bar = find.byType(NavigationBar);
+    final barRect = tester.getRect(bar);
+    for (final label in ['首页', '收藏', '搜索', '消息', '我的']) {
+      final text = find.descendant(of: bar, matching: find.text(label));
+      expect(text, findsOneWidget);
+      expect(barRect.contains(tester.getRect(text).bottomCenter), isTrue,
+          reason: '$label sits inside the bar');
+      expect(tester.renderObject<RenderParagraph>(text).didExceedMaxLines,
+          isFalse);
+    }
     await selectTab(tester, '首页');
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();

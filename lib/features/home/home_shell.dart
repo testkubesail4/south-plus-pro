@@ -56,7 +56,6 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final compactLabels = MediaQuery.textScalerOf(context).scale(1) > 1.5;
     return ValueListenableBuilder<String?>(
       valueListenable: _repository.sessionUser,
       builder: (context, owner, _) {
@@ -177,10 +176,8 @@ class _HomeShellState extends State<HomeShell> {
                     : NavigationBar(
                         selectedIndex: _index,
                         onDestinationSelected: _select,
-                        labelBehavior: compactLabels
-                            ? NavigationDestinationLabelBehavior
-                                .onlyShowSelected
-                            : NavigationDestinationLabelBehavior.alwaysShow,
+                        labelBehavior:
+                            NavigationDestinationLabelBehavior.alwaysShow,
                         destinations: [
                           for (final (icon, selected, label) in destinations)
                             NavigationDestination(
