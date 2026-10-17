@@ -3,7 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/rendering.dart'
+    show
+        BoxHitTestResult,
+        ContainerRenderObjectMixin,
+        MultiChildLayoutParentData,
+        RenderBoxContainerDefaultsMixin,
+        ScrollDirection;
 
 import '../../models/forum_models.dart';
 import '../../services/external_link_launcher.dart';
@@ -2013,14 +2019,21 @@ class _FloorCard extends StatelessWidget {
   final VoidCallback? onQuote;
   final VoidCallback? onMore;
 
-  /// The thread action strip, under the opening post's body.
-  final Widget? threadActions;
+  /// The opening post's thread controls, sharing the footer's row.
+  final _ThreadHeaderActions? threadActions;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
     // The opening post's "floor" is its author: a badge, not a number.
     final isOpeningPost = floor == '楼主';
+    final footer = ThreadFloorFooter(
+      moreKey: ValueKey('floor-actions-$author-$floor'),
+      onReply: onReply,
+      onQuote: onQuote,
+      onMore: onMore,
+      quoteLoading: quoteLoading,
+    );
     final meta = [
       if (postedAt != null && postedAt!.isNotEmpty) postedAt!,
       if (floor != null && floor!.isNotEmpty && !isOpeningPost) floor!,
@@ -2084,22 +2097,11 @@ class _FloorCard extends StatelessWidget {
               padding: const EdgeInsets.only(right: AppSpace.sm),
               child: RepaintBoundary(child: child),
             ),
-            if (threadActions != null) ...[
-              const SizedBox(height: AppSpace.lg),
-              Padding(
-                padding: const EdgeInsets.only(right: AppSpace.sm),
-                child: threadActions!,
-              ),
-              const SizedBox(height: AppSpace.xs),
-            ],
-            if (onReply != null || onQuote != null || onMore != null)
-              ThreadFloorFooter(
-                moreKey: ValueKey('floor-actions-$author-$floor'),
-                onReply: onReply,
-                onQuote: onQuote,
-                onMore: onMore,
-                quoteLoading: quoteLoading,
-              ),
+            if (threadActions case final actions?) ...[
+              const SizedBox(height: AppSpace.sm),
+              actions.withFooter(footer),
+            ] else if (onReply != null || onQuote != null || onMore != null)
+              footer,
           ],
         ),
     );
@@ -2271,6 +2273,9 @@ class _ThreadTitle extends StatelessWidget {
   }
 }
 
+/// The opening post's thread controls: the 收藏 and 只看楼主 toggles, and
+/// the row to the neighbouring threads. A control the thread lacks is left
+/// out.
 class _ThreadHeaderActions extends StatelessWidget {
   const _ThreadHeaderActions({
     required this.favorite,
@@ -2294,151 +2299,229 @@ class _ThreadHeaderActions extends StatelessWidget {
   final ThreadActionLink? nextThread;
   final ValueChanged<ThreadActionLink> onThreadLink;
 
-  @override
-  Widget build(BuildContext context) {
+  /// The toggles, or null when the thread offers neither.
+  Widget? toggles() {
     final fav = favorite;
     final onlyOp = onOnlyOriginalPosterChanged;
+    final items = [
+      if (fav != null)
+        _ThreadToggle(
+          icon: Icons.star_outline,
+          selectedIcon: Icons.star,
+          label: fav.canRemove ? '已收藏' : '收藏',
+          selected: fav.canRemove,
+          busy: favoriteBusy,
+          onPressed: onFavorite,
+        ),
+      if (originalAuthor != null && onlyOp != null)
+        _ThreadToggle(
+          icon: Icons.person_outline,
+          selectedIcon: Icons.person,
+          label: '只看楼主',
+          selected: onlyOriginalPoster,
+          onPressed: () => onlyOp(!onlyOriginalPoster),
+        ),
+    ];
+    if (items.isEmpty) return null;
+    return Wrap(spacing: AppSpace.sm, children: items);
+  }
+
+  /// ‹ 上一主题 at the start and 下一主题 › at the end; a missing neighbour
+  /// leaves its side empty. Null when there is neither.
+  Widget? neighbours() {
     final previous = previousThread;
     final next = nextThread;
-    final slots = [
-                _ThreadActionButton(
-                  icon: onlyOriginalPoster ? Icons.person : Icons.person_outline,
-                  label: '只看楼主',
-                  active: onlyOriginalPoster,
-                  onTap: originalAuthor == null || onlyOp == null
-                      ? null
-                      : () => onlyOp(!onlyOriginalPoster),
-                ),
-                if (fav != null)
-                  _ThreadActionButton(
-                    icon: fav.canRemove ? Icons.star : Icons.star_outline,
-                    label: fav.canRemove ? '已收藏' : '收藏',
-                    active: fav.canRemove,
-                    busy: favoriteBusy,
-                    onTap: onFavorite,
-                  ),
-                _ThreadActionButton(
-                  icon: Icons.chevron_left,
-                  label: '上一主题',
-                  onTap: previous == null ? null : () => onThreadLink(previous),
-                ),
-                _ThreadActionButton(
-                  icon: Icons.chevron_right,
-                  label: '下一主题',
-                  onTap: next == null ? null : () => onThreadLink(next),
-                ),
-    ];
-    // Phone width on wide windows, so the slots stay a thumb apart.
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: AppWidths.dialog),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppColors.inkSoft,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpace.xs),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // A four-character label that no longer fits its slot at
-                // large text sizes moves the strip to two per row.
-                final label = MediaQuery.textScalerOf(context).scale(12) * 4;
-                final perRow =
-                    constraints.maxWidth / slots.length >= label + 8 ? slots.length : 2;
-                return Column(
-                  children: [
-                    for (var i = 0; i < slots.length; i += perRow)
-                      // Equal slots of equal height in every row.
-                      IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (final slot
-                                in slots.skip(i).take(perRow))
-                              Expanded(child: slot),
-                            // A short last row keeps the column widths.
-                            for (var gap = slots.length - i; gap < perRow; gap++)
-                              const Spacer(),
-                          ],
-                        ),
-                      ),
-                  ],
-                );
-              },
+    final style = TextButton.styleFrom(
+      foregroundColor: AppColors.textMuted,
+      minimumSize: const Size(48, 48),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm),
+    );
+    final back = previous == null
+        ? null
+        : TextButton.icon(
+            style: style,
+            onPressed: () => onThreadLink(previous),
+            icon: const Icon(Icons.chevron_left),
+            label: const Text('上一主题'),
+          );
+    final forward = next == null
+        ? null
+        : TextButton.icon(
+            style: style,
+            iconAlignment: IconAlignment.end,
+            onPressed: () => onThreadLink(next),
+            icon: const Icon(Icons.chevron_right),
+            label: const Text('下一主题'),
+          );
+    if (back != null && forward != null) {
+      // Too narrow for one line, 下一主题 goes under 上一主题.
+      return Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        children: [back, forward],
+      );
+    }
+    if (back != null) {
+      return Align(alignment: AlignmentDirectional.centerStart, child: back);
+    }
+    if (forward != null) {
+      return Align(alignment: AlignmentDirectional.centerEnd, child: forward);
+    }
+    return null;
+  }
+
+  /// Under a post: the toggles at the start of the row ending in [footer],
+  /// then the neighbour row below a divider.
+  Widget withFooter(Widget footer) {
+    final row = toggles();
+    final nav = neighbours();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (row == null)
+          footer
+        else
+          _SplitRow(leading: row, trailing: IntrinsicWidth(child: footer)),
+        if (nav != null) ...[
+          const Divider(height: 1, endIndent: AppSpace.sm),
+          Padding(
+            padding: const EdgeInsets.only(
+              top: AppSpace.xs,
+              right: AppSpace.sm,
+              bottom: AppSpace.xs,
             ),
+            child: nav,
           ),
-        ),
-      ),
+        ],
+      ],
+    );
+  }
+
+  /// Without a post body: the toggles, then the neighbour row.
+  @override
+  Widget build(BuildContext context) {
+    final row = toggles();
+    final nav = neighbours();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (row != null) Align(alignment: Alignment.centerLeft, child: row),
+        if (row != null && nav != null)
+          const Divider(height: AppSpace.lg),
+        if (nav != null) nav,
+      ],
     );
   }
 }
 
-/// One slot of the thread action strip: icon over label. Muted at rest,
-/// brand on brandSoft when on, faint when unavailable.
-class _ThreadActionButton extends StatelessWidget {
-  const _ThreadActionButton({
+/// [leading] at the start and [trailing] at the end of one line; when both
+/// don't fit, [leading] takes its own line above.
+class _SplitRow extends MultiChildRenderObjectWidget {
+  _SplitRow({required Widget leading, required Widget trailing})
+      : super(children: [leading, trailing]);
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderSplitRow();
+}
+
+class _RenderSplitRow extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, MultiChildLayoutParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox,
+            MultiChildLayoutParentData> {
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! MultiChildLayoutParentData) {
+      child.parentData = MultiChildLayoutParentData();
+    }
+  }
+
+  @override
+  void performLayout() {
+    final leading = firstChild!;
+    final trailing = lastChild!;
+    final loose = constraints.loosen();
+    leading.layout(loose, parentUsesSize: true);
+    trailing.layout(loose, parentUsesSize: true);
+    final a = leading.size;
+    final b = trailing.size;
+    final width = constraints.maxWidth;
+    final at = leading.parentData! as MultiChildLayoutParentData;
+    final bt = trailing.parentData! as MultiChildLayoutParentData;
+    if (a.width + b.width <= width) {
+      final height = math.max(a.height, b.height);
+      at.offset = Offset(0, (height - a.height) / 2);
+      bt.offset = Offset(width - b.width, (height - b.height) / 2);
+      size = constraints.constrain(Size(width, height));
+    } else {
+      at.offset = Offset.zero;
+      bt.offset = Offset(width - b.width, a.height);
+      size = constraints.constrain(Size(width, a.height + b.height));
+    }
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) =>
+      defaultPaint(context, offset);
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      defaultHitTestChildren(result, position: position);
+}
+
+/// A small tonal toggle (DESIGN.md §6): brand on brandSoft with a filled
+/// icon when selected; busy swaps the icon for a spinner and disables it.
+class _ThreadToggle extends StatelessWidget {
+  const _ThreadToggle({
     required this.icon,
+    required this.selectedIcon,
     required this.label,
-    required this.onTap,
-    this.active = false,
+    required this.selected,
+    required this.onPressed,
     this.busy = false,
   });
 
   final IconData icon;
+  final IconData selectedIcon;
   final String label;
-  final VoidCallback? onTap;
-  final bool active;
+  final bool selected;
   final bool busy;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final color = onTap == null
-        ? AppColors.textFaint
-        : active
-            ? AppColors.brand
-            : AppColors.textMuted;
-    return Semantics(
-      container: true,
-      button: true,
-      enabled: !busy && onTap != null,
-      selected: active,
-      child: Material(
-        color: active ? AppColors.brandSoft : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          onTap: busy ? null : onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 52),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpace.xs,
-                vertical: AppSpace.sm,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  busy
-                      ? const SizedBox.square(
-                          dimension: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(icon, size: 20, color: color),
-                  const SizedBox(height: AppSpace.xs),
-                  Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelMedium
-                        ?.copyWith(color: color),
-                  ),
-                ],
-              ),
-            ),
+    final brand = selected ? AppColors.brand : null;
+    return MergeSemantics(
+      child: Semantics(
+        selected: selected,
+        child: FilledButton.tonalIcon(
+          onPressed: busy ? null : onPressed,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 32),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.md),
+            iconSize: 16,
+            // Drawn 32 high, tapped across 48.
+            tapTargetSize: MaterialTapTargetSize.padded,
+            visualDensity: VisualDensity.standard,
+            // The small button's 13 px label (DESIGN.md §6).
+            textStyle: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(fontWeight: FontWeight.w600),
+            backgroundColor: selected ? AppColors.brandSoft : null,
+            foregroundColor: brand,
+            disabledBackgroundColor: selected ? AppColors.brandSoft : null,
+            disabledForegroundColor: brand,
           ),
+          icon: busy
+              ? SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: brand ?? AppColors.textMuted,
+                  ),
+                )
+              : Icon(selected ? selectedIcon : icon),
+          label: Text(label),
         ),
       ),
     );

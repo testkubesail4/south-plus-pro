@@ -9,9 +9,17 @@ import 'package:south_plus_rewrite/services/forum_repository.dart';
 
 // Synthetic fixtures only: fictional tid, uid and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
+const _previous = 'https://south-plus.net/read.php?tid-6.html';
+const _next = 'https://south-plus.net/read.php?tid-8.html';
 
 class _Repo extends ForumRepository {
+  _Repo({this.signedIn = true, this.previous = true, this.next = true});
+
+  final bool signedIn;
+  final bool previous;
+  final bool next;
   final favoriteCalls = <String>[];
+  final requested = <String>[];
 
   /// When set, 收藏 waits for it, so the busy state can be observed.
   Completer<void>? holdFavorite;
@@ -30,25 +38,30 @@ class _Repo extends ForumRepository {
   Future<ThreadDetail> fetchThreadDetail(
     ForumThread thread, {
     int page = 1,
-  }) async =>
-      ThreadDetail(
-        thread: thread.copyWith(
-          title: '合成主题',
-          author: '楼主甲',
-          authorUrl: 'https://south-plus.net/u.php?action-show-uid-3.html',
-        ),
-        body: 'body',
-        replies: const [],
-        favorite: const ThreadFavorite(
-          tid: '7',
-          verify: 'synthetic',
-          state: ThreadFavoriteState.notFavorite,
-        ),
-        nextThread: const ThreadActionLink(
-          label: '下一主题',
-          url: 'https://south-plus.net/read.php?tid-8.html',
-        ),
-      );
+  }) async {
+    requested.add(thread.url);
+    return ThreadDetail(
+      thread: thread.copyWith(
+        title: '合成主题',
+        author: '楼主甲',
+        authorUrl: 'https://south-plus.net/u.php?action-show-uid-3.html',
+      ),
+      body: 'body',
+      replies: const [],
+      favorite: signedIn
+          ? const ThreadFavorite(
+              tid: '7',
+              verify: 'synthetic',
+              state: ThreadFavoriteState.notFavorite,
+            )
+          : null,
+      previousThread: previous
+          ? const ThreadActionLink(label: '上一主题', url: _previous)
+          : null,
+      nextThread:
+          next ? const ThreadActionLink(label: '下一主题', url: _next) : null,
+    );
+  }
 
   @override
   Future<FavoriteResult> addFavorite(ThreadFavorite favorite) async {
@@ -75,8 +88,12 @@ class _Repo extends ForumRepository {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  Future<_Repo> pumpThread(WidgetTester tester, {double textScale = 1}) async {
-    final repository = _Repo();
+  Future<_Repo> pumpThread(
+    WidgetTester tester, {
+    double textScale = 1,
+    _Repo? repository,
+  }) async {
+    final repo = repository ?? _Repo();
     await tester.pumpWidget(MaterialApp(
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context)
@@ -84,16 +101,25 @@ void main() {
         child: child!,
       ),
       home: ThreadDetailScreen(
-        repository: repository,
+        repository: repo,
         thread: const ForumThread(title: '', url: _url, replies: 0, section: ''),
       ),
     ));
     await tester.pumpAndSettle();
-    return repository;
+    return repo;
   }
 
-  Finder slot(String label) => find
-      .ancestor(of: find.text(label), matching: find.byType(InkWell))
+  void setView(WidgetTester tester, Size size) {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+  }
+
+  Finder button(String label) => find
+      .ancestor(
+        of: find.text(label),
+        matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+      )
       .first;
 
   testWidgets('收藏 toggles on and off, showing its state', (tester) async {
@@ -103,36 +129,71 @@ void main() {
       containsSemantics(isSelected: false),
     );
 
-    await tester.ensureVisible(slot('收藏'));
-    await tester.tap(slot('收藏'));
+    await tester.ensureVisible(button('收藏'));
+    await tester.tap(button('收藏'));
     await tester.pumpAndSettle();
     expect(
       tester.getSemantics(find.text('已收藏')),
       containsSemantics(isSelected: true),
     );
 
-    await tester.tap(slot('已收藏'));
+    await tester.tap(button('已收藏'));
     await tester.pumpAndSettle();
     expect(repository.favoriteCalls, ['add', 'remove']);
     expect(find.text('收藏'), findsOneWidget);
   });
 
-  testWidgets('large text moves the strip to two slots per row, never '
-      'breaking a label', (tester) async {
-    tester.view.physicalSize = const Size(400, 1600);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await pumpThread(tester, textScale: 2);
+  testWidgets('the toggles share the floor actions row on a phone',
+      (tester) async {
+    setView(tester, const Size(400, 800));
+    await pumpThread(tester);
 
-    double top(String label) => tester.getTopLeft(find.text(label)).dy;
-    expect(top('收藏'), top('只看楼主'));
-    expect(top('上一主题'), greaterThan(top('只看楼主')));
-    expect(top('下一主题'), top('上一主题'));
-    // One line each: no label wraps inside its slot.
-    for (final label in ['只看楼主', '上一主题', '下一主题']) {
-      expect(tester.getSize(find.text(label)).height, lessThan(24 * 2),
-          reason: label);
+    final reply = tester.getCenter(find.byTooltip('回复')).dy;
+    expect(tester.getCenter(button('收藏')).dy, reply);
+    expect(tester.getCenter(button('只看楼主')).dy, reply);
+    // The neighbour row sits below, 上一主题 at the start, 下一主题 at the end.
+    expect(tester.getTopLeft(button('上一主题')).dy, greaterThan(reply));
+    expect(tester.getTopLeft(button('上一主题')).dx,
+        lessThan(tester.getTopLeft(button('收藏')).dx + 1));
+    expect(tester.getTopRight(button('下一主题')).dx,
+        greaterThan(tester.getTopRight(find.byTooltip('更多操作')).dx - 16));
+  });
+
+  for (final width in [320.0, 400.0]) {
+    testWidgets('at large text on a $width px phone the toggles take their '
+        'own line, never breaking a label', (tester) async {
+      setView(tester, Size(width, 1600));
+      await pumpThread(tester, textScale: 2);
+
+      final reply = tester.getTopLeft(find.byTooltip('回复')).dy;
+      expect(tester.getBottomLeft(button('只看楼主')).dy,
+          lessThanOrEqualTo(reply + 1));
+      // One line each: no label wraps inside its button.
+      for (final label in ['收藏', '只看楼主', '上一主题', '下一主题']) {
+        expect(tester.getSize(find.text(label)).height, lessThan(14 * 2 * 2),
+            reason: label);
+        expect(tester.getTopRight(find.text(label)).dx,
+            lessThanOrEqualTo(width), reason: label);
+      }
+    });
+  }
+
+  testWidgets('every thread control is a 48 px target', (tester) async {
+    setView(tester, const Size(400, 800));
+    final repository = await pumpThread(tester);
+
+    for (final label in ['收藏', '只看楼主', '上一主题', '下一主题']) {
+      final size = tester.getSize(button(label));
+      expect(size.height, greaterThanOrEqualTo(48), reason: label);
+      expect(size.width, greaterThanOrEqualTo(48), reason: label);
     }
+    // The pill draws 32 high; a tap just above it still lands.
+    final pill = tester.getRect(find.descendant(
+        of: button('收藏'), matching: find.byType(Material)));
+    expect(pill.height, lessThan(48));
+    await tester.tapAt(pill.topCenter - const Offset(0, 6));
+    await tester.pumpAndSettle();
+    expect(repository.favoriteCalls, ['add']);
   });
 
   testWidgets('a busy 收藏 is announced as disabled until it settles',
@@ -140,14 +201,17 @@ void main() {
     final repository = await pumpThread(tester);
     repository.holdFavorite = Completer<void>();
 
-    await tester.ensureVisible(slot('收藏'));
-    await tester.tap(slot('收藏'));
+    await tester.ensureVisible(button('收藏'));
+    await tester.tap(button('收藏'));
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text('收藏'), findsOneWidget, reason: 'the label stays');
     expect(
       tester.getSemantics(find.text('收藏')),
       containsSemantics(isButton: true, isEnabled: false),
     );
+    await tester.tap(button('收藏'), warnIfMissed: false);
+    expect(repository.favoriteCalls, ['add'], reason: 'no second request');
 
     repository.holdFavorite!.complete();
     await tester.pumpAndSettle();
@@ -157,16 +221,37 @@ void main() {
     );
   });
 
-  testWidgets('a missing neighbour thread is a disabled slot', (tester) async {
-    await pumpThread(tester);
+  testWidgets('下一主题 opens the neighbouring thread', (tester) async {
+    final repository = await pumpThread(tester);
 
+    await tester.ensureVisible(button('下一主题'));
+    await tester.tap(button('下一主题'));
+    await tester.pumpAndSettle();
+    expect(repository.requested.last, _next);
+  });
+
+  testWidgets('a control the thread lacks is left out', (tester) async {
+    setView(tester, const Size(400, 800));
+    await pumpThread(tester, repository: _Repo(signedIn: false, previous: false));
+
+    expect(find.text('收藏'), findsNothing);
+    expect(find.text('上一主题'), findsNothing);
+    // The remaining neighbour keeps its side.
+    expect(tester.getTopRight(button('下一主题')).dx,
+        greaterThan(tester.getTopRight(find.byTooltip('更多操作')).dx - 16));
+    expect(find.text('只看楼主'), findsOneWidget);
+  });
+
+  testWidgets('without neighbours the divider and row go too',
+      (tester) async {
+    await pumpThread(tester,
+        repository: _Repo(previous: false, next: false));
+
+    expect(find.text('上一主题'), findsNothing);
+    expect(find.text('下一主题'), findsNothing);
     expect(
-      tester.getSemantics(find.text('上一主题')),
-      containsSemantics(isButton: true, isEnabled: false),
-    );
-    expect(
-      tester.getSemantics(find.text('下一主题')),
-      containsSemantics(isButton: true, isEnabled: true),
+      find.descendant(of: find.byType(Card).first, matching: find.byType(Divider)),
+      findsNothing,
     );
   });
 }

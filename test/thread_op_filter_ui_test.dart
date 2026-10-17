@@ -287,10 +287,9 @@ class _FakeRepository extends ForumRepository {
   }
 }
 
-/// The thread action strip's 只看楼主 slot.
-Finder opChip() => find
-    .ancestor(of: find.text('只看楼主'), matching: find.byType(InkWell))
-    .first;
+/// The 只看楼主 toggle; absent when the OP is unknown.
+Finder opChip() =>
+    find.ancestor(of: find.text('只看楼主'), matching: find.byType(InkWell));
 
 void expectOpSelected(WidgetTester tester, bool selected) => expect(
       tester.getSemantics(find.text('只看楼主')),
