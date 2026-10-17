@@ -213,8 +213,6 @@ class FixtureServerTest(unittest.TestCase):
                     base = '/pw_ajax.php?action=favor&tid=930002&nowtime=123456&verify=fixture-only'
                     with self.assertRaises(HTTPError):
                         request(base.replace('/pw_ajax.php', '/job.php'))
-                    with self.assertRaises(HTTPError):
-                        request(base + '&type=1')
                     first = request(base).decode()
                     self.assertIn('<?xml version="1.0" encoding="utf-8"?>', first)
                     self.assertIn('<div class="bor"><table cellspacing="0" cellpadding="5" width="120">', first)
@@ -226,21 +224,163 @@ class FixtureServerTest(unittest.TestCase):
                     before = json.loads(request('/appendfix/stats'))
                     self.assertEqual(before['favorites'], {})
                     self.assertEqual(before['writes'], [])
-                    self.assertEqual(len(before['attempts']), 2, 'rejected premature type attempt must still be counted')
+                    self.assertEqual(len(before['attempts']), 1)
                     # Cancelling is not a request: a fresh favorites GET remains empty.
                     self.assertNotIn(b'value="930002"', request('/u.php?action-favor.html'))
-                    self.assertEqual(len(json.loads(request('/appendfix/stats'))['attempts']), 2)
+                    self.assertEqual(len(json.loads(request('/appendfix/stats'))['attempts']), 1)
                     second = request(base + '&type=1')
                     self.assertEqual(second, '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[帖子收藏成功!]]></ajax>'.encode())
-                    self.assertIn(b'value="930002"', request('/u.php?action=favor&ftype=1'))
-                    self.assertNotIn(b'value="930002"', request('/u.php?action=favor&ftype=0'))
+                    self.assertIn(b'value="930002"', request('/u.php?action=favor&type=1'))
+                    self.assertNotIn(b'value="930002"', request('/u.php?action=favor&type=0'))
                     stats = json.loads(request('/appendfix/stats'))
                     self.assertEqual(stats['favorites'], {'930002': '1'})
                     self.assertEqual(stats['writes'], ['favor'])
-                    self.assertEqual(len(stats['attempts']), 3)
-                    with self.assertRaises(HTTPError):
-                        request(base + '&type=1')
-                    self.assertEqual(len(json.loads(request('/appendfix/stats'))['attempts']), 4)
+                    self.assertEqual(len(stats['attempts']), 2)
+                    again = request(base + '&type=1')
+                    self.assertIn('您已经收藏了该主题'.encode(), again)
+                    repeated = json.loads(request('/appendfix/stats'))
+                    self.assertEqual(len(repeated['attempts']), 3)
+                    self.assertEqual(repeated['writes'], ['favor'])
+
+    def test_collections_native_sidebar_read_only_views_direct_add_and_default_safety(self):
+        with appendfix_server() as (request, _):
+            request('/favorite-collections/reset', b'fixture-only')
+            body = request('/u.php?action=favor').decode()
+            sidebar, main = body.split('<div id="u-contentmain">', 1)
+            self.assertIn('id="u-fav-cate"', sidebar)
+            self.assertIn('name="job" value="addtype"', sidebar)
+            self.assertNotIn('maxlength=', sidebar)
+            self.assertIn('name="type" size="6"', sidebar)
+            self.assertIn('id="uf_all"', sidebar)
+            self.assertIn('id="uf_forum"', sidebar)
+            self.assertIn('name="job" value="change"', main)
+            self.assertIn('name="job" value="clear"', main)
+            self.assertIn('<th><a href="read.php?tid-940001.html">', main)
+            self.assertIn('<td><a href="u.php?uid-930002.html">本地作者</a></td><td></td>', main)
+            empty = request('/u.php?action=favor&type=2')
+            self.assertIn(b'<table class="u-table">', empty)
+            self.assertNotIn(b'name="selid[]"', empty)
+            pretty = request('/u.php?action-favor-uid-930001-type-2.html')
+            self.assertNotIn(b'<table class="u-table">', pretty)
+            self.assertEqual(json.loads(request('/appendfix/stats'))['attempts'], [])
+            path = '/pw_ajax.php?action=favor&tid=930002&type=2&verify=fixture-only'
+            self.assertIn('非法请求，请返回重试!'.encode(), request(path))
+            self.assertNotIn(b'value="930002"', request('/u.php?action=favor'))
+            self.assertIn('帖子收藏成功!'.encode(), request(path + '&nowtime=123'))
+            self.assertIn(b'value="930002"', request('/u.php?action=favor&type=2'))
+            self.assertNotIn(b'value="930002"', request('/u.php?action=favor&type=0'))
+            self.assertIn('您已经收藏了该主题'.encode(), request(path + '&nowtime=124'))
+            with self.assertRaises(HTTPError) as error:
+                request('/u.php?action=favor&', urlencode({'verify': 'fixture-only', 'job': 'deltype', 'type': '0'}).encode())
+            self.assertEqual(error.exception.code, 403)
+            stats = json.loads(request('/appendfix/stats'))
+            self.assertEqual(len(stats['attempts']), 4, 'invalid and idempotent raw attempts count too')
+            self.assertEqual(stats['writes'], ['favor'])
+            self.assertEqual(stats['categories'][0], {'id': '0', 'label': '默认分类'})
+            self.assertIn('操作完成'.encode(), request('/u.php?action-favor-job-deltype-type-2-uid-930001-verify-fixture-only.html'))
+            self.assertIn(b'value="930002"', request('/u.php?action=favor&type=0'))
+            after_link = json.loads(request('/appendfix/stats'))
+            self.assertEqual(after_link['attempts'][-1]['method'], 'GET')
+            self.assertEqual(after_link['writes'], ['favor', 'deltype'])
+
+    def test_collections_create_delete_renumbers_ids_and_preserves_nonempty_favorites(self):
+        with appendfix_server() as (request, _):
+            request('/favorite-collections/reset', b'fixture-only')
+            name = '超过六个字符的收藏分类'
+            created = request('/u.php?action=favor&', urlencode({'verify': 'fixture-only', 'job': 'addtype', 'type': name}).encode())
+            self.assertIn('操作完成'.encode(), created)
+            self.assertIn(f'id="uf_3"'.encode(), request('/u.php?action=favor'))
+            self.assertIn(name.encode(), request('/u.php?action=favor'))
+            request('/pw_ajax.php?action=favor&tid=930002&type=3&verify=fixture-only&nowtime=123')
+            request('/favorite-collections/external-delete-first', b'fixture-only')
+            shifted = request('/u.php?action=favor').decode()
+            self.assertIn('type-1.html">长期收藏', shifted)
+            self.assertIn(f'type-2.html">{name}', shifted)
+            self.assertIn(b'value="940003"', request('/u.php?action=favor&type=0'))
+            moved = request('/u.php?action=favor&', urlencode([
+                ('verify', 'fixture-only'), ('job', 'change'), ('type', '1'), ('selid[]', '940001')]).encode())
+            self.assertEqual(moved, created, 'same native ACK cannot identify what operation succeeded')
+            self.assertIn(b'value="940001"', request('/u.php?action=favor&type=1'))
+            self.assertNotIn(b'value="940001"', request('/u.php?action=favor&type=2'))
+            deleted = request('/u.php?action=favor&', urlencode({'verify': 'fixture-only', 'job': 'deltype', 'type': '2'}).encode())
+            self.assertEqual(deleted, created)
+            self.assertIn(b'value="930002"', request('/u.php?action=favor&type=0'))
+            final = json.loads(request('/appendfix/stats'))
+            self.assertEqual(final['categories'], [{'id': '0', 'label': '默认分类'}, {'id': '1', 'label': '长期收藏'}])
+            self.assertEqual(set(final['favorites']), {'940001', '940002', '940003', '930002'})
+            self.assertEqual(final['favorites']['940001'], '1')
+            self.assertEqual(final['writes'], ['addtype', 'favor', 'change', 'deltype'])
+            self.assertEqual(len(final['attempts']), 4)
+            self.assertEqual(final['external_events'], [{'job': 'deltype', 'label': '待整理'}])
+
+    def test_collections_batch_partial_unknown_reply_and_loaded_page_boundaries(self):
+        with appendfix_server() as (request, _):
+            request('/favorite-collections/reset', b'fixture-only')
+            fields = [('verify', 'fixture-only'), ('job', 'change'), ('type', '2'),
+                      ('selid[]', '940001'), ('selid[]', '940002')]
+            request('/favorite-collections/partial-next', b'fixture-only')
+            partial = request('/u.php?action=favor&', urlencode(fields).encode())
+            self.assertIn('操作完成'.encode(), partial)
+            self.assertIn(b'value="940001"', request('/u.php?action=favor&type=2'))
+            self.assertNotIn(b'value="940002"', request('/u.php?action=favor&type=2'))
+            self.assertIn(b'value="940002"', request('/u.php?action=favor&type=0'))
+            request('/favorite-collections/unknown-ack-next', b'fixture-only')
+            unknown = request('/u.php?action=favor&', urlencode(fields[:3] + [('selid[]', '940002')]).encode())
+            self.assertEqual(unknown, b'<html><body>Fixture received</body></html>')
+            self.assertIn(b'value="940002"', request('/u.php?action=favor&type=2'))
+            self.assertEqual(json.loads(request('/appendfix/stats'))['attempts'][0]['fields']['selid[]'], ['940001', '940002'])
+
+            request('/favorite-collections/paged-reset', b'fixture-only')
+            page1 = request('/u.php?action=favor&type=0')
+            self.assertIn(b'Pages: 1/2', page1)
+            self.assertNotIn(b'value="940005"', page1)
+            self.assertIn(b'value="940005"', request('/u.php?action=favor&type=0&page=2'))
+            loaded = [str(940000 + number) for number in range(1, 5)]
+            request('/u.php?action=favor&', urlencode(fields[:3] + [('selid[]', tid) for tid in loaded]).encode())
+            self.assertIn(b'value="940005"', request('/u.php?action=favor&type=0'))
+            request('/u.php?action=favor&', urlencode([
+                ('verify', 'fixture-only'), ('job', 'clear'), ('type', '0'), ('selid[]', '940005')]).encode())
+            self.assertIn(b'Pages: 1/2', request('/u.php?action=favor'))
+            empty = request('/u.php?action=favor&type=0')
+            self.assertIn(b'Pages: 1/1', empty)
+            self.assertNotIn(b'name="selid[]"', empty)
+            self.assertIn(b'value="940006"', request('/u.php?action=favor&page=2'))
+            final = json.loads(request('/appendfix/stats'))
+            self.assertEqual(final['attempts'][0]['fields']['selid[]'], loaded)
+            self.assertEqual(final['attempts'][1]['fields']['selid[]'], ['940005'])
+            self.assertNotIn('940005', final['favorites'])
+            self.assertEqual(final['writes'], ['change', 'clear'])
+
+    def test_profile_board_filter_joins_flat_allowed_fids_to_home_parentage_without_writes(self):
+        with appendfix_server() as (request, _):
+            request('/profile-board-tree/reset', b'fixture-only')
+            search = request('/search.php').decode()
+            self.assertIn('<option value="8" disabled>&gt;&gt; 同人展会</option>', search)
+            for fid, label in [('229', 'CM108'), ('230', '同人志&amp;CG'),
+                               ('226', 'CM107'), ('227', '同人志&amp;CG')]:
+                self.assertIn(f'<option value="{fid}">|- {label}</option>', search)
+            self.assertNotIn('|-|-', search, 'the fixture must not fabricate already-nested search options')
+            self.assertNotIn('value="239"', search)
+            home = request('/index.php').decode()
+            cm108 = next(row for row in home.split('<tr>') if 'fid-229.html' in row).split('</tr>')[0]
+            cm107 = next(row for row in home.split('<tr>') if 'fid-226.html' in row).split('</tr>')[0]
+            self.assertIn('fid-230.html', cm108)
+            self.assertIn('fid-239.html', cm108, 'home-only boards are not authorized search filters')
+            self.assertNotIn('fid-227.html', cm108)
+            self.assertIn('fid-227.html', cm107)
+            for tab, kind in [('topic', '主题'), ('post', '回复')]:
+                page = request(f'/u.php?action-{tab}-uid-930002.html').decode()
+                for fid, title in [('229', f'CM108 父版{kind}'), ('230', f'CM108 子版{kind}'),
+                                   ('226', f'CM107 父版{kind}'), ('227', f'CM107 子版{kind}')]:
+                    self.assertIn(title, page)
+                    self.assertIn(f'fid-{fid}.html', page)
+                self.assertNotIn('fid-239.html', page)
+            stats = json.loads(request('/appendfix/stats'))
+            self.assertEqual(stats['attempts'], [])
+            self.assertEqual(stats['writes'], [])
+            request('/account-redesign/reset', b'fixture-only')
+            self.assertNotIn(b'value="229"', request('/search.php'))
+            self.assertNotIn('未授权子版', request('/index.php').decode())
 
     def test_appendfix_post_accepts_chunked_and_eof_bodies_without_content_length(self):
         with appendfix_server() as (request, port):

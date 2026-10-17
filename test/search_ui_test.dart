@@ -10,6 +10,7 @@ import 'package:south_plus_rewrite/features/search/search_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
+import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/services/forum_search_preferences.dart';
@@ -645,6 +646,54 @@ void main() {
       await tapVisible(tester, _submit, settle: false);
     }
 
+    testWidgets('configured forum origin reaches the search hierarchy picker',
+        (tester) async {
+      final repo = await pump(tester, screen: (repo) {
+        repo.config = const ForumNetworkConfig(
+            site: ForumSite('search-fixture.invalid'),
+            dohEnabled: false,
+            dohProvider: ForumNetworkConfig.defaultProvider);
+        final base = repo.networkConfig.baseUri;
+        repo.boards = [options[0], options[1], options[2], options[3]];
+        repo.sections = [
+          ForumSection(title: 'Fixture zone', items: [
+            ForumBoard(
+                name: 'Event A',
+                url: base.resolve('thread.php?fid-229.html').toString(),
+                section: 'Fixture zone',
+                children: [
+                  ForumBoard(
+                      name: 'Doujin',
+                      url: base.resolve('thread.php?fid-230.html').toString(),
+                      section: 'Fixture zone / Event A'),
+                  ForumBoard(
+                      name: 'Homepage-only',
+                      url: base.resolve('thread.php?fid-99.html').toString(),
+                      section: 'Fixture zone / Event A'),
+                ]),
+          ])
+        ];
+        return SearchScreen(repository: repo);
+      });
+      await tapVisible(tester, find.text('筛选条件'));
+      await tester.ensureVisible(find.text('版块'));
+      await tester.tap(find.text('版块'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fixture zone'));
+      await tester.pumpAndSettle();
+      expect(find.text('Event A'), findsOneWidget);
+      expect(find.text('Doujin'), findsNothing,
+          reason: 'child starts folded under its parent');
+      expect(find.text('Homepage-only'), findsNothing,
+          reason: 'homepage never grants a scope');
+      await tester.tap(find.text('Event A'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Doujin'));
+      await tester.pumpAndSettle();
+      await search(tester);
+      expect(repo.queries.single.boardId, '230');
+    });
+
     testWidgets('opening a group differs from searching all of it',
         (tester) async {
       final repo = await openPicker(tester);
@@ -1047,6 +1096,10 @@ class _LookupClient extends ForumClient {
 }
 
 class _Repo extends ForumRepository {
+  ForumNetworkConfig? config;
+  @override
+  ForumNetworkConfig get networkConfig => config ?? super.networkConfig;
+
   static const profile = UserProfile(
     uid: '1',
     name: 'fixture-user',

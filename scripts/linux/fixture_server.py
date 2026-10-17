@@ -111,12 +111,15 @@ IDENTITY = '''<div id="user-login"><a href="u.php">本地读者</a></div>
 APPENDFIX_HOME = home(8, appendfix=True).replace(b'</body>', IDENTITY.encode() + b'</body>')
 
 
-def reset_appendfix(redesign=False):
+def reset_appendfix(redesign=False, profile_boards=False, collections=False, paged=False):
     APPENDFIX.clear()
     APPENDFIX.update(blacklist='', nickname='本地读者', bought=False,
                      purchases=0, writes=[], board_pages=[], redesign=redesign,
+                     profile_boards=profile_boards, collections=collections,
                      attempts=[], reads=[], upload=None, pending_icon=None, reject_upload=False,
-                     favorites={}, favorite_menu_pending=False, favorite_menu_label='SPP-repro-10',
+                     favorites={}, categories=['默认分类', 'SPP-repro-10'],
+                     page_size=4 if collections else 50, external_events=[], partial_next=False,
+                     unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
                                       date_f='yyyy-mm-dd', time_f='24', t_num='0',
                                       p_num='0', proreceivemail='1', friendcheck='0',
@@ -124,6 +127,12 @@ def reset_appendfix(redesign=False):
                      profile={'facetype': '1', 'proicon': 'none.gif',
                               'httpurl[0]': '', 'httpurl[1]': '', 'httpurl[2]': '',
                               'uploadurl[1]': '', 'uploadurl[2]': ''})
+    if collections:
+        APPENDFIX['categories'] = ['默认分类', '待整理', '长期收藏']
+        APPENDFIX['favorites'] = {'940001': '0', '940002': '0', '940003': '1'}
+        if paged:
+            APPENDFIX['favorites'] = {str(940000 + number): '0' for number in range(1, 6)}
+            APPENDFIX['favorites']['940006'] = '2'
 
 
 reset_appendfix()
@@ -175,7 +184,15 @@ def appendfix_profile(query):
     shell = '''<div id="u-top"><h1 class="u-h1">林间书签</h1><span id="honor">慢慢阅读，认真记录</span></div>
 <div id="u-portrait"><img src="/fixture.png"></div><div id="u-sidebar"><img title="在线" src="/fixture.png"></div>
 <table id="u-profile"><tr><td>UID</td><td>930002</td></tr></table>'''
-    if 'action-topic-' in query or 'action-post-' in query:
+    if APPENDFIX['profile_boards'] and ('action-topic-' in query or 'action-post-' in query):
+        kind = '主题' if 'action-topic-' in query else '回复'
+        boards = [('229', 'CM108', 'CM108 父版'), ('230', '同人志&CG', 'CM108 子版'),
+                  ('226', 'CM107', 'CM107 父版'), ('227', '同人志&CG', 'CM107 子版')]
+        rows = ''.join(f'''<tr><td><a href="read.php?tid-{940000 + int(fid)}.html">{context}{kind}</a>
+<a href="thread.php?fid-{fid}.html">{escape(label)}</a> [2026-01-03] 回复 2 浏览 37</td></tr>'''
+                       for fid, label, context in boards)
+        shell += f'<div id="u-contentmain"><table class="u-table">{rows}</table><div class="pages">Pages: 1/1</div></div>'
+    elif 'action-topic-' in query or 'action-post-' in query:
         shell += '''<div id="u-contentmain"><table class="u-table"><tr><td><a href="read.php?tid-930002.html">本地阅读笔记</a>
 <a href="thread.php?fid-930.html">本地阅读版块</a> [2026-01-03] 回复 2 浏览 37</td></tr>
 <tr><td><a href="read.php?tid-930099.html">尚未确认分类的阅读记录</a>
@@ -217,6 +234,9 @@ def redesign_home():
 <a href="thread.php?fid-230.html">同人志&amp;CG</a></h3></th><td>1 / 2</td><td>2026-01-01</td></tr>
 <tr><th><h3><a href="thread.php?fid-226.html">CM107</a></h3>子版：<h3>
 <a href="thread.php?fid-227.html">同人志&amp;CG</a></h3></th><td>1 / 2</td><td>2026-01-01</td></tr></table>'''
+    if APPENDFIX['profile_boards']:
+        hierarchy = hierarchy.replace('fid-230.html">同人志&amp;CG</a>',
+                                      'fid-230.html">同人志&amp;CG</a><a href="thread.php?fid-239.html">未授权子版</a>')
     return APPENDFIX_HOME.replace(b'</body>', hierarchy.encode() + b'</body>')
 
 
@@ -273,15 +293,70 @@ def redesign_account(profile):
 
 
 def redesign_favorites(query):
-    selected = parse_qs(query).get('ftype', [None])[0]
+    if re.search(r'action-favor-uid-\d+-type-\d+\.html', query):
+        # The native pretty filtered route has a shell, not a trustworthy empty table.
+        return b'<html><body><div id="u-contentmain"></div></body></html>'
+    params = parse_qs(query, keep_blank_values=True)
+    selected = params.get('type', [None])[0]
+    page_value = params.get('page', ['1'])[0]
+    if not re.fullmatch(r'[1-9]\d*', page_value):
+        raise ValueError('Invalid fixture page')
+    page = int(page_value)
     with APPENDFIX_LOCK:
+        categories = list(APPENDFIX['categories'])
         favorites = dict(APPENDFIX['favorites'])
-        label = APPENDFIX['favorite_menu_label']
-    rows = ''.join(f'''<tr><td><input type="checkbox" name="selid[]" value="{tid}"></td>
-<td><a href="read.php?tid-{tid}.html">本地阅读笔记</a></td><td>{escape(label if category == '1' else '默认分类')}</td></tr>'''
-                   for tid, category in favorites.items() if selected is None or category == selected)
-    return f'''<html><body><form method="post" action="u.php?action=favor&amp;">
-<input name="verify" value="fixture-only"><table>{rows}</table></form></body></html>'''.encode()
+        size = APPENDFIX['page_size']
+    if selected is not None and selected not in {str(index) for index in range(len(categories))}:
+        raise ValueError('Invalid fixture category')
+    shown = [(tid, category) for tid, category in favorites.items() if selected is None or category == selected]
+    pages = max(1, (len(shown) + size - 1) // size)
+    loaded = shown[(page - 1) * size:page * size]
+    titles = {'940001': '待归档主题一', '940002': '待归档主题二', '940003': '已有分类主题',
+              '940004': '待归档主题四', '940005': '第二页保留主题', '940006': '长期收藏原有主题'}
+    rows = ''.join(f'''<tr><th><a href="read.php?tid-{tid}.html">{titles.get(tid, '本地阅读笔记')}</a></th>
+<td><a href="u.php?uid-930002.html">本地作者</a></td><td>{escape(categories[int(category)]) if category != '0' else ''}</td>
+<td><input type="checkbox" name="selid[]" value="{tid}"></td></tr>''' for tid, category in loaded)
+    navigation = []
+    for index, label in enumerate(categories):
+        delete = '' if index == 0 else f'''<a href="u.php?action-favor-job-deltype-type-{index}-uid-930001-verify-fixture-only.html"
+class="fr" onclick="return Checkinfo();" title="删除目录"><img src="/fixture.png"></a>'''
+        navigation.append(f'''<tr><td id="uf_{index}" class="fav">{delete}
+<a href="u.php?action-favor-uid-930001-type-{index}.html">{escape(label)}</a></td></tr>''')
+    options = ''.join(f'<option value="{index}">{escape(label) if index else ""}</option>'
+                      for index, label in enumerate(categories))
+    # Categories and create form are in the native SIDEBAR, outside #u-contentmain.
+    return f'''<html><head><script>var verifyhash = 'fixture-only';</script></head><body><div id="u-content">
+<div id="u-contentside"><div id="u-fav-cate"><table class="u-table">
+<tr><td id="uf_forum" class="fav forum"><a href="u.php?action-favor-uid-930001-type-forum.html">收藏的版块</a></td></tr>
+<tr><td id="uf_all" class="fav"><a href="u.php?action-favor-uid-930001.html">收藏的帖子</a></td></tr>
+{''.join(navigation)}<tr><td><form method="post" name="form" action="u.php?action=favor&amp;">
+<input type="hidden" name="verify" value="fixture-only"><input type="hidden" name="job" value="addtype">
+<strong>添加收藏分类</strong><div>名称 <input type="text" name="type" size="6"><input type="submit" value="提 交"></div>
+</form></td></tr></table></div></div>
+<div id="u-contentmain"><form method="post" action="u.php?action=favor&amp;">
+<input type="hidden" name="verify" value="fixture-only"><table class="u-table">
+<tr><th>主题</th><td>作者</td><td>目录</td><td>选择</td></tr>{rows}</table>
+<input type="radio" name="job" value="change" checked>目录转换 <select name="type">{options}</select>
+<input type="radio" name="job" value="clear">删除
+<input type="button" name="chkall" value="全 选" onclick="CheckAll(this.form)"><input type="submit" value="提 交"></form>
+<div class="pages"><ul><li class="pagesone">Pages: {page}/{pages}</li></ul></div></div></div></body></html>'''.encode()
+
+
+def delete_fixture_category(index):
+    label = APPENDFIX['categories'].pop(index)
+    for tid, category in list(APPENDFIX['favorites'].items()):
+        number = int(category)
+        if number == index:
+            APPENDFIX['favorites'][tid] = '0'
+        elif number > index:
+            APPENDFIX['favorites'][tid] = str(number - 1)
+    return label
+
+
+FAVORITES_ACK = '''<html><head><title>南+ South Plus</title>
+<meta http-equiv="refresh" content="1;url=u.php?action=favor"></head><body>
+南+ South Plus &raquo; 提示信息 <div>操作完成</div><a href="u.php?action=favor">如果您的浏览器没有自动跳转,请点击这里</a>
+</body></html>'''.encode()
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -348,15 +423,53 @@ class FixtureHandler(BaseHTTPRequestHandler):
         except (ValueError, TimeoutError):
             self.send_error(400)
             return
-        if path.path in ('/appendfix/reset', '/account-redesign/reset') and raw == b'fixture-only':
+        resets = ('/appendfix/reset', '/account-redesign/reset', '/profile-board-tree/reset',
+                  '/favorite-collections/reset', '/favorite-collections/paged-reset')
+        if path.path in resets and raw == b'fixture-only':
             with APPENDFIX_LOCK:
-                reset_appendfix(redesign=path.path == '/account-redesign/reset')
+                reset_appendfix(redesign=path.path != '/appendfix/reset',
+                                profile_boards=path.path == '/profile-board-tree/reset',
+                                collections=path.path.startswith('/favorite-collections/'),
+                                paged=path.path == '/favorite-collections/paged-reset')
+            self.send_body(b'{}', 'application/json')
+            return
+        controls = ('external-delete-first', 'partial-next', 'unknown-ack-next')
+        control = path.path.removeprefix('/favorite-collections/')
+        if self.appendfix and APPENDFIX['collections'] and raw == b'fixture-only' and control in controls:
+            with APPENDFIX_LOCK:
+                if control == 'external-delete-first':
+                    if len(APPENDFIX['categories']) <= 1:
+                        self.send_error(409)
+                        return
+                    label = delete_fixture_category(1)
+                    APPENDFIX['external_events'].append({'job': 'deltype', 'label': label})
+                else:
+                    APPENDFIX['partial_next' if control == 'partial-next' else 'unknown_ack_next'] = True
             self.send_body(b'{}', 'application/json')
             return
         action = parse_qs(path.query).get('action', [''])[0]
+        attempt = {'method': 'POST', 'path': path.path, 'action': action}
         if APPENDFIX['redesign']:
             with APPENDFIX_LOCK:
-                APPENDFIX['attempts'].append({'method': 'POST', 'path': path.path, 'action': action})
+                APPENDFIX['attempts'].append(attempt)
+        if APPENDFIX['redesign'] and path.path == '/u.php' and action == 'favor':
+            if not self.appendfix:
+                self.send_error(403)
+                return
+            if parse_qs(path.query) != {'action': ['favor']}:
+                self.send_error(400)
+                return
+            if self.headers.get_content_type() != 'application/x-www-form-urlencoded':
+                self.send_error(415)
+                return
+            try:
+                fields = parse_qs(raw.decode('utf-8'), keep_blank_values=True)
+            except UnicodeDecodeError:
+                self.send_error(400)
+                return
+            attempt['fields'] = fields
+            self.favorites_submit(fields)
+            return
         allowed = ('bbsset', 'modify', 'ajaxface') if APPENDFIX['redesign'] else ('bbsset', 'modify')
         if not self.appendfix or path.path != '/profile.php' or action not in allowed:
             self.send_error(403)
@@ -408,6 +521,49 @@ class FixtureHandler(BaseHTTPRequestHandler):
             APPENDFIX['writes'].append(action)
         # Unknown ACK intentionally forces the real service to confirm by GET readback.
         self.send_body(b'<html><body>Fixture received</body></html>', 'text/html; charset=utf-8')
+
+    def favorites_submit(self, fields):
+        job = fields.get('job', [''])[0]
+        batch = job in ('change', 'clear')
+        expected = {'verify', 'job', 'type'} | ({'selid[]'} if batch else set())
+        valid = set(fields) == expected and fields.get('verify') == ['fixture-only']
+        valid = valid and all(len(values) == 1 for key, values in fields.items() if key != 'selid[]')
+        valid = valid and job in ('addtype', 'deltype', 'change', 'clear')
+        destination = fields.get('type', [''])[0]
+        if job == 'addtype':
+            valid = valid and bool(destination.strip()) and '\x00' not in destination
+        else:
+            valid = valid and destination in {str(index) for index in range(len(APPENDFIX['categories']))}
+        if job == 'deltype' and destination == '0':
+            self.send_error(403)
+            return
+        selected = fields.get('selid[]', [])
+        if batch:
+            valid = valid and bool(selected) and len(set(selected)) == len(selected)
+            valid = valid and all(tid in APPENDFIX['favorites'] for tid in selected)
+            if job == 'clear':
+                valid = valid and destination == '0'
+        if not valid:
+            self.send_error(400)
+            return
+        with APPENDFIX_LOCK:
+            if job == 'addtype':
+                APPENDFIX['categories'].append(destination)
+            elif job == 'deltype':
+                delete_fixture_category(int(destination))
+            else:
+                applied = selected[:1] if APPENDFIX['partial_next'] else selected
+                APPENDFIX['partial_next'] = False
+                for tid in applied:
+                    if job == 'change':
+                        APPENDFIX['favorites'][tid] = destination
+                    else:
+                        del APPENDFIX['favorites'][tid]
+            APPENDFIX['writes'].append(job)
+            unknown = APPENDFIX['unknown_ack_next']
+            APPENDFIX['unknown_ack_next'] = False
+        self.send_body(b'<html><body>Fixture received</body></html>' if unknown else FAVORITES_ACK,
+                       'text/html; charset=utf-8')
 
     def redesign_submit(self, action, fields, files):
         valid = fields.get('verify') == ['fixture-only'] and fields.get('step') == ['2']
@@ -489,6 +645,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 if APPENDFIX['redesign']:
                     stats.update({k: APPENDFIX[k] for k in ('attempts', 'reads', 'favorites', 'profile', 'preferences')})
                     stats['upload_metadata'] = APPENDFIX.get('upload_metadata')
+                    stats['categories'] = [{'id': str(index), 'label': label}
+                                           for index, label in enumerate(APPENDFIX['categories'])]
+                    stats['external_events'] = APPENDFIX['external_events']
                 body = json.dumps(stats).encode()
             self.send_body(body, 'application/json')
             return
@@ -505,13 +664,26 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     return
                 if path == '/account-redesign/menu-with-favorite-word':
                     APPENDFIX['favorite_menu_label'] = '收藏测试分类'
+                    APPENDFIX['categories'][1] = '收藏测试分类'
                     self.send_body(b'{}', 'application/json')
                     return
                 if path == '/pw_ajax.php' and parse_qs(query).get('action') == ['favor']:
                     self.redesign_favorite(query)
                     return
                 if path == '/u.php' and ('action-favor' in query or parse_qs(query).get('action') == ['favor']):
-                    self.send_body(redesign_favorites(query), 'text/html; charset=utf-8')
+                    delete = re.fullmatch(r'action-favor-job-deltype-type-(0|[1-9]\d*)-uid-930001-verify-fixture-only\.html', query)
+                    if delete:
+                        fields = {'verify': ['fixture-only'], 'job': ['deltype'], 'type': [delete[1]]}
+                        with APPENDFIX_LOCK:
+                            APPENDFIX['attempts'].append({'method': 'GET', 'path': path, 'action': 'favor', 'fields': fields})
+                        self.favorites_submit(fields)
+                        return
+                    try:
+                        body = redesign_favorites(query)
+                    except ValueError:
+                        self.send_error(400)
+                        return
+                    self.send_body(body, 'text/html; charset=utf-8')
                     return
                 if path == '/pw_ajax.php':
                     if parse_qs(query).get('action') != ['showface']:
@@ -550,7 +722,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
             elif path == '/u.php':
                 body = appendfix_profile(query)
             elif path == '/search.php':
-                body = '<html><body><form action="search.php"><select name="f_fid"><option value="930">本地阅读版块</option></select></form></body></html>'.encode()
+                if APPENDFIX['profile_boards']:
+                    # Native search options are flat; only the homepage says which FID is a child.
+                    body = '''<html><body><form action="search.php"><select name="f_fid">
+<option value="all">全部版块</option><option value="8" disabled>&gt;&gt; 同人展会</option>
+<option value="229">|- CM108</option><option value="230">|- 同人志&amp;CG</option>
+<option value="226">|- CM107</option><option value="227">|- 同人志&amp;CG</option>
+</select></form></body></html>'''.encode()
+                else:
+                    body = '<html><body><form action="search.php"><select name="f_fid"><option value="930">本地阅读版块</option></select></form></body></html>'.encode()
             elif path == '/profile.php':
                 body = appendfix_account('modify' in query)
             elif path == '/plugin.php':
@@ -618,6 +798,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def redesign_favorite(self, query):
         fields = parse_qs(query, keep_blank_values=True)
         required = {'action', 'tid', 'nowtime', 'verify'}
+        if 'nowtime' not in fields:
+            self.send_body('<ajax><![CDATA[非法请求，请返回重试!]]></ajax>'.encode(), 'text/xml; charset=utf-8')
+            return
         valid = set(fields) in (required, required | {'type'})
         valid = valid and all(len(values) == 1 for values in fields.values())
         valid = valid and fields.get('verify') == ['fixture-only'] and fields.get('tid') == ['930002']
@@ -625,27 +808,24 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if not valid:
             self.send_error(400)
             return
-        if 'type' not in fields:
-            if '930002' in APPENDFIX['favorites']:
-                self.send_body('<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[您已经收藏了该主题]]></ajax>'.encode(),
-                               'text/xml; charset=utf-8')
-                return
-            APPENDFIX['favorite_menu_pending'] = True
-            label = escape(APPENDFIX['favorite_menu_label'])
+        if '930002' in APPENDFIX['favorites']:
+            self.send_body('<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[您已经收藏了该主题]]></ajax>'.encode(),
+                           'text/xml; charset=utf-8')
+            return
+        categories = list(APPENDFIX['categories'])
+        if 'type' not in fields and len(categories) > 1:
+            choices = ''.join(f'''<tr><td><a onclick="favor('{index}');{'return false;' if index else ''}" href="javascript:">{escape(label)}</a></td></tr>'''
+                              for index, label in enumerate(categories))
             payload = f'''<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[<div class="bor"><table cellspacing="0" cellpadding="5" width="120">
-<tr><th class="h" style="cursor:move" onmousedown="read.move(event);"><span class="fr" onclick="closep();"><img src="images/close.gif"></span>选择分类</th></tr><tr><td><a onclick="favor('0');" href="javascript:">默认分类</a></td></tr>
-<tr><td><a onclick="favor('1');return false;" href="javascript:">{label}</a></td></tr></table></div>]]></ajax>'''
+<tr><th class="h" style="cursor:move" onmousedown="read.move(event);"><span class="fr" onclick="closep();"><img src="images/close.gif"></span>选择分类</th></tr>{choices}</table></div>]]></ajax>'''
             self.send_body(payload.encode(), 'text/xml; charset=utf-8')
             return
-        if fields['type'] not in (['0'], ['1']) or not APPENDFIX['favorite_menu_pending']:
+        destination = fields.get('type', ['0'])[0]
+        if destination not in {str(index) for index in range(len(categories))}:
             self.send_error(400)
             return
         with APPENDFIX_LOCK:
-            if APPENDFIX['favorites'].get('930002') is not None:
-                self.send_error(409)
-                return
-            APPENDFIX['favorites']['930002'] = fields['type'][0]
-            APPENDFIX['favorite_menu_pending'] = False
+            APPENDFIX['favorites'] = {'930002': destination, **APPENDFIX['favorites']}
             APPENDFIX['writes'].append('favor')
         self.send_body('<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[帖子收藏成功!]]></ajax>'.encode(), 'text/xml; charset=utf-8')
 

@@ -160,6 +160,9 @@ void main() {
     await tester.tap(find.text('版块：全部'));
     await tester.pumpAndSettle();
     expect(find.text('综合区'), findsOneWidget);
+    expect(find.text('影视区'), findsNothing, reason: 'folded under its section');
+    await tester.tap(find.text('综合区'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('影视区'));
     await tester.pumpAndSettle();
     expect(repository.queries.last.boardId, '7');

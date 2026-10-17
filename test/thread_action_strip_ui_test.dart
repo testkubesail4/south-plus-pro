@@ -63,14 +63,28 @@ class _Repo extends ForumRepository {
     );
   }
 
+  // The forum's list always holds the default category; the thread goes into
+  // the one the user picks, with a single write.
   @override
-  Future<FavoriteResult> addFavorite(ThreadFavorite favorite) async {
+  Future<FavoriteCollections> fetchFavoriteCollections(
+          {String? categoryId}) async =>
+      FavoriteCollections(
+        categories: const [FavoriteCategory(id: '0', label: '默认分类')],
+        items: const [],
+        canCreate: true,
+      );
+
+  @override
+  Future<FavoriteCollectionMutation> addFavoriteToCollection(
+    FavoriteCollections snapshot,
+    ThreadFavorite favorite,
+    String categoryId,
+  ) async {
     favoriteCalls.add('add');
     await holdFavorite?.future;
-    return const FavoriteResult(
-      success: true,
+    return FavoriteCollectionMutation(
+      status: FavoriteMutationStatus.confirmed,
       message: 'synthetic notice',
-      state: ThreadFavoriteState.favorite,
     );
   }
 
@@ -102,7 +116,8 @@ void main() {
       ),
       home: ThreadDetailScreen(
         repository: repo,
-        thread: const ForumThread(title: '', url: _url, replies: 0, section: ''),
+        thread:
+            const ForumThread(title: '', url: _url, replies: 0, section: ''),
       ),
     ));
     await tester.pumpAndSettle();
@@ -122,6 +137,17 @@ void main() {
       )
       .first;
 
+  // The menu opens while the page behind keeps a busy spinner turning, so it
+  // never settles: pump until the menu is up, then choose the default.
+  Future<void> pickDefault(WidgetTester tester) async {
+    for (var i = 0; i < 20 && find.text('选择收藏分类').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('选择收藏分类'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('favorite-category:0')));
+  }
+
   testWidgets('收藏 toggles on and off, showing its state', (tester) async {
     final repository = await pumpThread(tester);
     expect(
@@ -131,6 +157,7 @@ void main() {
 
     await tester.ensureVisible(button('收藏'));
     await tester.tap(button('收藏'));
+    await pickDefault(tester);
     await tester.pumpAndSettle();
     expect(
       tester.getSemantics(find.text('已收藏')),
@@ -160,7 +187,8 @@ void main() {
   });
 
   for (final width in [320.0, 400.0]) {
-    testWidgets('at large text on a $width px phone the toggles take their '
+    testWidgets(
+        'at large text on a $width px phone the toggles take their '
         'own line, never breaking a label', (tester) async {
       setView(tester, Size(width, 1600));
       await pumpThread(tester, textScale: 2);
@@ -172,8 +200,9 @@ void main() {
       for (final label in ['收藏', '只看楼主', '上一主题', '下一主题']) {
         expect(tester.getSize(find.text(label)).height, lessThan(14 * 2 * 2),
             reason: label);
-        expect(tester.getTopRight(find.text(label)).dx,
-            lessThanOrEqualTo(width), reason: label);
+        expect(
+            tester.getTopRight(find.text(label)).dx, lessThanOrEqualTo(width),
+            reason: label);
       }
       // 下一主题 keeps the end, even on a line of its own.
       expect(tester.getTopRight(button('下一主题')).dx,
@@ -191,10 +220,12 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(48), reason: label);
     }
     // The pill draws 32 high; a tap just above it still lands.
-    final pill = tester.getRect(find.descendant(
-        of: button('收藏'), matching: find.byType(Material)));
+    final pill = tester.getRect(
+        find.descendant(of: button('收藏'), matching: find.byType(Material)));
     expect(pill.height, lessThan(48));
     await tester.tapAt(pill.topCenter - const Offset(0, 6));
+    expect(repository.favoriteCalls, isEmpty, reason: 'a pick comes first');
+    await pickDefault(tester);
     await tester.pumpAndSettle();
     expect(repository.favoriteCalls, ['add']);
   });
@@ -206,6 +237,7 @@ void main() {
 
     await tester.ensureVisible(button('收藏'));
     await tester.tap(button('收藏'));
+    await pickDefault(tester);
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.text('收藏'), findsOneWidget, reason: 'the label stays');
@@ -235,7 +267,8 @@ void main() {
 
   testWidgets('a control the thread lacks is left out', (tester) async {
     setView(tester, const Size(400, 800));
-    await pumpThread(tester, repository: _Repo(signedIn: false, previous: false));
+    await pumpThread(tester,
+        repository: _Repo(signedIn: false, previous: false));
 
     expect(find.text('收藏'), findsNothing);
     expect(find.text('上一主题'), findsNothing);
@@ -245,15 +278,14 @@ void main() {
     expect(find.text('只看楼主'), findsOneWidget);
   });
 
-  testWidgets('without neighbours the divider and row go too',
-      (tester) async {
-    await pumpThread(tester,
-        repository: _Repo(previous: false, next: false));
+  testWidgets('without neighbours the divider and row go too', (tester) async {
+    await pumpThread(tester, repository: _Repo(previous: false, next: false));
 
     expect(find.text('上一主题'), findsNothing);
     expect(find.text('下一主题'), findsNothing);
     expect(
-      find.descendant(of: find.byType(Card).first, matching: find.byType(Divider)),
+      find.descendant(
+          of: find.byType(Card).first, matching: find.byType(Divider)),
       findsNothing,
     );
   });

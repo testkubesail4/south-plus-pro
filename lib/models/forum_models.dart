@@ -656,10 +656,81 @@ class ThreadFavorite {
 }
 
 class FavoriteCategory {
-  const FavoriteCategory({required this.id, required this.label});
+  const FavoriteCategory({
+    required this.id,
+    required this.label,
+    this.count,
+    this.canDelete = false,
+  });
 
   final String id;
   final String label;
+  final int? count;
+  final bool canDelete;
+  bool get isDefault => id == '0';
+}
+
+class FavoriteCollectionEntry {
+  const FavoriteCollectionEntry({
+    required this.id,
+    required this.thread,
+    this.categoryId,
+  });
+
+  final String id;
+  final UserListItem thread;
+  final String? categoryId;
+}
+
+class FavoriteCollections {
+  FavoriteCollections({
+    required List<FavoriteCategory> categories,
+    required List<FavoriteCollectionEntry> items,
+    this.categoryId,
+    this.canCreate = false,
+    this.nameMaxLength,
+    this.page = 1,
+    this.pageCount = 1,
+  })  : categories = List.unmodifiable(categories),
+        items = List.unmodifiable(items);
+
+  final List<FavoriteCategory> categories;
+  final List<FavoriteCollectionEntry> items;
+  final String? categoryId;
+  final bool canCreate;
+  final int? nameMaxLength;
+  final int page;
+  final int? pageCount;
+}
+
+enum FavoriteMutationStatus { confirmed, rejected, unknown }
+
+class FavoriteItemMutation {
+  const FavoriteItemMutation({
+    required this.id,
+    required this.status,
+    this.message = '',
+  });
+
+  final String id;
+  final FavoriteMutationStatus status;
+  final String message;
+}
+
+class FavoriteCollectionMutation {
+  FavoriteCollectionMutation({
+    required this.status,
+    required this.message,
+    this.collections,
+    this.createdCategory,
+    List<FavoriteItemMutation> items = const [],
+  }) : items = List.unmodifiable(items);
+
+  final FavoriteMutationStatus status;
+  final String message;
+  final FavoriteCollections? collections;
+  final FavoriteCategory? createdCategory;
+  final List<FavoriteItemMutation> items;
 }
 
 class FavoriteCategorySelection {

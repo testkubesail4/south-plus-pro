@@ -31,6 +31,7 @@ import '../common/forum_pager.dart';
 import '../common/thread_row.dart' show AppTag;
 import '../common/user_note.dart';
 import '../profile/blocking_settings_screen.dart';
+import '../profile/favorite_collections_sheets.dart' show showNewCategoryDialog;
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
 import '../search/search_screen.dart';
@@ -1243,18 +1244,14 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     });
 
     try {
-      var result = effective.canRemove
-          ? await repository.removeFavorite(effective)
-          : await repository.addFavorite(effective);
-      final selection = result.categorySelection;
-      if (selection != null) {
-        // The forum asks for a category first; nothing is favorited yet.
-        if (!current()) return;
-        final category = await _chooseFavoriteCategory(selection, flow);
+      final FavoriteResult result;
+      if (effective.canRemove) {
+        result = await repository.removeFavorite(effective);
+      } else {
         // Cancelling sends nothing and leaves the favorite as it was.
-        if (!current() || category == null) return;
-        result =
-            await repository.selectFavoriteCategory(selection, category.id);
+        final added = await _addToCollection(effective, flow, current);
+        if (added == null) return;
+        result = added;
       }
       if (!current()) return;
       _messenger.showSnackBar(
@@ -1280,15 +1277,84 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
   }
 
-  Future<FavoriteCategory?> _chooseFavoriteCategory(
-          FavoriteCategorySelection selection, int flow) =>
-      showModalBottomSheet<FavoriteCategory>(
+  /// Reads the categories without writing, lets the user pick one (or add
+  /// one first), then favorites into it with one request. Null when cancelled
+  /// or when the screen moved on meanwhile.
+  Future<FavoriteResult?> _addToCollection(
+    ThreadFavorite favorite,
+    int flow,
+    bool Function() current,
+  ) async {
+    final repository = widget.repository;
+    var snapshot = await repository.fetchFavoriteCollections();
+    FavoriteCategory? category;
+    // The forum's list always holds the default category; none means the
+    // page was not read properly, so nothing is written.
+    if (snapshot.categories.isEmpty) {
+      if (current()) {
+        _messenger.showSnackBar(
+          const SnackBar(content: Text('没有读到收藏分类，请稍后重试')),
+        );
+      }
+      return null;
+    }
+    while (category == null) {
+      if (!current()) return null;
+      final choice = await _chooseFavoriteCategory(snapshot, flow);
+      if (!current() || choice == null) return null;
+      if (choice is FavoriteCategory) {
+        category = choice;
+        break;
+      }
+      // 新建分类 only adds the category; the thread is not favorited by it.
+      final name = await showNewCategoryDialog(
+        context,
+        session: repository.sessionEpoch,
+        maxLength: snapshot.nameMaxLength,
+      );
+      if (!current()) return null;
+      if (name == null || name.trim().isEmpty) continue;
+      final made =
+          await repository.createFavoriteCategory(snapshot, name.trim());
+      if (!current()) return null;
+      _messenger.showSnackBar(SnackBar(
+        content: Text(made.status == FavoriteMutationStatus.confirmed
+            ? '已新建分类「${name.trim()}」，请选择分类'
+            : made.message.isEmpty
+                ? '新建分类的结果未确认'
+                : made.message),
+      ));
+      snapshot =
+          made.collections ?? await repository.fetchFavoriteCollections();
+    }
+    if (!current()) return null;
+    final mutation = await repository.addFavoriteToCollection(
+        snapshot, favorite, category.id);
+    final ok = mutation.status == FavoriteMutationStatus.confirmed;
+    return FavoriteResult(
+      success: ok,
+      message: ok
+          ? (mutation.message.isEmpty
+              ? '已收藏到「${category.label}」'
+              : mutation.message)
+          : mutation.status == FavoriteMutationStatus.unknown
+              ? '收藏的结果未确认，请刷新核对'
+              : mutation.message,
+      state: ok ? ThreadFavoriteState.favorite : favorite.state,
+    );
+  }
+
+  /// A [FavoriteCategory], or [_NewCategory] when the user wants to add one.
+  Future<Object?> _chooseFavoriteCategory(
+          FavoriteCollections snapshot, int flow) =>
+      showModalBottomSheet<Object>(
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
         useSafeArea: true,
         builder: (_) => _FavoriteCategorySheet(
-          selection: selection,
+          categories: snapshot.categories,
+          canCreate: snapshot.canCreate,
           invalidated: _favoriteFlow,
           generation: flow,
         ),
@@ -2991,17 +3057,26 @@ class _ThreadPageBar extends StatelessWidget {
   }
 }
 
+/// What the sheet returns for 新建分类.
+class _NewCategory {
+  const _NewCategory();
+}
+
+const _newCategory = _NewCategory();
+
 /// The forum's own favorite categories. Choosing one is the only way to
 /// favorite from here; leaving the sheet any other way favorites nothing. It
 /// closes itself when the session or the thread changes underneath it.
 class _FavoriteCategorySheet extends StatefulWidget {
   const _FavoriteCategorySheet({
-    required this.selection,
+    required this.categories,
+    required this.canCreate,
     required this.invalidated,
     required this.generation,
   });
 
-  final FavoriteCategorySelection selection;
+  final List<FavoriteCategory> categories;
+  final bool canCreate;
 
   /// Moves when the session or thread changes; [generation] is its value
   /// when the menu was asked for.
@@ -3072,12 +3147,19 @@ class _FavoriteCategorySheetState extends State<_FavoriteCategorySheet> {
                 ],
               ),
             ),
-            for (final category in widget.selection.categories)
+            for (final category in widget.categories)
               ListTile(
                 key: ValueKey('favorite-category:${category.id}'),
                 leading: const Icon(Icons.star_outline),
                 title: Text(category.label),
                 onTap: () => Navigator.of(context).pop(category),
+              ),
+            if (widget.canCreate)
+              ListTile(
+                key: const ValueKey('favorite-category-new'),
+                leading: const Icon(Icons.add),
+                title: const Text('新建分类'),
+                onTap: () => Navigator.of(context).pop(_newCategory),
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(

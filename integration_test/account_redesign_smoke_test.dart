@@ -768,11 +768,14 @@ void main() {
       expect(menuStats['writes'], isEmpty);
       expect(menuStats['favorites'], isEmpty);
       final firstAttempts = menuStats['attempts'] as List;
-      expect(firstAttempts, hasLength(1));
-      expect(firstAttempts.single['path'], '/pw_ajax.php');
-      expect((firstAttempts.single['query'] as Map).keys,
-          unorderedEquals(['action', 'tid', 'nowtime', 'verify']));
-      expect(firstAttempts.single['query']['tid'], ['930002']);
+      expect(firstAttempts, isEmpty,
+          reason:
+              'opening the collection chooser must only read the native list');
+      expect(
+          menuStats['reads'],
+          contains(predicate<dynamic>((read) =>
+              read['path'] == '/u.php' &&
+              '${read['query']}'.startsWith('action=favor'))));
       await screenshot(
           tester,
           containsFavoriteWord
@@ -781,8 +784,8 @@ void main() {
           settle: false);
       await tap(tester, find.byKey(const ValueKey('favorite-category-cancel')));
       final cancelled = await stats();
-      expect(cancelled['attempts'], hasLength(1),
-          reason: 'cancel must issue no type request at all');
+      expect(cancelled['attempts'], isEmpty,
+          reason: 'cancel must issue no favorite request at all');
       expect(cancelled['favorites'], isEmpty);
       expect(cancelled['writes'], isEmpty);
       expect(find.text('已收藏'), findsNothing);
@@ -795,19 +798,20 @@ void main() {
       expect(confirmed['favorites'], {'930002': '1'});
       expect(confirmed['writes'], ['favor']);
       final attempts = confirmed['attempts'] as List;
-      expect(attempts, hasLength(3),
-          reason: 'two menu opens then exactly one type completion');
-      expect((attempts[1]['query'] as Map).containsKey('type'), isFalse);
-      expect(attempts[2]['query']['type'], ['1']);
-      expect((attempts[2]['query'] as Map).keys,
+      expect(attempts, hasLength(1),
+          reason: 'two read-only opens then exactly one typed favorite write');
+      expect(attempts.single['path'], '/pw_ajax.php');
+      expect(attempts.single['query']['tid'], ['930002']);
+      expect(attempts.single['query']['type'], ['1']);
+      expect((attempts.single['query'] as Map).keys,
           unorderedEquals(['action', 'tid', 'type', 'nowtime', 'verify']));
       final chosenFolder =
-          utf8.decode(await fixture('u.php?action=favor&ftype=1'));
+          utf8.decode(await fixture('u.php?action=favor&type=1'));
       expect(chosenFolder, contains('value="930002"'));
       expect(chosenFolder, contains(categoryLabel));
-      expect(utf8.decode(await fixture('u.php?action=favor&ftype=0')),
+      expect(utf8.decode(await fixture('u.php?action=favor&type=0')),
           isNot(contains('value="930002"')));
-      expect((await stats())['attempts'], hasLength(3),
+      expect((await stats())['attempts'], hasLength(1),
           reason: 'fresh folder reads never repeat the mutation');
     }
     debugPrint('ACCOUNT_REDESIGN boards and favorites complete');

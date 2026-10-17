@@ -14,10 +14,15 @@ const _url = 'https://south-plus.net/read.php?tid-7.html';
 class _Repo extends ForumRepository {
   final epoch = ValueNotifier<int>(0);
   final calls = <String>[];
+  var categories = [
+    const FavoriteCategory(id: '0', label: '默认分类'),
+    const FavoriteCategory(id: '1', label: '资料'),
+  ];
+  var addStatus = FavoriteMutationStatus.confirmed;
 
   /// Hold the forum's answers, so late replies can be tested.
+  Completer<void>? holdFetch;
   Completer<void>? holdAdd;
-  Completer<void>? holdSelect;
 
   @override
   ValueListenable<int> get sessionEpoch => epoch;
@@ -44,31 +49,44 @@ class _Repo extends ForumRepository {
         ),
       );
 
+  FavoriteCollections _snapshot() => FavoriteCollections(
+      categories: categories, items: const [], canCreate: true);
+
+  // A read: it must never favorite anything.
   @override
-  Future<FavoriteResult> addFavorite(ThreadFavorite favorite) async {
-    calls.add('add');
-    await holdAdd?.future;
-    return FavoriteResult(
-      success: false,
-      message: '选择分类',
-      state: ThreadFavoriteState.notFavorite,
-      categorySelection: FavoriteCategorySelection(categories: const [
-        FavoriteCategory(id: '0', label: '默认分类'),
-        FavoriteCategory(id: '1', label: '资料'),
-      ]),
-    );
+  Future<FavoriteCollections> fetchFavoriteCollections(
+      {String? categoryId}) async {
+    calls.add('fetch');
+    await holdFetch?.future;
+    return _snapshot();
   }
 
   @override
-  Future<FavoriteResult> selectFavoriteCategory(
-      FavoriteCategorySelection selection, String categoryId) async {
-    calls.add('select:$categoryId');
-    await holdSelect?.future;
-    return const FavoriteResult(
-      success: true,
-      message: '帖子收藏成功',
-      state: ThreadFavoriteState.favorite,
-    );
+  Future<FavoriteCollectionMutation> createFavoriteCategory(
+      FavoriteCollections snapshot, String name) async {
+    calls.add('create:$name');
+    categories = [
+      ...categories,
+      FavoriteCategory(id: '${categories.length}', label: name),
+    ];
+    return FavoriteCollectionMutation(
+        status: FavoriteMutationStatus.confirmed,
+        message: 'ok',
+        collections: _snapshot());
+  }
+
+  @override
+  Future<FavoriteCollectionMutation> addFavoriteToCollection(
+      FavoriteCollections snapshot,
+      ThreadFavorite favorite,
+      String categoryId) async {
+    calls.add('add:$categoryId');
+    await holdAdd?.future;
+    return FavoriteCollectionMutation(
+        status: addStatus,
+        message: addStatus == FavoriteMutationStatus.confirmed
+            ? '帖子收藏成功'
+            : 'synthetic refusal');
   }
 }
 
@@ -107,30 +125,35 @@ void main() {
       )
       .first;
 
-  Future<void> tapFavorite(WidgetTester tester) async {
-    await tester.ensureVisible(button('收藏'));
-    await tester.tap(button('收藏'));
-    // The page behind keeps a busy spinner turning while the menu waits for a
-    // choice, so it never settles: pump until the menu is really up.
-    for (var i = 0; i < 20 && find.text('选择收藏分类').evaluate().isEmpty; i++) {
+  // The page behind keeps a busy spinner turning while the menu waits for a
+  // choice, so it never settles: pump until [done] holds.
+  Future<void> pumpUntil(WidgetTester tester, bool Function() done) async {
+    for (var i = 0; i < 20 && !done(); i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
     await tester.pump(const Duration(milliseconds: 400));
+  }
+
+  bool menuUp() => find.text('选择收藏分类').evaluate().isNotEmpty;
+
+  Future<void> tapFavorite(WidgetTester tester) async {
+    await tester.ensureVisible(button('收藏'));
+    await tester.tap(button('收藏'));
+    await pumpUntil(tester, menuUp);
     expect(find.text('选择收藏分类'), findsOneWidget,
         reason: 'the category menu is shown');
   }
 
-  testWidgets('a category menu asks first and favorites nothing yet',
+  testWidgets('the menu comes from a read and favorites nothing yet',
       (tester) async {
     final repo = await pumpThread(tester);
     await tapFavorite(tester);
-    expect(find.text('选择收藏分类'), findsOneWidget);
     expect(find.text('默认分类'), findsOneWidget);
     expect(find.text('资料'), findsOneWidget);
-    expect(find.text('选择分类'), findsNothing, reason: 'menu text is no notice');
+    expect(find.byKey(const ValueKey('favorite-category-new')), findsOneWidget);
     expect(find.byType(SnackBar), findsNothing);
     expect(find.text('已收藏'), findsNothing);
-    expect(repo.calls, ['add']);
+    expect(repo.calls, ['fetch'], reason: 'opening the menu writes nothing');
   });
 
   testWidgets('cancelling sends nothing, changes nothing, and can be retried',
@@ -140,25 +163,106 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('favorite-category-cancel')));
     await tester.pumpAndSettle();
     expect(find.text('选择收藏分类'), findsNothing);
-    expect(repo.calls, ['add']);
+    expect(repo.calls, ['fetch']);
     expect(find.text('收藏'), findsOneWidget);
     expect(find.text('已收藏'), findsNothing);
-    expect(find.byType(SnackBar), findsNothing);
     // Not left busy: the button works again.
     await tapFavorite(tester);
-    expect(repo.calls, ['add', 'add']);
-    expect(find.text('选择收藏分类'), findsOneWidget);
+    expect(repo.calls, ['fetch', 'fetch']);
   });
 
-  testWidgets('choosing a category completes it, and only then is it favorite',
+  testWidgets('choosing a category is the one write, and only then favorite',
       (tester) async {
     final repo = await pumpThread(tester);
     await tapFavorite(tester);
     await tester.tap(find.byKey(const ValueKey('favorite-category:1')));
     await tester.pumpAndSettle();
-    expect(repo.calls, ['add', 'select:1']);
+    expect(repo.calls, ['fetch', 'add:1']);
     expect(find.text('帖子收藏成功'), findsOneWidget);
     expect(find.text('已收藏'), findsOneWidget);
+  });
+
+  testWidgets('a refusal or an unknown answer does not mark it favorite',
+      (tester) async {
+    for (final status in [
+      FavoriteMutationStatus.rejected,
+      FavoriteMutationStatus.unknown,
+    ]) {
+      // A real remount: the first round's snackbar and state must not carry over.
+      await tester.pumpWidget(const SizedBox());
+      final repo = await pumpThread(tester);
+      repo.addStatus = status;
+      await tapFavorite(tester);
+      await tester.tap(find.byKey(const ValueKey('favorite-category:1')));
+      await tester.pumpAndSettle();
+      expect(find.text('已收藏'), findsNothing, reason: '$status');
+      expect(
+          find.text(status == FavoriteMutationStatus.unknown
+              ? '收藏的结果未确认，请刷新核对'
+              : 'synthetic refusal'),
+          findsOneWidget);
+      expect(repo.calls.where((c) => c.startsWith('add')), hasLength(1));
+    }
+  });
+
+  testWidgets('with only the default category the menu still asks first',
+      (tester) async {
+    final repo = await pumpThread(tester);
+    repo.categories = [const FavoriteCategory(id: '0', label: '默认分类')];
+    await tapFavorite(tester);
+    expect(repo.calls, ['fetch'], reason: 'nothing is written before a pick');
+    expect(find.byKey(const ValueKey('favorite-category-new')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('favorite-category:0')));
+    await tester.pumpAndSettle();
+    expect(repo.calls, ['fetch', 'add:0']);
+    expect(find.text('已收藏'), findsOneWidget);
+  });
+
+  testWidgets('a category list without the default is an error, not a write',
+      (tester) async {
+    final repo = await pumpThread(tester);
+    repo.categories = [];
+    await tester.ensureVisible(button('收藏'));
+    await tester.tap(button('收藏'));
+    await tester.pumpAndSettle();
+    expect(find.text('没有读到收藏分类，请稍后重试'), findsOneWidget);
+    expect(find.text('选择收藏分类'), findsNothing);
+    expect(repo.calls, ['fetch']);
+    expect(find.text('收藏'), findsOneWidget, reason: 'not left busy');
+  });
+
+  testWidgets('a new category is only added; choosing it is a separate step',
+      (tester) async {
+    final repo = await pumpThread(tester);
+    await tapFavorite(tester);
+    await tester.tap(find.byKey(const ValueKey('favorite-category-new')));
+    // The thread's busy spinner keeps turning behind the dialog: wait for the
+    // dialog itself, not for the page to go idle.
+    await pumpUntil(
+        tester,
+        () => find
+            .byKey(const ValueKey('favorite-category-name'))
+            .evaluate()
+            .isNotEmpty);
+    expect(
+        find.byKey(const ValueKey('favorite-category-name')), findsOneWidget);
+    await tester.enterText(
+        find.byKey(const ValueKey('favorite-category-name')), '阅读');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('favorite-category-create')));
+    await pumpUntil(tester, menuUp);
+    expect(repo.calls, ['fetch', 'create:阅读']);
+    expect(find.text('已新建分类「阅读」，请选择分类'), findsOneWidget);
+    expect(find.byKey(const ValueKey('favorite-category:2')), findsOneWidget,
+        reason: 'the menu is back, with the new category in it');
+    expect(find.text('已收藏'), findsNothing,
+        reason: 'creating is not favoriting');
+
+    // Walking away now leaves the category and no favorite.
+    await tester.tap(find.byKey(const ValueKey('favorite-category-cancel')));
+    await tester.pumpAndSettle();
+    expect(repo.calls.where((c) => c.startsWith('add')), isEmpty);
+    expect(find.text('收藏'), findsOneWidget);
   });
 
   testWidgets('another session never inherits the last favorite state',
@@ -175,18 +279,19 @@ void main() {
   });
 
   testWidgets(
-      'a session change while the forum is still answering shows no menu',
-      (tester) async {
+      'a session change while the categories are being read shows no '
+      'menu', (tester) async {
     final repo = await pumpThread(tester);
-    repo.holdAdd = Completer<void>();
+    repo.holdFetch = Completer<void>();
     await tester.ensureVisible(button('收藏'));
     await tester.tap(button('收藏'));
     await tester.pump();
-    repo.holdAdd!.complete();
+    repo.holdFetch!.complete();
     repo.epoch.value++;
     await tester.pumpAndSettle();
     expect(find.text('选择收藏分类'), findsNothing);
-    expect(repo.calls, ['add']);
+    expect(repo.calls, ['fetch']);
+    repo.holdFetch = null;
     await tapFavorite(tester);
     expect(find.text('选择收藏分类'), findsOneWidget);
   });
@@ -209,31 +314,32 @@ void main() {
     expect(find.text('选择收藏分类'), findsNothing);
     expect(find.text('默认分类'), findsNothing);
     expect(find.byType(BottomSheet), findsNothing);
-    expect(repo.calls, ['add']);
+    expect(repo.calls, ['fetch']);
   });
 
   testWidgets('a session change closes the sheet and drops a late answer',
       (tester) async {
     final repo = await pumpThread(tester);
-    repo.holdSelect = Completer<void>();
     await tapFavorite(tester);
     repo.epoch.value++;
     await tester.pumpAndSettle();
     expect(find.text('选择收藏分类'), findsNothing);
-    expect(repo.calls, ['add'], reason: 'closing is not a choice');
+    expect(repo.calls, ['fetch'], reason: 'closing is not a choice');
 
     // A choice already in flight when the session changes is ignored.
+    repo.holdAdd = Completer<void>();
     await tapFavorite(tester);
     await tester.tap(find.byKey(const ValueKey('favorite-category:0')));
     await tester.pump();
     repo.epoch.value++;
-    repo.holdSelect!.complete();
+    repo.holdAdd!.complete();
     await tester.pumpAndSettle();
-    expect(repo.calls, ['add', 'add', 'select:0']);
+    expect(repo.calls, ['fetch', 'fetch', 'add:0']);
     expect(find.text('已收藏'), findsNothing);
     expect(find.text('帖子收藏成功'), findsNothing);
     // The screen is not left busy by the obsolete call.
+    repo.holdAdd = null;
     await tapFavorite(tester);
-    expect(repo.calls.where((c) => c == 'add'), hasLength(3));
+    expect(repo.calls.where((c) => c == 'fetch'), hasLength(3));
   });
 }

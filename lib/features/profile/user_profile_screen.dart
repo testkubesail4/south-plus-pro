@@ -1,9 +1,13 @@
+import 'dart:async' show scheduleMicrotask;
+
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../models/user_content_query.dart';
 import '../../services/forum_repository.dart';
+import '../../services/search_board_hierarchy.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
@@ -40,6 +44,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   late UserNoteController _notes = UserNoteController(widget.repository);
   // Board options for the 主题/回复 filters; loaded on first use per session.
   Future<List<ForumSearchBoard>>? _boards;
+  Future<List<ForumSection>>? _sections;
   // Counts pull-to-refresh restarts so filter tabs restart their queries.
   int _contentRefresh = 0;
   // Board ids belong to one session; a new session starts unfiltered.
@@ -98,6 +103,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _sessionChanged = true;
       _detailsFuture = null;
       _boards = null;
+      _sections = null;
       _topicSelection = _ContentSelection();
       _postSelection = _ContentSelection();
     });
@@ -167,6 +173,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         },
       );
 
+  // Only says which board sits under which; a failed read is not cached.
+  Future<List<ForumSection>> _loadSections() =>
+      _sections ??= widget.repository.fetchForumSections().catchError(
+        (Object error) {
+          _sections = null;
+          throw error;
+        },
+      );
+
   void _copyLoginName(String name) {
     Clipboard.setData(ClipboardData(text: name));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -225,6 +240,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _forgetLoginName();
       _sessionChanged = false;
       _boards = null;
+      _sections = null;
       _contentRefresh++;
       _loadProfile(forceReload: true);
     });
@@ -338,6 +354,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                       emptyText: '没有主题',
                                       repository: widget.repository,
                                       loadBoards: _loadBoards,
+                                      loadSections: _loadSections,
                                       selection: _topicSelection,
                                       refreshGeneration: _contentRefresh,
                                     )
@@ -360,6 +377,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                       emptyText: '没有回复',
                                       repository: widget.repository,
                                       loadBoards: _loadBoards,
+                                      loadSections: _loadSections,
                                       selection: _postSelection,
                                       refreshGeneration: _contentRefresh,
                                     )

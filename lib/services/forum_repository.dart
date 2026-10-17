@@ -13,6 +13,7 @@ import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
 import 'forum_account_service.dart';
+import 'forum_favorites_service.dart';
 import 'home_reading_preferences.dart';
 import 'user_content_query_service.dart';
 import 'forum_blocking_settings.dart';
@@ -85,7 +86,6 @@ class ForumRepository {
     _sessionEpoch.addListener(() {
       _restoredDesktopHtml = null;
       _replyNoticeVerify = null;
-      _favoriteListItems.clear();
       _blocking?.reset();
       _blockingLoadedEpoch = null;
       _noticeFlags.value = const ForumNoticeFlags();
@@ -137,7 +137,12 @@ class ForumRepository {
   String? _profileDetailsUid;
   Timer? _profileDetailsTimer;
   int _profileDetailsGeneration = 0;
-  final _favoriteListItems = Set<UserListItem>.identity();
+  late final ForumFavoritesService _favoritesService = ForumFavoritesService(
+    client: () => _client,
+    sessionEpoch: () => _sessionEpoch.value,
+    isLoggedIn: () => isLoggedIn,
+    didWrite: _clearProfileDetails,
+  );
   final BrowsingHistoryStore _historyStore;
   final _readPositions = ThreadReadPositionStore();
   final ForumTaskStateStore _taskStateStore;
@@ -2186,45 +2191,39 @@ class ForumRepository {
     final profile = _userProfileParser.appendFavorites(overview, document,
         allowRemoval: ownList);
     if (ownList) {
-      _favoriteListItems
-        ..clear()
-        ..addAll(
-            profile.favorites.where((item) => item.favoriteRemoval != null));
+      _favoritesService.registerLegacyFavoriteList(profile.favorites);
     }
     return profile;
   }
 
-  Future<FavoriteResult> removeFavoriteFromList(UserListItem item) async {
-    final removal = item.favoriteRemoval;
-    if (!isLoggedIn || removal == null || !_favoriteListItems.contains(item)) {
-      throw const ForumRepositoryException('收藏列表已更新，请刷新后重试');
-    }
-    final client = _client;
-    final epoch = _sessionEpoch.value;
-    final response = await client.post('u.php?action=favor&', {
-      'verify': removal.verify,
-      'selid[]': removal.id,
-      'job': 'clear',
-      'type': '0',
-    });
-    if (epoch != _sessionEpoch.value || !identical(client, _client)) {
-      throw const ForumRequestException(
-          ForumRequestKind.loginRequired, '登录状态已改变，请刷新收藏');
-    }
-    final message = _responseParser.pageMessage(response);
-    final success = _responseParser.isFavoriteRemoveSuccess(response, message);
-    if (success) {
-      _favoriteListItems.remove(item);
-      _clearProfileDetails();
-    }
-    return FavoriteResult(
-      success: success,
-      message: success ? '已取消收藏' : message,
-      state: success
-          ? ThreadFavoriteState.notFavorite
-          : ThreadFavoriteState.favorite,
-    );
-  }
+  Future<FavoriteResult> removeFavoriteFromList(UserListItem item) =>
+      _favoritesService.removeFavoriteFromList(item);
+
+  Future<FavoriteCollections> fetchFavoriteCollections({String? categoryId}) =>
+      _favoritesService.fetchFavoriteCollections(categoryId: categoryId);
+
+  Future<FavoriteCollectionMutation> createFavoriteCategory(
+          FavoriteCollections snapshot, String name) =>
+      _favoritesService.createFavoriteCategory(snapshot, name);
+
+  Future<FavoriteCollectionMutation> deleteFavoriteCategory(
+          FavoriteCollections snapshot, String categoryId) =>
+      _favoritesService.deleteFavoriteCategory(snapshot, categoryId);
+
+  Future<FavoriteCollectionMutation> moveFavorites(FavoriteCollections snapshot,
+          List<FavoriteCollectionEntry> entries, String categoryId) =>
+      _favoritesService.moveFavorites(snapshot, entries, categoryId);
+
+  Future<FavoriteCollectionMutation> removeFavorites(
+          FavoriteCollections snapshot,
+          List<FavoriteCollectionEntry> entries) =>
+      _favoritesService.removeFavorites(snapshot, entries);
+
+  Future<FavoriteCollectionMutation> addFavoriteToCollection(
+          FavoriteCollections snapshot,
+          ThreadFavorite favorite,
+          String categoryId) =>
+      _favoritesService.addFavoriteToCollection(snapshot, favorite, categoryId);
 
   void _evictProfileDetails() {
     _profileDetailsTimer?.cancel();
@@ -2645,10 +2644,35 @@ class ForumRepository {
     _checkFavoriteSession(context.client, context.epoch);
     // Consume the offered menu before sending a write, including uncertain replies.
     _favoriteSelections[selection] = null;
-    final response = await _requestFavorite(
-        context.client, context.epoch, context.favorite,
-        categoryId: categoryId);
-    return _favoriteAddResult(response, context.favorite);
+    final intended = selection.categories
+        .singleWhere((category) => category.id == categoryId);
+    if (!intended.isDefault &&
+        selection.categories
+                .where((category) => category.label == intended.label)
+                .length !=
+            1) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '分类名称重复，请在原站整理后重试');
+    }
+    final snapshot = await fetchFavoriteCollections();
+    _checkFavoriteSession(context.client, context.epoch);
+    final matches = snapshot.categories
+        .where((category) => intended.isDefault
+            ? category.isDefault
+            : !category.isDefault && category.label == intended.label)
+        .toList();
+    if (matches.length != 1) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '分类已变更，请刷新后重试');
+    }
+    final result = await addFavoriteToCollection(
+        snapshot, context.favorite, matches.single.id);
+    final confirmed = result.status == FavoriteMutationStatus.confirmed;
+    return FavoriteResult(
+        success: confirmed,
+        message: result.message,
+        state:
+            confirmed ? ThreadFavoriteState.favorite : context.favorite.state);
   }
 
   void _checkFavoriteSession(ForumClient client, int epoch) {
@@ -2659,13 +2683,11 @@ class ForumRepository {
   }
 
   Future<String> _requestFavorite(
-      ForumClient client, int epoch, ThreadFavorite favorite,
-      {String? categoryId}) async {
+      ForumClient client, int epoch, ThreadFavorite favorite) async {
     _checkFavoriteSession(client, epoch);
     final path = Uri(path: 'pw_ajax.php', queryParameters: {
       'action': 'favor',
       'tid': favorite.tid,
-      if (categoryId != null) 'type': categoryId,
       'nowtime': '${DateTime.now().millisecondsSinceEpoch}',
       'verify': favorite.verify,
     }).toString();
@@ -2693,30 +2715,9 @@ class ForumRepository {
   }
 
   Future<FavoriteResult> removeFavorite(ThreadFavorite favorite) async {
-    final currentState = await _fetchFavoriteState(favorite.tid);
-    if (currentState == ThreadFavoriteState.notFavorite) {
-      _clearProfileDetails();
-      return const FavoriteResult(
-        success: true,
-        message: '当前没有收藏该主题',
-        state: ThreadFavoriteState.notFavorite,
-      );
-    }
-
-    final response = await _client.post('u.php?action=favor&', {
-      'verify': favorite.verify,
-      'selid[]': favorite.tid,
-      'job': 'clear',
-      'type': '0',
-    });
-    final message = _responseParser.pageMessage(response);
-    final success = _responseParser.isFavoriteRemoveSuccess(response, message);
-    if (success) _clearProfileDetails();
-    return FavoriteResult(
-      success: success,
-      message: success ? '已取消收藏' : message,
-      state: success ? ThreadFavoriteState.notFavorite : favorite.state,
-    );
+    final result = await _favoritesService.removeFavorite(favorite);
+    if (result.success) _clearProfileDetails();
+    return result;
   }
 
   Future<String?> _fetchLoggedInUsername() async {

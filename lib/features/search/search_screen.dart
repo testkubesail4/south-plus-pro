@@ -383,6 +383,7 @@ class _SearchScreenState extends State<SearchScreen> {
         selectedId: _board.id,
         loadBoards: _loadBoards,
         loadSections: _loadSections,
+        baseUri: repository.networkConfig.baseUri,
         loadPinned: () async =>
             (await ForumSearchPreferences.load(account: account)).pinnedBoards,
         savePinned: (boards) =>
@@ -1106,6 +1107,7 @@ class _BoardPickerSheet extends StatefulWidget {
     required this.selectedId,
     required this.loadBoards,
     required this.loadSections,
+    required this.baseUri,
     required this.loadPinned,
     required this.savePinned,
   });
@@ -1115,6 +1117,7 @@ class _BoardPickerSheet extends StatefulWidget {
   final String selectedId;
   final Future<List<ForumSearchBoard>> Function() loadBoards;
   final Future<List<ForumSection>> Function() loadSections;
+  final Uri baseUri;
   final Future<List<ForumSearchPinnedBoard>> Function() loadPinned;
   final Future<void> Function(List<ForumSearchPinnedBoard>) savePinned;
 
@@ -1197,7 +1200,8 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
     final roots = _BoardNode.build(
       sections == null || sections.isEmpty
           ? boards
-          : mergeSearchBoardHierarchy(boards, sections),
+          : mergeSearchBoardHierarchy(boards, sections,
+              baseUri: widget.baseUri),
     );
     final source = (boards, sections);
     if (_expandedFor != source) {

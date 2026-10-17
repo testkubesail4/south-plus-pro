@@ -10,6 +10,8 @@ import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 
+import 'support/native_favorite_fixture.dart';
+
 const _overview = UserProfile(uid: '123', name: 'fixture-old', url: 'u.php');
 
 class _DetailsClient extends ForumClient {
@@ -19,6 +21,10 @@ class _DetailsClient extends ForumClient {
   String? blockedResponse;
   bool failTransport = false;
   String mutationResponse = '操作完成 发表成功';
+  bool hasFavorite = true;
+
+  @override
+  bool get isLoggedIn => true;
 
   @override
   Future<String> getOnce(String path) => get(path);
@@ -28,6 +34,12 @@ class _DetailsClient extends ForumClient {
       {void Function()? requireCurrentSession,
       bool followRedirects = true}) async {
     requireCurrentSession?.call();
+    if (path == 'u.php?action=favor') {
+      paths.add(path);
+      return nativeFavoriteHtml(
+          categories: [],
+          rows: hasFavorite ? [(id: '456', tid: '456', category: '')] : []);
+    }
     final response = await get(path);
     requireCurrentSession?.call();
     return response;
@@ -64,6 +76,17 @@ class _DetailsClient extends ForumClient {
   @override
   Future<String> post(String path, Map<String, String> form) async =>
       mutationResponse;
+
+  @override
+  Future<String> postForm(String path, List<MapEntry<String, String>> fields,
+      {bool multipart = false,
+      List<ForumFormFile> files = const [],
+      void Function()? requireCurrentSession}) async {
+    requireCurrentSession?.call();
+    if (fields.any((field) => field.key == 'job' && field.value == 'clear'))
+      hasFavorite = false;
+    return mutationResponse;
+  }
 
   @override
   Future<void> clearSession() async {}
@@ -367,6 +390,7 @@ void main() {
             client.mutationResponse = '收藏成功';
             expect((await repository.addFavorite(favorite)).success, isTrue);
           case 'remove':
+            client.hasFavorite = true;
             client.mutationResponse = '操作完成';
             expect((await repository.removeFavorite(favorite)).success, isTrue);
           case 'reply':

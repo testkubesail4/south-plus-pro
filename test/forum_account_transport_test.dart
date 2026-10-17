@@ -151,6 +151,40 @@ void main() {
     });
   }
 
+  for (final status in [302, 307]) {
+    test(
+        'favorites POST HTTP $status is private and cannot follow a mutating redirect',
+        () async {
+      final paths = <String>[];
+      server.listen((request) async {
+        paths.add(request.uri.path);
+        await request.drain<void>();
+        request.response.statusCode = status;
+        request.response.headers
+            .set(HttpHeaders.locationHeader, '/replay?verify=redirect-canary');
+        request.response.write('private-response-canary');
+        await request.response.close();
+      });
+      final output = _CapturedStdout();
+      await IOOverrides.runZoned(() async {
+        await expectLater(
+            client.postForm('u.php?action=favor&verify=query-canary', const [
+              MapEntry('verify', 'form-canary'),
+              MapEntry('job', 'clear'),
+              MapEntry('type', '0'),
+              MapEntry('selid[]', '701'),
+              MapEntry('selid[]', '702'),
+            ]),
+            throwsA(isA<ForumRequestException>()));
+      }, stdout: () => output);
+      expect(paths, ['/u.php']);
+      if (ForumTraceLogger.enabled) {
+        expect(output.buffer.toString(), contains('u.php (favorites)'));
+        expect(output.buffer.toString(), isNot(contains('canary')));
+      }
+    });
+  }
+
   test('mutating GET refuses a same-action redirect without a second request',
       () async {
     const action = 'plugin.php?H_name=tasks&action=ajax&actions=job&cid=14';

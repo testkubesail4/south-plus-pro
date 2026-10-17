@@ -12,6 +12,8 @@ import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/services/local_database.dart';
 import 'package:south_plus_rewrite/services/user_profile_cache.dart';
 
+import 'support/native_favorite_fixture.dart';
+
 const _profile = UserProfile(
   uid: '123',
   name: 'fixture-header',
@@ -47,6 +49,18 @@ class _CountedClient extends ForumClient {
 
   @override
   Future<String> getOnce(String path) => get(path);
+
+  @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
+    if (path != 'u.php?action=favor')
+      throw StateError('Unexpected collection read: $path');
+    paths.add(path);
+    return nativeFavoriteHtml(
+        categories: [], rows: [(id: '456', tid: '456', category: '')]);
+  }
 
   @override
   Future<String> get(String path) async {
@@ -164,15 +178,13 @@ void main() {
       home: Scaffold(body: FavoriteThreadsPage(repository: repository)),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('fixture-favorite'), findsOneWidget);
-    expect(find.text('1 个主题'), findsOneWidget);
+    expect(find.text('Synthetic 456'), findsOneWidget);
+    expect(find.text('已加载 1 个主题'), findsOneWidget);
     expect(find.textContaining('fixture-header'), findsNothing,
         reason: 'no account header card');
-    expect(client.paths, [
-      'u.php',
-      'u.php?action-show-uid-123.html',
-      'u.php?action-favor-uid-123.html',
-    ]);
+    expect(client.paths, ['u.php?action=favor'],
+        reason:
+            'one native read-only collection page, no unrelated account tabs');
 
     final navigator = tester.state<NavigatorState>(find.byType(Navigator));
     unawaited(navigator.push(MaterialPageRoute<void>(
@@ -181,15 +193,16 @@ void main() {
     await tester.pumpAndSettle();
     navigator.pop();
     await tester.pumpAndSettle();
-    expect(find.text('fixture-favorite'), findsOneWidget);
-    expect(client.paths, hasLength(3), reason: 'back retains the owned Future');
+    expect(find.text('Synthetic 456'), findsOneWidget);
+    expect(client.paths, hasLength(1),
+        reason: 'back retains the loaded collection snapshot');
 
     await tester
         .widget<RefreshIndicator>(find.byType(RefreshIndicator))
         .onRefresh();
     await tester.pumpAndSettle();
-    expect(client.paths, hasLength(6),
-        reason: 'explicit refresh fetches new data');
-    expect(find.text('fixture-favorite'), findsOneWidget);
+    expect(client.paths, hasLength(2),
+        reason: 'explicit refresh fetches one fresh native collection page');
+    expect(find.text('Synthetic 456'), findsOneWidget);
   });
 }

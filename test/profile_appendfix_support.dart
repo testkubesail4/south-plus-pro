@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/user_content_query.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
+import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 
 const profileFixture = UserProfile(
@@ -87,6 +89,32 @@ class FakeProfileRepository extends ForumRepository {
   Future<List<ForumSearchBoard>> fetchSearchBoards() async {
     boardLoads++;
     return boards;
+  }
+
+  // Bumped by a test to change the session under an open screen.
+  final epoch = ValueNotifier<int>(0);
+
+  @override
+  ValueListenable<int> get sessionEpoch => epoch;
+
+  // A forum on another origin than the default one.
+  ForumNetworkConfig? config;
+
+  @override
+  ForumNetworkConfig get networkConfig => config ?? super.networkConfig;
+
+  // The homepage only says which board sits under which.
+  List<ForumSection> sections = const [];
+  bool sectionsFail = false;
+
+  // While set, the homepage stays pending.
+  Completer<void>? holdSections;
+
+  @override
+  Future<List<ForumSection>> fetchForumSections() async {
+    await holdSections?.future;
+    if (sectionsFail) throw StateError('homepage unavailable');
+    return sections;
   }
 
   @override

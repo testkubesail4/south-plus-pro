@@ -3,9 +3,10 @@ import 'forum_url_resolver.dart';
 
 List<ForumSearchBoard> mergeSearchBoardHierarchy(
   List<ForumSearchBoard> searchOptions,
-  List<ForumSection> homeSections,
-) {
-  final urls = ForumUrlResolver();
+  List<ForumSection> homeSections, {
+  Uri? baseUri,
+}) {
+  final urls = ForumUrlResolver(baseUri: baseUri);
   final result = <ForumSearchBoard>[];
   bool isHeading(ForumSearchBoard board) => board.name.trim().startsWith('>>');
   String label(String name) => name

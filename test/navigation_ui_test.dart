@@ -273,6 +273,11 @@ class _NavRepository extends ForumRepository {
       fetchUserProfileOverview(url);
 
   @override
+  Future<FavoriteCollections> fetchFavoriteCollections(
+          {String? categoryId}) async =>
+      FavoriteCollections(categories: const [], items: const []);
+
+  @override
   Future<LoginChallenge> fetchLoginChallenge() async => LoginChallenge(
         captchaBytes: Uint8List.fromList(_onePixelPng),
         fields: const {'step': '2'},

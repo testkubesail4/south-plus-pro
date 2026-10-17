@@ -8,6 +8,8 @@ import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 
+import 'support/native_favorite_fixture.dart';
+
 // Captured native response; request credentials are deliberately not part of this fixture.
 const _menu = '''<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[
 <div class="bor">
@@ -33,6 +35,7 @@ void main() {
       () async {
     for (final label in ['SPP-repro-10', '我的收藏']) {
       final client = _Client()
+        ..categories = [label]
         ..responses.addAll([_menu.replaceFirst('SPP-repro-10', label), _ack]);
       final repository = ForumRepository(client: client);
       addTearDown(repository.clearSession);
@@ -57,7 +60,7 @@ void main() {
         'tid': _favorite.tid,
         'type': '1',
         'nowtime': client.requests.last.queryParameters['nowtime'],
-        'verify': _favorite.verify,
+        'verify': 'token-2',
       });
       expect(client.redirects, [false, false]);
     }
@@ -154,7 +157,9 @@ void main() {
       _menu,
       'unknown'
     ]) {
-      final client = _Client()..responses.addAll([_menu, response]);
+      final client = _Client()
+        ..applyWrite = false
+        ..responses.addAll([_menu, response]);
       final repository = ForumRepository(client: client);
       addTearDown(repository.clearSession);
       final selection =
@@ -194,7 +199,9 @@ void main() {
         await repository.clearSession();
         client.gate!.complete(_ack);
         await rejected;
-        expect(client.requests, hasLength(stage == 'first' ? 1 : 2));
+        expect(client.requests, hasLength(1),
+            reason:
+                'logout also retires the fresh read before a selected write');
       }
     }
   });
@@ -237,7 +244,12 @@ void main() {
         server.listen((request) async {
           requests.add(request.uri);
           await request.drain<void>();
-          if (secondStage && requests.length == 1) {
+          if (request.uri.path == '/u.php') {
+            request.response.headers.contentType =
+                ContentType('text', 'html', charset: 'utf-8');
+            request.response.write(
+                nativeFavoriteHtml(categories: ['SPP-repro-10'], rows: []));
+          } else if (secondStage && requests.length == 1) {
             request.response.headers.contentType =
                 ContentType('text', 'xml', charset: 'utf-8');
             request.response.write(_menu);
@@ -252,13 +264,17 @@ void main() {
         if (secondStage) {
           final selection =
               (await repository.addFavorite(_favorite)).categorySelection!;
-          await expectLater(repository.selectFavoriteCategory(selection, '1'),
-              throwsA(isA<ForumRequestException>()));
+          final result =
+              await repository.selectFavoriteCategory(selection, '1');
+          expect(result.success, isFalse,
+              reason:
+                  'redirected write remains unconfirmed after fresh empty readback');
         } else {
           await expectLater(repository.addFavorite(_favorite),
               throwsA(isA<ForumRequestException>()));
         }
-        expect(requests, hasLength(secondStage ? 2 : 1));
+        expect(requests.where((request) => request.path == '/pw_ajax.php'),
+            hasLength(secondStage ? 2 : 1));
       });
     }
   }
@@ -269,7 +285,11 @@ final _invalid = throwsA(isA<ForumRequestException>()
 final _stale = throwsA(isA<ForumRequestException>()
     .having((error) => error.kind, 'kind', ForumRequestKind.loginRequired));
 
-class _Client extends ForumClient {
+class _Client extends NativeFavoriteClient {
+  _Client() {
+    categories = ['SPP-repro-10'];
+    rows = [];
+  }
   final responses = <String>[];
   final requests = <Uri>[];
   final redirects = <bool>[];
@@ -279,16 +299,23 @@ class _Client extends ForumClient {
   Future<String> getForm(String path,
       {void Function()? requireCurrentSession,
       bool followRedirects = true}) async {
+    final uri = Uri.parse(path);
+    if (uri.path != 'pw_ajax.php')
+      return super.getForm(path,
+          requireCurrentSession: requireCurrentSession,
+          followRedirects: followRedirects);
     requireCurrentSession?.call();
-    requests.add(Uri.parse(path));
+    requests.add(uri);
     redirects.add(followRedirects);
     final response = gate != null ? await gate!.future : responses.removeAt(0);
+    if (uri.queryParameters.containsKey('type')) {
+      await super.getForm(path,
+          requireCurrentSession: requireCurrentSession,
+          followRedirects: followRedirects);
+    }
     requireCurrentSession?.call();
     return response;
   }
-
-  @override
-  Future<void> clearSession() async {}
 }
 
 class _RealHttp extends HttpOverrides {}
@@ -298,4 +325,6 @@ class _LocalClient extends ForumClient {
       : super(httpClient: transport, delay: (_) async {});
   @override
   final Uri baseUri;
+  @override
+  bool get isLoggedIn => true;
 }
