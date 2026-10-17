@@ -173,14 +173,21 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   // Preferences belong to the signed-in account (anonymous otherwise).
-  String? get _account => widget.repository.currentUsername;
+  String? get _account => widget.repository.localPreferenceAccount;
 
   (String?, int) get _session =>
       (_account, widget.repository.sessionEpoch.value);
 
   Future<void> _loadPrefs() async {
     final account = _account;
-    final prefs = await ForumSearchPreferences.load(account: account);
+    final ForumSearchPreferences prefs;
+    try {
+      prefs = await ForumSearchPreferences.load(account: account);
+    } catch (_) {
+      // Search works with the last acknowledged defaults; the board picker
+      // reports its own pins and offers a retry.
+      return;
+    }
     // A login switch during the read must not apply the old owner's prefs.
     if (!mounted || account != _account) return;
     setState(() {
@@ -203,8 +210,7 @@ class _SearchScreenState extends State<SearchScreen> {
           setState(() {
             _boards = list;
             if (_board.name.isEmpty) {
-              _board =
-                  list
+              _board = list
                       .where((b) => b.selectable && b.id == _board.id)
                       .firstOrNull ??
                   _board;
@@ -224,19 +230,18 @@ class _SearchScreenState extends State<SearchScreen> {
   // Homepage sections only group the search scopes; the picker works without.
   Future<List<ForumSection>> _loadSections() {
     final session = _session;
-    return _sectionLoads[session] ??= widget.repository
-        .fetchForumSections()
-        .then(
-          (sections) {
-            // An empty result may be transient; a retry must ask again.
-            if (sections.isEmpty) _sectionLoads.remove(session);
-            return sections;
-          },
-          onError: (Object error) {
-            _sectionLoads.remove(session);
-            throw error;
-          },
-        );
+    return _sectionLoads[session] ??=
+        widget.repository.fetchForumSections().then(
+      (sections) {
+        // An empty result may be transient; a retry must ask again.
+        if (sections.isEmpty) _sectionLoads.remove(session);
+        return sections;
+      },
+      onError: (Object error) {
+        _sectionLoads.remove(session);
+        throw error;
+      },
+    );
   }
 
   bool get _filtersAtDefault =>
@@ -390,14 +395,57 @@ class _SearchScreenState extends State<SearchScreen> {
     _loadPrefs();
   }
 
-  Future<void> _saveDefaultMatch() async {
-    await ForumSearchPreferences.saveDefaultMatch(_match, account: _account);
-    await _loadPrefs();
+  // The choice is read when the button is tapped, not when a retry runs.
+  Future<void> _saveDefaultMatch() {
+    final value = _match;
+    return _saveDefault(
+      (account) =>
+          ForumSearchPreferences.saveDefaultMatch(value, account: account),
+    );
   }
 
-  Future<void> _saveDefaultTime() async {
-    await ForumSearchPreferences.saveDefaultTime(_time, account: _account);
-    await _loadPrefs();
+  Future<void> _saveDefaultTime() {
+    final value = _time;
+    return _saveDefault(
+      (account) =>
+          ForumSearchPreferences.saveDefaultTime(value, account: account),
+    );
+  }
+
+  Future<void> _saveDefault(Future<void> Function(String? account) save) =>
+      _runSave(widget.repository, _session, save);
+
+  // A rejected write leaves the stored defaults, and so the buttons, as they
+  // were; the user may retry. A retry belongs to the repository and session
+  // it was made in and does nothing once either has moved on.
+  Future<void> _runSave(
+    ForumRepository repository,
+    (String?, int) session,
+    Future<void> Function(String? account) save,
+  ) async {
+    bool current() =>
+        mounted &&
+        identical(repository, widget.repository) &&
+        session == _session;
+    if (!current()) return;
+    try {
+      await save(session.$1);
+    } catch (error) {
+      if (!current()) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('保存失败：$error'),
+            action: SnackBarAction(
+              label: '重试',
+              onPressed: () => _runSave(repository, session, save),
+            ),
+          ),
+        );
+      return;
+    }
+    if (current()) await _loadPrefs();
   }
 
   List<String> _filterSummary(ForumSearchQuery? query) {
@@ -409,10 +457,10 @@ class _SearchScreenState extends State<SearchScreen> {
     final boardName = query == null || query.boardId == _board.id
         ? _boardLabel
         : _boards
-                  ?.where((board) => board.id == query.boardId)
-                  .firstOrNull
-                  ?.name ??
-              '版块 ${query.boardId}';
+                ?.where((board) => board.id == query.boardId)
+                .firstOrNull
+                ?.name ??
+            '版块 ${query.boardId}';
     return [
       boardName,
       _timeLabels[time]!,
@@ -434,9 +482,8 @@ class _SearchScreenState extends State<SearchScreen> {
             final gutter = appGutter(constraints.maxWidth, AppWidths.list);
             final form = _editing || _query == null;
             // The form is a form (720); the summary lines up with results.
-            final top = form
-                ? appGutter(constraints.maxWidth, AppWidths.form)
-                : gutter;
+            final top =
+                form ? appGutter(constraints.maxWidth, AppWidths.form) : gutter;
             return CustomScrollView(
               controller: _scroll,
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -615,8 +662,7 @@ class _SearchScreenState extends State<SearchScreen> {
           Builder(
             builder: (context) {
               final current = page.currentPage;
-              final int total =
-                  page.totalPages ??
+              final int total = page.totalPages ??
                   page.pageLinks.fold<int>(
                     next == null ? current : current + 1,
                     (last, link) => math.max(last, link.page),
@@ -627,8 +673,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 onSelected: _searching
                     ? null
                     : (number) {
-                        final path =
-                            switch (number - current) {
+                        final path = switch (number - current) {
                               1 => next,
                               -1 => previous,
                               _ => null,
@@ -680,9 +725,8 @@ class _SearchScreenState extends State<SearchScreen> {
           decoration: InputDecoration(
             labelText: '用户名',
             hintText: '只看该用户的主题',
-            helperText: _usernameFocus.hasFocus
-                ? '填写登录名（非显示昵称），可用 * 通配，例如 abc*'
-                : null,
+            helperText:
+                _usernameFocus.hasFocus ? '填写登录名（非显示昵称），可用 * 通配，例如 abc*' : null,
             helperMaxLines: 2,
             prefixIcon: const Icon(Icons.person_outline),
           ),
@@ -773,10 +817,10 @@ class _SearchScreenState extends State<SearchScreen> {
 }
 
 String _errorText(Object error) => switch (error) {
-  ForumRequestException(:final kind) => forumRequestErrorText(kind),
-  ForumRepositoryException(:final message) => message,
-  _ => '$error',
-};
+      ForumRequestException(:final kind) => forumRequestErrorText(kind),
+      ForumRepositoryException(:final message) => message,
+      _ => '$error',
+    };
 
 Future<T?> _showChoiceSheet<T>(
   BuildContext context, {
@@ -812,9 +856,8 @@ Future<T?> _showChoiceSheet<T>(
                     ListTile(
                       title: Text(value),
                       selected: key == selected,
-                      trailing: key == selected
-                          ? const Icon(Icons.check)
-                          : null,
+                      trailing:
+                          key == selected ? const Icon(Icons.check) : null,
                       onTap: () => Navigator.of(context).pop(key),
                     ),
                 ],
@@ -1083,6 +1126,11 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
   final _filter = TextEditingController();
   late Future<List<ForumSearchBoard>> _boards = widget.loadBoards();
   List<ForumSearchPinnedBoard> _pinned = const [];
+  // The last pin read or write that failed, with the action that repeats it.
+  // The sheet covers any SnackBar, so it reports inline.
+  ({String message, VoidCallback retry})? _pinNotice;
+  // A pin write is in flight; further pin edits wait for it.
+  bool _saving = false;
   // Options, pins and choices belong to the session the sheet opened in.
   bool _stale = false;
   List<ForumSection>? _sections;
@@ -1095,10 +1143,28 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
   void initState() {
     super.initState();
     widget.sessionChanges.addListener(_checkSession);
-    widget.loadPinned().then((pinned) {
-      if (mounted) setState(() => _pinned = pinned);
-    });
+    _loadPins();
     _loadSections();
+  }
+
+  Future<void> _loadPins() async {
+    _checkSession();
+    if (!mounted || _stale) return;
+    try {
+      final pinned = await widget.loadPinned();
+      _checkSession();
+      if (!mounted || _stale) return;
+      setState(() {
+        _pinned = pinned;
+        _pinNotice = null;
+      });
+    } catch (_) {
+      _checkSession();
+      if (!mounted || _stale) return;
+      setState(
+        () => _pinNotice = (message: '常用版块加载失败', retry: _loadPins),
+      );
+    }
   }
 
   void _checkSession() {
@@ -1138,11 +1204,9 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
       _expandedFor = source;
       for (final node in _BoardNode.flatten(roots)) {
         if (node.board.id == widget.selectedId) {
-          for (
-            var parent = node.parent;
-            parent != null;
-            parent = parent.parent
-          ) {
+          for (var parent = node.parent;
+              parent != null;
+              parent = parent.parent) {
             _expanded.add(parent.key);
           }
         }
@@ -1160,33 +1224,80 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
 
   Future<void> _togglePin(ForumSearchBoard board) async {
     _checkSession();
-    if (_stale) return;
-    final pinned = _pinned.any((pin) => pin.id == board.id);
-    List<ForumSearchPinnedBoard> next;
-    if (pinned) {
-      next = [
-        for (final pin in _pinned)
-          if (pin.id != board.id) pin,
-      ];
-    } else {
-      final label = await _askLabel(board.name.trim());
+    if (_saving || _stale) return;
+    if (_pinned.any((pin) => pin.id == board.id)) {
+      await _savePins(_without(board.id));
+      return;
+    }
+    final label = await _askLabel(board.name.trim());
+    _checkSession();
+    if (!mounted || _stale) return;
+    if (label == null || label.trim().isEmpty) return;
+    final pin = ForumSearchPinnedBoard(id: board.id, label: label.trim());
+    await _savePins(
+      (current) => [
+        for (final other in current)
+          if (other.id != pin.id) other,
+        pin,
+      ],
+    );
+  }
+
+  List<ForumSearchPinnedBoard> Function(List<ForumSearchPinnedBoard>) _without(
+    String id,
+  ) =>
+      (current) => [
+            for (final pin in current)
+              if (pin.id != id) pin,
+          ];
+
+  // The list on screen changes only once the write is acknowledged, and only
+  // one write runs at a time. An edit is applied to the acknowledged list when
+  // it runs, so a retry never reapplies an old whole list over newer saves.
+  Future<void> _savePins(
+    List<ForumSearchPinnedBoard> Function(List<ForumSearchPinnedBoard>) edit,
+  ) async {
+    // A retry arrives here directly, so the scope is checked again.
+    _checkSession();
+    if (_saving || !mounted || _stale) return;
+    final next = edit(_pinned);
+    setState(() => _saving = true);
+    try {
+      try {
+        await widget.savePinned(next);
+      } catch (error) {
+        _checkSession();
+        if (!mounted || _stale) return;
+        setState(
+          () => _pinNotice = (
+            message: '保存失败：$error',
+            retry: () => _savePins(edit),
+          ),
+        );
+        return;
+      }
+      List<ForumSearchPinnedBoard> saved;
+      try {
+        saved = await widget.loadPinned();
+      } catch (_) {
+        // The write itself went through.
+        saved = next;
+      }
       _checkSession();
       if (!mounted || _stale) return;
-      if (label == null || label.trim().isEmpty) return;
-      next = [
-        ..._pinned,
-        ForumSearchPinnedBoard(id: board.id, label: label.trim()),
-      ];
+      setState(() {
+        _pinned = saved;
+        _pinNotice = null;
+      });
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    await widget.savePinned(next);
-    final saved = await widget.loadPinned();
-    if (mounted) setState(() => _pinned = saved);
   }
 
   Future<String?> _askLabel(String initial) => showDialog<String>(
-    context: context,
-    builder: (_) => _PinLabelDialog(initial: initial),
-  );
+        context: context,
+        builder: (_) => _PinLabelDialog(initial: initial),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -1237,6 +1348,17 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
                     };
                     return ListView(
                       children: [
+                        if (_saving)
+                          const LinearProgressIndicator(minHeight: 2),
+                        if (_pinNotice case final notice?)
+                          ListTile(
+                            leading: const Icon(Icons.info_outline),
+                            title: Text(notice.message),
+                            trailing: TextButton(
+                              onPressed: _saving ? null : notice.retry,
+                              child: const Text('重试'),
+                            ),
+                          ),
                         if (_pinned.isNotEmpty) ...[
                           _SheetHeader('版块捷径'),
                           for (final pin in _pinned)
@@ -1318,8 +1440,9 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
       trailing: IconButton(
         tooltip: '删除捷径',
         icon: const Icon(Icons.close),
-        onPressed: () =>
-            _togglePin(ForumSearchBoard(id: pin.id, name: pin.label)),
+        onPressed: _saving
+            ? null
+            : () => _togglePin(ForumSearchBoard(id: pin.id, name: pin.label)),
       ),
     );
   }
@@ -1356,20 +1479,21 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
   }
 
   List<Widget> _treeRows(List<_BoardNode> nodes) => [
-    for (final node in nodes)
-      if (node.children.isEmpty)
-        _boardTile(node, level: node.level)
-      else ...[
-        _groupTile(node),
-        if (_expanded.contains(node.key)) ...[
-          // Opening a group never selects it; searching all of it is
-          // its own row.
-          if (node.board.selectable)
-            _boardTile(node, level: node.level + 1, label: '搜索整个${node.name}'),
-          ..._treeRows(node.children),
-        ],
-      ],
-  ];
+        for (final node in nodes)
+          if (node.children.isEmpty)
+            _boardTile(node, level: node.level)
+          else ...[
+            _groupTile(node),
+            if (_expanded.contains(node.key)) ...[
+              // Opening a group never selects it; searching all of it is
+              // its own row.
+              if (node.board.selectable)
+                _boardTile(node,
+                    level: node.level + 1, label: '搜索整个${node.name}'),
+              ..._treeRows(node.children),
+            ],
+          ],
+      ];
 
   double _indent(int level) => 16.0 + 16.0 * level.clamp(0, 4);
 
@@ -1427,7 +1551,7 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
           ? IconButton(
               tooltip: pinned ? '删除捷径' : '存为捷径',
               icon: Icon(pinned ? Icons.bookmark : Icons.bookmark_add_outlined),
-              onPressed: () => _togglePin(picked),
+              onPressed: _saving ? null : () => _togglePin(picked),
             )
           : null,
     );
@@ -1437,7 +1561,7 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
 /// One search scope placed under its parent by the preorder depth.
 class _BoardNode {
   _BoardNode(this.board, this.parent)
-    : level = parent == null ? 0 : parent.level + 1;
+      : level = parent == null ? 0 : parent.level + 1;
 
   final ForumSearchBoard board;
   final _BoardNode? parent;

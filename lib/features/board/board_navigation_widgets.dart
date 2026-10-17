@@ -145,7 +145,8 @@ class _BoardHeader extends StatelessWidget {
                                   title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.titleMedium,
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
                                 ),
                               ),
                               if (onSwitch != null) ...[
@@ -184,36 +185,109 @@ class _SubBoardSection extends StatelessWidget {
     required this.boards,
     required this.width,
     required this.onOpen,
+    this.collapsed = false,
+    this.onToggle,
   });
 
   final List<ForumBoard> boards;
   final double width;
   final ValueChanged<ForumBoard> onOpen;
+  final bool collapsed;
+
+  /// Null when the board has no id to remember a fold under.
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
-    final columns = _subBoardColumns(width);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                '子版块',
-                style: Theme.of(context).textTheme.titleLarge,
+          child: Semantics(
+            button: onToggle != null,
+            expanded: onToggle == null ? null : !collapsed,
+            hint: onToggle == null ? null : (collapsed ? '展开' : '折叠'),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: onToggle,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            '子版块',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              '${boards.length} 个',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (onToggle != null)
+                      AnimatedRotation(
+                        turns: collapsed ? -0.25 : 0,
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : AppMotion.short,
+                        curve: AppMotion.enter,
+                        child: Icon(
+                          Icons.expand_more,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-              const SizedBox(width: 10),
-              Text(
-                '${boards.length} 个',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+            ),
           ),
         ),
+        // Only the fold animates; a grid that changes height follows at once.
+        TweenAnimationBuilder<double>(
+          tween: Tween(end: collapsed ? 0 : 1),
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : AppMotion.short,
+          curve: AppMotion.enter,
+          child: ExcludeFocus(
+            excluding: collapsed,
+            child: ExcludeSemantics(
+              excluding: collapsed,
+              child: IgnorePointer(
+                ignoring: collapsed,
+                child: _subBoardGrid(context),
+              ),
+            ),
+          ),
+          builder: (context, open, child) => ClipRect(
+            child: Align(
+              alignment: Alignment.topCenter,
+              heightFactor: open,
+              child: child,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _subBoardGrid(BuildContext context) {
+    final columns = _subBoardColumns(width);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         Container(
           decoration: _boardSurface(context),
           padding: const EdgeInsets.all(6),
@@ -318,7 +392,9 @@ class _SiblingList extends StatelessWidget {
             ),
             title: Text(
               parent.name,
-              style: Theme.of(context).textTheme.titleSmall
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
                   ?.copyWith(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(
@@ -634,7 +710,10 @@ class _EmptyTopics extends StatelessWidget {
       child: Text(
         inSubBoards ? '这个板块的主题在子版块中' : '暂无主题',
         textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
+        style: Theme.of(context)
+            .textTheme
+            .bodyMedium
+            ?.copyWith(color: AppColors.textMuted),
       ),
     );
   }
@@ -700,7 +779,8 @@ class _WallCard extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                padding:
+                    const EdgeInsets.fromLTRB(AppSpace.md, 8, AppSpace.md, 10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

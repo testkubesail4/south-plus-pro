@@ -10,6 +10,7 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_search_preferences.dart';
 import '../../services/forum_trace_logger.dart';
+import '../../services/home_reading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
@@ -23,6 +24,7 @@ import '../profile/forum_tasks_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 
+part 'home_board_shortcuts.dart';
 part 'home_widgets.dart';
 
 class HomeShell extends StatefulWidget {
@@ -56,14 +58,20 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<String?>(
-      valueListenable: _repository.sessionUser,
-      builder: (context, owner, _) {
-        // A new owner rebuilds every tab, so no account's data lingers.
-        Widget tab(int index, Widget Function() build) =>
-            _opened.contains(index)
-                ? KeyedSubtree(key: ValueKey((index, owner)), child: build())
-                : const SizedBox.shrink();
+    return ListenableBuilder(
+      // A guest switching forum origin keeps the same (null) user, so the
+      // session epoch is watched too and the key carries the storage scope.
+      listenable:
+          Listenable.merge([_repository.sessionUser, _repository.sessionEpoch]),
+      builder: (context, _) {
+        final owner = _repository.sessionUser.value;
+        final scope = _repository.localPreferenceAccount;
+        // A new owner or storage scope rebuilds every tab, so no account's
+        // data lingers.
+        Widget tab(int index, Widget Function() build) => _opened
+                .contains(index)
+            ? KeyedSubtree(key: ValueKey((index, owner, scope)), child: build())
+            : const SizedBox.shrink();
         return PopScope(
           canPop: _index == 0,
           onPopInvokedWithResult: (didPop, _) {
@@ -270,6 +278,10 @@ Future<void> _saveShape(String? account, ForumHomeSnapshot data) async {
 class _ForumHomePageState extends State<ForumHomePage> {
   late Future<ForumHomeSnapshot> _future;
   _HomeShape _shape = _guessedShape;
+  // The account is fixed per page: a new owner rebuilds the whole tab.
+  late final String? _account = widget.repository.localPreferenceAccount;
+  HomeReadingPreferences _prefs = const HomeReadingPreferences();
+  int _prefsRun = 0;
 
   @override
   void initState() {
@@ -278,6 +290,76 @@ class _ForumHomePageState extends State<ForumHomePage> {
     _loadShape(widget.repository.currentUsername).then((shape) {
       if (mounted) setState(() => _shape = shape);
     });
+    _loadPrefs();
+    // Visits, row count and folds change elsewhere too (a board route, the
+    // search tab), so any write reloads them.
+    HomeReadingPreferences.revision.addListener(_loadPrefs);
+  }
+
+  @override
+  void dispose() {
+    HomeReadingPreferences.revision.removeListener(_loadPrefs);
+    super.dispose();
+  }
+
+  Future<void> _loadPrefs() async {
+    final run = ++_prefsRun;
+    try {
+      final prefs = await HomeReadingPreferences.load(account: _account);
+      if (mounted && run == _prefsRun) setState(() => _prefs = prefs);
+    } catch (_) {
+      // The defaults stay.
+    }
+  }
+
+  void _showMessage(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> _toggleCollapsed(String id) async {
+    final collapse = !_prefs.collapsedIds.contains(id);
+    setState(() {
+      _prefs = HomeReadingPreferences(
+        quickRowCount: _prefs.quickRowCount,
+        collapsedIds: {
+          for (final other in _prefs.collapsedIds)
+            if (other != id) other,
+          if (collapse) id,
+        },
+        recentBoards: _prefs.recentBoards,
+      );
+    });
+    try {
+      await HomeReadingPreferences.setCollapsed(id, collapse,
+          account: _account);
+    } catch (_) {
+      _showMessage('无法保存折叠状态');
+      _loadPrefs();
+    }
+  }
+
+  Future<void> _pickQuickRows() async {
+    final rows = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
+      builder: (_) => _QuickRowsSheet(current: _prefs.quickRowCount),
+    );
+    if (rows == null || rows == _prefs.quickRowCount || !mounted) return;
+    setState(() {
+      _prefs = HomeReadingPreferences(
+        quickRowCount: rows,
+        collapsedIds: _prefs.collapsedIds,
+        recentBoards: _prefs.recentBoards,
+      );
+    });
+    try {
+      await HomeReadingPreferences.saveQuickRowCount(rows, account: _account);
+    } catch (_) {
+      _showMessage('无法保存显示行数');
+      _loadPrefs();
+    }
   }
 
   Future<ForumHomeSnapshot> _fetchHome() {
@@ -325,6 +407,34 @@ class _ForumHomePageState extends State<ForumHomePage> {
         ),
       ),
     );
+  }
+
+  // A foldable section; the fold is remembered under its title.
+  List<Widget> _section(ForumHomeSnapshot? data, int i, double inner) {
+    final section = data?.sections[i];
+    final title = section?.title.trim() ?? '';
+    final id = title.isEmpty ? null : 'section:$title';
+    final collapsed = id != null && _prefs.collapsedIds.contains(id);
+    return [
+      const SizedBox(height: 32),
+      _SectionHeader(
+        section?.title,
+        key: ValueKey('home-section-$i'),
+        note: section == null ? null : '${section.items.length} 个版块',
+        collapsed: collapsed,
+        onToggle: id == null ? null : () => _toggleCollapsed(id),
+      ),
+      _Collapsible(
+        collapsed: collapsed,
+        child: _BoardGrid(
+          key: ValueKey('home-grid-$i'),
+          boards: section?.items ?? const [],
+          bones: section == null ? _shape.sections[i] : null,
+          columns: inner >= 960 ? 3 : (inner >= 600 ? 2 : 1),
+          onOpen: _openBoard,
+        ),
+      ),
+    ];
   }
 
   @override
@@ -375,41 +485,46 @@ class _ForumHomePageState extends State<ForumHomePage> {
                       else ...[
                         _SectionHeader(
                           '速览',
-                          trailing: data == null
-                              ? _taskButtonPlaceholder()
-                              : _TaskShortcut(repository: widget.repository),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: '显示行数',
+                                onPressed: data == null ? null : _pickQuickRows,
+                                icon: const Icon(Icons.tune, size: 20),
+                              ),
+                              data == null
+                                  ? _taskButtonPlaceholder()
+                                  : _TaskShortcut(
+                                      repository: widget.repository),
+                            ],
+                          ),
                         ),
                         _QuickLists(
                           // Lazy lists reload with the snapshot they came from.
                           key: ObjectKey(data),
                           lists: data?.quickLists,
                           latest: data?.latest ?? const [],
-                          columns: inner >= 840,
+                          // Large text gives up the side-by-side lists.
+                          columns: inner >= 840 &&
+                              MediaQuery.textScalerOf(context).scale(1) <= 1.3,
+                          rows: _prefs.quickRowCount,
                           repository: widget.repository,
                         ),
-                        _BoardChips(
-                          repository: widget.repository,
+                        _HotBoards(
                           hotBoards: data?.hot,
                           boneCount: _shape.hot,
                           onOpen: _openCategory,
                         ),
-                        for (var i = 0; i < sectionCount; i++) ...[
-                          const SizedBox(height: 32),
-                          _SectionHeader(
-                            data?.sections[i].title,
-                            key: ValueKey('home-section-$i'),
-                            note: data == null
-                                ? null
-                                : '${data.sections[i].items.length} 个版块',
-                          ),
-                          _BoardGrid(
-                            key: ValueKey('home-grid-$i'),
-                            boards: data?.sections[i].items ?? const [],
-                            bones: data == null ? _shape.sections[i] : null,
-                            columns: inner >= 960 ? 3 : (inner >= 600 ? 2 : 1),
-                            onOpen: _openBoard,
-                          ),
-                        ],
+                        _MyBoards(
+                          repository: widget.repository,
+                          recent: _prefs.recentBoards,
+                          hotBoards: data?.hot,
+                          sections: data?.sections,
+                          onOpen: _openCategory,
+                        ),
+                        for (var i = 0; i < sectionCount; i++)
+                          ..._section(data, i, inner),
                       ],
                     ],
                   );

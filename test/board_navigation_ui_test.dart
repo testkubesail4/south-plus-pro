@@ -38,8 +38,8 @@ ForumBoardFilter _filter(String label, ForumBoardFilterKind kind, String url) =>
 final _all = _filter('全部', ForumBoardFilterKind.all, 'thread.php?fid-901.html');
 final _digest = _filter(
     '精华', ForumBoardFilterKind.digest, 'thread.php?fid-901-search-digest.html');
-final _type = _filter(
-    'Type one', ForumBoardFilterKind.topicType, 'thread.php?fid-901-type-1.html');
+final _type = _filter('Type one', ForumBoardFilterKind.topicType,
+    'thread.php?fid-901-type-1.html');
 final _vote = _filter(
     '投票', ForumBoardFilterKind.special, 'thread.php?fid-901-special-1.html');
 
@@ -70,8 +70,9 @@ class _Repo extends ForumRepository {
       threads: [
         _topic('$name pinned', sticky: true),
         _topic('$name topic 1'),
-        _topic('$name topic 2')
-            .copyWith(authorUrl: 'https://south-plus.net/u.php?action-show-uid-1002.html'),
+        _topic('$name topic 2').copyWith(
+            authorUrl:
+                'https://south-plus.net/u.php?action-show-uid-1002.html'),
       ],
       currentPage: page,
       totalPages: 3,
@@ -93,7 +94,12 @@ class _LongRepo extends _Repo {
     ForumBoardFilter? filter,
   }) async =>
       ForumThreadPage(
-        threads: [for (var i = 0; i < 14; i++) _topic('Long topic $i')],
+        threads: [
+          for (var i = 0; i < 14; i++)
+            _topic('Long topic $i').copyWith(
+                url:
+                    'https://south-plus.net/read.php?tid-${page * 100 + i}.html'),
+        ],
         currentPage: page,
         totalPages: 3,
         boardName: 'Child A',
@@ -118,7 +124,8 @@ void main() {
   testWidgets('a hub lists its sub-boards as tiles that open their own page',
       (tester) async {
     final repo = _Repo();
-    await _pump(tester, BoardThreadListScreen(category: _hub, repository: repo));
+    await _pump(
+        tester, BoardThreadListScreen(category: _hub, repository: repo));
 
     expect(find.text('子版块'), findsOneWidget);
     expect(find.text('29.1万 帖 · 2020-03-19'), findsOneWidget);
@@ -138,7 +145,8 @@ void main() {
   testWidgets('the title switches to a sibling and back still reaches the hub',
       (tester) async {
     final repo = _Repo();
-    await _pump(tester, BoardThreadListScreen(category: _hub, repository: repo));
+    await _pump(
+        tester, BoardThreadListScreen(category: _hub, repository: repo));
     await tester.tap(find.text('Child A'));
     await tester.pumpAndSettle();
 
@@ -160,7 +168,8 @@ void main() {
     await _pump(
       tester,
       BoardThreadListScreen(
-        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
         repository: repo,
         parent: _hub,
         siblings: _children,
@@ -189,13 +198,17 @@ void main() {
         size: size,
       );
       final row = tester.getRect(find.ancestor(
-          of: find.text('Long topic 0'), matching: find.byType(ForumThreadRow)));
+          of: find.text('Long topic 0'),
+          matching: find.byType(ForumThreadRow)));
       expect(row.width, size.width < 600 ? size.width - 32 : AppWidths.list);
       expect(row.center.dx, size.width / 2);
 
-      await tester.drag(find.byType(CustomScrollView), const Offset(0, -5000));
+      // Each time the end is reached the next page is appended, so the
+      // pager reads the last page once all three are in.
+      await tester.scrollUntilVisible(find.text('第 3 / 3 页'), 600,
+          scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
-      final pager = tester.getRect(find.text('第 1 / 3 页'));
+      final pager = tester.getRect(find.text('第 3 / 3 页'));
       final fab = tester.getRect(find.byType(FloatingActionButton));
       expect(pager.bottom, lessThan(fab.top), reason: '$pager vs $fab');
     });
@@ -207,7 +220,8 @@ void main() {
     await _pump(
       tester,
       BoardThreadListScreen(
-        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
         repository: repo,
       ),
     );
@@ -234,7 +248,8 @@ void main() {
     await _pump(
       tester,
       BoardThreadListScreen(
-        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
         repository: repo,
       ),
     );
@@ -270,7 +285,8 @@ void main() {
     await _pump(
       tester,
       BoardThreadListScreen(
-        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
         repository: repo,
       ),
     );
@@ -297,7 +313,8 @@ void main() {
     await _pump(
       tester,
       BoardThreadListScreen(
-        category: ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
         repository: repo,
       ),
     );
@@ -324,7 +341,8 @@ void main() {
     await _pump(
       tester,
       BoardThreadListScreen(
-        category: ForumCategory(name: 'Child B', slug: 'fid-902', url: _url(902)),
+        category:
+            ForumCategory(name: 'Child B', slug: 'fid-902', url: _url(902)),
         repository: repo,
       ),
     );
