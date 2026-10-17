@@ -13,6 +13,8 @@ import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
+import 'support/busy_button.dart';
+
 const _personal = ForumPmSummary(
   box: ForumPmBox.inbox,
   type: ForumPmType.personal,
@@ -142,6 +144,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.deletes, 1);
   });
+
+  for (final (mode, theme) in [
+    (ThemeMode.light, AppTheme.light),
+    (ThemeMode.dark, AppTheme.dark),
+  ]) {
+    testWidgets('the busy 发送 spinner reads like its label ($mode)',
+        (tester) async {
+      AppThemeController.notifier.value = mode;
+      addTearDown(() => AppThemeController.notifier.value = ThemeMode.system);
+      await tester.pumpWidget(MaterialApp(
+        theme: theme,
+        home: PmComposeScreen(repository: _FakePmRepository()),
+      ));
+      await tester.pumpAndSettle();
+      final submit = find.byKey(const ValueKey('pm-submit-button'));
+      await tester.enterText(find.byType(TextField).at(0), 'a1b2');
+      await tester.enterText(find.byType(TextField).at(1), 'hello');
+      await tester.enterText(find.byType(TextField).at(2), 'body');
+      await tester.scrollUntilVisible(submit, 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(submit);
+      await tester.pump();
+      // Past the button's colour transition; the spinner never settles.
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expectSpinnerReadsLikeLabel(tester, submit);
+    });
+  }
 
   testWidgets('compose submits once, shows failures and never retries',
       (tester) async {

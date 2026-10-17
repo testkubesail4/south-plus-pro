@@ -332,6 +332,31 @@ void main() {
     expect(find.byTooltip('图墙'), findsNothing);
   });
 
+  for (final (mode, theme, palette) in [
+    (ThemeMode.light, AppTheme.light, AppColors.lightPalette),
+    (ThemeMode.dark, AppTheme.dark, AppColors.darkPalette),
+  ]) {
+    testWidgets('the 发帖 button takes the brand pair ($mode)', (tester) async {
+      AppThemeController.notifier.value = mode;
+      addTearDown(() => AppThemeController.notifier.value = ThemeMode.system);
+      await tester.pumpWidget(MaterialApp(
+        theme: theme,
+        home: BoardThreadListScreen(category: _hub, repository: _Repo()),
+      ));
+      await tester.pumpAndSettle();
+      final fab = find.byTooltip('发帖');
+      final fill = tester
+          .widget<Material>(
+              find.descendant(of: fab, matching: find.byType(Material)).first)
+          .color;
+      final icon = IconTheme.of(tester.element(find.descendant(
+        of: fab,
+        matching: find.byIcon(Icons.edit_outlined),
+      ))).color;
+      expect((fill, icon), (palette.brand, palette.onBrand));
+    });
+  }
+
   testWidgets('large text keeps the board screen within bounds',
       (tester) async {
     final repo = _Repo();

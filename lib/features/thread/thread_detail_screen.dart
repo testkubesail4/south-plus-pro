@@ -1259,8 +1259,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                 ? null
                 : FloatingActionButton.small(
                     tooltip: '写回复',
-                    backgroundColor: AppColors.brand,
-                    foregroundColor: Colors.white,
                     onPressed: _openComposer,
                     child: const Icon(Icons.edit_outlined),
                   ),

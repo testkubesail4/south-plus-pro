@@ -255,12 +255,16 @@ class ReplyComposerState extends State<ReplyComposer> {
                       key: const ValueKey('reply-submit-button'),
                       onPressed: _canSubmit ? _submit : null,
                       icon: _submitting
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 18,
                               height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                              // The button's own foreground, like its label.
+                              child: Builder(
+                                builder: (context) =>
+                                    CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: IconTheme.of(context).color,
+                                ),
                               ),
                             )
                           : const Icon(Icons.send_outlined, size: 18),

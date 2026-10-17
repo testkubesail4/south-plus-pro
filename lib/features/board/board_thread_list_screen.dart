@@ -317,8 +317,6 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
               floatingActionButton: FloatingActionButton(
                 tooltip: '发帖',
                 onPressed: _openComposer,
-                backgroundColor: AppColors.brand,
-                foregroundColor: Colors.white,
                 child: const Icon(Icons.edit_outlined),
               ),
               body: SafeArea(

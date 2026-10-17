@@ -8,6 +8,9 @@ import 'package:south_plus_rewrite/features/search/search_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
+
+import 'support/busy_button.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -87,6 +90,37 @@ void main() {
     expect(repository.pagePaths, ['search.php?step=2&page=2']);
     expect(repository.queries.last, same(query));
   });
+
+  for (final (mode, theme) in [
+    (ThemeMode.light, AppTheme.light),
+    (ThemeMode.dark, AppTheme.dark),
+  ]) {
+    testWidgets('the busy 发送 spinner reads like its label ($mode)',
+        (tester) async {
+      AppThemeController.notifier.value = mode;
+      addTearDown(() => AppThemeController.notifier.value = ThemeMode.system);
+      final repository = _FakeRepository();
+      await tester.pumpWidget(MaterialApp(
+        theme: theme,
+        home: Scaffold(
+          body: ReplyComposer(
+            thread: _FakeRepository.thread,
+            repository: repository,
+            onSubmitted: (_) {},
+          ),
+        ),
+      ));
+      await tester.enterText(find.byType(TextField).last, 'body');
+      await tester.pump();
+      final submit = find.byKey(const ValueKey('reply-submit-button'));
+      await tester.tap(submit);
+      await tester.pump();
+      // Past the button's colour transition; the spinner never settles.
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expectSpinnerReadsLikeLabel(tester, submit);
+    });
+  }
 
   testWidgets('reply failure shows short text and re-enables submit once',
       (tester) async {

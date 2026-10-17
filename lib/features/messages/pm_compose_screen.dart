@@ -207,12 +207,15 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
                   key: const ValueKey('pm-submit-button'),
                   onPressed: _submitting ? null : _submit,
                   icon: _submitting
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+                          // The button's own foreground, like its label.
+                          child: Builder(
+                            builder: (context) => CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: IconTheme.of(context).color,
+                            ),
                           ),
                         )
                       : Icon(Icons.send_outlined),

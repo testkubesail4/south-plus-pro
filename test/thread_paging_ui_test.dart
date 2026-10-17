@@ -7,6 +7,7 @@ import 'package:south_plus_rewrite/features/thread/thread_floor_actions.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/thread_paging_settings.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic fixtures only: fictional host, tid and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
@@ -20,6 +21,7 @@ void main() {
     Size size = const Size(400, 800),
     double keyboard = 0,
     double textScale = 1,
+    ThemeData? theme,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -27,6 +29,7 @@ void main() {
     addTearDown(tester.view.reset);
     final repository = _Repository();
     await tester.pumpWidget(MaterialApp(
+      theme: theme,
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context)
             .copyWith(textScaler: TextScaler.linear(textScale)),
@@ -50,6 +53,28 @@ void main() {
       position.jumpTo(position.maxScrollExtent);
       await tester.pumpAndSettle();
     }
+  }
+
+  for (final (mode, theme, palette) in [
+    (ThemeMode.light, AppTheme.light, AppColors.lightPalette),
+    (ThemeMode.dark, AppTheme.dark, AppColors.darkPalette),
+  ]) {
+    testWidgets('the 写回复 button takes the brand pair ($mode)',
+        (tester) async {
+      AppThemeController.notifier.value = mode;
+      addTearDown(() => AppThemeController.notifier.value = ThemeMode.system);
+      await pumpThread(tester, theme: theme);
+      final fab = find.byTooltip('写回复');
+      final fill = tester
+          .widget<Material>(
+              find.descendant(of: fab, matching: find.byType(Material)).first)
+          .color;
+      final icon = IconTheme.of(tester.element(find.descendant(
+        of: fab,
+        matching: find.byIcon(Icons.edit_outlined),
+      ))).color;
+      expect((fill, icon), (palette.brand, palette.onBrand));
+    });
   }
 
   testWidgets('the page-end 下一页 turns to the next page at its top',
