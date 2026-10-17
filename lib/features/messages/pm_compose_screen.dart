@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
+import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/content_width.dart';
 import '../editor/windcode_preview.dart';
 import '../editor/windcode_toolbar.dart';
 
@@ -133,8 +135,13 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             final compose = snapshot.data!;
+            // Fields, toolbar and 发送 share the form width (D§4).
+            final side = appGutter(
+              MediaQuery.sizeOf(context).width,
+              AppWidths.form,
+            );
             return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+              padding: EdgeInsets.fromLTRB(side, 10, side, 24),
               children: [
                 TextField(
                   controller: _recipient,

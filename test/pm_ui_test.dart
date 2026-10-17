@@ -11,6 +11,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 const _personal = ForumPmSummary(
   box: ForumPmBox.inbox,
@@ -214,6 +215,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(PmComposeScreen), findsNothing);
     expect(returned?.refreshPath, 'message.php?action=receivebox');
+  });
+
+  testWidgets('on a wide window the compose form keeps the form width',
+      (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(home: PmComposeScreen(repository: _FakePmRepository())),
+    );
+    await tester.pumpAndSettle();
+    for (final field in [
+      find.byType(TextField).first,
+      find.byKey(const ValueKey('pm-submit-button')),
+    ]) {
+      final rect = tester.getRect(field);
+      expect((rect.width, rect.center.dx), (AppWidths.form, 720),
+          reason: '$field');
+    }
   });
 
   testWidgets('edit form requires a numeric recipient and neutral label',
