@@ -318,16 +318,17 @@ void main() {
     expect(find.byTooltip('回复提醒'), findsNothing);
   });
 
-  testWidgets('pinned boards from search replace the hot boards',
+  testWidgets('pinned boards from search show beneath the hot boards',
       (tester) async {
     await ForumSearchPreferences.savePinnedBoards(
       const [ForumSearchPinnedBoard(id: '42', label: 'Pinned board')],
       account: 'fixture_login',
     );
     await pumpAt(tester, 1200);
-    expect(find.text('常用版块'), findsOneWidget);
+    expect(find.text('我的版块'), findsOneWidget);
     expect(find.text('Pinned board'), findsOneWidget);
-    expect(find.text('热门版块'), findsNothing);
+    expect(find.text('热门版块'), findsOneWidget, reason: 'hot is not replaced');
+    expect(find.widgetWithText(ActionChip, 'Hot board'), findsOneWidget);
 
     // Pins edited in search show up when home is shown again.
     await ForumSearchPreferences.savePinnedBoards(

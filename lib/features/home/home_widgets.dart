@@ -59,57 +59,136 @@ class _Bone extends StatelessWidget {
 }
 
 /// Section title, with an optional muted note and a trailing action; a
-/// null [title] is a placeholder.
+/// null [title] is a placeholder. A non-null [collapsed] makes the header a
+/// 48px toggle (chevron, [onToggle]); a null [onToggle] keeps the room but
+/// is inert, so a placeholder holds the loaded height.
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title, {super.key, this.note, this.trailing});
+  const _SectionHeader(
+    this.title, {
+    super.key,
+    this.note,
+    this.trailing,
+    this.collapsed,
+    this.onToggle,
+  });
 
   final String? title;
   final String? note;
   final Widget? trailing;
+  final bool? collapsed;
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          // One line at any text size, so a placeholder's height holds: the
-          // title keeps the room it needs and the note takes what is left.
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) => Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                    child: title == null
-                        ? _Bone(_sectionTitleStyle(context), text: '\u3000' * 4)
-                        : Text(
-                            title!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: _sectionTitleStyle(context),
-                          ),
-                  ),
-                  if (note != null)
-                    Flexible(
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 10),
-                        child: Text(
-                          note!,
+    final collapsed = this.collapsed;
+    final row = Row(
+      children: [
+        // One line at any text size, so a placeholder's height holds: the
+        // title keeps the room it needs and the note takes what is left.
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) => Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                  child: title == null
+                      ? _Bone(_sectionTitleStyle(context), text: '　' * 4)
+                      : Text(
+                          title!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: _sectionTitleStyle(context),
                         ),
+                ),
+                if (note != null)
+                  Flexible(
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 10),
+                      child: Text(
+                        note!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
-                ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (trailing != null) trailing!,
+        if (collapsed != null)
+          Padding(
+            padding: const EdgeInsets.only(left: AppSpace.sm),
+            child: AnimatedRotation(
+              turns: collapsed ? -0.25 : 0,
+              duration: _motion(context),
+              curve: AppMotion.enter,
+              child: Icon(
+                Icons.expand_more,
+                color:
+                    onToggle == null ? Colors.transparent : AppColors.textMuted,
               ),
             ),
           ),
-          if (trailing != null) trailing!,
-        ],
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: collapsed == null
+          ? row
+          : Semantics(
+              button: onToggle != null,
+              expanded: onToggle == null ? null : !collapsed,
+              hint: onToggle == null ? null : (collapsed ? '展开' : '折叠'),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                onTap: onToggle,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: row,
+                ),
+              ),
+            ),
+    );
+  }
+}
+
+/// Animation length, instant when the platform asks for reduced motion.
+Duration _motion(BuildContext context) =>
+    MediaQuery.disableAnimationsOf(context) ? Duration.zero : AppMotion.short;
+
+/// Folds [child] away to nothing. It stays mounted so the fold animates, but
+/// a folded child takes no taps, focus or screen-reader attention. Only the
+/// fold animates: when the child itself changes height (placeholders giving
+/// way to boards) the section follows at once, so nothing shifts later.
+class _Collapsible extends StatelessWidget {
+  const _Collapsible({required this.collapsed, required this.child});
+
+  final bool collapsed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: collapsed ? 0 : 1),
+      duration: _motion(context),
+      curve: AppMotion.enter,
+      child: ExcludeFocus(
+        excluding: collapsed,
+        child: ExcludeSemantics(
+          excluding: collapsed,
+          child: IgnorePointer(ignoring: collapsed, child: child),
+        ),
+      ),
+      builder: (context, open, child) => ClipRect(
+        child: Align(
+          alignment: Alignment.topCenter,
+          heightFactor: open,
+          child: child,
+        ),
       ),
     );
   }
@@ -195,7 +274,7 @@ class _HomeHeader extends StatelessWidget {
 
 /// 最新讨论 and the site's other quick lists: side-by-side columns when
 /// there is room, otherwise swipeable tabs. Every list area is
-/// [_quickRowCount] one-line rows tall, so switching tabs and loading never
+/// [_QuickLists.rows] one-line rows tall, so switching tabs and loading never
 /// moves the page. Lists the snapshot did not include load right after the
 /// home's first frame, so they never delay it. Null [lists] (the home is
 /// loading) shows three placeholder lists.
@@ -205,20 +284,21 @@ class _QuickLists extends StatefulWidget {
     required this.lists,
     required this.latest,
     required this.columns,
+    required this.rows,
     required this.repository,
   });
 
   final List<ForumQuickList>? lists;
   final List<ForumThread> latest;
   final bool columns;
+
+  /// Rows shown per list, 3 to 8 (the repository always fetches 8).
+  final int rows;
   final ForumRepository repository;
 
   @override
   State<_QuickLists> createState() => _QuickListsState();
 }
-
-/// Rows per 速览 list; the repository asks the site for this many.
-const _quickRowCount = 8;
 
 const _quickListIcons = {
   '最新讨论': Icons.forum_outlined,
@@ -241,9 +321,9 @@ double _quickRowHeight(BuildContext context) {
   );
 }
 
-/// [_quickRowCount] rows and the hairlines between them.
-double _quickListHeight(BuildContext context) =>
-    _quickRowCount * _quickRowHeight(context) + _quickRowCount - 1;
+/// [rows] rows and the hairlines between them.
+double _quickListHeight(BuildContext context, int rows) =>
+    rows * _quickRowHeight(context) + rows - 1;
 
 /// Rows of exactly [_quickRowHeight], split by inset hairlines so
 /// neighbours never read as one.
@@ -310,11 +390,12 @@ class _QuickListsState extends State<_QuickLists>
   }
 
   Widget _body(int index) => SizedBox(
-        height: _quickListHeight(context),
+        height: _quickListHeight(context, widget.rows),
         child: _QuickListBody(
           future: _loaded(index),
           onRetry: () => _retry(index),
           repository: widget.repository,
+          rows: widget.rows,
         ),
       );
 
@@ -371,7 +452,7 @@ class _QuickListsState extends State<_QuickLists>
             if (_lists.length > 1) ...[
               _tabBar(),
               SizedBox(
-                height: _quickListHeight(context),
+                height: _quickListHeight(context, widget.rows),
                 child: ScrollConfiguration(
                   // Mice swipe the lists too.
                   behavior: scrolling.copyWith(
@@ -456,16 +537,18 @@ class _QuickListBody extends StatelessWidget {
     required this.future,
     required this.onRetry,
     required this.repository,
+    required this.rows,
   });
 
   final Future<List<ForumThread>>? future;
   final VoidCallback onRetry;
   final ForumRepository repository;
+  final int rows;
 
   @override
   Widget build(BuildContext context) {
     final pending = future;
-    if (pending == null) return const _QuickListSkeleton();
+    if (pending == null) return _QuickListSkeleton(rows: rows);
     return FutureBuilder<List<ForumThread>>(
       future: pending,
       builder: (context, snapshot) {
@@ -480,7 +563,7 @@ class _QuickListBody extends StatelessWidget {
           );
         }
         final threads = snapshot.data;
-        if (threads == null) return const _QuickListSkeleton();
+        if (threads == null) return _QuickListSkeleton(rows: rows);
         // Blocked authors' threads leave the list as soon as a rule changes.
         return ValueListenableBuilder(
           valueListenable: repository.blocking.notifier,
@@ -495,7 +578,7 @@ class _QuickListBody extends StatelessWidget {
               );
             }
             return _quickRows(context, [
-              for (final thread in shown.take(_quickRowCount))
+              for (final thread in shown.take(rows))
                 ForumThreadRow.dense(
                   title: thread.title,
                   titleStyle: thread.titleStyle,
@@ -519,14 +602,16 @@ class _QuickListBody extends StatelessWidget {
 
 /// Placeholder rows, laid out like loaded rows.
 class _QuickListSkeleton extends StatelessWidget {
-  const _QuickListSkeleton();
+  const _QuickListSkeleton({required this.rows});
+
+  final int rows;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       label: '加载中',
       child: _quickRows(context, [
-        for (var i = 0; i < _quickRowCount; i++)
+        for (var i = 0; i < rows; i++)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
             child: Align(
@@ -538,125 +623,6 @@ class _QuickListSkeleton extends StatelessWidget {
             ),
           ),
       ]),
-    );
-  }
-}
-
-/// 常用版块 (boards pinned in search) for signed-in users, otherwise the
-/// site's 热门版块, as a row of chips. While [hotBoards] is null (the home
-/// is loading) [boneCount] blank chips stand in.
-class _BoardChips extends StatefulWidget {
-  const _BoardChips({
-    required this.repository,
-    required this.hotBoards,
-    required this.boneCount,
-    required this.onOpen,
-  });
-
-  final ForumRepository repository;
-  final List<ForumCategory>? hotBoards;
-  final int boneCount;
-  final ValueChanged<ForumCategory> onOpen;
-
-  @override
-  State<_BoardChips> createState() => _BoardChipsState();
-}
-
-class _BoardChipsState extends State<_BoardChips> {
-  List<ForumSearchPinnedBoard> _pinned = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPins();
-  }
-
-  // Home stays alive in the tab stack; re-read pins whenever it rebuilds
-  // (tab switch, refresh) so pins changed in search show up.
-  @override
-  void didUpdateWidget(_BoardChips oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _loadPins();
-  }
-
-  void _loadPins() {
-    if (!widget.repository.isLoggedIn) return;
-    ForumSearchPreferences.load(account: widget.repository.currentUsername)
-        .then((prefs) {
-      if (mounted) setState(() => _pinned = prefs.pinnedBoards);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final pinned = widget.repository.isLoggedIn && _pinned.isNotEmpty;
-    final boards = pinned
-        ? [
-            for (final pin in _pinned)
-              ForumCategory(name: pin.label, slug: 'fid-${pin.id}'),
-          ]
-        : widget.hotBoards ?? const <ForumCategory>[];
-    final bones = !pinned && widget.hotBoards == null;
-    if (bones ? widget.boneCount == 0 : boards.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    Widget chip(String label, {ForumCategory? board}) => ActionChip(
-          label: Text(label),
-          labelStyle: Theme.of(context).textTheme.labelLarge!.copyWith(
-                color: board == null ? Colors.transparent : AppColors.text,
-              ),
-          shape: const StadiumBorder(),
-          side: BorderSide(
-              color: board == null ? AppColors.inkSoft : AppColors.border),
-          backgroundColor:
-              board == null ? AppColors.inkSoft : AppColors.surface,
-          onPressed: board == null ? null : () => widget.onOpen(board),
-        );
-    final chips = bones
-        ? [
-            for (var i = 0; i < widget.boneCount; i++)
-              ExcludeSemantics(child: chip('\u3000' * 4)),
-          ]
-        : [for (final board in boards) chip(board.name, board: board)];
-    final scrolling = ScrollConfiguration.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(pinned ? '常用版块' : '热门版块'),
-          // One row at every width, so its height never depends on the
-          // boards; a trailing fade shows it continues past the edge.
-          ShaderMask(
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (rect) => LinearGradient(
-              colors: const [Colors.black, Colors.black, Colors.transparent],
-              stops: [0, 1 - 24 / rect.width, 1],
-            ).createShader(rect),
-            child: ScrollConfiguration(
-              // Mice drag it too, as desktops have no horizontal wheel.
-              behavior: scrolling.copyWith(
-                dragDevices: {
-                  ...scrolling.dragDevices,
-                  PointerDeviceKind.mouse,
-                },
-              ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.only(right: 24),
-                child: Row(
-                  children: [
-                    for (final (i, chip) in chips.indexed) ...[
-                      if (i > 0) const SizedBox(width: 8),
-                      chip,
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -977,28 +943,50 @@ class _TaskShortcutState extends State<_TaskShortcut> {
     showForumTaskClaimErrorSnackBar(context, error);
   }
 
+  /// Both tasks are known to be claimed or cooling down: nothing to do until
+  /// the site reopens them. A missing or unknown task keeps the button
+  /// usable, so a failed refresh can be retried. Never a countdown, only how
+  /// recent the claim must be.
+  bool _claimed(ForumAutoTaskSummary? summary) =>
+      summary != null &&
+      summary.hasAllTasks &&
+      summary.tasks.every((task) => task.isDoneToday) &&
+      summary.tasks.any((task) =>
+          task.availability == ForumTaskAvailability.coolingDown ||
+          task.cooldownThreshold != null);
+
+  String? _claimedHint(ForumAutoTaskSummary summary) {
+    var hours = 0;
+    for (final task in summary.tasks) {
+      final threshold = task.cooldownThreshold?.inHours ?? 0;
+      if (threshold > hours) hours = threshold;
+    }
+    return hours > 0 ? '上次领取未超过 $hours 小时' : null;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final snapshot = _snapshot;
-    final summary = snapshot?.autoTaskSummary;
+    final summary = _snapshot?.autoTaskSummary;
     final hasClaimable = summary?.hasClaimable == true;
     final isHandled = summary?.isFullyHandled == true;
-    final cooldownLabel = _cooldownLabel(snapshot);
-    final success = isHandled;
+    final claimed = !_running && !hasClaimable && _claimed(summary);
+    final success = isHandled || claimed;
     final label = _running
         ? '领取中'
         : hasClaimable
             ? '可领取'
-            : isHandled
-                ? _autoClaimed
-                    ? '已自动签到'
-                    : '已签到'
-                : cooldownLabel ?? '任务奖励';
+            : claimed
+                ? '已领取'
+                : isHandled
+                    ? _autoClaimed
+                        ? '已自动签到'
+                        : '已签到'
+                    : '任务奖励';
     final foreground = success ? AppColors.success : AppColors.textMuted;
     final icon = success ? Icons.check_circle_outline : Icons.redeem_outlined;
 
-    return _taskButton(
-      onPressed: _running ? null : _claimRewards,
+    final button = _taskButton(
+      onPressed: _running || claimed ? null : _claimRewards,
       icon: _running
           ? SizedBox(
               width: 16,
@@ -1012,19 +1000,7 @@ class _TaskShortcutState extends State<_TaskShortcut> {
       label: label,
       foreground: foreground,
     );
-  }
-
-  String? _cooldownLabel(ForumTaskSnapshot? snapshot) {
-    if (snapshot == null) return null;
-    final now = DateTime.now().toUtc();
-    final cooldowns = snapshot.autoTaskSummary
-        .cooldownsFrom(now)
-        .whereType<Duration>()
-        .toList();
-    if (cooldowns.isEmpty) return null;
-    cooldowns.sort((a, b) => a.compareTo(b));
-    final hours = cooldowns.first.inHours;
-    if (hours <= 0) return '待刷新';
-    return '${hours}h 后';
+    final hint = claimed ? _claimedHint(summary!) : null;
+    return hint == null ? button : Tooltip(message: hint, child: button);
   }
 }
