@@ -263,4 +263,41 @@ void main() {
     expect(repository.queries, hasLength(3));
     expect(repository.refreshes.last, isTrue);
   });
+
+  testWidgets(
+      'reduced motion: resizing and rescaling an expanded unresolved group never mutates a zero-duration AnimatedSize',
+      (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final repository = FakeProfileRepository(
+      topics: [listItem('第一页主题', tid: '1')],
+      onContent: (_) async => contentResult(
+        unresolved: [listItem('无法确认的主题', tid: '9')],
+        hasMore: false,
+      ),
+    );
+    await openTab(tester, repository, '主题');
+    await tester.tap(find.text('类型：全部'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('精华'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('未确认分类 (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('无法确认的主题'), findsOneWidget);
+
+    // The group is expanded while its width and text scale change.
+    tester.view.physicalSize = const Size(420, 1400);
+    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('未确认分类 (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('无法确认的主题'), findsNothing);
+    await tester.tap(find.text('未确认分类 (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('无法确认的主题'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

@@ -940,9 +940,6 @@ String _articleTypeLabel(UserContentArticleType type) => switch (type) {
 String _boardLabel(String name) =>
     name.replaceFirst(RegExp(r'^[\s|\-\u00a0>]+'), '').trim();
 
-Duration _motion(BuildContext context, Duration normal) =>
-    MediaQuery.disableAnimationsOf(context) ? Duration.zero : normal;
-
 /// The selectors of one 主题/回复 tab. Owned by the screen so a pull-to-refresh
 /// that rebuilds the tab keeps what the user picked.
 class _ContentSelection {
@@ -1471,6 +1468,21 @@ class _UnresolvedGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final body = expanded
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                child: Text(
+                  '这些内容的版块、分类或类型暂时无法核实，可能符合条件。',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              _threadGroup(context, items, repository, showAuthor: false),
+            ],
+          )
+        : const SizedBox(width: double.infinity);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1500,26 +1512,18 @@ class _UnresolvedGroup extends StatelessWidget {
             ),
           ),
         ),
-        AnimatedSize(
-          duration: _motion(context, AppMotion.short),
-          curve: AppMotion.enter,
-          alignment: Alignment.topCenter,
-          child: expanded
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpace.sm),
-                      child: Text(
-                        '这些内容的版块、分类或类型暂时无法核实，可能符合条件。',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ),
-                    _threadGroup(context, items, repository, showAuthor: false),
-                  ],
-                )
-              : const SizedBox(width: double.infinity),
-        ),
+        // Reduced motion shows the content directly: a zero-duration
+        // AnimatedSize finishes its controller inside its own layout and
+        // dirties itself there.
+        if (MediaQuery.disableAnimationsOf(context))
+          body
+        else
+          AnimatedSize(
+            duration: AppMotion.short,
+            curve: AppMotion.enter,
+            alignment: Alignment.topCenter,
+            child: body,
+          ),
       ],
     );
   }

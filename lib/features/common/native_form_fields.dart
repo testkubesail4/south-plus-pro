@@ -754,9 +754,20 @@ class _NativeFormPageState extends State<NativeFormPage> {
       if (error is ForumAccountValidationException) {
         c.setServerErrors(error.fieldErrors);
       }
+      // The forum may or may not have taken the post: no second write until a
+      // refresh has read the result.
+      final unknown = error is ForumRequestException &&
+          (error.kind == ForumRequestKind.server ||
+              error.kind == ForumRequestKind.network);
       setState(() {
         _saving = false;
-        _error = nativeFormErrorText(error);
+        if (unknown) {
+          _stale = true;
+          _submitted = expected;
+          _warning = '提交结果未确认，请刷新核对。';
+        } else {
+          _error = nativeFormErrorText(error);
+        }
       });
       return;
     }
