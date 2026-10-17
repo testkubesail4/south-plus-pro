@@ -3,6 +3,7 @@ import argparse
 from email import policy
 from email.parser import BytesParser
 from html import escape
+import hashlib
 import json
 import re
 import struct
@@ -110,10 +111,19 @@ IDENTITY = '''<div id="user-login"><a href="u.php">本地读者</a></div>
 APPENDFIX_HOME = home(8, appendfix=True).replace(b'</body>', IDENTITY.encode() + b'</body>')
 
 
-def reset_appendfix():
+def reset_appendfix(redesign=False):
     APPENDFIX.clear()
     APPENDFIX.update(blacklist='', nickname='本地读者', bought=False,
-                     purchases=0, writes=[], board_pages=[])
+                     purchases=0, writes=[], board_pages=[], redesign=redesign,
+                     attempts=[], reads=[], upload=None, pending_icon=None, reject_upload=False,
+                     favorites={}, favorite_menu_pending=False, favorite_menu_label='SPP-repro-10',
+                     preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
+                                      date_f='yyyy-mm-dd', time_f='24', t_num='0',
+                                      p_num='0', proreceivemail='1', friendcheck='0',
+                                      banidinfo=''),
+                     profile={'facetype': '1', 'proicon': 'none.gif',
+                              'httpurl[0]': '', 'httpurl[1]': '', 'httpurl[2]': '',
+                              'uploadurl[1]': '', 'uploadurl[2]': ''})
 
 
 reset_appendfix()
@@ -150,7 +160,10 @@ def appendfix_thread(tid):
 <table><tr><td>表格里的阅读记录</td></tr></table>
 <a href="read.php?tid-930002.html">继续阅读本地主题</a><br><img src="/fixture.png"></blockquote>'''
     content = paid if tid == '930001' else '普通主题正文'
-    return f'''<html><body><div id="breadcrumbs"><a href="thread.php?fid-930.html">本地阅读版块</a></div>
+    favorite = ''
+    if APPENDFIX['redesign']:
+        favorite = "<script>var verifyhash = 'fixture-only';</script><a id=\"favor\">收藏</a>"
+    return f'''<html><body>{favorite}<div id="breadcrumbs"><a href="thread.php?fid-930.html">本地阅读版块</a></div>
 <h1 id="subject_tpc">{title}</h1><div class="pages">Pages: 1/1</div>
 <table class="js-post"><tr><th class="r_two"><a href="u.php?action-show-uid-930002.html"><strong>林间书签</strong></a></th>
 <th class="r_one"><div class="tiptop"><span class="fl"><span class="s3">楼主</span></span>
@@ -171,6 +184,8 @@ def appendfix_profile(query):
 
 
 def appendfix_account(profile):
+    if APPENDFIX['redesign']:
+        return redesign_account(profile)
     with APPENDFIX_LOCK:
         value = escape(APPENDFIX['nickname' if profile else 'blacklist'], quote=True)
     if profile:
@@ -194,6 +209,79 @@ def appendfix_account(profile):
 <tr><td>编辑器</td><td><label><input name="editor" type="radio" value="1" checked>可视化</label>
 <label><input name="editor" type="radio" value="0">代码</label></td></tr></table></form>'''
     return f'<html><body>{body}</body></html>'.encode()
+
+
+def redesign_home():
+    hierarchy = '''<table><tr><th><h2>同人展会</h2></th></tr>
+<tr><th><h3><a href="thread.php?fid-229.html">CM108</a></h3>子版：<h3>
+<a href="thread.php?fid-230.html">同人志&amp;CG</a></h3></th><td>1 / 2</td><td>2026-01-01</td></tr>
+<tr><th><h3><a href="thread.php?fid-226.html">CM107</a></h3>子版：<h3>
+<a href="thread.php?fid-227.html">同人志&amp;CG</a></h3></th><td>1 / 2</td><td>2026-01-01</td></tr></table>'''
+    return APPENDFIX_HOME.replace(b'</body>', hierarchy.encode() + b'</body>')
+
+
+def redesign_account(profile):
+    with APPENDFIX_LOCK:
+        values = dict(APPENDFIX['profile' if profile else 'preferences'])
+        nickname = APPENDFIX['nickname']
+    def value(name):
+        return escape(values[name], quote=True)
+    def radio(name, option, label):
+        checked = ' checked' if values[name] == option else ''
+        return f'<input type="radio" name="{name}" value="{option}"{checked}>{label}'
+    def select(name, options):
+        return f'<select name="{name}">' + ''.join(
+            f'<option value="{key}"' + (' selected' if values[name] == key else '')
+            + f'>{label}</option>' for key, label in options) + '</select>'
+    if profile:
+        # The native avatar is ONE row: image-only td, all three panels in the other td.
+        body = f'''<form method="post" action="profile.php?action=modify&amp;" enctype="multipart/form-data">
+<input name="verify" type="hidden" value="fixture-only"><input name="step" type="hidden" value="2">
+<input name="proemail" value="local@example.invalid"><textarea name="prosign">preserved footer</textarea>
+<table><tr><td>昵称</td><td><input name="field_1" value="{escape(nickname)}" maxlength="20"></td></tr>
+<tr><td class="td1" width="25%"><img src="images/face/none.gif" name="useravatars"></td><td>
+<div id="openchang"><div>{radio('facetype', '1', '系统头像')}</div>
+<div>{radio('facetype', '2', '头像链接')}</div><div>{radio('facetype', '3', '头像上传')}</div>
+<div id="face1"><a id="profile" onclick="sendmsg('pw_ajax.php','action=showface',this.id);" title="头像列表"><b>[头像列表]</b></a>
+<input type="hidden" name="proicon" value="{value('proicon')}"></div>
+<div id="face2" style="display:none">头像链接 <input name="httpurl[0]" value="{value('httpurl[0]')}" type="text"> 必须以 http://开头<br>
+头像宽度 <input name="httpurl[1]" value="{value('httpurl[1]')}" size="2" maxlength="3"> 必须是 1 -- 150 之间的一个整数。<br>
+头像高度 <input name="httpurl[2]" value="{value('httpurl[2]')}" size="2" maxlength="3"> 必须是 1 -- 270 之间的一个整数。<b>头像高度留空，则根据宽度自适应</b></div>
+<div id="face3" style="display:none">头像上传 <span id="reupload"><input type="file" id="upload" name="upload"><a onclick="UpLoadFace()">上传</a></span><br>
+头像宽度 <input name="uploadurl[1]" value="{value('uploadurl[1]')}" size="2" maxlength="3"> 必须是 1 -- 150 之间的一个整数。<br>
+头像高度 <input name="uploadurl[2]" value="{value('uploadurl[2]')}" size="2" maxlength="3"> 必须是 1 -- 270 之间的一个整数。<b>头像高度留空，则根据宽度自适应</b></div>
+</div></td></tr><tr><td>个人签名</td><td><input name="prohonor" value="本地签名"></td></tr></table></form>
+<script>CkFaceType('{value('facetype')}');</script>'''
+    else:
+        body = f'''<form method="post" action="profile.php?action=bbsset">
+<input name="verify" type="hidden" value="fixture-only"><input name="step" type="hidden" value="2"><table>
+<tr><td>选择风格</td><td>{select('tpskin', [('', '使用默认')])}</td></tr>
+<tr><td>选择默认使用的编辑器</td><td>{radio('editor', '1', '所见即所得')}{radio('editor', '0', 'code 模式')}</td></tr>
+<tr><td>选择您所在的时区<br>将时间显示为您当地时间</td><td>{select('timedf', [('0', '使用默认'), ('8', '(北京时间) 北京、重庆、香港、新加坡')])}</td></tr>
+<tr><td class="td1">时间格式(格式如:yyyy-mm-dd,yy-m-d)<br>yyyy:4位数年份,yy:2位数年份<br>mm:有前导零01-12,m:没前导零1-12<br>dd:有前导零01-31,d:没前导零1-31</td><td>
+{radio('d_type', '0', '使用默认')}{radio('d_type', '1', '自定义')}<input type="text" name="date_f" value="{value('date_f')}">
+{radio('time_f', '24', '24')}{radio('time_f', '12', '12')}</td></tr>
+<tr><td>主题列表每页个数(设置为0使用默认)</td><td>{select('t_num', [(str(n), str(n)) for n in [0, 10, 20, 30, 40]])}</td></tr>
+<tr><td>文章列表每页个数(设置为0使用默认)</td><td>{select('p_num', [(str(n), str(n)) for n in [0, 10, 20, 30]])}</td></tr>
+<tr><td>是否接受邮件</td><td>{radio('proreceivemail', '1', '接收邮件')}{radio('proreceivemail', '0', '不接收邮件')}</td></tr>
+<tr><td>加我为好友时身份验证</td><td>{radio('friendcheck', '0', '允许任何人加我为好友')}<br>{radio('friendcheck', '1', '需要身份验证才能加我为好友')}<br>{radio('friendcheck', '2', '不允许任何人加我为好友')}</td></tr>
+<tr><td>屏蔽用户组</td><td><label><input name="msggroups[]" type="checkbox" value="6" checked>普通会员</label>
+<label><input name="msggroups[]" type="checkbox" value="7" checked>正式会员</label></td></tr>
+<tr><td>通过UID屏蔽多个用户时用逗号 "," 隔开<br>(注意，不是昵称，是纯数字UID)。<br><br>当这些被添加的屏蔽用户给您发送短消息时将不予接收。</td>
+<td><textarea name="banidinfo">{value('banidinfo')}</textarea></td></tr></table></form>'''
+    return f'<html><body>{body}</body></html>'.encode()
+
+
+def redesign_favorites(query):
+    selected = parse_qs(query).get('ftype', [None])[0]
+    with APPENDFIX_LOCK:
+        favorites = dict(APPENDFIX['favorites'])
+        label = APPENDFIX['favorite_menu_label']
+    rows = ''.join(f'''<tr><td><input type="checkbox" name="selid[]" value="{tid}"></td>
+<td><a href="read.php?tid-{tid}.html">本地阅读笔记</a></td><td>{escape(label if category == '1' else '默认分类')}</td></tr>'''
+                   for tid, category in favorites.items() if selected is None or category == selected)
+    return f'''<html><body><form method="post" action="u.php?action=favor&amp;">
+<input name="verify" value="fixture-only"><table>{rows}</table></form></body></html>'''.encode()
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -260,13 +348,17 @@ class FixtureHandler(BaseHTTPRequestHandler):
         except (ValueError, TimeoutError):
             self.send_error(400)
             return
-        if path.path == '/appendfix/reset' and raw == b'fixture-only':
+        if path.path in ('/appendfix/reset', '/account-redesign/reset') and raw == b'fixture-only':
             with APPENDFIX_LOCK:
-                reset_appendfix()
+                reset_appendfix(redesign=path.path == '/account-redesign/reset')
             self.send_body(b'{}', 'application/json')
             return
         action = parse_qs(path.query).get('action', [''])[0]
-        if not self.appendfix or path.path != '/profile.php' or action not in ('bbsset', 'modify'):
+        if APPENDFIX['redesign']:
+            with APPENDFIX_LOCK:
+                APPENDFIX['attempts'].append({'method': 'POST', 'path': path.path, 'action': action})
+        allowed = ('bbsset', 'modify', 'ajaxface') if APPENDFIX['redesign'] else ('bbsset', 'modify')
+        if not self.appendfix or path.path != '/profile.php' or action not in allowed:
             self.send_error(403)
             return
         if parse_qs(path.query) != {'action': [action]}:
@@ -275,7 +367,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if action == 'bbsset' and self.headers.get_content_type() != 'application/x-www-form-urlencoded':
             self.send_error(415)
             return
-        if action == 'modify':
+        files = {}
+        if action in ('modify', 'ajaxface'):
             message = BytesParser(policy=policy.default).parsebytes(
                 b'Content-Type: ' + self.headers.get('Content-Type', '').encode() + b'\r\n\r\n' + raw)
             if not message.is_multipart():
@@ -285,13 +378,19 @@ class FixtureHandler(BaseHTTPRequestHandler):
             for part in message.iter_parts():
                 name = part.get_param('name', header='content-disposition')
                 if part.get_filename() is not None:
-                    if part.get_payload(decode=True):
-                        self.send_error(400)  # Upload callback is deliberately not simulated.
-                        return
+                    content = part.get_payload(decode=True)
+                    if content:
+                        if not APPENDFIX['redesign']:
+                            self.send_error(400)  # Legacy preview fixture has no upload protocol.
+                            return
+                        files[name] = (content, part.get_filename(), part.get_content_type())
                     continue
                 fields.setdefault(name, []).append(part.get_payload(decode=True).decode('utf-8'))
         else:
             fields = parse_qs(raw.decode('utf-8'), keep_blank_values=True)
+        if APPENDFIX['redesign']:
+            self.redesign_submit(action, fields, files)
+            return
         key = 'field_1' if action == 'modify' else 'banidinfo'
         valid = fields.get('verify') == ['fixture-only'] and fields.get('step') == ['2']
         valid = valid and len(fields.get(key, [])) == 1
@@ -310,19 +409,127 @@ class FixtureHandler(BaseHTTPRequestHandler):
         # Unknown ACK intentionally forces the real service to confirm by GET readback.
         self.send_body(b'<html><body>Fixture received</body></html>', 'text/html; charset=utf-8')
 
+    def redesign_submit(self, action, fields, files):
+        valid = fields.get('verify') == ['fixture-only'] and fields.get('step') == ['2']
+        valid = valid and all(len(values) == 1 for key, values in fields.items() if key != 'msggroups[]')
+        if action in ('modify', 'ajaxface'):
+            valid = valid and fields.get('proemail') == ['local@example.invalid']
+            valid = valid and fields.get('prosign') == ['preserved footer']
+            mode = fields.get('facetype', [''])[0]
+            valid = valid and mode in ('1', '2', '3')
+            if mode == '2':
+                valid = valid and bool(re.fullmatch(r'https?://[^\s]+', fields.get('httpurl[0]', [''])[0]))
+            if mode in ('2', '3'):
+                prefix = 'httpurl' if mode == '2' else 'uploadurl'
+                for index, maximum in [(1, 150), (2, 270)]:
+                    dimension = fields.get(f'{prefix}[{index}]', [''])[0]
+                    valid = valid and (index == 2 and dimension == '' or dimension.isdigit() and 1 <= int(dimension) <= maximum)
+        else:
+            valid = valid and fields.get('msggroups[]') == ['6', '7']
+            valid = valid and set(APPENDFIX['preferences']).issubset(fields)
+            valid = valid and fields.get('d_type') in (['0'], ['1'])
+            valid = valid and fields.get('time_f') in (['24'], ['12'])
+            valid = valid and bool(re.fullmatch(r'(?:[1-9]\d*(?:,\s*[1-9]\d*)*)?', fields.get('banidinfo', [''])[0]))
+        if not valid:
+            self.send_error(400)
+            return
+        if action == 'ajaxface':
+            if APPENDFIX['reject_upload']:
+                header = ''.join(f'<script>var nativeHeader{index}=0;</script>' for index in range(12))
+                callback = "parent.facepath('','','上传附件失败，造成的原因可能有:附件目录不可写(777)、空间在安全模式下、空间大小已不足。','','');"
+                self.send_body(f'<html><head>{header}</head><body><script>{callback}</script></body></html>'.encode(),
+                               'text/html; charset=utf-8')
+                return
+            upload = files.get('upload')
+            if mode != '3' or upload is None or not upload[0].startswith(b'\x89PNG\r\n\x1a\n'):
+                self.send_error(400)
+                return
+            content, name, mime = upload
+            width, height = struct.unpack('!2I', content[16:24])
+            with APPENDFIX_LOCK:
+                APPENDFIX['upload'] = content
+                APPENDFIX['pending_icon'] = 'upload/930001.png'
+                APPENDFIX['upload_metadata'] = dict(width=width, height=height, bytes=len(content),
+                                                  sha256=hashlib.sha256(content).hexdigest(), filename=name, mime=mime)
+            self.send_body(b'<script>parent.facepath("/images/", "upload/930001.png", "success");</script>',
+                           'text/html; charset=utf-8')
+            return
+        if files:
+            self.send_error(400)  # Final form must not upload the bytes a second time.
+            return
+        with APPENDFIX_LOCK:
+            if action == 'bbsset':
+                APPENDFIX['preferences'].update({key: fields[key][0] for key in APPENDFIX['preferences']})
+                APPENDFIX['blacklist'] = fields['banidinfo'][0]
+            else:
+                if (fields.get('proicon') == ['upload/930001.png'] and APPENDFIX['pending_icon'] is None
+                        and APPENDFIX['profile']['proicon'] != 'upload/930001.png'):
+                    self.send_error(409)
+                    return
+                APPENDFIX['profile'].update({key: fields[key][0] for key in APPENDFIX['profile'] if key in fields})
+                APPENDFIX['nickname'] = fields.get('field_1', [APPENDFIX['nickname']])[0]
+                APPENDFIX['pending_icon'] = None
+            APPENDFIX['writes'].append(action)
+        # Readback, not an invented native success message, proves these form saves.
+        self.send_body(b'<html><body>Fixture received</body></html>', 'text/html; charset=utf-8')
+
     def do_GET(self):
         path = urlsplit(self.path).path
         query = urlsplit(self.path).query
+        if APPENDFIX['redesign'] and path == '/pw_ajax.php' and parse_qs(query).get('action') == ['favor']:
+            with APPENDFIX_LOCK:
+                APPENDFIX['attempts'].append({'method': 'GET', 'path': path, 'action': 'favor',
+                                             'query': parse_qs(query, keep_blank_values=True)})
+            if not self.appendfix:
+                self.send_error(403)
+                return
         if path == '/appendfix/stats':
             with APPENDFIX_LOCK:
                 stats = {k: APPENDFIX[k] for k in ('purchases', 'writes', 'board_pages')}
+                if APPENDFIX['redesign']:
+                    stats.update({k: APPENDFIX[k] for k in ('attempts', 'reads', 'favorites', 'profile', 'preferences')})
+                    stats['upload_metadata'] = APPENDFIX.get('upload_metadata')
                 body = json.dumps(stats).encode()
             self.send_body(body, 'application/json')
             return
         if self.appendfix:
+            if APPENDFIX['redesign']:
+                with APPENDFIX_LOCK:
+                    APPENDFIX['reads'].append({'path': path, 'query': query})
+                if path == '/account-redesign/upload':
+                    self.send_body(APPENDFIX['upload'] or b'', 'image/png')
+                    return
+                if path == '/account-redesign/reject-upload':
+                    APPENDFIX['reject_upload'] = True
+                    self.send_body(b'{}', 'application/json')
+                    return
+                if path == '/account-redesign/menu-with-favorite-word':
+                    APPENDFIX['favorite_menu_label'] = '收藏测试分类'
+                    self.send_body(b'{}', 'application/json')
+                    return
+                if path == '/pw_ajax.php' and parse_qs(query).get('action') == ['favor']:
+                    self.redesign_favorite(query)
+                    return
+                if path == '/u.php' and ('action-favor' in query or parse_qs(query).get('action') == ['favor']):
+                    self.send_body(redesign_favorites(query), 'text/html; charset=utf-8')
+                    return
+                if path == '/pw_ajax.php':
+                    if parse_qs(query).get('action') != ['showface']:
+                        self.send_error(400)
+                        return
+                    body = '''<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[<div>
+<a onclick="showimage('images','none.gif')"><img src="/fixture.png" alt="默认头像"></a>
+<a onclick="showimage('images','1.gif')"><img src="/fixture.png" alt="蓝色头像"></a>
+</div>]]></ajax>'''.encode()
+                    self.send_body(body, 'text/xml; charset=utf-8')
+                    return
             body = None
             if path in ('/index.php', '/simple/index.php'):
-                body = APPENDFIX_HOME
+                body = redesign_home() if APPENDFIX['redesign'] else APPENDFIX_HOME
+            elif APPENDFIX['redesign'] and path in ('/thread.php', '/thread_new.php') and re.search(r'fid-(229|230|226|227)(?:-|\.)', query):
+                fid = re.search(r'fid-(\d+)', query)[1]
+                label = {'229': 'CM108', '230': '同人志&CG', '226': 'CM107', '227': '同人志&CG'}[fid]
+                body = appendfix_board(1).replace('本地阅读版块'.encode(), escape(label).encode()).replace(b'fid-930', f'fid-{fid}'.encode())
             elif path in ('/thread.php', '/thread_new.php') and 'fid-930' in query:
                 match = re.search(r'-page-(\d+)', query)
                 page = int(match[1]) if match else 1
@@ -397,6 +604,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
                   '/thread_new.php': (BOARD, 'text/html; charset=utf-8'),
                   '/message.php': (COMPOSE, 'text/html; charset=utf-8'),
                   '/fixture.png': (image(), 'image/png'),
+                  '/images/face/none.gif': (image(), 'image/png'),
+                  '/images/face/1.gif': (image(), 'image/png'),
                   '/portrait.png': (image(240, 480), 'image/png')}
         if path not in routes:
             self.send_error(404)
@@ -405,6 +614,40 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if path == '/read.php' and '900002' in self.path:
             body = THREAD.replace(b'/fixture.png', b'/portrait.png')
         self.send_body(body, content_type)
+
+    def redesign_favorite(self, query):
+        fields = parse_qs(query, keep_blank_values=True)
+        required = {'action', 'tid', 'nowtime', 'verify'}
+        valid = set(fields) in (required, required | {'type'})
+        valid = valid and all(len(values) == 1 for values in fields.values())
+        valid = valid and fields.get('verify') == ['fixture-only'] and fields.get('tid') == ['930002']
+        valid = valid and bool(re.fullmatch(r'\d+', fields.get('nowtime', [''])[0]))
+        if not valid:
+            self.send_error(400)
+            return
+        if 'type' not in fields:
+            if '930002' in APPENDFIX['favorites']:
+                self.send_body('<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[您已经收藏了该主题]]></ajax>'.encode(),
+                               'text/xml; charset=utf-8')
+                return
+            APPENDFIX['favorite_menu_pending'] = True
+            label = escape(APPENDFIX['favorite_menu_label'])
+            payload = f'''<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[<div class="bor"><table cellspacing="0" cellpadding="5" width="120">
+<tr><th class="h" style="cursor:move" onmousedown="read.move(event);"><span class="fr" onclick="closep();"><img src="images/close.gif"></span>选择分类</th></tr><tr><td><a onclick="favor('0');" href="javascript:">默认分类</a></td></tr>
+<tr><td><a onclick="favor('1');return false;" href="javascript:">{label}</a></td></tr></table></div>]]></ajax>'''
+            self.send_body(payload.encode(), 'text/xml; charset=utf-8')
+            return
+        if fields['type'] not in (['0'], ['1']) or not APPENDFIX['favorite_menu_pending']:
+            self.send_error(400)
+            return
+        with APPENDFIX_LOCK:
+            if APPENDFIX['favorites'].get('930002') is not None:
+                self.send_error(409)
+                return
+            APPENDFIX['favorites']['930002'] = fields['type'][0]
+            APPENDFIX['favorite_menu_pending'] = False
+            APPENDFIX['writes'].append('favor')
+        self.send_body('<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[帖子收藏成功!]]></ajax>'.encode(), 'text/xml; charset=utf-8')
 
     def send_body(self, body, content_type):
         self.send_response(200)

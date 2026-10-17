@@ -74,6 +74,46 @@ class _Repo extends ForumRepository {
       null;
 }
 
+/// Two parents with a child of the same name, as the forum nests them.
+class _TreeRepo extends _Repo {
+  @override
+  Future<ForumHomeSnapshot> fetchHome() async => ForumHomeSnapshot(
+        latest: [_thread('Latest 1')],
+        quickLists: [
+          ForumQuickList(title: '最新讨论', threads: [_thread('Latest 1')]),
+        ],
+        hot: const [ForumCategory(name: 'Hot board', slug: 'fid-7')],
+        sections: const [
+          ForumSection(title: 'Events', items: [
+            ForumBoard(
+              name: 'Comic Market 108',
+              url: 'https://south-plus.net/thread.php?fid-108.html',
+              section: 'Events',
+              children: [
+                ForumBoard(
+                  name: '同人志&CG',
+                  url: 'https://south-plus.net/thread.php?fid-1081.html',
+                  section: 'Events',
+                ),
+              ],
+            ),
+            ForumBoard(
+              name: 'Comic Market 107',
+              url: 'https://south-plus.net/thread.php?fid-107.html',
+              section: 'Events',
+              children: [
+                ForumBoard(
+                  name: '同人志&CG',
+                  url: 'https://south-plus.net/thread.php?fid-1071.html',
+                  section: 'Events',
+                ),
+              ],
+            ),
+          ]),
+        ],
+      );
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -346,8 +386,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('编辑常用版块'), findsOneWidget);
       final sheet = find.byType(BottomSheet);
+      // Boards on no home section sit under one folded row.
+      await tester.tap(find.byKey(const ValueKey('board-row:extras')));
+      await tester.pumpAndSettle();
       await tester.tap(find.descendant(
-          of: sheet, matching: find.widgetWithText(ActionChip, 'Hot board')));
+          of: sheet,
+          matching: find.byKey(const ValueKey('board-add:extra:7'))));
       await tester.pumpAndSettle();
       var pins =
           (await ForumSearchPreferences.load(account: _account)).pinnedBoards;
@@ -366,6 +410,58 @@ void main() {
         isEmpty,
       );
       expect(find.text('清除最近访问'), findsNothing);
+    });
+  });
+
+  group('board tree', () {
+    Future<List<ForumSearchPinnedBoard>> stored() async =>
+        (await ForumSearchPreferences.load(account: _account)).pinnedBoards;
+
+    testWidgets(
+        'a pin saved as a bare name shows its parent, stays a direct chip, '
+        'and is not rewritten', (tester) async {
+      await ForumSearchPreferences.savePinnedBoards(
+        const [ForumSearchPinnedBoard(id: '1081', label: '同人志&CG')],
+        account: _account,
+      );
+      await pump(tester, repo: _TreeRepo());
+      final chip = find.widgetWithText(ActionChip, 'Comic Market 108 / 同人志&CG');
+      expect(chip, findsOneWidget);
+      expect(tester.widget<ActionChip>(chip).onPressed, isNotNull);
+      expect((await stored()).single.label, '同人志&CG');
+    });
+
+    testWidgets(
+        'opening a parent adds nothing; adding it takes only it; the same-named '
+        'children of two parents stay distinct', (tester) async {
+      await pump(tester, repo: _TreeRepo());
+      await tester.tap(find.widgetWithText(ActionChip, '添加常用版块'));
+      await tester.pumpAndSettle();
+      const row = ValueKey('board-row:g0');
+      expect(find.byKey(const ValueKey('board-row:0/0')), findsNothing);
+      await tester.tap(find.byKey(row));
+      await tester.pumpAndSettle();
+      // A parent opens without being added.
+      await tester.tap(find.byKey(const ValueKey('board-row:0/0')));
+      await tester.pumpAndSettle();
+      expect(await stored(), isEmpty);
+      expect(find.byKey(const ValueKey('board-row:0/0/0')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('board-add:0/0')));
+      await tester.pumpAndSettle();
+      expect([for (final p in await stored()) p.id], ['108']);
+
+      await tester.tap(find.byKey(const ValueKey('board-row:0/1')));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('添加 Comic Market 108 / 同人志&CG'), findsOneWidget);
+      expect(find.byTooltip('添加 Comic Market 107 / 同人志&CG'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('board-add:0/1/0')));
+      await tester.pumpAndSettle();
+      final pins = await stored();
+      expect([for (final p in pins) p.id], ['108', '1071']);
+      expect(pins.last.label, 'Comic Market 107 / 同人志&CG');
+      // The other same-named child is still there to add.
+      expect(find.byTooltip('添加 Comic Market 108 / 同人志&CG'), findsOneWidget);
     });
   });
 

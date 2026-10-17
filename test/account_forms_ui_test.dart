@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:south_plus_rewrite/features/common/grouped_list.dart';
 import 'package:south_plus_rewrite/features/common/native_form_fields.dart';
 import 'package:south_plus_rewrite/features/profile/account_profile_edit_screen.dart';
 import 'package:south_plus_rewrite/features/profile/forum_tasks_screen.dart';
@@ -329,64 +330,227 @@ void main() {
     expect(_save(tester).onPressed, isNull);
   });
 
-  testWidgets('a system avatar and a picked file never travel together',
+  testWidgets('a system avatar draft stays, but only the chosen mode is saved',
       (tester) async {
     final repo = _ProfileRepo();
-    await tester.pumpWidget(MaterialApp(
-      home: AccountProfileEditScreen(
-          repository: repo, avatarPicker: () async => _png()),
-    ));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('系统头像'));
+    await _pumpProfile(tester, repo);
+    await _chooseMode(tester, '系统头像');
+    await tester.tap(_row('系统头像'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('a1.gif'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('上传图片'));
+    await _chooseMode(tester, '头像上传');
+    await tester.tap(find.text('选择图片'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(repo.saved, {
-      'facetype': ['3']
+      'facetype': ['3'],
+      'uploadurl[1]': ['150'],
     });
     expect(repo.savedUpload, isNotNull);
   });
 
-  testWidgets('leaving upload mode drops the picked file', (tester) async {
-    final repo = _ProfileRepo();
-    await tester.pumpWidget(MaterialApp(
-      home: AccountProfileEditScreen(
-          repository: repo, avatarPicker: () async => _png()),
-    ));
+  testWidgets('leaving upload mode keeps the file as a draft, unsent',
+      (tester) async {
+    final repo = _ProfileRepo(mode: '3');
+    await _pumpProfile(tester, repo);
+    await tester.tap(find.text('选择图片'));
     await tester.pumpAndSettle();
-    // An unrelated edit keeps the form dirty so Save really dispatches.
-    await tester.enterText(find.byType(TextField).first, 'new');
+    expect(find.textContaining('a.png'), findsOneWidget);
+    await _chooseMode(tester, '头像链接');
+    expect(find.textContaining('a.png'), findsNothing);
+    await _chooseMode(tester, '头像上传');
+    expect(find.textContaining('a.png'), findsOneWidget);
+    await _chooseMode(tester, '头像链接');
+    // An unrelated edit keeps Save open; the file must not travel with it.
+    await tester.enterText(find.byType(TextField).last, 'new');
     await tester.pump();
-    await tester.tap(find.text('上传图片'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('头像上传'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('头像链接').last);
-    await tester.pumpAndSettle();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(repo.saved, {
-      'field_1': ['new']
+      'facetype': ['2'],
+      'httpurl[1]': ['150'],
+      'field_1': ['new'],
     });
     expect(repo.savedUpload, isNull);
   });
 
-  testWidgets('Save waits while a file is being chosen', (tester) async {
-    final repo = _ProfileRepo();
-    final gate = Completer<ForumAccountUpload?>();
-    await tester.pumpWidget(MaterialApp(
-      home: AccountProfileEditScreen(
-          repository: repo, avatarPicker: () => gate.future),
-    ));
+  for (final kept in [true, false]) {
+    testWidgets(
+        'a file of the mode not chosen survives a save whose readback '
+        '${kept ? 'confirms' : 'does not confirm'}', (tester) async {
+      final repo = _ProfileRepo(mode: '3', forumKeepsSaves: kept);
+      await _pumpProfile(tester, repo);
+      await tester.tap(find.text('选择图片'));
+      await tester.pumpAndSettle();
+      await _chooseMode(tester, '头像链接');
+      await tester.enterText(find.byType(TextField).last, 'new');
+      await tester.pump();
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(repo.savedUpload, isNull);
+      expect(find.text('已保存'), kept ? findsOneWidget : findsNothing);
+      await _chooseMode(tester, '头像上传');
+      expect(find.textContaining('a.png'), findsOneWidget,
+          reason: 'the dormant file is still a draft');
+    });
+  }
+
+  testWidgets('only the chosen avatar mode shows its own fields',
+      (tester) async {
+    await _pumpProfile(tester, _ProfileRepo());
+    ValueKey<String> key(String n) => ValueKey(n);
+    expect(find.byKey(key('httpurl[0]')), findsOneWidget);
+    expect(find.byKey(key('httpurl[1]')), findsOneWidget);
+    expect(find.byKey(key('uploadurl[1]')), findsNothing);
+    expect(find.text('选择图片'), findsNothing);
+    expect(find.text('预览链接中的图片'), findsOneWidget);
+    await _chooseMode(tester, '头像上传');
+    expect(find.byKey(key('httpurl[0]')), findsNothing);
+    expect(find.byKey(key('httpurl[1]')), findsNothing);
+    expect(find.byKey(key('uploadurl[1]')), findsOneWidget);
+    expect(find.text('选择图片'), findsOneWidget);
+    await _chooseMode(tester, '系统头像');
+    expect(find.byKey(key('uploadurl[1]')), findsNothing);
+    expect(find.text('选择图片'), findsNothing);
+    expect(_row('系统头像'), findsOneWidget);
+  });
+
+  testWidgets('a blank link width starts at the forum maximum, then saves',
+      (tester) async {
+    final repo = _ProfileRepo(mode: '1');
+    await _pumpProfile(tester, repo);
+    await _chooseMode(tester, '头像链接');
+    expect(find.text('宽度 150'), findsOneWidget);
+    await tester.enterText(
+        find.descendant(
+            of: find.byKey(const ValueKey('httpurl[0]')),
+            matching: find.byType(TextField)),
+        'https://img.example/a.png');
+    await tester.pump();
+    await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'new');
+    expect(repo.saved, {
+      'facetype': ['2'],
+      'httpurl[0]': ['https://img.example/a.png'],
+      'httpurl[1]': ['150'],
+    });
+  });
+
+  testWidgets('a width the forum already holds is never replaced',
+      (tester) async {
+    final repo = _ProfileRepo(mode: '1', linkWidth: '80');
+    await _pumpProfile(tester, repo);
+    await _chooseMode(tester, '头像链接');
+    expect(find.text('宽度 80'), findsOneWidget);
+    expect(find.text('宽度 150'), findsNothing);
+  });
+
+  testWidgets('the size fields name what they are and ask for a width',
+      (tester) async {
+    final handle = tester.ensureSemantics();
+    await _pumpProfile(tester, _ProfileRepo());
+    expect(find.bySemanticsLabel(RegExp('显示宽度')), findsWidgets);
+    expect(find.bySemanticsLabel(RegExp('显示高度')), findsWidgets);
+    expect(find.textContaining('必填'), findsOneWidget);
+    handle.dispose();
+  });
+
+  testWidgets(
+      'a link saves once its width and height are valid, '
+      'after an invalid try and a cleared height', (tester) async {
+    final repo = _FixtureSizeRepo(mode: '1');
+    await _pumpProfile(tester, repo);
+    await _chooseMode(tester, '头像链接');
+    Finder field(String name) => find.descendant(
+        of: find.byKey(ValueKey(name)), matching: find.byType(TextField));
+    await tester.enterText(field('httpurl[0]'), 'http://127.0.0.1:8765/a.png');
     await tester.pump();
-    await tester.tap(find.text('上传图片'));
+    await tester.tap(find.text('显示尺寸'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(field('httpurl[1]'), '151');
     await tester.pump();
+    expect(find.textContaining('不能大于 150'), findsOneWidget);
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    expect(find.text('请先修正标出的项目'), findsOneWidget);
+    expect(repo.saved, isNull, reason: 'an invalid width sends nothing');
+
+    await tester.enterText(field('httpurl[1]'), '150');
+    await tester.enterText(field('httpurl[2]'), '271');
+    await tester.pump();
+    expect(find.textContaining('不能大于 270'), findsOneWidget);
+    await tester.enterText(field('httpurl[2]'), '');
+    await tester.pump();
+    expect(find.textContaining('不能大于'), findsNothing);
+    for (final name in ['httpurl[0]', 'httpurl[1]', 'httpurl[2]']) {
+      expect(
+          tester.widget<TextField>(field(name)).decoration?.errorText, isNull,
+          reason: '$name shows no error');
+    }
+    expect(_save(tester).onPressed, isNotNull);
+
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(
+        repo.saved,
+        {
+          'facetype': ['2'],
+          'httpurl[0]': ['http://127.0.0.1:8765/a.png'],
+          'httpurl[1]': ['150'],
+        },
+        reason: 'a blank optional height is simply not sent');
+  });
+
+  testWidgets('typing into a blank forced-open width keeps the field in place',
+      (tester) async {
+    await _pumpProfile(tester, _FixtureSizeRepo(mode: '2'));
+    final width = find.descendant(
+        of: find.byKey(const ValueKey('httpurl[1]')),
+        matching: find.byType(TextField));
+    expect(width, findsOneWidget, reason: 'a blank width is shown at once');
+    await tester.enterText(width, '1');
+    await tester.pump();
+    expect(width, findsOneWidget, reason: 'it does not fold away mid-typing');
+  });
+
+  testWidgets('clearing a height the forum holds is a valid change',
+      (tester) async {
+    final repo = _FixtureSizeRepo(mode: '2', linkWidth: '100', height: '200');
+    await _pumpProfile(tester, repo);
+    await tester.tap(find.text('显示尺寸'));
+    await tester.pumpAndSettle();
+    final height = find.descendant(
+        of: find.byKey(const ValueKey('httpurl[2]')),
+        matching: find.byType(TextField));
+    await tester.enterText(height, '');
+    await tester.pump();
+    expect(tester.widget<TextField>(height).decoration?.errorText, isNull);
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(repo.saved, {
+      'httpurl[2]': ['']
+    });
+  });
+
+  testWidgets('Save waits while a file is being chosen', (tester) async {
+    final repo = _ProfileRepo(mode: '3');
+    final gate = Completer<ForumAccountUpload?>();
+    var asked = 0;
+    await _pumpProfile(tester, repo, picker: () {
+      asked++;
+      return gate.future;
+    });
+    await tester.enterText(find.byType(TextField).last, 'new');
+    await tester.pumpAndSettle();
+    // Typing may have scrolled the button away; bring it back before tapping.
+    await tester.ensureVisible(find.text('选择图片'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('选择图片'));
+    await tester.pump();
+    expect(asked, 1, reason: 'the picker was really started');
     expect(_save(tester).onPressed, isNull);
     // The form is not editable meanwhile: a newer choice cannot be overwritten.
     expect(
@@ -471,7 +635,38 @@ void main() {
   });
 }
 
-ForumAccountForm _profileForm() =>
+ForumAccountField _dimension(String name, String label, int max,
+        [String value = '']) =>
+    ForumAccountField(
+        name: name,
+        label: label,
+        type: 'number',
+        values: [value],
+        min: 1,
+        max: max,
+        group: 'avatar');
+
+/// The form as the forum holds it once [applied] was saved.
+ForumAccountForm _profileForm(
+    String mode, String linkWidth, Map<String, List<String>> applied) {
+  final base = _baseProfileForm(mode, linkWidth);
+  return ForumAccountForm(kind: base.kind, fields: [
+    for (final f in base.fields)
+      applied.containsKey(f.name)
+          ? ForumAccountField(
+              name: f.name,
+              label: f.label,
+              type: f.type,
+              values: applied[f.name]!,
+              options: f.options,
+              min: f.min,
+              max: f.max,
+              group: f.group)
+          : f,
+  ]);
+}
+
+ForumAccountForm _baseProfileForm(String mode, String linkWidth) =>
     ForumAccountForm(kind: ForumAccountFormKind.profile, fields: [
       ForumAccountField(
           name: 'field_1',
@@ -483,7 +678,7 @@ ForumAccountForm _profileForm() =>
         name: 'facetype',
         label: '头像方式',
         type: 'radio',
-        values: const ['2'],
+        values: [mode],
         group: 'avatar',
         options: const [
           ForumAccountOption(value: '1', label: '系统头像'),
@@ -498,19 +693,66 @@ ForumAccountForm _profileForm() =>
           values: const [''],
           group: 'avatar'),
       ForumAccountField(
+          name: 'httpurl[0]',
+          label: '头像链接',
+          type: 'text',
+          values: const [''],
+          group: 'avatar'),
+      _dimension('httpurl[1]', '头像宽度', 150, linkWidth),
+      _dimension('httpurl[2]', '头像高度', 270),
+      ForumAccountField(
           name: 'upload',
           label: '头像上传',
           type: 'file',
           values: const [],
           group: 'avatar'),
+      _dimension('uploadurl[1]', '头像宽度', 150),
+      _dimension('uploadurl[2]', '头像高度', 270),
     ]);
 
+/// The row titled [title], not a row that merely shows it as a value.
+Finder _row(String title) => find.byWidgetPredicate(
+    (w) => w is AppRow && w.title is Text && (w.title as Text).data == title);
+
+Future<void> _pumpProfile(
+  WidgetTester tester,
+  _ProfileRepo repo, {
+  AvatarPicker? picker,
+}) async {
+  await tester.pumpWidget(MaterialApp(
+    home: AccountProfileEditScreen(
+      repository: repo,
+      avatarPicker: picker ?? () async => _png(),
+      // These bytes are no picture, so the file passes through uncropped.
+      avatarCropper: (context, source, form) async => source,
+    ),
+  ));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _chooseMode(WidgetTester tester, String label) async {
+  await tester.tap(find.text('头像方式'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+}
+
 class _ProfileRepo extends ForumRepository {
+  _ProfileRepo(
+      {this.mode = '2', this.linkWidth = '', this.forumKeepsSaves = false});
+
+  final String mode;
+  final String linkWidth;
+
+  /// Whether a later read shows what was saved.
+  final bool forumKeepsSaves;
+  final _held = <String, List<String>>{};
   Map<String, List<String>>? saved;
   ForumAccountUpload? savedUpload;
 
   @override
-  Future<ForumAccountForm> fetchAccountProfileForm() async => _profileForm();
+  Future<ForumAccountForm> fetchAccountProfileForm() async =>
+      _profileForm(mode, linkWidth, _held);
 
   @override
   Future<ForumAccountAvatarPage> fetchAccountSystemAvatars(
@@ -527,6 +769,36 @@ class _ProfileRepo extends ForumRepository {
   }) async {
     saved = changes;
     savedUpload = avatar;
+    if (forumKeepsSaves) _held.addAll(changes);
+  }
+}
+
+/// The size fields as the forum page describes them: plain text boxes of at
+/// most three characters with a range in the words next to them.
+class _FixtureSizeRepo extends _ProfileRepo {
+  _FixtureSizeRepo({super.mode, super.linkWidth, this.height = ''});
+
+  final String height;
+
+  @override
+  Future<ForumAccountForm> fetchAccountProfileForm() async {
+    final form = await super.fetchAccountProfileForm();
+    return ForumAccountForm(kind: form.kind, fields: [
+      for (final f in form.fields)
+        f.name == 'httpurl[1]' || f.name == 'httpurl[2]'
+            ? ForumAccountField(
+                name: f.name,
+                label: f.label,
+                type: 'text',
+                values: f.name == 'httpurl[2]' && height.isNotEmpty
+                    ? [height]
+                    : f.values,
+                min: f.min,
+                max: f.max,
+                maxLength: 3,
+                group: f.group)
+            : f,
+    ]);
   }
 }
 

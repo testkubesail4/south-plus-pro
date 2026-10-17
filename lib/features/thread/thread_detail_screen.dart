@@ -1,5 +1,7 @@
+import 'dart:async' show scheduleMicrotask;
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
@@ -68,6 +70,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final Map<String, ThreadFavoriteState> _favoriteOverrides =
       <String, ThreadFavoriteState>{};
   bool _favoriteBusy = false;
+  // Moves when the session or the thread changes: an open category sheet
+  // closes and a favorite call still in flight is ignored.
+  final _favoriteFlow = ValueNotifier<int>(0);
   bool _savingAttachment = false;
   // The reply box docks under the list instead of ending it, so paging
   // never moves it and opening it never moves the reading position.
@@ -174,6 +179,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   void didUpdateWidget(covariant ThreadDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.thread.url == widget.thread.url) return;
+    _favoriteFlow.value++;
+    _favoriteBusy = false;
+    _favoriteOverrides.clear();
     _thread = widget.thread;
     _authorFilterName = null;
     _detail = null;
@@ -714,6 +722,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
     _notes.removeListener(_onNotesChanged);
     _notes.dispose();
+    _favoriteFlow.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -915,7 +924,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   void _onSessionChanged() {
     if (!mounted) return;
     // Another account's purchases are not this one's.
+    _favoriteFlow.value++;
     setState(() {
+      _favoriteBusy = false;
+      // Another account's favorite is not this one's.
+      _favoriteOverrides.clear();
       _revealedPosts.clear();
       _saleBoxNotices = const {};
     });
@@ -1217,15 +1230,33 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   Future<void> _handleFavorite(ThreadFavorite favorite) async {
     if (_favoriteBusy) return;
     final effective = _effectiveFavorite(favorite);
+    final repository = widget.repository;
+    final flow = _favoriteFlow.value;
+    final epoch = repository.sessionEpoch.value;
+    // Still the same screen state, session and thread as when it started.
+    bool current() =>
+        mounted &&
+        flow == _favoriteFlow.value &&
+        epoch == repository.sessionEpoch.value;
     setState(() {
       _favoriteBusy = true;
     });
 
     try {
-      final result = effective.canRemove
-          ? await widget.repository.removeFavorite(effective)
-          : await widget.repository.addFavorite(effective);
-      if (!mounted) return;
+      var result = effective.canRemove
+          ? await repository.removeFavorite(effective)
+          : await repository.addFavorite(effective);
+      final selection = result.categorySelection;
+      if (selection != null) {
+        // The forum asks for a category first; nothing is favorited yet.
+        if (!current()) return;
+        final category = await _chooseFavoriteCategory(selection, flow);
+        // Cancelling sends nothing and leaves the favorite as it was.
+        if (!current() || category == null) return;
+        result =
+            await repository.selectFavoriteCategory(selection, category.id);
+      }
+      if (!current()) return;
       _messenger.showSnackBar(
         SnackBar(content: Text(result.message)),
       );
@@ -1235,17 +1266,33 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         });
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!current()) return;
       _messenger.showSnackBar(
         SnackBar(content: Text('收藏操作失败：$error')),
       );
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _favoriteBusy = false;
-      });
+      // An obsolete call never clears the busy flag of a newer one.
+      if (current()) {
+        setState(() {
+          _favoriteBusy = false;
+        });
+      }
     }
   }
+
+  Future<FavoriteCategory?> _chooseFavoriteCategory(
+          FavoriteCategorySelection selection, int flow) =>
+      showModalBottomSheet<FavoriteCategory>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => _FavoriteCategorySheet(
+          selection: selection,
+          invalidated: _favoriteFlow,
+          generation: flow,
+        ),
+      );
 
   void _openThreadLink(ThreadActionLink link) {
     final current = _detail?.thread ?? _thread;
@@ -2938,6 +2985,110 @@ class _ThreadPageBar extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The forum's own favorite categories. Choosing one is the only way to
+/// favorite from here; leaving the sheet any other way favorites nothing. It
+/// closes itself when the session or the thread changes underneath it.
+class _FavoriteCategorySheet extends StatefulWidget {
+  const _FavoriteCategorySheet({
+    required this.selection,
+    required this.invalidated,
+    required this.generation,
+  });
+
+  final FavoriteCategorySelection selection;
+
+  /// Moves when the session or thread changes; [generation] is its value
+  /// when the menu was asked for.
+  final ValueListenable<int> invalidated;
+  final int generation;
+
+  @override
+  State<_FavoriteCategorySheet> createState() => _FavoriteCategorySheetState();
+}
+
+class _FavoriteCategorySheetState extends State<_FavoriteCategorySheet> {
+  bool get _stale => widget.invalidated.value != widget.generation;
+
+  @override
+  void initState() {
+    super.initState();
+    // A change before this first frame is closed once it is mounted.
+    if (_stale) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _close());
+    } else {
+      widget.invalidated.addListener(_check);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.invalidated.removeListener(_check);
+    super.dispose();
+  }
+
+  // Raised while the thread screen may be mid-build.
+  void _check() => scheduleMicrotask(() {
+        if (!mounted || !_stale) return;
+        setState(() {});
+        _close();
+      });
+
+  // Removes this sheet's own route, never one that lies above it.
+  void _close() {
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && route.isActive) {
+      Navigator.of(context).removeRoute(route);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_stale) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Semantics(
+                    header: true,
+                    child: Text('选择收藏分类', style: theme.textTheme.titleMedium),
+                  ),
+                  Text('选好分类后才会收藏这个主题', style: theme.textTheme.bodySmall),
+                ],
+              ),
+            ),
+            for (final category in widget.selection.categories)
+              ListTile(
+                key: ValueKey('favorite-category:${category.id}'),
+                leading: const Icon(Icons.star_outline),
+                title: Text(category.label),
+                onTap: () => Navigator.of(context).pop(category),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.lg, AppSpace.sm, AppSpace.lg, AppSpace.sm),
+              child: TextButton(
+                key: const ValueKey('favorite-category-cancel'),
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -271,7 +271,8 @@ void main() {
     await tester.scrollUntilVisible(find.text('添加常用版块'), -200,
         scrollable: homeScroll);
     await tap(tester, find.text('添加常用版块'));
-    await tap(tester, find.widgetWithText(ActionChip, '本地阅读版块'));
+    await tap(tester, find.byKey(const ValueKey('board-row:g0')));
+    await tap(tester, find.byKey(const ValueKey('board-add:0/0')));
     await waitFor(tester, find.byTooltip('移除 本地阅读版块'));
     await tap(tester, find.text('完成'));
 
@@ -463,17 +464,21 @@ void main() {
             mimeType: 'image/png',
           ),
         ));
-    await waitFor(tester, find.text('上传图片'));
-    // A supported picker injection, not proof of the OS file chooser or upload callback.
-    await tap(tester, find.text('上传图片'));
+    await waitFor(tester, find.text('头像类型'));
+    await tap(tester, find.text('头像类型'));
+    await tap(tester, find.text('上传头像').last);
+    // Picker injection plus the real crop; not proof of the OS chooser or upload.
+    await tap(tester, find.text('选择图片'));
+    await waitFor(tester, find.byKey(const Key('avatar-crop-confirm')));
+    await tap(tester, find.byKey(const Key('avatar-crop-confirm')));
     expect(
         find.byWidgetPredicate((w) => w is Image && w.semanticLabel == '新头像预览'),
         findsOneWidget);
-    expect(find.textContaining('local-avatar.png'), findsOneWidget);
+    expect(find.textContaining('avatar.png'), findsOneWidget);
     await screenshot(tester, 'flow3_phone-light_avatar-preview-only');
     // Discard the preview instead of fabricating an unobserved upload callback.
     await mount(tester, AccountProfileEditScreen(repository: repository));
-    await waitFor(tester, find.text('上传图片'));
+    await waitFor(tester, find.text('头像类型'));
     final nickname = find.byWidgetPredicate(
         (w) => w is TextField && w.controller?.text == '本地读者');
     await tester.ensureVisible(nickname);

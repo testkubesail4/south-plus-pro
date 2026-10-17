@@ -11,15 +11,29 @@ import 'grouped_list.dart';
 /// Edits on top of a native [ForumAccountForm]: only fields the user touched
 /// leave this object, everything else stays with the forum's own values.
 class NativeFormController extends ChangeNotifier {
-  NativeFormController(this.form);
+  NativeFormController(this.form, {this.activeField});
 
   final ForumAccountForm form;
+
+  /// Whether a field belongs to what the form currently shows (the chosen
+  /// avatar mode). Edits of other fields stay as drafts but are neither saved
+  /// nor validated; `upload` names the picked file.
+  final bool Function(NativeFormController c, String name)? activeField;
   final _edits = <String, List<String>>{};
   final _serverErrors = <String, String>{};
   ForumAccountUpload? _upload;
 
-  ForumAccountUpload? get upload => _upload;
-  bool get dirty => _edits.isNotEmpty || _upload != null;
+  bool _active(String name) => activeField?.call(this, name) ?? true;
+
+  /// The file to send: null while another avatar mode is chosen.
+  ForumAccountUpload? get upload => _active('upload') ? _upload : null;
+
+  /// The picked file, kept as a draft while another mode is chosen.
+  ForumAccountUpload? get draftUpload => _upload;
+  bool get dirty => changes.isNotEmpty || upload != null;
+
+  /// Anything unsaved, including drafts of a mode that is not chosen now.
+  bool get hasDrafts => _edits.isNotEmpty || _upload != null;
 
   /// A file is being chosen or read; saving waits for it.
   bool get busy => _busy;
@@ -61,9 +75,11 @@ class NativeFormController extends ChangeNotifier {
     if (_edits.remove(name) != null) notifyListeners();
   }
 
-  /// The touched fields and their new values.
-  Map<String, List<String>> get changes =>
-      {for (final e in _edits.entries) e.key: List<String>.of(e.value)};
+  /// The touched fields of the active mode and their new values.
+  Map<String, List<String>> get changes => {
+        for (final e in _edits.entries)
+          if (_active(e.key)) e.key: List<String>.of(e.value)
+      };
 
   bool has(String name) => form.field(name) != null;
 
@@ -94,14 +110,19 @@ class NativeFormController extends ChangeNotifier {
 
   /// Carries the edits of [old] over to this fresher form; edits the forum
   /// already holds drop out. A file already submitted is not carried over.
+  /// With [draftsOnly], only what [old] was not submitting (the drafts of a
+  /// mode that was not chosen) is carried: the rest was saved and confirmed.
   /// Does not notify.
-  void adopt(NativeFormController old) {
+  void adopt(NativeFormController old, {bool draftsOnly = false}) {
     for (final e in old._edits.entries) {
       final field = form.field(e.key);
+      if (draftsOnly && old._active(e.key)) continue;
       if (field != null && !listEquals(e.value, field.values)) {
         _edits[e.key] = e.value;
       }
     }
+    // A file that was not being submitted is only a draft, whatever the readback said.
+    if (!old._active('upload')) _upload = old._upload;
   }
 
   /// Inline message for a touched field that breaks its native limits.
@@ -122,7 +143,7 @@ class NativeFormController extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get valid => _edits.keys.every((name) => error(name) == null);
+  bool get valid => changes.keys.every((name) => error(name) == null);
 }
 
 /// The descriptor limits that can be checked before asking the forum.
@@ -179,10 +200,14 @@ class NativeFieldRow extends StatelessWidget {
     this.emptyValue = '未设置',
     this.summary,
     this.keyboardType,
+    this.optionLabel,
   });
 
   final NativeFormController controller;
   final String name;
+
+  /// Plain words for a native choice; null keeps the forum's own label.
+  final String Function(ForumAccountOption option)? optionLabel;
 
   /// Replaces the native label.
   final String? title;
@@ -211,6 +236,7 @@ class NativeFieldRow extends StatelessWidget {
           title: label,
           helper: helper,
           emptyValue: emptyValue,
+          optionLabel: optionLabel,
         );
       case 'checkbox':
       case 'multiselect':
@@ -255,6 +281,7 @@ class _ChoiceRow extends StatelessWidget {
     required this.title,
     required this.helper,
     required this.emptyValue,
+    this.optionLabel,
   });
 
   final NativeFormController controller;
@@ -262,8 +289,13 @@ class _ChoiceRow extends StatelessWidget {
   final String title;
   final String? helper;
   final String emptyValue;
+  final String Function(ForumAccountOption option)? optionLabel;
 
-  String _label(ForumAccountOption o) => o.label.isEmpty ? emptyValue : o.label;
+  String _label(ForumAccountOption o) => o.label.isEmpty
+      ? emptyValue
+      : optionLabel == null
+          ? o.label
+          : optionLabel!(o);
 
   Future<void> _choose(BuildContext context, String current) async {
     final chosen = await showModalBottomSheet<String>(
@@ -553,28 +585,33 @@ class _TextRowState extends State<_TextRow> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(widget.title, style: theme.textTheme.titleSmall),
+          // The field below carries the title and hint to assistive tools.
+          ExcludeSemantics(
+              child: Text(widget.title, style: theme.textTheme.titleSmall)),
           if (hint != null)
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Text(hint,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall),
+              child: ExcludeSemantics(
+                child: Text(hint, style: theme.textTheme.bodySmall),
+              ),
             ),
           const SizedBox(height: AppSpace.sm),
-          TextField(
-            controller: _text,
-            minLines: widget.multiline ? 3 : 1,
-            maxLines: widget.multiline ? 8 : 1,
-            maxLength: max != null && max > 0 ? max : null,
-            keyboardType: widget.keyboardType ??
-                (widget.multiline ? TextInputType.multiline : null),
-            decoration: InputDecoration(
-              errorText: widget.controller.error(field.name),
-              counterText: counter || max == null ? null : '',
+          Semantics(
+            label: widget.title,
+            hint: hint,
+            child: TextField(
+              controller: _text,
+              minLines: widget.multiline ? 3 : 1,
+              maxLines: widget.multiline ? 8 : 1,
+              maxLength: max != null && max > 0 ? max : null,
+              keyboardType: widget.keyboardType ??
+                  (widget.multiline ? TextInputType.multiline : null),
+              decoration: InputDecoration(
+                errorText: widget.controller.error(field.name),
+                counterText: counter || max == null ? null : '',
+              ),
+              onChanged: (v) => widget.controller.set(field.name, [v]),
             ),
-            onChanged: (v) => widget.controller.set(field.name, [v]),
           ),
         ],
       ),
@@ -642,9 +679,13 @@ class NativeFormPage extends StatefulWidget {
     required this.save,
     required this.builder,
     this.onSaved,
+    this.activeField,
   });
 
   final String title;
+
+  /// See [NativeFormController.activeField].
+  final bool Function(NativeFormController c, String name)? activeField;
 
   /// Changes whenever the account or network changes; the form reloads.
   final Listenable sessionEpoch;
@@ -710,7 +751,7 @@ class _NativeFormPageState extends State<NativeFormPage> {
     widget.load().then((form) {
       if (!mounted || generation != _generation) return;
       setState(() {
-        _adopt(NativeFormController(form));
+        _adopt(NativeFormController(form, activeField: widget.activeField));
         _loading = false;
       });
     }, onError: (Object error) {
@@ -774,7 +815,8 @@ class _NativeFormPageState extends State<NativeFormPage> {
     if (!mounted || generation != _generation) return;
     final NativeFormController fresh;
     try {
-      fresh = NativeFormController(await widget.load());
+      fresh = NativeFormController(await widget.load(),
+          activeField: widget.activeField);
     } catch (_) {
       // The edits stay on screen; only the proof is missing.
       if (!mounted || generation != _generation) return;
@@ -793,9 +835,8 @@ class _NativeFormPageState extends State<NativeFormPage> {
     if (confirmed) {
       messenger.showSnackBar(const SnackBar(content: Text('已保存')));
       widget.onSaved?.call();
-    } else {
-      fresh.adopt(c);
     }
+    fresh.adopt(c, draftsOnly: confirmed);
     setState(() {
       _adopt(fresh);
       _saving = false;
@@ -814,7 +855,8 @@ class _NativeFormPageState extends State<NativeFormPage> {
     setState(() => _saving = true);
     final NativeFormController fresh;
     try {
-      fresh = NativeFormController(await widget.load());
+      fresh = NativeFormController(await widget.load(),
+          activeField: widget.activeField);
     } catch (_) {
       if (!mounted || generation != _generation) return;
       setState(() => _saving = false);
@@ -826,9 +868,8 @@ class _NativeFormPageState extends State<NativeFormPage> {
     if (confirmed) {
       messenger.showSnackBar(const SnackBar(content: Text('已保存')));
       widget.onSaved?.call();
-    } else {
-      fresh.adopt(old);
     }
+    fresh.adopt(old, draftsOnly: confirmed);
     setState(() {
       _adopt(fresh);
       _saving = false;
@@ -870,7 +911,7 @@ class _NativeFormPageState extends State<NativeFormPage> {
     final c = _active;
     final canSave = c != null && c.dirty && !c.busy && !_saving && !_stale;
     return PopScope(
-      canPop: !_saving && !(c?.dirty ?? false),
+      canPop: !_saving && !(c?.hasDrafts ?? false),
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop || _saving) return;
         if (await _confirmDiscard() && mounted) Navigator.of(context).pop();

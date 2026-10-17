@@ -177,29 +177,67 @@ class _MyBoardsState extends State<_MyBoards> {
   ForumCategory _category(ForumSearchPinnedBoard board) =>
       ForumCategory(name: board.label, slug: 'fid-${board.id}');
 
-  /// Recent, hot and every home board, once per board id.
-  List<ForumSearchPinnedBoard> _candidates() {
+  // The home boards as the forum nests them; rebuilt only for new sections.
+  List<ForumSection>? _treeSource;
+  var _tree = const <_BoardGroup>[];
+  final _byId = <String, _BoardNode>{};
+
+  _BoardNode _node(ForumBoard board, _BoardNode? parent, String path) {
+    final node = _BoardNode(
+      path: path,
+      label: board.name.trim(),
+      id: widget.repository.searchBoardId(
+          ForumCategory(name: board.name, slug: board.slug, url: board.url)),
+      parent: parent,
+    );
+    for (final (i, child) in board.children.indexed) {
+      node.children.add(_node(child, node, '$path/$i'));
+    }
+    final id = node.id;
+    if (id != null) _byId.putIfAbsent(id, () => node);
+    return node;
+  }
+
+  List<_BoardGroup> _boardTree() {
+    final sections = widget.sections;
+    if (!identical(sections, _treeSource)) {
+      _treeSource = sections;
+      _byId.clear();
+      _tree = [
+        for (final (s, section) in (sections ?? const <ForumSection>[]).indexed)
+          _BoardGroup(path: 'g$s', title: section.title.trim(), nodes: [
+            for (final (i, board) in section.items.indexed)
+              _node(board, null, '$s/$i'),
+          ]),
+      ];
+    }
+    return _tree;
+  }
+
+  /// A pin with the board it sits under, so same-named boards tell apart. Pins
+  /// saved as a bare name gain the parent from the current tree; storage keeps
+  /// whatever was saved.
+  String _pinLabel(ForumSearchPinnedBoard pin) {
+    final node = _byId[pin.id];
+    final parent = node?.parent;
+    if (node == null || parent == null) return pin.label;
+    return pin.label.trim() == node.label ? node.pinLabel : pin.label;
+  }
+
+  /// Recent and hot boards that no home section lists.
+  List<ForumSearchPinnedBoard> _extras() {
     final found = <String, ForumSearchPinnedBoard>{};
-    void add(ForumCategory category) {
+    for (final board in widget.recent) {
+      if (!_byId.containsKey(board.id))
+        found.putIfAbsent(board.id, () => board);
+    }
+    for (final category in widget.hotBoards ?? const <ForumCategory>[]) {
       final id = widget.repository.searchBoardId(category);
       final label = category.name.trim();
-      if (id != null && label.isNotEmpty) {
+      if (id != null && label.isNotEmpty && !_byId.containsKey(id)) {
         found.putIfAbsent(
             id, () => ForumSearchPinnedBoard(id: id, label: label));
       }
-    }
-
-    void addBoard(ForumBoard board) {
-      add(ForumCategory(name: board.name, slug: board.slug, url: board.url));
-      board.children.forEach(addBoard);
-    }
-
-    for (final board in widget.recent) {
-      found.putIfAbsent(board.id, () => board);
-    }
-    widget.hotBoards?.forEach(add);
-    for (final section in widget.sections ?? const <ForumSection>[]) {
-      section.items.forEach(addBoard);
     }
     return found.values.toList();
   }
@@ -216,7 +254,9 @@ class _MyBoardsState extends State<_MyBoards> {
         account: _account,
         pinned: _pinned,
         recent: widget.recent,
-        candidates: _candidates(),
+        groups: _boardTree(),
+        extras: _extras(),
+        pinLabel: _pinLabel,
         onSaved: (pins) {
           if (mounted) setState(() => _pinned = pins);
         },
@@ -232,12 +272,14 @@ class _MyBoardsState extends State<_MyBoards> {
         (_pinned.isNotEmpty || widget.recent.isEmpty
             ? _MyBoardsTab.pinned
             : _MyBoardsTab.recent);
+    _boardTree();
     final boards = tab == _MyBoardsTab.pinned ? _pinned : widget.recent;
     final Widget content;
     if (boards.isNotEmpty) {
       content = _ChipRow(chips: [
         for (final board in boards)
-          _boardChip(context, board.label,
+          _boardChip(context,
+              tab == _MyBoardsTab.pinned ? _pinLabel(board) : board.label,
               onTap: () => widget.onOpen(_category(board))),
       ]);
     } else if (tab == _MyBoardsTab.pinned) {
@@ -294,7 +336,34 @@ class _MyBoardsState extends State<_MyBoards> {
   }
 }
 
-/// Edits the pin list: drag to reorder, remove, add from [candidates]. Every
+/// A board of the home tree; [id] is its forum id, the identity of a pin.
+class _BoardNode {
+  _BoardNode({
+    required this.path,
+    required this.label,
+    required this.id,
+    required this.parent,
+  });
+
+  /// Unique place in the tree; boards of one name under other parents differ.
+  final String path;
+  final String label;
+  final String? id;
+  final _BoardNode? parent;
+  final children = <_BoardNode>[];
+
+  String get pinLabel => parent == null ? label : '${parent!.label} / $label';
+}
+
+class _BoardGroup {
+  const _BoardGroup(
+      {required this.path, required this.title, required this.nodes});
+  final String path;
+  final String title;
+  final List<_BoardNode> nodes;
+}
+
+/// Edits the pin list: drag to reorder, remove, add from the board tree. Every
 /// change is written at once through the search screen's own store.
 class _PinnedBoardsSheet extends StatefulWidget {
   const _PinnedBoardsSheet({
@@ -302,7 +371,9 @@ class _PinnedBoardsSheet extends StatefulWidget {
     required this.account,
     required this.pinned,
     required this.recent,
-    required this.candidates,
+    required this.groups,
+    required this.extras,
+    required this.pinLabel,
     required this.onSaved,
   });
 
@@ -312,7 +383,11 @@ class _PinnedBoardsSheet extends StatefulWidget {
   final String? account;
   final List<ForumSearchPinnedBoard> pinned;
   final List<ForumSearchPinnedBoard> recent;
-  final List<ForumSearchPinnedBoard> candidates;
+  final List<_BoardGroup> groups;
+
+  /// Boards that are on no home section.
+  final List<ForumSearchPinnedBoard> extras;
+  final String Function(ForumSearchPinnedBoard pin) pinLabel;
   final ValueChanged<List<ForumSearchPinnedBoard>> onSaved;
 
   @override
@@ -399,10 +474,6 @@ class _PinnedBoardsSheetState extends State<_PinnedBoardsSheet> {
     if (!_inScope) return const SizedBox.shrink();
     final textTheme = Theme.of(context).textTheme;
     final pinnedIds = {for (final pin in _pins) pin.id};
-    final addable = [
-      for (final board in widget.candidates)
-        if (!pinnedIds.contains(board.id)) board,
-    ];
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.viewInsetsOf(context).bottom,
@@ -470,34 +541,32 @@ class _PinnedBoardsSheetState extends State<_PinnedBoardsSheet> {
                                         if (other.id != pin.id) other,
                                     ]),
                           ),
-                          title: Text(pin.label,
+                          title: Text(widget.pinLabel(pin),
                               maxLines: 2, overflow: TextOverflow.ellipsis),
                         ),
                     ],
                   ),
                 ],
-                if (addable.isNotEmpty) ...[
+                if (widget.groups.isNotEmpty || widget.extras.isNotEmpty) ...[
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
-                        AppSpace.lg, AppSpace.lg, AppSpace.lg, AppSpace.sm),
+                        AppSpace.lg, AppSpace.lg, AppSpace.lg, AppSpace.xs),
                     child: Text('添加', style: textTheme.titleSmall),
                   ),
                   Padding(
                     padding:
                         const EdgeInsets.symmetric(horizontal: AppSpace.lg),
-                    child: Wrap(
-                      spacing: AppSpace.sm,
-                      children: [
-                        for (final board in addable)
-                          ActionChip(
-                            avatar: const Icon(Icons.add, size: 18),
-                            label: Text(board.label),
-                            onPressed: _saving
-                                ? null
-                                : () => _commit([..._pins, board]),
-                          ),
-                      ],
-                    ),
+                    child: Text('点箭头展开父版块；“+”只添加这一个版块，不会带上子版块。',
+                        style: textTheme.bodySmall),
+                  ),
+                  _BoardPicker(
+                    // Opened rows stay open when the list above changes length.
+                    key: const ValueKey('board-picker'),
+                    groups: widget.groups,
+                    extras: widget.extras,
+                    pinnedIds: pinnedIds,
+                    enabled: !_saving,
+                    onAdd: (board) => _commit([..._pins, board]),
                   ),
                 ],
                 if (_hasRecent)
@@ -521,6 +590,154 @@ class _PinnedBoardsSheetState extends State<_PinnedBoardsSheet> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The boards offered for pinning, as the forum nests them. A row with
+/// children opens and closes; the “+” on any row pins that board alone.
+class _BoardPicker extends StatefulWidget {
+  const _BoardPicker({
+    super.key,
+    required this.groups,
+    required this.extras,
+    required this.pinnedIds,
+    required this.enabled,
+    required this.onAdd,
+  });
+
+  final List<_BoardGroup> groups;
+  final List<ForumSearchPinnedBoard> extras;
+  final Set<String> pinnedIds;
+  final bool enabled;
+  final ValueChanged<ForumSearchPinnedBoard> onAdd;
+
+  @override
+  State<_BoardPicker> createState() => _BoardPickerState();
+}
+
+class _BoardPickerState extends State<_BoardPicker> {
+  // Opened rows, by place in the tree rather than by name or id.
+  final _open = <String>{};
+
+  void _toggle(String path) => setState(
+      () => _open.contains(path) ? _open.remove(path) : _open.add(path));
+
+  Widget _row({
+    required String path,
+    required String label,
+    required int depth,
+    required bool expandable,
+    ForumSearchPinnedBoard? pin,
+  }) {
+    final theme = Theme.of(context);
+    final open = _open.contains(path);
+    final pinned = pin != null && widget.pinnedIds.contains(pin.id);
+    final target = pin;
+    final VoidCallback? add = target != null && !pinned && widget.enabled
+        ? () => widget.onAdd(target)
+        : null;
+    return Semantics(
+      container: true,
+      expanded: expandable ? open : null,
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              key: ValueKey('board-row:$path'),
+              onTap: expandable ? () => _toggle(path) : add,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Padding(
+                  padding: EdgeInsets.only(
+                      left: AppSpace.lg + depth * AppSpace.lg,
+                      right: AppSpace.sm),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 28,
+                        child: expandable
+                            ? Icon(
+                                open ? Icons.expand_more : Icons.chevron_right,
+                                size: 22,
+                                semanticLabel: open ? '收起' : '展开',
+                              )
+                            : null,
+                      ),
+                      Expanded(
+                        child: Text(label,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: expandable
+                                ? theme.textTheme.titleSmall
+                                : theme.textTheme.bodyMedium),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (pin != null)
+            IconButton(
+              key: ValueKey('board-add:$path'),
+              tooltip: pinned ? '$label 已在常用' : '添加 ${pin.label}',
+              icon: Icon(pinned ? Icons.check : Icons.add_circle_outline),
+              onPressed: add,
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _nodes(List<_BoardNode> nodes, int depth) => [
+        for (final node in nodes) ...[
+          _row(
+            path: node.path,
+            label: node.label,
+            depth: depth,
+            expandable: node.children.isNotEmpty,
+            pin: node.id == null || node.label.isEmpty
+                ? null
+                : ForumSearchPinnedBoard(id: node.id!, label: node.pinLabel),
+          ),
+          if (_open.contains(node.path)) ..._nodes(node.children, depth + 1),
+        ],
+      ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final group in widget.groups)
+          if (group.nodes.isNotEmpty) ...[
+            _row(
+              path: group.path,
+              label: group.title.isEmpty ? '版块' : group.title,
+              depth: 0,
+              expandable: true,
+            ),
+            if (_open.contains(group.path)) ..._nodes(group.nodes, 1),
+          ],
+        if (widget.extras.isNotEmpty) ...[
+          _row(
+            path: 'extras',
+            label: '最近与热门',
+            depth: 0,
+            expandable: true,
+          ),
+          if (_open.contains('extras'))
+            for (final board in widget.extras)
+              _row(
+                path: 'extra:${board.id}',
+                label: board.label,
+                depth: 1,
+                expandable: false,
+                pin: board,
+              ),
+        ],
+      ],
     );
   }
 }

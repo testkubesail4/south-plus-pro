@@ -9,6 +9,7 @@ import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../common/grouped_list.dart';
 import '../common/native_form_fields.dart';
+import 'avatar_crop.dart';
 import 'account_screen.dart';
 
 /// Opens the system file chooser for a picture; null when cancelled.
@@ -126,10 +127,12 @@ class AccountProfileEditScreen extends StatefulWidget {
     super.key,
     required this.repository,
     this.avatarPicker = pickAvatarFile,
+    this.avatarCropper = cropAvatar,
   });
 
   final ForumRepository repository;
   final AvatarPicker avatarPicker;
+  final AvatarCropper avatarCropper;
 
   @override
   State<AccountProfileEditScreen> createState() =>
@@ -167,6 +170,7 @@ class _AccountProfileEditScreenState extends State<AccountProfileEditScreen> {
       save: (form, changes, upload) => widget.repository
           .saveAccountProfileForm(form, changes, avatar: upload),
       onSaved: _refreshAvatar,
+      activeField: avatarFieldActive,
       builder: (context, c) {
         List<String> names(String group) => [
               for (final f in c.form.fields)
@@ -200,6 +204,7 @@ class _AccountProfileEditScreenState extends State<AccountProfileEditScreen> {
             controller: c,
             repository: widget.repository,
             picker: widget.avatarPicker,
+            cropper: widget.avatarCropper,
             avatarUrl: widget.repository.accountIdentity.value?.avatarUrl,
           ),
           const SizedBox(height: AppSpace.xl),
@@ -230,17 +235,74 @@ class _AccountProfileEditScreenState extends State<AccountProfileEditScreen> {
   }
 }
 
+enum _AvatarMode { system, link, upload }
+
+/// The avatar mode a `facetype` value stands for: the option's own words,
+/// then the forum's fixed numbers 1/2/3.
+_AvatarMode? _modeOf(ForumAccountForm form, String value) {
+  if (value.isEmpty) return null;
+  final label = (form.field('facetype')?.options ?? const [])
+      .where((o) => o.value == value)
+      .map((o) => o.label)
+      .firstOrNull;
+  if (label != null) {
+    if (label.contains('上传')) return _AvatarMode.upload;
+    if (label.contains('系统')) return _AvatarMode.system;
+    if (label.contains('链接')) return _AvatarMode.link;
+  }
+  return switch (value) {
+    '1' => _AvatarMode.system,
+    '2' => _AvatarMode.link,
+    '3' => _AvatarMode.upload,
+    _ => null,
+  };
+}
+
+ForumAccountOption? _modeOption(NativeFormController c, _AvatarMode mode) {
+  for (final o in c.form.field('facetype')?.options ?? const []) {
+    if (_modeOf(c.form, o.value) == mode) return o;
+  }
+  return null;
+}
+
+/// Only the chosen avatar mode's fields leave the form; the others stay as
+/// drafts, so a switch of mode never sends fields the forum would refuse.
+bool avatarFieldActive(NativeFormController c, String name) {
+  final mode = _modeOf(c.form, c.value('facetype'));
+  if (mode == null) return true;
+  return switch (name) {
+    'proicon' => mode == _AvatarMode.system,
+    'httpurl[0]' || 'httpurl[1]' || 'httpurl[2]' => mode == _AvatarMode.link,
+    'upload' || 'uploadurl[1]' || 'uploadurl[2]' => mode == _AvatarMode.upload,
+    _ => true,
+  };
+}
+
+bool _pngAllowed(ForumAccountField field) {
+  final accept = (field.accept ?? '').trim().toLowerCase();
+  return accept.isEmpty ||
+      accept
+          .split(',')
+          .map((e) => e.trim())
+          .any((e) => e == 'image/*' || e == 'image/png' || e == '.png');
+}
+
+String? _rangeText(ForumAccountField? f) =>
+    f?.min != null && f?.max != null ? '${f!.min} – ${f.max} 的整数' : null;
+
 class _AvatarSection extends StatefulWidget {
   const _AvatarSection({
     required this.controller,
     required this.repository,
     required this.picker,
+    required this.cropper,
     required this.avatarUrl,
   });
 
   final NativeFormController controller;
   final ForumRepository repository;
   final AvatarPicker picker;
+  final AvatarCropper cropper;
   final String? avatarUrl;
 
   @override
@@ -252,58 +314,73 @@ class _AvatarSectionState extends State<_AvatarSection> {
   var _more = false;
   String? _problem;
 
+  /// The picture of the last system choice and the last link previewed.
+  ForumAccountOption? _systemChoice;
+  String? _linkPreview;
+
   NativeFormController get _c => widget.controller;
+
+  _AvatarMode? _lastMode;
 
   @override
   void initState() {
     super.initState();
-    _c.addListener(_reconcile);
+    _lastMode = _modeOf(_c.form, _c.value('facetype'));
+    _c.addListener(_onForm);
   }
 
   @override
   void dispose() {
-    _c.removeListener(_reconcile);
+    _c.removeListener(_onForm);
     super.dispose();
   }
 
-  // shortcut: the mode is found by its native label (上传/系统); use a native mode key once be-account exposes one.
-  ForumAccountOption? _mode(String word) {
-    final options = _c.form.field('facetype')?.options ?? const [];
-    for (final o in options) {
-      if (o.label.contains(word)) return o;
-    }
-    return null;
+  void _onForm() {
+    if (_c.retired) return;
+    final mode = _modeOf(_c.form, _c.value('facetype'));
+    if (mode == _lastMode) return;
+    _lastMode = mode;
+    if (mode == _AvatarMode.link) _defaultWidth('httpurl[1]');
   }
 
-  /// A picked file and a changed system picture each belong to one mode; the
-  /// forum refuses either under another, so leaving a mode drops its edit.
-  void _reconcile() {
-    if (_c.retired) return;
-    final mode = _c.value('facetype');
-    if (mode.isEmpty) return;
-    if (mode != _mode('上传')?.value && _c.upload != null) {
-      _c.setUpload(null);
+  /// The forum needs a display width in these modes: a blank one starts at the
+  /// widest the forum allows. A width the user or the forum set stays.
+  void _defaultWidth(String name) {
+    final f = _c.form.field(name);
+    final max = f?.max?.toInt();
+    if (f == null ||
+        _c.value(name).trim().isNotEmpty ||
+        max == null ||
+        max < 1 ||
+        (f.min != null && max < f.min!)) {
+      return;
     }
-    if (mode != _mode('系统')?.value && _c.isEdited('proicon')) {
-      _c.revert('proicon');
-    }
+    _c.set(name, ['$max']);
   }
 
   Future<void> _pick() async {
     final field = _c.form.field('upload');
     if (field == null || _picking) return;
     setState(() => _picking = true);
-    // Saving waits until the file is in hand.
+    // Saving waits until the file is in hand and cropped.
     _c.setBusy(true);
     try {
-      final upload = await widget.picker();
+      var upload = await widget.picker();
       if (!mounted || upload == null || _c.retired) return;
+      if (_pngAllowed(field)) {
+        // The crop reads and bounds the source; the forum's limits judge the
+        // file that results. Cancelling leaves everything as it was.
+        final cropped = await widget.cropper(context, upload, _c);
+        if (!mounted || cropped == null || _c.retired) return;
+        upload = cropped;
+      }
       final problem = avatarUploadProblem(upload, field);
       setState(() => _problem = problem);
       if (problem != null) return;
-      // The mode first, so the file is not dropped as belonging to another one.
-      final up = _mode('上传');
+      // The mode first, so the file belongs to the active one.
+      final up = _modeOption(_c, _AvatarMode.upload);
       if (up != null) _c.set('facetype', [up.value]);
+      _defaultWidth('uploadurl[1]');
       _c.setUpload(upload);
     } on FormatException {
       if (mounted && !_c.retired) {
@@ -326,7 +403,7 @@ class _AvatarSectionState extends State<_AvatarSection> {
   }
 
   Future<void> _chooseSystem() async {
-    final chosen = await showModalBottomSheet<String>(
+    final chosen = await showModalBottomSheet<ForumAccountOption>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
@@ -339,36 +416,224 @@ class _AvatarSectionState extends State<_AvatarSection> {
       ),
     );
     if (chosen == null || !mounted || _c.retired) return;
-    // The mode first; leaving upload mode drops a picked file.
-    final sys = _mode('系统');
+    final sys = _modeOption(_c, _AvatarMode.system);
     if (sys != null) _c.set('facetype', [sys.value]);
-    _c.set('proicon', [chosen]);
-    _c.setUpload(null);
+    _c.set('proicon', [chosen.value]);
+    setState(() => _systemChoice = chosen);
+  }
+
+  /// A web address the forum can show; anything else is not previewed.
+  Uri? get _typedLink {
+    final uri = Uri.tryParse(_c.value('httpurl[0]').trim());
+    return uri != null &&
+            (uri.scheme == 'http' || uri.scheme == 'https') &&
+            uri.host.isNotEmpty &&
+            uri.userInfo.isEmpty
+        ? uri
+        : null;
+  }
+
+  Widget _frame(Widget child) => ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: SizedBox(width: 64, height: 64, child: child),
+      );
+
+  Widget _picture(ForumAccountUpload upload) {
+    final edge = (128 * MediaQuery.devicePixelRatioOf(context)).ceil();
+    return _frame(Image(
+      image: ResizeImage(
+        MemoryImage(upload.bytes),
+        width: edge,
+        height: edge,
+        policy: ResizeImagePolicy.fit,
+      ),
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
+      semanticLabel: '新头像预览',
+      errorBuilder: (_, __, ___) => Container(
+        color: AppColors.inkSoft,
+        child: Icon(Icons.broken_image_outlined, color: AppColors.textFaint),
+      ),
+    ));
+  }
+
+  Widget _netPicture(String url, String label) => Semantics(
+        label: label,
+        image: true,
+        child: _frame(CachedForumImage(
+          url: url,
+          width: 64,
+          height: 64,
+          fit: BoxFit.cover,
+          bypassLoadPolicy: true,
+          errorWidget: (_) => Container(
+            color: AppColors.inkSoft,
+            child:
+                Icon(Icons.broken_image_outlined, color: AppColors.textFaint),
+          ),
+        )),
+      );
+
+  /// What the avatar will be after saving, or the current one.
+  (Widget, String) _preview(_AvatarMode? mode) {
+    final upload = _c.draftUpload;
+    if (mode == _AvatarMode.upload && upload != null) {
+      return (
+        _picture(upload),
+        '新头像，保存后生效\n${upload.fileName} · ${_size(upload.bytes.length)}'
+      );
+    }
+    final system = _systemChoice;
+    if (mode == _AvatarMode.system &&
+        _c.isEdited('proicon') &&
+        system?.imageUrl != null) {
+      return (_netPicture(system!.imageUrl!, '新系统头像预览'), '新头像，保存后生效');
+    }
+    final link = _linkPreview;
+    // Only the address that was previewed; an edited one needs a new preview.
+    if (mode == _AvatarMode.link &&
+        link != null &&
+        link == _typedLink?.toString()) {
+      return (_netPicture(link, '链接图片预览'), '链接图片预览，保存后生效');
+    }
+    return (
+      AccountAvatar(avatarUrl: widget.avatarUrl, size: 64),
+      '当前头像',
+    );
+  }
+
+  Widget _sizeRows(List<String> names) {
+    final shown = [
+      for (final n in names)
+        if (_c.has(n)) n,
+    ];
+    if (shown.isEmpty) return const SizedBox.shrink();
+    // The forum needs a width in these modes, so a blank one stays in view.
+    final widthBlank = _c.value(shown.first).trim().isEmpty;
+    // A blank width or a field the forum or the limits rejected stays in view.
+    final forced = widthBlank || shown.any((n) => _c.error(n) != null);
+    // Once forced open it stays open, so typing the first digit of a blank
+    // width does not fold the field away under the cursor.
+    if (forced) _more = true;
+    final open = _more;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppRow(
+          title: const Text('显示尺寸'),
+          subtitle: Text(widthBlank
+              ? '请填写显示宽度，论坛需要它才能保存头像'
+              : '宽度 ${_c.value(shown.first)}'),
+          value: open ? '收起' : '展开',
+          trailing: Icon(open ? Icons.expand_less : Icons.expand_more,
+              color: AppColors.textFaint),
+          onTap: forced ? null : () => setState(() => _more = !_more),
+        ),
+        if (open)
+          for (final n in shown)
+            NativeFieldRow(
+              key: ValueKey(n),
+              controller: _c,
+              name: n,
+              title: n.endsWith('[1]') ? '显示宽度' : '显示高度',
+              helper: [
+                if (n.endsWith('[1]')) '必填',
+                _rangeText(_c.form.field(n)),
+                if (n.endsWith('[2]')) '选填，留空则按宽度等比缩放',
+              ].whereType<String>().join('；').nullIfEmpty,
+              keyboardType: TextInputType.number,
+            ),
+      ],
+    );
+  }
+
+  List<Widget> _modeRows(_AvatarMode? mode) {
+    final theme = Theme.of(context);
+    final field = _c.form.field('upload');
+    switch (mode) {
+      case _AvatarMode.system:
+        return [
+          if (_c.has('proicon'))
+            AppRow(
+              title: const Text('系统头像'),
+              value: systemAvatarValue(
+                  _c.form.field('proicon'), _c.value('proicon')),
+              onTap: _chooseSystem,
+            ),
+        ];
+      case _AvatarMode.link:
+        final typed = _typedLink;
+        return [
+          NativeFieldRow(
+            key: const ValueKey('httpurl[0]'),
+            controller: _c,
+            name: 'httpurl[0]',
+            title: '头像链接',
+            helper: '图片的网络地址，以 http:// 或 https:// 开头',
+            keyboardType: TextInputType.url,
+          ),
+          AppRow(
+            icon: Icons.visibility_outlined,
+            title: const Text('预览链接中的图片'),
+            onTap: typed == null
+                ? null
+                : () => setState(() => _linkPreview = typed.toString()),
+          ),
+          _sizeRows(const ['httpurl[1]', 'httpurl[2]']),
+        ];
+      case _AvatarMode.upload:
+        if (field == null) return const [];
+        final cropping = _pngAllowed(field);
+        final formats = {
+          for (final e in (field.accept ?? '').split(','))
+            if (e.trim().isNotEmpty) acceptLabel(e)
+        }.join('、');
+        final note = [
+          cropping ? '选择后裁剪为正方形，以 PNG 上传' : '论坛的头像格式限制，将直接上传原图，不裁剪',
+          if (formats.isNotEmpty) '支持格式：$formats',
+        ].join('；');
+        final upload = _c.draftUpload;
+        return [
+          AppRow(
+            icon: Icons.image_outlined,
+            title: Text(upload == null ? '选择图片' : '重新选择图片'),
+            value: _picking ? '正在读取…' : null,
+            onTap: _picking ? null : _pick,
+            trailing: upload == null
+                ? null
+                : IconButton(
+                    tooltip: '移除所选图片',
+                    onPressed: _clear,
+                    icon: const Icon(Icons.close),
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpace.lg, 0, AppSpace.lg, AppSpace.md),
+            child: Semantics(
+              liveRegion: _problem != null,
+              child: Text(
+                _problem ?? note,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: _problem != null
+                      ? theme.colorScheme.error
+                      : AppColors.textMuted,
+                ),
+              ),
+            ),
+          ),
+          _sizeRows(const ['uploadurl[1]', 'uploadurl[2]']),
+        ];
+      case null:
+        return const [];
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final upload = _c.upload;
-    final field = _c.form.field('upload');
-    final more = [
-      for (final f in _c.form.fields)
-        if (f.group == 'avatar' &&
-            f.name != 'facetype' &&
-            f.name != 'proicon' &&
-            f.type != 'file')
-          f.name,
-    ];
-    final limits = field == null
-        ? null
-        : [
-            if (nativeHintText(field) != null) nativeHintText(field)!,
-            if (field.accept != null && field.accept!.trim().isNotEmpty)
-              '支持格式：${{
-                for (final e in field.accept!.split(','))
-                  if (e.trim().isNotEmpty) acceptLabel(e)
-              }.join('、')}',
-          ].join('；');
+    final mode = _modeOf(_c.form, _c.value('facetype'));
+    final (picture, caption) = _preview(mode);
     return AppGroup(
       label: '头像',
       dividerIndent: AppSpace.lg,
@@ -377,102 +642,21 @@ class _AvatarSectionState extends State<_AvatarSection> {
           padding: const EdgeInsets.all(AppSpace.lg),
           child: Row(
             children: [
-              if (upload != null)
-                ClipOval(
-                  // Decoded no larger than the thumbnail needs, whatever the file.
-                  child: Image(
-                    image: ResizeImage(
-                      MemoryImage(upload.bytes),
-                      width:
-                          (112 * MediaQuery.devicePixelRatioOf(context)).ceil(),
-                      height:
-                          (112 * MediaQuery.devicePixelRatioOf(context)).ceil(),
-                      policy: ResizeImagePolicy.fit,
-                    ),
-                    width: 56,
-                    height: 56,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    semanticLabel: '新头像预览',
-                    errorBuilder: (_, __, ___) => Container(
-                      width: 56,
-                      height: 56,
-                      color: AppColors.inkSoft,
-                      child: Icon(Icons.broken_image_outlined,
-                          color: AppColors.textFaint),
-                    ),
-                  ),
-                )
-              else
-                AccountAvatar(avatarUrl: widget.avatarUrl, size: 56),
+              picture,
               const SizedBox(width: AppSpace.lg),
-              Expanded(
-                child: Text(
-                  upload == null
-                      ? '当前头像'
-                      : '新头像，保存后生效\n${upload.fileName} · ${_size(upload.bytes.length)}',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
+              Expanded(child: Text(caption, style: theme.textTheme.bodyMedium)),
             ],
           ),
         ),
         NativeFieldRow(controller: _c, name: 'facetype'),
-        if (_c.has('proicon'))
-          AppRow(
-            title: const Text('系统头像'),
-            value: systemAvatarValue(
-                _c.form.field('proicon'), _c.value('proicon')),
-            onTap: _chooseSystem,
-          ),
-        if (field != null)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AppRow(
-                icon: Icons.image_outlined,
-                title: Text(upload == null ? '上传图片' : '重新选择图片'),
-                value: _picking ? '正在读取…' : null,
-                onTap: _picking ? null : _pick,
-                trailing: upload == null
-                    ? null
-                    : IconButton(
-                        tooltip: '移除所选图片',
-                        onPressed: _clear,
-                        icon: const Icon(Icons.close),
-                      ),
-              ),
-              if (_problem != null || (limits ?? '').isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppSpace.lg, 0, AppSpace.lg, AppSpace.md),
-                  child: Semantics(
-                    liveRegion: _problem != null,
-                    child: Text(
-                      _problem ?? limits!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: _problem != null
-                            ? theme.colorScheme.error
-                            : AppColors.textMuted,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        if (more.isNotEmpty)
-          AppRow(
-            title: const Text('链接与尺寸'),
-            value: _more ? '收起' : '展开',
-            trailing: Icon(_more ? Icons.expand_less : Icons.expand_more,
-                color: AppColors.textFaint),
-            onTap: () => setState(() => _more = !_more),
-          ),
-        if (_more)
-          for (final name in more) NativeFieldRow(controller: _c, name: name),
+        ..._modeRows(mode),
       ],
     );
   }
+}
+
+extension on String {
+  String? get nullIfEmpty => isEmpty ? null : this;
 }
 
 /// The forum's own picture set, one native page at a time.
@@ -586,7 +770,7 @@ class _SystemAvatarSheetState extends State<_SystemAvatarSheet> {
             message: option.label.isEmpty ? option.value : option.label,
             child: InkWell(
               borderRadius: BorderRadius.circular(AppRadius.sm),
-              onTap: () => Navigator.of(context).pop(option.value),
+              onTap: () => Navigator.of(context).pop(option),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
