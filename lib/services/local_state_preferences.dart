@@ -1,20 +1,32 @@
+import 'dart:async';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalStatePreferences {
-  static Future<void> _pending = Future.value();
+  static Future<void>? _pending;
   static bool _needsReload = false;
 
   static Future<T> _run<T>(Future<T> Function(SharedPreferences) operation) {
-    final result = _pending.then((_) async {
-      final prefs = await SharedPreferences.getInstance();
-      if (_needsReload) {
-        await prefs.reload();
-        _needsReload = false;
+    final previous = _pending;
+    final tail = Completer<void>();
+    _pending = tail.future;
+    Future<T> run() async {
+      try {
+        if (previous != null) await previous;
+        final prefs = await SharedPreferences.getInstance();
+        if (_needsReload) {
+          await prefs.reload();
+          _needsReload = false;
+        }
+        return await operation(prefs);
+      } finally {
+        // An idle queue must not retain a completed Future's scheduling zone.
+        if (identical(_pending, tail.future)) _pending = null;
+        tail.complete();
       }
-      return operation(prefs);
-    });
-    _pending = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
-    return result;
+    }
+
+    return run();
   }
 
   static Future<T> read<T>(T Function(SharedPreferences) read) =>
