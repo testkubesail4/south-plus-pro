@@ -10,11 +10,12 @@ import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../history/browsing_history_screen.dart';
+import 'account_profile_edit_screen.dart';
 import 'blocking_settings_screen.dart';
+import 'forum_preferences_screen.dart';
 import 'forum_tasks_screen.dart';
 import 'settings_screen.dart';
 import 'user_profile_screen.dart';
-
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({
@@ -137,9 +138,8 @@ class _AccountScreenState extends State<AccountScreen> {
                           ? identity.systemName
                           : null,
                   avatarUrl: loggedIn ? identity?.avatarUrl : null,
-                  onTap: loggedIn
-                      ? () => _openProfile(UserProfileTab.home)
-                      : null,
+                  onTap:
+                      loggedIn ? () => _openProfile(UserProfileTab.home) : null,
                   action: loggedIn
                       ? null
                       : FilledButton.icon(
@@ -154,6 +154,26 @@ class _AccountScreenState extends State<AccountScreen> {
                 );
               },
             ),
+            if (loggedIn) ...[
+              const SizedBox(height: AppSpace.xl),
+              AppGroup(
+                children: [
+                  AppRow(
+                    icon: Icons.edit_outlined,
+                    title: const Text('编辑资料'),
+                    onTap: () => _push(AccountProfileEditScreen(
+                        repository: widget.repository)),
+                  ),
+                  AppRow(
+                    icon: Icons.tune_outlined,
+                    title: const Text('论坛偏好'),
+                    subtitle: const Text('短消息黑名单、好友和个人设置'),
+                    onTap: () => _push(
+                        ForumPreferencesScreen(repository: widget.repository)),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: AppSpace.xl),
             AppGroup(
               children: [
