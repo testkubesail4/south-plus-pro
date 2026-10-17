@@ -29,6 +29,36 @@ String _extension(String name) {
   return dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
 }
 
+/// An accept entry (MIME type or extension) in plain words; others unchanged.
+String acceptLabel(String entry) {
+  final e = entry.trim().toLowerCase();
+  if (e == 'image/*') return '图片';
+  final ext = e.startsWith('.')
+      ? e.substring(1)
+      : _imageTypes.entries
+          .where((t) => t.value == e)
+          .map((t) => t.key)
+          .firstOrNull;
+  return ext != null && _imageTypes.containsKey(ext)
+      ? (ext == 'jpeg' ? 'JPG' : ext.toUpperCase())
+      : entry.trim();
+}
+
+/// The system avatar row's value: the forum's own sentinel (an empty value or
+/// a `none` image) reads as unset, and a file name is never shown.
+String systemAvatarValue(ForumAccountField? field, String value) {
+  final v = value.trim();
+  final name = v.split('/').last;
+  final dot = name.lastIndexOf('.');
+  final stem = (dot < 0 ? name : name.substring(0, dot)).toLowerCase();
+  if (v.isEmpty || stem == 'none') return '未选择';
+  final label = field?.options
+      .where((o) => o.value == value && o.label.trim().isNotEmpty)
+      .map((o) => o.label.trim())
+      .firstOrNull;
+  return label ?? '已选择';
+}
+
 Future<ForumAccountUpload?> pickAvatarFile() async {
   final file = await openFile(acceptedTypeGroups: [
     XTypeGroup(
@@ -334,7 +364,10 @@ class _AvatarSectionState extends State<_AvatarSection> {
         : [
             if (nativeHintText(field) != null) nativeHintText(field)!,
             if (field.accept != null && field.accept!.trim().isNotEmpty)
-              '格式：${field.accept!.trim()}',
+              '支持格式：${{
+                for (final e in field.accept!.split(','))
+                  if (e.trim().isNotEmpty) acceptLabel(e)
+              }.join('、')}',
           ].join('；');
     return AppGroup(
       label: '头像',
@@ -388,7 +421,8 @@ class _AvatarSectionState extends State<_AvatarSection> {
         if (_c.has('proicon'))
           AppRow(
             title: const Text('系统头像'),
-            value: _c.value('proicon').isEmpty ? '未选择' : _c.value('proicon'),
+            value: systemAvatarValue(
+                _c.form.field('proicon'), _c.value('proicon')),
             onTap: _chooseSystem,
           ),
         if (field != null)

@@ -4,6 +4,7 @@ import 'package:south_plus_rewrite/features/thread/thread_render_models.dart';
 import 'package:south_plus_rewrite/features/thread/thread_rich_content.dart';
 import 'package:south_plus_rewrite/features/thread/thread_sale_box_view.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic fixtures only.
 const _path = 'job.php?action-buy-tid-1.html';
@@ -240,6 +241,56 @@ void main() {
       expect(find.text('购买失败：断网'), findsOneWidget);
       expect(find.text('重试'), findsOneWidget);
     });
+
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('the button label has room at text scale $scale',
+          (tester) async {
+        Widget app({required bool busy}) => MaterialApp(
+              theme: AppTheme.light,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  child: ThreadSaleBoxView(
+                    saleBox: _otherBox,
+                    isBuying: busy,
+                    onBuy: () {},
+                  ),
+                ),
+              ),
+            );
+
+        await tester.pumpWidget(app(busy: false));
+        final button = tester.getRect(find.byType(FilledButton));
+        final label = tester.getRect(find.text('购买查看'));
+        expect(button.height, greaterThanOrEqualTo(40));
+        // Room above and below the label, never glyphs touching the pill.
+        expect(label.top - button.top, greaterThanOrEqualTo(7.99));
+        expect(button.bottom - label.bottom, greaterThanOrEqualTo(7.99));
+        // The price and buyer pills grow with their text too.
+        for (final pill in ['2 SP币', '3 人购买']) {
+          final pillBox = find
+              .ancestor(
+                of: find.text(pill),
+                matching: find.byType(Container),
+              )
+              .first;
+          final text = tester.getRect(find.text(pill));
+          final box = tester.getRect(pillBox);
+          expect(text.top, greaterThanOrEqualTo(box.top));
+          expect(text.bottom, lessThanOrEqualTo(box.bottom));
+        }
+
+        // Busy: the same height, so the swap does not jitter.
+        await tester.pumpWidget(app(busy: true));
+        expect(tester.getRect(find.byType(FilledButton)).height, button.height);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
 
     testWidgets('a paid box can only refresh, never buy again', (tester) async {
       var buys = 0;
