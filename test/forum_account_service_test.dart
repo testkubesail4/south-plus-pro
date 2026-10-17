@@ -48,6 +48,42 @@ void main() {
   });
 
   test(
+      'native preference questions stay distinct from radio and select options',
+      () async {
+    // Sanitized native-preferences-rows.json structure contains no account values.
+    const nativeRows = '''
+<tr><td class="td1">选择默认使用的编辑器</td><td><input type="radio" name="editor"> 所见即所得 <input type="radio" name="editor"> code 模式</td></tr>
+<tr><td class="td1" width="35%">加我为好友时身份验证</td><td><input type="radio" name="friendcheck"> 允许任何人加我为好友<br><input type="radio" name="friendcheck"> 需要身份验证才能加我为好友<br><input type="radio" name="friendcheck"> 不允许任何人加我为好友</td></tr>
+<tr><td class="td1">文章列表每页个数(设置为0使用默认)</td><td><select name="p_num"><option>0</option><option>10</option><option>20</option><option>30</option></select></td></tr>
+''';
+    final wrappedRows = nativeRows
+        .replaceFirst('<input type="radio" name="editor"> 所见即所得',
+            '<label><input type="radio" name="editor"> 所见即所得</label>')
+        .replaceFirst('<input type="radio" name="friendcheck"> 允许任何人加我为好友',
+            '<label><input type="radio" name="friendcheck"> 允许任何人加我为好友</label>');
+    final legendRows = nativeRows
+        .replaceFirst('<td class="td1">选择默认使用的编辑器</td><td>',
+            '<td colspan="2"><fieldset><legend>选择默认使用的编辑器</legend>')
+        .replaceFirst('</td></tr>', '</fieldset></td></tr>');
+    for (final rows in [nativeRows, wrappedRows, legendRows]) {
+      final client = _Client()..responses.add('''
+<form method="post" action="profile.php?action=bbsset">
+<input type="hidden" name="verify" value="fixture"><input type="hidden" name="step" value="2">
+<table>$rows</table><textarea name="banidinfo"></textarea></form>
+''');
+      final form = await accountService(client).fetchForumPreferences();
+      expect(form.field('editor')!.label, '选择默认使用的编辑器');
+      expect(form.field('friendcheck')!.label, '加我为好友时身份验证');
+      expect(form.field('p_num')!.label, '文章列表每页个数(设置为0使用默认)');
+      expect(form.field('p_num')!.value, '0');
+      expect(form.field('editor')!.options.map((option) => option.label),
+          ['所见即所得', 'code 模式']);
+      expect(form.field('friendcheck')!.options.map((option) => option.label),
+          ['允许任何人加我为好友', '需要身份验证才能加我为好友', '不允许任何人加我为好友']);
+    }
+  });
+
+  test(
       'disabled last-checked radio wins native state without submitting an earlier checked value',
       () async {
     final html = preferences()

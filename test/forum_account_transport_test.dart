@@ -35,8 +35,13 @@ void main() {
       () async {
     String? body;
     ContentType? contentType;
+    int? contentLength;
+    String? transferEncoding;
     server.listen((request) async {
       contentType = request.headers.contentType;
+      contentLength = request.headers.contentLength;
+      transferEncoding =
+          request.headers.value(HttpHeaders.transferEncodingHeader);
       body = await utf8.decoder.bind(request).join();
       request.response.write('ok');
       await request.response.close();
@@ -48,6 +53,8 @@ void main() {
     ]);
     expect(contentType?.mimeType, 'application/x-www-form-urlencoded');
     expect(contentType?.charset, 'utf-8');
+    expect(contentLength, utf8.encode(body!).length);
+    expect(transferEncoding, isNull);
     expect(body,
         'msggroups%5B%5D=3&msggroups%5B%5D=7&prohonor=%E6%98%B5%E7%A7%B0+%26%2B%3D%0D%0A%E6%AC%A1%E8%A1%8C');
   });
@@ -58,10 +65,15 @@ void main() {
     var hits = 0;
     ContentType? contentType;
     String? injectedHeader;
+    int? contentLength;
+    String? transferEncoding;
     List<int>? received;
     server.listen((request) async {
       hits++;
       contentType = request.headers.contentType;
+      contentLength = request.headers.contentLength;
+      transferEncoding =
+          request.headers.value(HttpHeaders.transferEncodingHeader);
       injectedHeader = request.headers.value('x-injected');
       received = await request
           .fold<List<int>>([], (bytes, chunk) => bytes..addAll(chunk));
@@ -88,6 +100,8 @@ void main() {
     final boundary = contentType!.parameters['boundary']!;
     expect(boundary, isNotEmpty);
     expect(injectedHeader, isNull);
+    expect(contentLength, received!.length);
+    expect(transferEncoding, isNull);
     expect(received, [
       ...utf8.encode('--$boundary\r\nContent-Disposition: form-data; '
           'name="proemail"\r\n\r\nprivate-field-canary\r\n第二行\r\n'

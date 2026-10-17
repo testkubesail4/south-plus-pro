@@ -451,6 +451,26 @@ class ForumAccountParser {
 
   String _label(dom.Document document, dom.Element element,
       {bool nameFallback = true}) {
+    if (nameFallback) {
+      final question = _ancestor(element, 'tr')?.querySelector('td, th');
+      if (question != null &&
+          !_inside(element, question) &&
+          _clean(question.text).isNotEmpty) {
+        return _clean(question.text);
+      }
+      final fieldset = _ancestor(element, 'fieldset');
+      final legend = fieldset?.children
+          .where((child) => child.localName == 'legend')
+          .firstOrNull;
+      if (legend != null &&
+          _clean(legend.text).isNotEmpty &&
+          fieldset!
+              .querySelectorAll('input[name], select[name], textarea[name]')
+              .every((control) =>
+                  control.attributes['name'] == element.attributes['name'])) {
+        return _clean(legend.text);
+      }
+    }
     if (element.id.isNotEmpty) {
       for (final label in document.querySelectorAll('label[for]')) {
         if (label.attributes['for'] == element.id) return _clean(label.text);
