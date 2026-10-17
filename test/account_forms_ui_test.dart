@@ -214,6 +214,59 @@ void main() {
     expect(find.text('甲'), findsNothing);
   });
 
+  testWidgets('an unknown save outcome locks the form and offers 刷新',
+      (tester) async {
+    var saves = 0;
+    await _pump(tester,
+        load: () => _form(),
+        save: (_) async {
+          saves++;
+          throw const ForumRequestException(
+              ForumRequestKind.server, '表单请求返回了非预期状态，请刷新确认结果');
+        });
+    await tester.enterText(find.byType(TextField), 'new');
+    await tester.pump();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('提交结果未确认，请刷新核对。'), findsOneWidget);
+    expect(_save(tester).onPressed, isNull);
+    await tester.tap(find.text('刷新'));
+    await tester.pumpAndSettle();
+    // The forum still holds the old value: the edit stays, saving is open.
+    expect(find.text('提交后未能确认修改生效，请刷新核对'), findsOneWidget);
+    expect(_save(tester).onPressed, isNotNull);
+    expect(saves, 1);
+  });
+
+  testWidgets('a choice row titles itself with the field label, not the option',
+      (tester) async {
+    final form =
+        ForumAccountForm(kind: ForumAccountFormKind.preferences, fields: [
+      ForumAccountField(
+        name: 'q',
+        label: '好友',
+        type: 'radio',
+        values: const ['1'],
+        options: const [
+          ForumAccountOption(value: '1', label: '直接添加'),
+          ForumAccountOption(value: '2', label: '需要验证'),
+        ],
+      ),
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      home: NativeFormPage(
+        title: '测试',
+        sessionEpoch: ValueNotifier<int>(0),
+        load: () async => form,
+        save: (_, __, ___) async {},
+        builder: (context, c) => [NativeFieldRow(controller: c, name: 'q')],
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('好友'), findsOneWidget);
+    expect(find.text('直接添加'), findsOneWidget);
+  });
+
   testWidgets('a failed readback offers a read-only refresh, then saving works',
       (tester) async {
     var loads = 0;
