@@ -78,7 +78,7 @@ class ForumClient {
   final _ForumRequestPacer _pacer;
   Future<void>? _restoreFuture;
   // Every client shares ForumSessionStore's single persisted session key.
-  static Future<void> _cookieWrites = Future<void>.value();
+  static Future<void>? _cookieWrites;
   static int _cookieStoreGeneration = 0;
   int _cookieGeneration = 0;
 
@@ -728,11 +728,21 @@ class ForumClient {
   }
 
   Future<void> _writeCookies(Future<void> Function() write) {
-    // Session clears and subsequent logins must persist after any in-flight cookie save.
-    final pending = _cookieWrites.then((_) => write());
-    _cookieWrites =
-        pending.then<void>((_) {}, onError: (Object _, StackTrace __) {});
-    return pending;
+    final previous = _cookieWrites;
+    final tail = Completer<void>();
+    _cookieWrites = tail.future;
+    Future<void> run() async {
+      try {
+        if (previous != null) await previous;
+        await write();
+      } finally {
+        // An idle queue must not retain a completed Future's scheduling zone.
+        if (identical(_cookieWrites, tail.future)) _cookieWrites = null;
+        tail.complete();
+      }
+    }
+
+    return run();
   }
 
   bool get isLoggedIn {
