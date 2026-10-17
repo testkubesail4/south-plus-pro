@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'forum_network_config.dart';
@@ -17,6 +18,19 @@ class ForumAttachment {
   final File file;
   final String fileName;
   final String mimeType;
+}
+
+class ForumFormFile {
+  ForumFormFile({
+    required this.name,
+    required this.fileName,
+    required this.mimeType,
+    required Uint8List bytes,
+  }) : bytes = Uint8List.fromList(bytes).asUnmodifiableView();
+  final String name;
+  final String fileName;
+  final String mimeType;
+  final Uint8List bytes;
 }
 
 class AttachmentDownloadException implements Exception {
@@ -63,6 +77,10 @@ class ForumClient {
   final Map<String, ForumStoredCookie> _cookies = <String, ForumStoredCookie>{};
   final _ForumRequestPacer _pacer;
   Future<void>? _restoreFuture;
+  // Every client shares ForumSessionStore's single persisted session key.
+  static Future<void> _cookieWrites = Future<void>.value();
+  static int _cookieStoreGeneration = 0;
+  int _cookieGeneration = 0;
 
   Future<void> restoreCookies() {
     return _restoreFuture ??= _restoreCookies();
@@ -73,6 +91,15 @@ class ForumClient {
   }
 
   Future<String> getOnce(String path) => _readText('GET', path);
+
+  Future<String> getForm(String path,
+          {void Function()? requireCurrentSession,
+          bool followRedirects = true}) =>
+      _readText('GET', path,
+          requireCurrentSession: requireCurrentSession,
+          requireOk: true,
+          sensitiveAccount: true,
+          followRedirects: followRedirects);
 
   Future<Uint8List> getBytes(String path) {
     return _readBytes(path);
@@ -223,15 +250,105 @@ class ForumClient {
     return _readText('POST', path, form: form);
   }
 
+  Future<String> postForm(
+    String path,
+    List<MapEntry<String, String>> fields, {
+    bool multipart = false,
+    List<ForumFormFile> files = const [],
+    void Function()? requireCurrentSession,
+  }) async {
+    final uri = baseUri.resolve(path).removeFragment();
+    if (!_sameOrigin(uri)) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '不能向其他站点提交表单');
+    }
+    if (!multipart && files.isNotEmpty) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '文件需要使用 multipart 表单');
+    }
+    String normalize(String value) =>
+        value.replaceAll(RegExp(r'\r\n|\r|\n'), '\r\n');
+    final random = Random.secure();
+    final boundary =
+        'forum-${List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
+    final body = BytesBuilder(copy: false);
+    if (multipart) {
+      String quoted(String value) => value
+          .replaceAll('\r', '%0D')
+          .replaceAll('\n', '%0A')
+          .replaceAll('"', '%22');
+      void text(String value) => body.add(utf8.encode(value));
+      for (final field in fields) {
+        text('--$boundary\r\nContent-Disposition: form-data; '
+            'name="${quoted(field.key)}"\r\n\r\n${normalize(field.value)}\r\n');
+      }
+      for (final file in files) {
+        if (!RegExp(r'^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$')
+            .hasMatch(file.mimeType)) {
+          throw const ForumRequestException(
+              ForumRequestKind.invalidInput, '文件类型无效');
+        }
+        text('--$boundary\r\nContent-Disposition: form-data; '
+            'name="${quoted(file.name)}"; filename="${quoted(file.fileName)}"\r\n'
+            'Content-Type: ${file.mimeType}\r\n\r\n');
+        body.add(file.bytes);
+        text('\r\n');
+      }
+      text('--$boundary--\r\n');
+    } else {
+      body.add(utf8.encode(fields
+          .map((field) => '${Uri.encodeQueryComponent(normalize(field.key))}='
+              '${Uri.encodeQueryComponent(normalize(field.value))}')
+          .join('&')));
+    }
+    try {
+      final result = await _exchange('POST', uri,
+          body: body.takeBytes(),
+          contentType: multipart
+              ? ContentType('multipart', 'form-data',
+                  parameters: {'boundary': boundary})
+              : ContentType('application', 'x-www-form-urlencoded',
+                  charset: 'utf-8'),
+          requireCurrentSession: requireCurrentSession);
+      _throwForHttpStatus(result.status);
+      if (result.status != HttpStatus.ok) {
+        throw const ForumRequestException(
+            ForumRequestKind.server, '表单请求返回了非预期状态，请刷新确认结果');
+      }
+      final response = utf8.decode(result.bytes);
+      if (forumTextIsRateLimited(response)) {
+        throw const ForumRequestException(
+            ForumRequestKind.rateLimited, '请求过于频繁');
+      }
+      return response;
+    } on ForumRequestException {
+      rethrow;
+    } on IOException {
+      throw const ForumRequestException(
+          ForumRequestKind.network, '表单提交失败，请检查网络后刷新确认');
+    } on TimeoutException {
+      throw const ForumRequestException(
+          ForumRequestKind.network, '表单提交超时，请刷新确认结果');
+    }
+  }
+
   Future<String> _readText(
     String method,
     String path, {
     Map<String, String>? form,
     bool retryCooldown = false,
+    void Function()? requireCurrentSession,
+    bool requireOk = false,
+    bool sensitiveAccount = false,
+    bool followRedirects = true,
   }) async {
     final uri = baseUri.resolve(path).removeFragment();
     try {
-      final result = await _exchange(method, uri, form: form);
+      final result = await _exchange(method, uri,
+          form: form,
+          requireCurrentSession: requireCurrentSession,
+          sensitiveAccount: sensitiveAccount,
+          followRedirects: followRedirects);
       if (result.status >= 500) {
         throw const ForumRequestException(
           ForumRequestKind.server,
@@ -255,6 +372,10 @@ class ForumClient {
         return _readText(method, path, form: form);
       }
       _throwForHttpStatus(result.status);
+      if (requireOk && result.status != HttpStatus.ok) {
+        throw const ForumRequestException(
+            ForumRequestKind.server, '表单请求返回了非预期状态');
+      }
       if ((uri.path == '/message.php' || uri.path == '/sendemail.php') &&
           result.status != HttpStatus.ok) {
         throw ForumRequestException(
@@ -327,8 +448,17 @@ class ForumClient {
     bool sensitiveSearch = false,
     bool identityLookup = false,
     bool sensitiveBlocking = false,
+    bool sensitiveAccount = false,
+    bool followRedirects = true,
+    Uint8List? body,
+    ContentType? contentType,
+    void Function()? requireCurrentSession,
   }) async {
+    final storeGeneration = _cookieStoreGeneration;
     await restoreCookies();
+    requireCurrentSession?.call();
+    sensitiveAccount = sensitiveAccount || uri.path == '/profile.php';
+    final isAccount = sensitiveAccount;
     final startedAt = DateTime.now();
     final isPm = uri.path == '/message.php';
     identityLookup = identityLookup || uri.path == '/sendemail.php';
@@ -337,18 +467,24 @@ class ForumClient {
         (uri.path == '/pw_ajax.php' &&
             {'getblocklist', 'updateblocklist'}
                 .contains(uri.queryParameters['action']));
-    final tracePath = sensitiveBlocking
-        ? 'pw_ajax.php (blocking)'
-        : identityLookup
-            ? 'sendemail.php'
-            : isPm
-                ? 'message.php'
-                : sensitiveSearch
-                    ? 'search.php'
-                    : uri.toString();
+    final tracePath = isAccount
+        ? 'profile.php (account)'
+        : sensitiveBlocking
+            ? 'pw_ajax.php (blocking)'
+            : identityLookup
+                ? 'sendemail.php'
+                : isPm
+                    ? 'message.php'
+                    : sensitiveSearch
+                        ? 'search.php'
+                        : uri.toString();
     ForumTraceLogger.log(
       'HTTP',
-      isPm || sensitiveSearch || identityLookup || sensitiveBlocking
+      isAccount ||
+              isPm ||
+              sensitiveSearch ||
+              identityLookup ||
+              sensitiveBlocking
           ? '$method $tracePath'
           : method == 'POST'
               ? 'POST $uri form=${ForumTraceLogger.sanitizeForm(form ?? const {})}'
@@ -359,27 +495,47 @@ class ForumClient {
         : await _httpClient.getUrl(uri);
     request.followRedirects = false;
     if (method == 'POST') {
-      request.headers.contentType = ContentType(
-        'application',
-        'x-www-form-urlencoded',
-        charset: 'utf-8',
-      );
+      request.headers.contentType = contentType ??
+          ContentType(
+            'application',
+            'x-www-form-urlencoded',
+            charset: 'utf-8',
+          );
     }
     _applyCookies(request);
     final response = await _pacer.send(uri, () {
+      try {
+        requireCurrentSession?.call();
+      } catch (error) {
+        request.abort();
+        rethrow;
+      }
       if (method == 'POST') {
-        request.write(Uri(queryParameters: form ?? const {}).query);
+        if (body != null) {
+          request.add(body);
+        } else {
+          request.write(Uri(queryParameters: form ?? const {}).query);
+        }
       }
       return request.close();
     });
-    await _storeCookies(response, uri);
+    try {
+      requireCurrentSession?.call();
+      await _storeCookies(response, uri,
+          requireCurrentSession: requireCurrentSession,
+          storeGeneration: storeGeneration);
+      requireCurrentSession?.call();
+    } catch (_) {
+      await response.listen(null).cancel();
+      rethrow;
+    }
     if (_redirectStatuses.contains(response.statusCode)) {
       final location = response.headers.value(HttpHeaders.locationHeader);
       await response.drain<void>();
-      if (isPm) {
+      if (!followRedirects || isPm || (isAccount && method == 'POST')) {
         throw const ForumRequestException(
           ForumRequestKind.server,
-          '私讯请求不能自动跟随跳转',
+          '此提交不能自动跟随跳转，请刷新确认结果',
         );
       }
       final next =
@@ -390,7 +546,8 @@ class ForumClient {
           '重定向次数过多',
         );
       }
-      if ((identityLookup || sensitiveBlocking) && !_sameOrigin(next)) {
+      if ((isAccount || identityLookup || sensitiveBlocking) &&
+          !_sameOrigin(next)) {
         throw ForumRequestException(
           ForumRequestKind.server,
           sensitiveBlocking ? '屏蔽配置不能跳转到其他站点' : '登录名称查询跳转到不安全的地址',
@@ -414,18 +571,23 @@ class ForumClient {
         sensitiveSearch: sensitiveSearch,
         identityLookup: identityLookup,
         sensitiveBlocking: sensitiveBlocking,
+        sensitiveAccount: sensitiveAccount,
+        followRedirects: followRedirects,
+        requireCurrentSession: requireCurrentSession,
       );
     }
     final bytes = Uint8List.fromList(
       await response
           .fold<List<int>>(<int>[], (body, data) => body..addAll(data)),
     );
+    requireCurrentSession?.call();
     final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
     ForumTraceLogger.log(
       'HTTP',
       '$method $tracePath -> status=${response.statusCode} bytes=${bytes.length} elapsedMs=$elapsed',
     );
-    if (!isPm &&
+    if (!isAccount &&
+        !isPm &&
         !sensitiveSearch &&
         !identityLookup &&
         !sensitiveBlocking &&
@@ -467,17 +629,28 @@ class ForumClient {
   }
 
   Future<void> clearSession() async {
+    _cookieGeneration++;
+    _cookieStoreGeneration++;
     _cookies.clear();
-    await _sessionStore?.clear();
+    await _writeCookies(() async {
+      await _sessionStore?.clear();
+    });
   }
 
   Future<void> _restoreCookies() async {
-    final restored = await _sessionStore?.loadCookies();
-    if (restored == null || restored.isEmpty) return;
+    final generation = _cookieGeneration;
+    final storeGeneration = _cookieStoreGeneration;
+    Map<String, ForumStoredCookie>? restored;
+    await _writeCookies(() async {
+      restored = await _sessionStore?.loadCookies();
+    });
+    if (generation != _cookieGeneration ||
+        storeGeneration != _cookieStoreGeneration ||
+        restored == null ||
+        restored!.isEmpty) return;
     _cookies
       ..clear()
-      ..addAll(restored);
-    await _persistCookies();
+      ..addAll(restored!);
   }
 
   void _applyCookies(HttpClientRequest request) {
@@ -493,7 +666,11 @@ class ForumClient {
     );
   }
 
-  Future<void> _storeCookies(HttpClientResponse response, Uri origin) async {
+  Future<void> _storeCookies(HttpClientResponse response, Uri origin,
+      {void Function()? requireCurrentSession, int? storeGeneration}) async {
+    requireCurrentSession?.call();
+    if (storeGeneration != null && storeGeneration != _cookieStoreGeneration)
+      return;
     var changed = false;
     for (final header
         in response.headers[HttpHeaders.setCookieHeader] ?? const <String>[]) {
@@ -507,7 +684,10 @@ class ForumClient {
         changed = true;
       }
     }
-    if (changed) await _persistCookies();
+    if (changed)
+      await _persistCookies(
+          requireCurrentSession: requireCurrentSession,
+          storeGeneration: storeGeneration);
   }
 
   ForumStoredCookie? _parseCookie(String header, Uri origin) {
@@ -534,9 +714,25 @@ class ForumClient {
     return '${cookie.name};${cookie.domain ?? baseUri.host};${cookie.path ?? '/'}';
   }
 
-  Future<void> _persistCookies() async {
+  Future<void> _persistCookies(
+      {void Function()? requireCurrentSession, int? storeGeneration}) {
+    final generation = storeGeneration ?? _cookieStoreGeneration;
     _cookies.removeWhere((_, cookie) => cookie.isExpired);
-    await _sessionStore?.saveCookies(_cookies);
+    final snapshot = Map<String, ForumStoredCookie>.of(_cookies);
+    return _writeCookies(() async {
+      requireCurrentSession?.call();
+      if (generation != _cookieStoreGeneration) return;
+      await _sessionStore?.saveCookies(snapshot);
+      requireCurrentSession?.call();
+    });
+  }
+
+  Future<void> _writeCookies(Future<void> Function() write) {
+    // Session clears and subsequent logins must persist after any in-flight cookie save.
+    final pending = _cookieWrites.then((_) => write());
+    _cookieWrites =
+        pending.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return pending;
   }
 
   bool get isLoggedIn {
