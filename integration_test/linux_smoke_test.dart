@@ -114,6 +114,8 @@ void main() {
     );
     final color =
         (tester.widget<DecoratedBox>(bar).decoration as BoxDecoration).color!;
+    // The fixture's colour is opaque, so the bar must paint it fully.
+    expect(color.a, 1.0);
     expect(HSVColor.fromColor(color).hue, closeTo(300, 1));
     expect(contrast(color, AppColors.surface), greaterThanOrEqualTo(4.5));
     final rect = tester.getRect(bar);
