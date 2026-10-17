@@ -754,6 +754,9 @@ void main() {
     await tester.pumpWidget(const SouthPlusApp());
     await tester.pump();
     await tester.pump();
+    // The session restore and the first home request are paced, as in the
+    // boot test above; the home header is there once they have run.
+    await tester.pump(const Duration(seconds: 1));
     final scaler = MediaQuery.textScalerOf(tester.element(find.text('欢迎来到南+')));
     expect(scaler.scale(10), closeTo(10 * 1.5 * 1.15, 0.001));
     // Let the home page's paced request timer finish before teardown.
@@ -2650,16 +2653,26 @@ class _InfoProfileRepository extends ForumRepository {
         info: const [UserProfileField(label: '注册时间', value: '2020-01-01')],
         topics: const [
           UserListItem(
-              title: '合成主题一', url: 'read.php?tid-1.html', section: '茶馆',
-              date: '2026-10-10', author: 'sample', replies: 3),
+              title: '合成主题一',
+              url: 'read.php?tid-1.html',
+              section: '茶馆',
+              date: '2026-10-10',
+              author: 'sample',
+              replies: 3),
           UserListItem(
-              title: '合成主题二', url: 'read.php?tid-2.html', section: '茶馆',
-              date: '2026-10-11', author: 'sample'),
+              title: '合成主题二',
+              url: 'read.php?tid-2.html',
+              section: '茶馆',
+              date: '2026-10-11',
+              author: 'sample'),
         ],
         favorites: const [
           UserListItem(
-              title: '合成收藏', url: 'read.php?tid-3.html', section: '资源区',
-              date: '2026-10-12', author: 'peer'),
+              title: '合成收藏',
+              url: 'read.php?tid-3.html',
+              section: '资源区',
+              date: '2026-10-12',
+              author: 'peer'),
         ],
       );
 
