@@ -6,6 +6,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
+import 'package:south_plus_rewrite/features/common/forum_title_text.dart';
 import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
@@ -96,6 +97,31 @@ void main() {
     await screenshot('thread-smoke');
   });
 
+  double contrast(Color a, Color b) {
+    final x = a.computeLuminance(), y = b.computeLuminance();
+    return (x > y ? x + 0.05 : y + 0.05) / (x > y ? y + 0.05 : x + 0.05);
+  }
+
+  // The site's bold magenta: a bold title in the body colour, the magenta on
+  // a readable bar before it.
+  void expectHighlight(WidgetTester tester, Finder title) {
+    final style = tester.widget<Text>(title).style!;
+    expect(style.fontWeight, FontWeight.w700);
+    expect(style.color, AppColors.text);
+    final bar = find.descendant(
+      of: find.ancestor(of: title, matching: find.byType(ForumTitleText)),
+      matching: find.byType(DecoratedBox),
+    );
+    final color =
+        (tester.widget<DecoratedBox>(bar).decoration as BoxDecoration).color!;
+    expect(HSVColor.fromColor(color).hue, closeTo(300, 1));
+    expect(contrast(color, AppColors.surface), greaterThanOrEqualTo(4.5));
+    final rect = tester.getRect(bar);
+    expect(rect.width, greaterThan(0));
+    expect(rect.height, greaterThan(0));
+    expect(rect.right, lessThanOrEqualTo(tester.getRect(title).left));
+  }
+
   testWidgets('board highlights, stable portrait image and single-row composer',
       (tester) async {
     await tester.pumpWidget(app(() => BoardThreadListScreen(
@@ -108,16 +134,12 @@ void main() {
         )));
     final title = find.text('Fixture highlighted title');
     await waitFor(tester, title);
-    final style = tester.widget<Text>(title).style!;
-    expect(style.fontWeight, FontWeight.w800);
-    expect(HSVColor.fromColor(style.color!).hue, closeTo(300, 1));
+    expectHighlight(tester, title);
     await screenshot('board-highlight-light');
     await AppThemeController.setMode(ThemeMode.dark);
     await tester.pumpAndSettle();
     expect(Theme.of(tester.element(title)).brightness, Brightness.dark);
-    final darkStyle = tester.widget<Text>(title).style!;
-    expect(darkStyle.fontWeight, FontWeight.w800);
-    expect(HSVColor.fromColor(darkStyle.color!).hue, closeTo(300, 1));
+    expectHighlight(tester, title);
     await screenshot('board-highlight-dark');
     await AppThemeController.setMode(ThemeMode.light);
 
@@ -202,14 +224,18 @@ void main() {
             mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
         await screenshot(
             'home-${size.width.toInt()}x${size.height.toInt()}-${mode.name}');
+        // The page's vertical list holds the 速览 header and the sections;
+        // 'Fixture thread' sits in the quick lists' own scrollables.
         final scrollElement = tester.element(find
             .ancestor(
-              of: find.text('Fixture thread'),
+              of: find.text('速览'),
               matching: find.byType(Scrollable),
             )
             .first);
         final scrollable = find
             .byElementPredicate((element) => identical(element, scrollElement));
+        expect(tester.widget<Scrollable>(scrollable).axisDirection,
+            AxisDirection.down);
         await tester.scrollUntilVisible(find.text('Fixture section 3'), 300,
             scrollable: scrollable);
         if (find.text('Fixture board 3.3').evaluate().isEmpty) {
