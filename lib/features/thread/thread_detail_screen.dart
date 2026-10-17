@@ -27,6 +27,7 @@ import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
 import '../common/forum_pager.dart';
 import '../common/thread_row.dart' show AppTag;
+import '../common/user_note.dart';
 import '../profile/blocking_settings_screen.dart';
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
@@ -35,6 +36,8 @@ import 'thread_floor_actions.dart';
 import 'thread_page_end_card.dart';
 import 'thread_post_body.dart';
 import 'thread_render_models.dart';
+import 'thread_sale_box_view.dart'
+    show ThreadPurchaseScope, ThreadSaleBoxNotice;
 
 class ThreadDetailScreen extends StatefulWidget {
   const ThreadDetailScreen({
@@ -54,6 +57,13 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final _scrollController = ScrollController();
   final _replyKey = GlobalKey<ReplyComposerState>();
   final Set<String> _buyingSaleBoxes = <String>{};
+  // Sale box buy path -> what the last purchase attempt left inside the box.
+  Map<String, ThreadSaleBoxNotice> _saleBoxNotices = const {};
+  // Post key -> block paths a purchase unlocked (purchaseRevealPaths), and
+  // the reveals that already ran: a refresh or a scroll never replays one.
+  final _purchaseReveals = <String, Set<String>>{};
+  final _revealPlayed = <String>{};
+  late final _notes = UserNoteController(widget.repository);
   final Set<String> _loadingQuoteDrafts = <String>{};
   final Map<String, ThreadFavoriteState> _favoriteOverrides =
       <String, ThreadFavoriteState>{};
@@ -106,6 +116,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     ThreadPagingSettings.notifier.addListener(_onPagingSettingChanged);
     widget.repository.blocking.notifier.addListener(_onBlockingChanged);
     widget.repository.sessionEpoch.addListener(_onSessionChanged);
+    _notes.addListener(_onNotesChanged);
     _openAtSavedPosition();
   }
 
@@ -171,8 +182,15 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _anchorTarget = null;
     _morePages.clear();
     _revealedPosts.clear();
+    _purchaseReveals.clear();
+    _revealPlayed.clear();
+    _saleBoxNotices = const {};
     _resetDetailRenderState();
     _loadPage(1);
+  }
+
+  void _onNotesChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _refresh() async {
@@ -625,6 +643,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                   'thread-reply-${_replyStableIds[reply] ?? reply.floor ?? reply.author}',
                 ),
           reply: reply,
+          stableId: _replyStableIds[reply] ?? '',
           renderModel: _replyRenderModels[_replyStableIds[reply]] ??
               ThreadPostRenderModel.empty,
         );
@@ -693,6 +712,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     ThreadPagingSettings.notifier.removeListener(_onPagingSettingChanged);
     widget.repository.blocking.notifier.removeListener(_onBlockingChanged);
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
+    _notes.removeListener(_onNotesChanged);
+    _notes.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -702,8 +723,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     final blocking = repository.blocking;
     // Every write below belongs to the session this menu opened in.
     final epoch = repository.sessionEpoch.value;
-    bool sameSession() =>
-        mounted && repository.sessionEpoch.value == epoch;
+    bool sameSession() => mounted && repository.sessionEpoch.value == epoch;
     final signedIn = repository.isLoggedIn;
     if (signedIn) {
       // A fresh session may not know its own uid or rules yet (read-only).
@@ -734,6 +754,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         avatarUrl: avatarBlocked ? null : reply.authorAvatarUrl,
       ),
       canShowAuthorPosts: reply.authorPostsUrl != null,
+      canEditNote: uid != null,
+      hasNote: _notes.noteFor(uid) != null,
       block: ThreadFloorBlockState(
         userBlocked: userBlocked,
         avatarBlocked: avatarBlocked,
@@ -758,10 +780,18 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     switch (action) {
       case ThreadFloorAction.showAuthorPosts:
         await _showAuthorPosts(reply);
+      case ThreadFloorAction.editNote:
+        // The controller reloads itself on the store's revision.
+        await showUserNoteEditor(
+          context,
+          repository: repository,
+          uid: uid!,
+          name: reply.author,
+          note: _notes.noteFor(uid),
+        );
       case ThreadFloorAction.manageBlocking:
         await Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) =>
-              BlockingSettingsScreen(repository: widget.repository),
+          builder: (_) => BlockingSettingsScreen(repository: widget.repository),
         ));
       case ThreadFloorAction.blockUser:
         await _applyBlock(
@@ -883,7 +913,12 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   // Reveal choices belong to the account that made them.
   void _onSessionChanged() {
-    if (mounted) setState(_revealedPosts.clear);
+    if (!mounted) return;
+    // Another account's purchases are not this one's.
+    setState(() {
+      _revealedPosts.clear();
+      _saleBoxNotices = const {};
+    });
   }
 
   // Rules apply as they change, here or in 屏蔽配置; nothing is refetched.
@@ -911,27 +946,71 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         : null;
   }
 
-  Future<void> _refreshPurchasedPage(
+  String _openingPostKey() => 'opening:${_detail?.pagination.currentPage ?? 1}';
+
+  Map<String, ThreadPostRenderModel> _renderModelsByPostKey() => {
+        ..._replyRenderModels,
+        _openingPostKey(): _openingPostRenderModel,
+      };
+
+  /// Marks the content that unlocked [buyPath]'s box on the floor [postKey]
+  /// so only it fades in. Every other floor is left alone, and anything that
+  /// does not match exactly shows without the fade.
+  void _recordPurchaseReveals(
+    Map<String, ThreadPostRenderModel> before,
+    String? postKey,
+    String buyPath,
+  ) {
+    final old = postKey == null ? null : before[postKey];
+    final after = postKey == null ? null : _renderModelsByPostKey()[postKey];
+    if (old == null || after == null) return;
+    final paths = purchaseRevealPaths(old, after, buyPath: buyPath);
+    if (paths.isNotEmpty) _purchaseReveals[postKey!] = paths;
+  }
+
+  void _setSaleBoxNotice(String buyPath, ThreadSaleBoxNotice? notice) {
+    final next = Map.of(_saleBoxNotices);
+    if (notice == null) {
+      next.remove(buyPath);
+    } else {
+      next[buyPath] = notice;
+    }
+    _saleBoxNotices = Map.unmodifiable(next);
+  }
+
+  /// Loads [source]'s page again and installs it. True when the new page was
+  /// installed; false when it was superseded (another load, another session,
+  /// the page gone), in which case nothing changed.
+  Future<bool> _refreshPurchasedPage(
     ThreadDetail source,
     int runId, {
+    required int epoch,
     required String? floorId,
     required double? floorY,
+    required String? postKey,
+    required String buyPath,
   }) async {
+    final repository = widget.repository;
+    bool current() => mounted && repository.sessionEpoch.value == epoch;
     final page = source.pagination.currentPage;
     final refreshRun = (_purchaseRefreshRuns[page] ?? 0) + 1;
     _purchaseRefreshRuns[page] = refreshRun;
-    final updated = await widget.repository.fetchThreadDetail(
+    final updated = await repository.fetchThreadDetail(
       source.thread,
       page: page,
     );
-    if (!mounted || runId != _loadRunId ||
-        _purchaseRefreshRuns[page] != refreshRun) return;
+    if (!current() ||
+        runId != _loadRunId ||
+        _purchaseRefreshRuns[page] != refreshRun) {
+      return false;
+    }
     if (updated.pagination.currentPage != source.pagination.currentPage) {
       throw StateError('购买后的页面发生跳转，请手动刷新');
     }
-    final index = _morePages.indexWhere(
-        (detail) => detail.pagination.currentPage == page);
-    if (_detail?.pagination.currentPage != page && index < 0) return;
+    final index = _morePages
+        .indexWhere((detail) => detail.pagination.currentPage == page);
+    if (_detail?.pagination.currentPage != page && index < 0) return false;
+    final before = _renderModelsByPostKey();
     setState(() {
       if (index < 0) {
         _detail = updated;
@@ -941,11 +1020,16 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       }
       _compiledDetail = null;
       _recomputeDetailRenderState();
+      _recordPurchaseReveals(before, postKey, buyPath);
     });
     // Lazy row measurement can shift a floor even when scroll pixels stay put.
     await WidgetsBinding.instance.endOfFrame;
-    if (!mounted || runId != _loadRunId ||
-        _purchaseRefreshRuns[page] != refreshRun || floorY == null) return;
+    if (!current() ||
+        runId != _loadRunId ||
+        _purchaseRefreshRuns[page] != refreshRun ||
+        floorY == null) {
+      return true;
+    }
     final post = floorId == null
         ? updated
         : _replyStableIds.entries
@@ -962,34 +1046,105 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         ),
       );
     }
+    return true;
   }
 
-  Future<void> _handleBuySaleBox(ThreadSaleBox saleBox) async {
-    if (_buyingSaleBoxes.contains(saleBox.buyPath)) return;
+  /// The loaded page and floor holding the sale box [buyPath], if any.
+  ({ThreadDetail source, ThreadReply? reply, String? floorId, String? postKey})?
+      _locateSaleBox(String buyPath) {
     final source = [if (_detail != null) _detail!, ..._morePages]
         .where(
           (page) => [
             ...page.bodySaleBoxes,
             for (final reply in page.replies) ...reply.saleBoxes,
-          ].any((box) => box.buyPath == saleBox.buyPath),
+          ].any((box) => box.buyPath == buyPath),
         )
         .firstOrNull;
-    final boughtReply = source?.replies
-        .where(
-          (reply) =>
-              reply.saleBoxes.any((box) => box.buyPath == saleBox.buyPath),
-        )
+    if (source == null) return null;
+    final reply = source.replies
+        .where((reply) => reply.saleBoxes.any((box) => box.buyPath == buyPath))
         .firstOrNull;
-    final floorId = _replyStableIds[boughtReply];
-    final floorY = _postY(boughtReply ?? source);
+    final floorId = _replyStableIds[reply];
+    return (
+      source: source,
+      reply: reply,
+      floorId: floorId,
+      // The floor whose box this is; null when it cannot be named (no reveal).
+      postKey: reply == null ? _openingPostKey() : floorId,
+    );
+  }
+
+  /// Reads the page holding the box again, the only action left on a box that
+  /// was paid for or whose purchase is unconfirmed. Never buys.
+  Future<void> _refreshSaleBoxPage(String buyPath) async {
+    if (_buyingSaleBoxes.contains(buyPath)) return;
+    final located = _locateSaleBox(buyPath);
+    if (located == null) return;
+    final repository = widget.repository;
+    final epoch = repository.sessionEpoch.value;
     final runId = _loadRunId;
+    setState(() => _buyingSaleBoxes.add(buyPath));
+    try {
+      final applied = await _refreshPurchasedPage(
+        located.source,
+        runId,
+        epoch: epoch,
+        floorId: located.floorId,
+        floorY: _postY(located.reply ?? located.source),
+        postKey: located.postKey,
+        buyPath: buyPath,
+      );
+      final notice = _saleBoxNotices[buyPath];
+      if (applied &&
+          notice != null &&
+          _locateSaleBox(buyPath) != null &&
+          repository.sessionEpoch.value == epoch) {
+        // The fresh page still shows the box: say so, never offer a purchase.
+        setState(() => _setSaleBoxNotice(
+              buyPath,
+              ThreadSaleBoxNotice(
+                notice.unconfirmed
+                    ? '购买结果未确认，页面仍显示未购买。可稍后再刷新，或在网页端核对 SP 币记录'
+                    : '已购买，页面仍未更新。可稍后再刷新',
+                canRetry: false,
+                unconfirmed: notice.unconfirmed,
+              ),
+            ));
+      }
+    } catch (error) {
+      if (mounted && repository.sessionEpoch.value == epoch) {
+        _messenger.showSnackBar(
+          SnackBar(content: Text('页面刷新失败：$error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _buyingSaleBoxes.remove(buyPath));
+    }
+  }
+
+  Future<void> _handleBuySaleBox(ThreadSaleBox saleBox) async {
+    final buyPath = saleBox.buyPath;
+    // One purchase per box: not while one is running, and never again once it
+    // went through (or its outcome is unknown) while the box stays locked.
+    if (_buyingSaleBoxes.contains(buyPath) ||
+        _saleBoxNotices[buyPath]?.canRetry == false) {
+      return;
+    }
+    final located = _locateSaleBox(buyPath);
+    final floorY =
+        located == null ? null : _postY(located.reply ?? located.source);
+    final runId = _loadRunId;
+    final repository = widget.repository;
+    final epoch = repository.sessionEpoch.value;
+    bool sameSession() => mounted && repository.sessionEpoch.value == epoch;
     setState(() {
-      _buyingSaleBoxes.add(saleBox.buyPath);
+      _buyingSaleBoxes.add(buyPath);
+      _setSaleBoxNotice(buyPath, null);
     });
 
     try {
-      final result = await widget.repository.buySaleBox(saleBox);
-      if (!mounted) return;
+      final result = await repository.buySaleBox(saleBox);
+      if (!sameSession()) return;
       _messenger.showSnackBar(
         SnackBar(
           content: Text(
@@ -997,31 +1152,59 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           ),
         ),
       );
-      if (result.success && source != null && runId == _loadRunId) {
-        try {
-          await _refreshPurchasedPage(
-            source,
-            runId,
-            floorId: floorId,
-            floorY: floorY,
-          );
-        } catch (error) {
-          if (!mounted) return;
-          _messenger.showSnackBar(
-            SnackBar(content: Text('购买成功，页面刷新失败：$error')),
-          );
-        }
+      if (!result.success) {
+        setState(() => _setSaleBoxNotice(
+              buyPath,
+              ThreadSaleBoxNotice(result.message, canRetry: true),
+            ));
+        return;
+      }
+      // Paid: recorded before anything else can supersede or fail, so the
+      // box can never offer the purchase again.
+      setState(() => _setSaleBoxNotice(
+            buyPath,
+            const ThreadSaleBoxNotice(
+              '已购买，页面尚未更新，请刷新页面',
+              canRetry: false,
+            ),
+          ));
+      if (located == null || runId != _loadRunId) return;
+      try {
+        await _refreshPurchasedPage(
+          located.source,
+          runId,
+          epoch: epoch,
+          floorId: located.floorId,
+          floorY: floorY,
+          postKey: located.postKey,
+          buyPath: buyPath,
+        );
+      } catch (error) {
+        if (!sameSession()) return;
+        _messenger.showSnackBar(
+          SnackBar(content: Text('购买成功，页面刷新失败：$error')),
+        );
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!sameSession()) return;
+      // The request may have gone through: the box stays locked to buying.
+      setState(() => _setSaleBoxNotice(
+            buyPath,
+            ThreadSaleBoxNotice(
+              '购买结果未确认：$error，请刷新页面核对',
+              canRetry: false,
+              unconfirmed: true,
+            ),
+          ));
       _messenger.showSnackBar(
         SnackBar(content: Text('购买失败：$error')),
       );
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _buyingSaleBoxes.remove(saleBox.buyPath);
-      });
+      if (mounted) {
+        setState(() {
+          _buyingSaleBoxes.remove(buyPath);
+        });
+      }
     }
   }
 
@@ -1150,9 +1333,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   Future<void> _share() async {
     final thread = _detail?.thread;
-    final url = thread == null
-        ? null
-        : widget.repository.threadShareUrl(thread);
+    final url =
+        thread == null ? null : widget.repository.threadShareUrl(thread);
     if (thread == null || url == null) return;
     try {
       final opened =
@@ -1181,15 +1363,18 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           entries: _detailEntries,
           loading: _loading,
           onlyOriginalPosterActive: _onlyOriginalPosterActive,
-          authorFilterName: _authorFilterActive
-              ? _authorFilterName ?? '该作者'
-              : null,
+          authorFilterName:
+              _authorFilterActive ? _authorFilterName ?? '该作者' : null,
           visibleFloorCount: _visibleFloorCount,
           favorite: detail.favorite == null
               ? null
               : _effectiveFavorite(detail.favorite!),
           favoriteBusy: _favoriteBusy,
           buyingSaleBoxes: _buyingSaleBoxes,
+          saleBoxNotices: _saleBoxNotices,
+          purchaseReveals: _purchaseReveals,
+          revealPlayed: _revealPlayed,
+          noteFor: _notes.noteFor,
           loadingQuoteDrafts: _loadingQuoteDrafts,
           scrollController: _scrollController,
           onRefresh: _refresh,
@@ -1200,6 +1385,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           onClearAuthorFilter: _clearAuthorFilter,
           onQuoteReply: _quoteReply,
           onBuySaleBox: _handleBuySaleBox,
+          onRefreshSaleBox: _refreshSaleBoxPage,
           onReplyToFloor: _replyToFloor,
           onPageSelected: _goToPage,
           autoLoadNextPage: _autoLoadNextPage,
@@ -1420,6 +1606,10 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.favorite,
     required this.favoriteBusy,
     required this.buyingSaleBoxes,
+    required this.saleBoxNotices,
+    required this.purchaseReveals,
+    required this.revealPlayed,
+    required this.noteFor,
     required this.loadingQuoteDrafts,
     required this.scrollController,
     required this.onRefresh,
@@ -1429,6 +1619,7 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.onClearAuthorFilter,
     required this.onQuoteReply,
     required this.onBuySaleBox,
+    required this.onRefreshSaleBox,
     required this.onReplyToFloor,
     required this.onFloorMore,
     required this.onPageSelected,
@@ -1454,6 +1645,10 @@ class _ThreadDetailContent extends StatelessWidget {
   final ThreadFavorite? favorite;
   final bool favoriteBusy;
   final Set<String> buyingSaleBoxes;
+  final Map<String, ThreadSaleBoxNotice> saleBoxNotices;
+  final Map<String, Set<String>> purchaseReveals;
+  final Set<String> revealPlayed;
+  final String? Function(String? uid) noteFor;
   final Set<String> loadingQuoteDrafts;
   final ScrollController scrollController;
   final Future<void> Function() onRefresh;
@@ -1463,6 +1658,7 @@ class _ThreadDetailContent extends StatelessWidget {
   final VoidCallback onClearAuthorFilter;
   final Future<void> Function(ThreadReply) onQuoteReply;
   final ValueChanged<ThreadSaleBox> onBuySaleBox;
+  final Future<void> Function(String buyPath) onRefreshSaleBox;
   final ValueChanged<String> onReplyToFloor;
   final void Function(ThreadReply post, bool openingPost) onFloorMore;
   final ValueChanged<int> onPageSelected;
@@ -1527,6 +1723,15 @@ class _ThreadDetailContent extends StatelessWidget {
       },
     );
   }
+
+  Widget _purchaseScope(String postKey, Widget child) => ThreadPurchaseScope(
+        postKey: postKey,
+        revealPaths: purchaseReveals[postKey] ?? const <String>{},
+        played: revealPlayed,
+        notices: saleBoxNotices,
+        onRefreshBox: onRefreshSaleBox,
+        child: child,
+      );
 
   Widget _buildEntry(
     BuildContext context,
@@ -1627,7 +1832,10 @@ class _ThreadDetailContent extends StatelessWidget {
             onAuthorTap: detail.thread.authorUrl == null
                 ? null
                 : () => onAuthorTap(detail.thread.authorUrl!),
-            postedAt: detail.thread.lastPost,
+            // Never the list's last-reply time: empty beats a wrong time.
+            postedAt: detail.bodyPostedAt,
+            personalSignature: detail.personalSignature,
+            note: noteFor(detail.thread.authorUid),
             floor: '楼主',
             onReply: () => onReplyToFloor(
               detail.bodyReplyTitle ?? 'Re:${detail.thread.title}',
@@ -1637,19 +1845,21 @@ class _ThreadDetailContent extends StatelessWidget {
             onQuote: () => onQuoteReply(openingPost),
             onMore: () => onFloorMore(openingPost, true),
             threadActions: actions,
-            child: ThreadPostBody(
-              content: detail.body,
-              segments: detail.bodySegments,
-              renderModel: openingEntry.renderModel,
-              quote: null,
-              images: detail.bodyImages,
-              links: detail.bodyLinks,
-              saleBoxes: detail.bodySaleBoxes,
-              saleBoxesFirst: detail.bodySaleBoxesFirst,
-              buyingSaleBoxes: buyingSaleBoxes,
-              onBuySaleBox: onBuySaleBox,
-              onOpenLink: onOpenLink,
-            ),
+            child: _purchaseScope(
+                'opening:${detail.pagination.currentPage}',
+                ThreadPostBody(
+                  content: detail.body,
+                  segments: detail.bodySegments,
+                  renderModel: openingEntry.renderModel,
+                  quote: null,
+                  images: detail.bodyImages,
+                  links: detail.bodyLinks,
+                  saleBoxes: detail.bodySaleBoxes,
+                  saleBoxesFirst: detail.bodySaleBoxesFirst,
+                  buyingSaleBoxes: buyingSaleBoxes,
+                  onBuySaleBox: onBuySaleBox,
+                  onOpenLink: onOpenLink,
+                )),
           ),
         );
       case ThreadDetailListEntryType.authorFilterChip:
@@ -1705,40 +1915,44 @@ class _ThreadDetailContent extends StatelessWidget {
           key: entry.key,
           post: reply,
           child: _FloorCard(
-              grouped: true,
-              author: reply.author,
-              avatarUrl: rules.isAvatarBlocked(reply.authorUid)
-                  ? null
-                  : reply.authorAvatarUrl,
-              onAuthorTap: reply.authorUrl == null
-                  ? null
-                  : () => onAuthorTap(reply.authorUrl!),
-              postedAt: reply.postedAt,
-              floor: reply.floor,
-              onReply: () => onReplyToFloor(
-                reply.replyTitle ?? 'Re:${detail.thread.title}',
-              ),
-              onMore: () => onFloorMore(reply, false),
-              // By account, never by display name; no uid, no tag.
-              byOriginalPoster: detail.thread.authorUid != null &&
-                  reply.authorUid == detail.thread.authorUid,
-              quoteLoading: reply.quoteUrl != null &&
-                  loadingQuoteDrafts.contains(reply.quoteUrl),
-              onQuote: () => onQuoteReply(reply),
-              child: ThreadPostBody(
-                content: reply.content,
-                segments: reply.segments,
-                renderModel: replyEntry.renderModel,
-                quote: reply.quote,
-                images: reply.images,
-                links: reply.links,
-                saleBoxes: reply.saleBoxes,
-                saleBoxesFirst: reply.saleBoxesFirst,
-                buyingSaleBoxes: buyingSaleBoxes,
-                onBuySaleBox: onBuySaleBox,
-                onOpenLink: onOpenLink,
-              ),
+            grouped: true,
+            author: reply.author,
+            avatarUrl: rules.isAvatarBlocked(reply.authorUid)
+                ? null
+                : reply.authorAvatarUrl,
+            onAuthorTap: reply.authorUrl == null
+                ? null
+                : () => onAuthorTap(reply.authorUrl!),
+            postedAt: reply.postedAt,
+            personalSignature: reply.personalSignature,
+            note: noteFor(reply.authorUid),
+            floor: reply.floor,
+            onReply: () => onReplyToFloor(
+              reply.replyTitle ?? 'Re:${detail.thread.title}',
             ),
+            onMore: () => onFloorMore(reply, false),
+            // By account, never by display name; no uid, no tag.
+            byOriginalPoster: detail.thread.authorUid != null &&
+                reply.authorUid == detail.thread.authorUid,
+            quoteLoading: reply.quoteUrl != null &&
+                loadingQuoteDrafts.contains(reply.quoteUrl),
+            onQuote: () => onQuoteReply(reply),
+            child: _purchaseScope(
+                replyEntry.stableId,
+                ThreadPostBody(
+                  content: reply.content,
+                  segments: reply.segments,
+                  renderModel: replyEntry.renderModel,
+                  quote: reply.quote,
+                  images: reply.images,
+                  links: reply.links,
+                  saleBoxes: reply.saleBoxes,
+                  saleBoxesFirst: reply.saleBoxesFirst,
+                  buyingSaleBoxes: buyingSaleBoxes,
+                  onBuySaleBox: onBuySaleBox,
+                  onOpenLink: onOpenLink,
+                )),
+          ),
         );
       case ThreadDetailListEntryType.pageDivider:
         final page = (entry as ThreadDetailPageDividerEntry).page;
@@ -1994,6 +2208,8 @@ class _FloorCard extends StatelessWidget {
     this.avatarUrl,
     this.onAuthorTap,
     this.postedAt,
+    this.personalSignature,
+    this.note,
     this.floor,
     this.onReply,
     this.quoteLoading = false,
@@ -2013,6 +2229,12 @@ class _FloorCard extends StatelessWidget {
   final String? avatarUrl;
   final VoidCallback? onAuthorTap;
   final String? postedAt;
+
+  /// The author's short signature from the post header (never a footer).
+  final String? personalSignature;
+
+  /// The reader's local note on the author.
+  final String? note;
   final String? floor;
   final VoidCallback? onReply;
   final bool quoteLoading;
@@ -2034,30 +2256,34 @@ class _FloorCard extends StatelessWidget {
       onMore: onMore,
       quoteLoading: quoteLoading,
     );
+    final trimmedSignature = personalSignature?.trim();
+    final signature = trimmedSignature == null || trimmedSignature.isEmpty
+        ? null
+        : trimmedSignature;
     final meta = [
       if (postedAt != null && postedAt!.isNotEmpty) postedAt!,
       if (floor != null && floor!.isNotEmpty && !isOpeningPost) floor!,
     ].join(' · ');
     final content = Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpace.lg,
-          AppSpace.lg,
-          AppSpace.sm,
-          AppSpace.xs,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (title != null) ...[
-              Padding(
-                padding: const EdgeInsets.only(right: AppSpace.sm),
-                child: _ThreadTitle(title!),
-              ),
-              const SizedBox(height: AppSpace.lg),
-            ],
-            _AuthorTapArea(
-              onTap: onAuthorTap,
-              child: Row(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.lg,
+        AppSpace.lg,
+        AppSpace.sm,
+        AppSpace.xs,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (title != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: AppSpace.sm),
+              child: _ThreadTitle(title!),
+            ),
+            const SizedBox(height: AppSpace.lg),
+          ],
+          _AuthorTapArea(
+            onTap: onAuthorTap,
+            child: Row(
               children: [
                 _AuthorAvatar(
                   author: author,
@@ -2070,40 +2296,37 @@ class _FloorCard extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Flexible(child: _FloorAuthorName(author: author)),
+                          Flexible(
+                            child: _FloorAuthorName(author: author, note: note),
+                          ),
                           if (isOpeningPost || byOriginalPoster) ...[
                             const SizedBox(width: AppSpace.sm),
                             const AppTag('楼主', accent: true),
                           ],
                         ],
                       ),
-                      if (meta.isNotEmpty) ...[
+                      if (meta.isNotEmpty || signature != null) ...[
                         const SizedBox(height: AppSpace.xs),
-                        Text(
-                          meta,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
+                        _FloorMeta(meta: meta, signature: signature),
                       ],
                     ],
                   ),
                 ),
               ],
             ),
-            ),
-            const SizedBox(height: AppSpace.md),
-            Padding(
-              padding: const EdgeInsets.only(right: AppSpace.sm),
-              child: RepaintBoundary(child: child),
-            ),
-            if (threadActions case final actions?) ...[
-              const SizedBox(height: AppSpace.sm),
-              actions.withFooter(footer),
-            ] else if (onReply != null || onQuote != null || onMore != null)
-              footer,
-          ],
-        ),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpace.sm),
+            child: RepaintBoundary(child: child),
+          ),
+          if (threadActions case final actions?) ...[
+            const SizedBox(height: AppSpace.sm),
+            actions.withFooter(footer),
+          ] else if (onReply != null || onQuote != null || onMore != null)
+            footer,
+        ],
+      ),
     );
     return grouped ? content : Card(child: content);
   }
@@ -2241,20 +2464,59 @@ class _AvatarFallback extends StatelessWidget {
 }
 
 class _FloorAuthorName extends StatelessWidget {
-  const _FloorAuthorName({required this.author});
+  const _FloorAuthorName({required this.author, this.note});
 
   final String author;
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      author,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
+    return UserNoteLabel(
+      name: author,
+      note: note,
       style: Theme.of(context)
           .textTheme
           .titleSmall
           ?.copyWith(fontWeight: FontWeight.w600),
+    );
+  }
+}
+
+/// Time and floor, whole at any text scale, then the signature: on the same
+/// line when it fits, else on its own line, ellipsized there. The signature
+/// never truncates or pushes the time.
+class _FloorMeta extends StatelessWidget {
+  const _FloorMeta({required this.meta, required this.signature});
+
+  final String meta;
+  final String? signature;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodySmall;
+    final signature = this.signature;
+    return LayoutBuilder(
+      builder: (context, box) => Wrap(
+        spacing: AppSpace.sm,
+        runSpacing: 2,
+        children: [
+          if (meta.isNotEmpty) Text(meta, style: style),
+          if (signature != null && signature.isNotEmpty)
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: box.maxWidth),
+              child: Semantics(
+                label: '签名 $signature',
+                excludeSemantics: true,
+                child: Text(
+                  signature,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: style,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -2402,8 +2664,7 @@ class _ThreadHeaderActions extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (row != null) Align(alignment: Alignment.centerLeft, child: row),
-        if (row != null && nav != null)
-          const Divider(height: AppSpace.lg),
+        if (row != null && nav != null) const Divider(height: AppSpace.lg),
         if (nav != null) nav,
       ],
     );
@@ -2423,8 +2684,7 @@ class _SplitRow extends MultiChildRenderObjectWidget {
 class _RenderSplitRow extends RenderBox
     with
         ContainerRenderObjectMixin<RenderBox, MultiChildLayoutParentData>,
-        RenderBoxContainerDefaultsMixin<RenderBox,
-            MultiChildLayoutParentData> {
+        RenderBoxContainerDefaultsMixin<RenderBox, MultiChildLayoutParentData> {
   @override
   void setupParentData(RenderBox child) {
     if (child.parentData is! MultiChildLayoutParentData) {
@@ -2672,7 +2932,8 @@ class _ThreadPageBar extends StatelessWidget {
                       ),
                     ),
                   ),
-                  arrow('下一页', Icons.chevron_right, current + 1, current < total),
+                  arrow(
+                      '下一页', Icons.chevron_right, current + 1, current < total),
                 ],
               ),
             ),

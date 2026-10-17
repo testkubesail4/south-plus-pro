@@ -1,7 +1,132 @@
+import 'package:flutter/foundation.dart' show mapEquals, setEquals;
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../theme/app_theme.dart';
+
+/// What a purchase left inside a sale box. [canRetry] is false once the
+/// purchase went through but the page could not be refreshed: buying again
+/// would charge twice.
+class ThreadSaleBoxNotice {
+  const ThreadSaleBoxNotice(
+    this.message, {
+    required this.canRetry,
+    this.unconfirmed = false,
+  });
+
+  final String message;
+  final bool canRetry;
+
+  /// The request failed with no answer, so the purchase may have gone through.
+  /// The box never offers another purchase; leaving the page resets it.
+  final bool unconfirmed;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ThreadSaleBoxNotice &&
+      other.message == message &&
+      other.canRetry == canRetry &&
+      other.unconfirmed == unconfirmed;
+
+  @override
+  int get hashCode => Object.hash(message, canRetry, unconfirmed);
+}
+
+/// The purchase state of one post, for the sale boxes and revealed blocks
+/// anywhere below it.
+class ThreadPurchaseScope extends InheritedWidget {
+  const ThreadPurchaseScope({
+    super.key,
+    required this.postKey,
+    required this.revealPaths,
+    required this.played,
+    required this.notices,
+    this.onRefreshBox,
+    required super.child,
+  });
+
+  /// Names the post across refreshes, e.g. its stable floor id.
+  final String postKey;
+
+  /// Block index paths that replaced a sale box (purchaseRevealPaths).
+  final Set<String> revealPaths;
+
+  /// Reveals that already ran, shared by the screen: a block that scrolled
+  /// away and back, or a refreshed page, never plays again.
+  final Set<String> played;
+
+  /// Sale box buy path to its notice.
+  final Map<String, ThreadSaleBoxNotice> notices;
+
+  /// Reads the page holding that box again: the one action left on a box
+  /// that was paid for. Never buys.
+  final Future<void> Function(String buyPath)? onRefreshBox;
+
+  static ThreadPurchaseScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ThreadPurchaseScope>();
+
+  @override
+  bool updateShouldNotify(ThreadPurchaseScope old) =>
+      postKey != old.postKey ||
+      !setEquals(revealPaths, old.revealPaths) ||
+      !mapEquals(notices, old.notices);
+}
+
+/// Fades in content that a purchase unlocked. The block is laid out at its
+/// final size from the first frame, so nothing around it moves; only its own
+/// opacity changes. Plays once per [id]: not when animations are disabled,
+/// nor when [played] already has it (a refresh, or scrolling away and back).
+class ThreadPurchaseReveal extends StatefulWidget {
+  const ThreadPurchaseReveal({
+    super.key,
+    required this.id,
+    required this.played,
+    required this.child,
+  });
+
+  final String id;
+  final Set<String> played;
+  final Widget child;
+
+  @override
+  State<ThreadPurchaseReveal> createState() => _ThreadPurchaseRevealState();
+}
+
+class _ThreadPurchaseRevealState extends State<ThreadPurchaseReveal>
+    with SingleTickerProviderStateMixin {
+  late final _controller =
+      AnimationController(vsync: this, duration: AppMotion.medium);
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    final instant = widget.played.contains(widget.id) ||
+        MediaQuery.disableAnimationsOf(context);
+    widget.played.add(widget.id);
+    if (instant) {
+      _controller.value = 1;
+    } else {
+      _controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller.drive(CurveTween(curve: AppMotion.enter)),
+      child: widget.child,
+    );
+  }
+}
 
 class ThreadSaleBoxView extends StatelessWidget {
   const ThreadSaleBoxView({
@@ -19,6 +144,9 @@ class ThreadSaleBoxView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasMeta = saleBox.price != null || saleBox.buyers != null;
+    final purchase = ThreadPurchaseScope.maybeOf(context);
+    final notice = purchase?.notices[saleBox.buyPath];
+    final bought = notice != null && !notice.canRetry;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -97,7 +225,14 @@ class ThreadSaleBoxView extends StatelessWidget {
                 width: double.infinity,
                 child: SelectionContainer.disabled(
                   child: FilledButton(
-                    onPressed: isBuying ? null : onBuy,
+                    onPressed: isBuying
+                        ? null
+                        : bought
+                            ? (purchase?.onRefreshBox == null
+                                ? null
+                                : () =>
+                                    purchase!.onRefreshBox!(saleBox.buyPath))
+                            : onBuy,
                     child: isBuying
                         ? SizedBox(
                             width: 18,
@@ -108,10 +243,25 @@ class ThreadSaleBoxView extends StatelessWidget {
                               color: AppColors.textMuted,
                             ),
                           )
-                        : const Text('购买查看'),
+                        : Text(
+                            bought ? '刷新页面' : (notice == null ? '购买查看' : '重试'),
+                          ),
                   ),
                 ),
               ),
+              if (notice != null) ...[
+                const SizedBox(height: 8),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    notice.message,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: bought ? AppColors.text : theme.colorScheme.error,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

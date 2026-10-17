@@ -4,6 +4,7 @@ import '../../theme/app_theme.dart';
 
 enum ThreadFloorAction {
   showAuthorPosts,
+  editNote,
   blockContent,
   blockUser,
   blockAvatar,
@@ -115,6 +116,10 @@ Future<ThreadFloorAction?> showThreadFloorActions(
   required Widget avatar,
   required bool canShowAuthorPosts,
 
+  /// The local note on the author; editing needs the author's uid.
+  bool canEditNote = false,
+  bool hasNote = false,
+
   /// Null hides the 屏蔽 group, e.g. while the rules are unavailable.
   required ThreadFloorBlockState? block,
 }) {
@@ -129,14 +134,15 @@ Future<ThreadFloorAction?> showThreadFloorActions(
         String title,
         String subtitle, {
         bool enabled = true,
-      }) => ListTile(
-        enabled: enabled,
-        leading: Icon(icon, size: 20, color: AppColors.textMuted),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        minVerticalPadding: 10,
-        onTap: () => Navigator.of(context).pop(action),
-      );
+      }) =>
+          ListTile(
+            enabled: enabled,
+            leading: Icon(icon, size: 20, color: AppColors.textMuted),
+            title: Text(title),
+            subtitle: Text(subtitle),
+            minVerticalPadding: 10,
+            onTap: () => Navigator.of(context).pop(action),
+          );
       final nativeNote = block == null || block.canBlockUser
           ? null
           : block.userBlockUnavailableReason;
@@ -170,61 +176,69 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                   '只看该作者',
                   '只显示 TA 在本帖的楼层',
                 ),
-              if (block != null) ...[
-              if (canShowAuthorPosts)
-                Divider(
-                height: 17,
-                indent: 16,
-                endIndent: 16,
-                color: AppColors.border.withValues(alpha: 0.6),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '屏蔽',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.textMuted,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size(48, 48),
-                      ),
-                      onPressed: () => Navigator.of(context)
-                          .pop(ThreadFloorAction.manageBlocking),
-                      child: const Text('管理'),
-                    ),
-                  ],
+              if (canEditNote)
+                item(
+                  ThreadFloorAction.editNote,
+                  Icons.edit_note_outlined,
+                  hasNote ? '修改备注' : '添加备注',
+                  '仅本机',
                 ),
-              ),
-              item(
-                ThreadFloorAction.blockContent,
-                Icons.comments_disabled_outlined,
-                block.contentBlocked ? '取消屏蔽内容' : '屏蔽内容',
-                block.canBlockContent
-                    ? '仅本机 · 隐藏内容相同的楼层'
-                    : block.contentBlockUnavailableReason ?? '此楼没有可匹配的文字',
-                enabled: block.canBlockContent,
-              ),
-              item(
-                ThreadFloorAction.blockUser,
-                Icons.person_off_outlined,
-                block.userBlocked ? '取消屏蔽此人' : '屏蔽此人',
-                nativeNote ?? '同步南+屏蔽配置 · 隐藏 TA 的主题与回复',
-                enabled: block.canBlockUser,
-              ),
-              item(
-                ThreadFloorAction.blockAvatar,
-                Icons.hide_image_outlined,
-                block.avatarBlocked ? '取消屏蔽头像' : '屏蔽头像',
-                nativeNote ?? '同步南+屏蔽配置 · 只隐藏 TA 的头像',
-                enabled: block.canBlockUser,
-              ),
+              if (block != null) ...[
+                if (canShowAuthorPosts)
+                  Divider(
+                    height: 17,
+                    indent: 16,
+                    endIndent: 16,
+                    color: AppColors.border.withValues(alpha: 0.6),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '屏蔽',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColors.textMuted,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                        ),
+                        onPressed: () => Navigator.of(context)
+                            .pop(ThreadFloorAction.manageBlocking),
+                        child: const Text('管理'),
+                      ),
+                    ],
+                  ),
+                ),
+                item(
+                  ThreadFloorAction.blockContent,
+                  Icons.comments_disabled_outlined,
+                  block.contentBlocked ? '取消屏蔽内容' : '屏蔽内容',
+                  block.canBlockContent
+                      ? '仅本机 · 隐藏内容相同的楼层'
+                      : block.contentBlockUnavailableReason ?? '此楼没有可匹配的文字',
+                  enabled: block.canBlockContent,
+                ),
+                item(
+                  ThreadFloorAction.blockUser,
+                  Icons.person_off_outlined,
+                  block.userBlocked ? '取消屏蔽此人' : '屏蔽此人',
+                  nativeNote ?? '同步南+屏蔽配置 · 隐藏 TA 的主题与回复',
+                  enabled: block.canBlockUser,
+                ),
+                item(
+                  ThreadFloorAction.blockAvatar,
+                  Icons.hide_image_outlined,
+                  block.avatarBlocked ? '取消屏蔽头像' : '屏蔽头像',
+                  nativeNote ?? '同步南+屏蔽配置 · 只隐藏 TA 的头像',
+                  enabled: block.canBlockUser,
+                ),
               ],
             ],
           ),

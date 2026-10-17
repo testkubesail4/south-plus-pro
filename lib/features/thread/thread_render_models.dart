@@ -449,6 +449,234 @@ bool _appendDownloadAwareTextBlocks({
   return true;
 }
 
+/// Index paths ("2", "3/0") of the blocks in [after] that a purchase of the
+/// sale box [buyPath] unlocked in [before]: the paid content, which is the
+/// second quote after the header that took the box's place.
+///
+/// Strict on purpose: the box must be the only one with that buy path, gone
+/// from [after], and every other block of the post (and every container on the
+/// way to the box) must be semantically unchanged. Anything else (the author
+/// edited the post meanwhile, a different shape, a box inside a table cell)
+/// returns empty and the content simply appears without the reveal.
+Set<String> purchaseRevealPaths(
+  ThreadPostRenderModel before,
+  ThreadPostRenderModel after, {
+  required String buyPath,
+}) {
+  if (_countSaleBoxes(before.blocks, buyPath) != 1 ||
+      _countSaleBoxes(after.blocks, buyPath) != 0) {
+    return const <String>{};
+  }
+  return _revealIn(before.blocks, after.blocks, '', buyPath);
+}
+
+Set<String> _revealIn(
+  List<ThreadRenderBlock> before,
+  List<ThreadRenderBlock> after,
+  String prefix,
+  String buyPath,
+) {
+  const none = <String>{};
+  final boxAt = before.indexWhere(
+    (b) => b is ThreadSaleBoxRenderBlock && b.saleBox.buyPath == buyPath,
+  );
+  if (boxAt >= 0) {
+    final tail = before.length - boxAt - 1;
+    final spanEnd = after.length - tail;
+    if (spanEnd < boxAt) return none;
+    for (var k = 0; k < boxAt; k++) {
+      if (!_sameBlock(before[k], after[k])) return none;
+    }
+    for (var k = 0; k < tail; k++) {
+      if (!_sameBlock(before[boxAt + 1 + k], after[spanEnd + k])) return none;
+    }
+    final span = after.sublist(boxAt, spanEnd);
+    // The native header (it states the box's own price) and then the paid
+    // box, both quotes. Two ordinary quotes are not proof: skip the fade.
+    // Only the paid box is revealed.
+    final price = (before[boxAt] as ThreadSaleBoxRenderBlock).saleBox.price;
+    if (price != null &&
+        span.length == 2 &&
+        span[0] is ThreadQuoteRenderBlock &&
+        span[1] is ThreadQuoteRenderBlock &&
+        _plainText((span[0] as ThreadQuoteRenderBlock).renderModel)
+            .contains('售价${price}SP币')) {
+      return {'$prefix${boxAt + 1}'};
+    }
+    return none;
+  }
+  if (before.length != after.length) return none;
+  Set<String>? found;
+  for (var k = 0; k < before.length; k++) {
+    if (_countSaleBoxes([before[k]], buyPath) == 0) {
+      if (!_sameBlock(before[k], after[k])) return none;
+      continue;
+    }
+    if (found != null) return none;
+    found = _revealInContainer(before[k], after[k], '$prefix$k/', buyPath);
+  }
+  return found ?? none;
+}
+
+Set<String> _revealInContainer(
+  ThreadRenderBlock before,
+  ThreadRenderBlock after,
+  String prefix,
+  String buyPath,
+) {
+  const none = <String>{};
+  switch ((before, after)) {
+    case (final ThreadBlockRenderBlock b, final ThreadBlockRenderBlock a):
+      if (b.alignment != a.alignment) return none;
+      return _revealIn(
+          b.renderModel.blocks, a.renderModel.blocks, prefix, buyPath);
+    case (final ThreadQuoteRenderBlock b, final ThreadQuoteRenderBlock a):
+      return _revealIn(
+          b.renderModel.blocks, a.renderModel.blocks, prefix, buyPath);
+    case (final ThreadListRenderBlock b, final ThreadListRenderBlock a):
+      if (b.isOrdered != a.isOrdered ||
+          b.listStyle != a.listStyle ||
+          b.items.length != a.items.length) {
+        return none;
+      }
+      Set<String>? found;
+      for (var k = 0; k < b.items.length; k++) {
+        if (_countSaleBoxes(b.items[k].blocks, buyPath) == 0) {
+          if (!_sameModel(b.items[k], a.items[k])) return none;
+          continue;
+        }
+        if (found != null) return none;
+        found = _revealIn(
+          b.items[k].blocks,
+          a.items[k].blocks,
+          '$prefix$k/',
+          buyPath,
+        );
+      }
+      return found ?? none;
+    default:
+      // shortcut: a box inside a table cell appears without the reveal.
+      return none;
+  }
+}
+
+/// The visible words of [model] without whitespace.
+String _plainText(ThreadPostRenderModel model) {
+  final out = StringBuffer();
+  void walk(List<ThreadRenderBlock> blocks) {
+    for (final block in blocks) {
+      switch (block) {
+        case ThreadTextRenderBlock(:final text):
+          out.write(text);
+        case ThreadLinkRenderBlock(:final text):
+          out.write(text);
+        case ThreadQuoteRenderBlock(:final renderModel):
+          walk(renderModel.blocks);
+        case ThreadBlockRenderBlock(:final renderModel):
+          walk(renderModel.blocks);
+        default:
+          break;
+      }
+    }
+  }
+
+  walk(model.blocks);
+  return out.toString().replaceAll(RegExp(r'\s+'), '');
+}
+
+int _countSaleBoxes(List<ThreadRenderBlock> blocks, String buyPath) {
+  var count = 0;
+  for (final block in blocks) {
+    switch (block) {
+      case ThreadSaleBoxRenderBlock(:final saleBox):
+        if (saleBox.buyPath == buyPath) count++;
+      case ThreadQuoteRenderBlock(:final renderModel):
+        count += _countSaleBoxes(renderModel.blocks, buyPath);
+      case ThreadBlockRenderBlock(:final renderModel):
+        count += _countSaleBoxes(renderModel.blocks, buyPath);
+      case ThreadListRenderBlock(:final items):
+        for (final item in items) {
+          count += _countSaleBoxes(item.blocks, buyPath);
+        }
+      case ThreadTableRenderBlock(:final rows):
+        for (final row in rows) {
+          for (final cell in row) {
+            count += _countSaleBoxes(cell.renderModel.blocks, buyPath);
+          }
+        }
+      default:
+        break;
+    }
+  }
+  return count;
+}
+
+bool _sameModel(ThreadPostRenderModel a, ThreadPostRenderModel b) {
+  if (a.blocks.length != b.blocks.length) return false;
+  for (var i = 0; i < a.blocks.length; i++) {
+    if (!_sameBlock(a.blocks[i], b.blocks[i])) return false;
+  }
+  return true;
+}
+
+/// Same content, not just the same kind. A sale box is the same box when its
+/// buy path is (the buyer count moves between loads).
+bool _sameBlock(ThreadRenderBlock a, ThreadRenderBlock b) {
+  return switch (a) {
+    final ThreadTextRenderBlock x =>
+      b is ThreadTextRenderBlock && x.text == b.text && x.style == b.style,
+    final ThreadLinkRenderBlock x => b is ThreadLinkRenderBlock &&
+        x.text == b.text &&
+        x.url == b.url &&
+        x.style == b.style,
+    final ThreadDownloadLinkRenderBlock x =>
+      b is ThreadDownloadLinkRenderBlock &&
+          x.label == b.label &&
+          x.url == b.url,
+    final ThreadImageRenderBlock x => b is ThreadImageRenderBlock &&
+        x.image.url == b.image.url &&
+        x.image.alt == b.image.alt &&
+        x.href == b.href,
+    final ThreadEmojiRenderBlock x => b is ThreadEmojiRenderBlock &&
+        x.url == b.url &&
+        x.alt == b.alt &&
+        x.href == b.href,
+    final ThreadQuoteRenderBlock x =>
+      b is ThreadQuoteRenderBlock && _sameModel(x.renderModel, b.renderModel),
+    final ThreadSaleBoxRenderBlock x =>
+      b is ThreadSaleBoxRenderBlock && x.saleBox.buyPath == b.saleBox.buyPath,
+    final ThreadBlockRenderBlock x => b is ThreadBlockRenderBlock &&
+        x.alignment == b.alignment &&
+        _sameModel(x.renderModel, b.renderModel),
+    final ThreadCodeRenderBlock x =>
+      b is ThreadCodeRenderBlock && x.text == b.text,
+    final ThreadListRenderBlock x => b is ThreadListRenderBlock &&
+        x.isOrdered == b.isOrdered &&
+        x.listStyle == b.listStyle &&
+        x.items.length == b.items.length &&
+        [
+          for (var i = 0; i < x.items.length; i++)
+            _sameModel(x.items[i], b.items[i]),
+        ].every((same) => same),
+    final ThreadTableRenderBlock x => b is ThreadTableRenderBlock &&
+        x.rows.length == b.rows.length &&
+        [
+          for (var r = 0; r < x.rows.length; r++)
+            x.rows[r].length == b.rows[r].length &&
+                [
+                  for (var c = 0; c < x.rows[r].length; c++)
+                    x.rows[r][c].isHeader == b.rows[r][c].isHeader &&
+                        _sameModel(
+                          x.rows[r][c].renderModel,
+                          b.rows[r][c].renderModel,
+                        ),
+                ].every((same) => same),
+        ].every((same) => same),
+    final ThreadMediaRenderBlock x =>
+      b is ThreadMediaRenderBlock && x.url == b.url && x.label == b.label,
+  };
+}
+
 enum ThreadDetailListEntryType {
   topSpacing,
   pagination,
@@ -539,10 +767,14 @@ class ThreadDetailReplyEntry extends ThreadDetailListEntry {
   const ThreadDetailReplyEntry({
     required this.reply,
     required this.renderModel,
+    this.stableId = '',
     Key? key,
   }) : super(ThreadDetailListEntryType.reply, key: key);
 
   final ThreadReply reply;
+
+  /// The floor's id across refreshes (see [threadReplyStableId]).
+  final String stableId;
   final ThreadPostRenderModel renderModel;
 }
 
