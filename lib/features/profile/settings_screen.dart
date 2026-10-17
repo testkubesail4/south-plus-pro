@@ -6,6 +6,7 @@ import '../../services/external_link_launcher.dart';
 import '../../services/forum_network_setup_store.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_text_size_settings.dart';
+import '../../services/home_reading_preferences.dart';
 import '../../services/image_loading_settings.dart';
 import '../../services/thread_paging_settings.dart';
 import '../../services/update_checker.dart';
@@ -13,6 +14,7 @@ import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
+import 'forum_preferences_screen.dart';
 import 'network_settings_screen.dart';
 import 'network_setup_flow_screen.dart';
 
@@ -37,6 +39,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late Future<ImageLoadMode> _imageMode = ImageLoadingSettings.loadMode();
   late Future<PackageInfo> _packageInfo = widget.packageInfoLoader();
+  late Future<HomeReadingPreferences> _homeReading = _loadHomeReading();
   bool _clearingCache = false;
   bool _checkingUpdate = false;
 
@@ -55,6 +58,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SnackBar(content: Text('$error')),
       );
     }
+  }
+
+  Future<HomeReadingPreferences> _loadHomeReading() =>
+      HomeReadingPreferences.load(
+          account: widget.repository.localPreferenceAccount);
+
+  Future<void> _chooseQuickRows(int current) async {
+    final account = widget.repository.localPreferenceAccount;
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
+                child: Text('速览显示行数',
+                    style: Theme.of(context).textTheme.titleMedium),
+              ),
+              for (var rows = 3; rows <= 8; rows++)
+                AppRow(
+                  title: Text('$rows 行'),
+                  selected: rows == current,
+                  onTap: () => Navigator.of(context).pop(rows),
+                ),
+              const SizedBox(height: AppSpace.sm),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (chosen == null || chosen == current) return;
+    await HomeReadingPreferences.saveQuickRowCount(chosen, account: account);
+    if (!mounted) return;
+    setState(() => _homeReading = _loadHomeReading());
   }
 
   Future<void> _setImageMode(ImageLoadMode mode) async {
@@ -309,6 +352,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
+                    FutureBuilder<HomeReadingPreferences>(
+                      future: _homeReading,
+                      builder: (context, snapshot) {
+                        final rows = snapshot.data?.quickRowCount ?? 8;
+                        return AppRow(
+                          icon: Icons.view_list_outlined,
+                          title: const Text('速览显示行数'),
+                          value: '$rows 行',
+                          onTap: snapshot.hasData
+                              ? () => _chooseQuickRows(rows)
+                              : null,
+                        );
+                      },
+                    ),
                     AppRow(
                       icon: Icons.cleaning_services_outlined,
                       title: const Text('清理图片缓存'),
@@ -318,6 +375,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
+                if (widget.repository.isLoggedIn) ...[
+                  const SizedBox(height: AppSpace.xl),
+                  AppGroup(
+                    label: '账号',
+                    children: [
+                      AppRow(
+                        icon: Icons.tune_outlined,
+                        title: const Text('论坛偏好'),
+                        subtitle: const Text('短消息黑名单、好友和个人设置'),
+                        onTap: () =>
+                            Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => ForumPreferencesScreen(
+                              repository: widget.repository),
+                        )),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: AppSpace.xl),
                 AppGroup(
                   label: '网络',

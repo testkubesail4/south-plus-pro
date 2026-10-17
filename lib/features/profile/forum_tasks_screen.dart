@@ -21,6 +21,63 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
   late Future<List<ForumTask>> _future = _load();
   final Set<String> _runningIds = {};
   var _quickClaiming = false;
+  Map<String, ForumTaskState> _states = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    widget.repository.sessionEpoch.addListener(_onSessionChanged);
+    if (widget.repository.isLoggedIn) _loadStates();
+  }
+
+  @override
+  void dispose() {
+    widget.repository.sessionEpoch.removeListener(_onSessionChanged);
+    super.dispose();
+  }
+
+  /// Another account or network: nothing remembered applies, ask again.
+  void _onSessionChanged() {
+    if (!mounted) return;
+    setState(() {
+      _states = const {};
+      _runningIds.clear();
+      _future = _load();
+    });
+    if (widget.repository.isLoggedIn) _loadStates();
+  }
+
+  /// The remembered snapshot shows at once as a placeholder; the forum's own
+  /// answer replaces it on every entry.
+  Future<void> _loadStates() async {
+    final repository = widget.repository;
+    try {
+      final cached = await repository.loadCachedForumTaskSnapshot();
+      if (mounted && cached != null) {
+        setState(() => _states = {for (final s in cached.tasks) s.name: s});
+      }
+      final fresh = await repository.refreshForumTaskSnapshot();
+      if (mounted) {
+        setState(() => _states = {for (final s in fresh.tasks) s.name: s});
+      }
+    } catch (_) {
+      // Without a state a card says so instead of guessing.
+    }
+  }
+
+  /// Claimed: the forum shows the cooldown, or it offers no action on a new
+  /// task and the remembered state says the reward was taken. A task the
+  /// forum offers now is never overridden by the memory.
+  ForumTaskState? _claimedState(ForumTask task) {
+    final state = _states[task.name];
+    if (task.isCoolingDown) return state;
+    return _status == ForumTaskStatus.available &&
+            !task.canRun &&
+            state != null &&
+            state.isDoneToday
+        ? state
+        : null;
+  }
 
   Future<List<ForumTask>> _load() {
     return widget.repository.fetchForumTasks(_status);
@@ -104,67 +161,83 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
         child: LayoutBuilder(builder: (context, constraints) {
           final gutter = appGutter(constraints.maxWidth, AppWidths.form);
           return Column(
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 12),
-              child: _TaskHeader(
-                status: _status,
-                onStatusChanged: _setStatus,
-                quickClaiming: _quickClaiming,
-                onQuickClaim: _quickClaimRewards,
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 12),
+                child: _TaskHeader(
+                  status: _status,
+                  onStatusChanged: _setStatus,
+                  quickClaiming: _quickClaiming,
+                  onQuickClaim: _quickClaimRewards,
+                ),
               ),
-            ),
-            Expanded(
-              child: FutureBuilder<List<ForumTask>>(
-                future: _future,
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return AsyncErrorView(
-                      title: '任务加载失败',
-                      message: '${snapshot.error}',
-                      onRetry: _refresh,
-                    );
-                  }
-                  if (!snapshot.hasData) {
-                    return const ThreadListSkeleton(itemCount: 4);
-                  }
+              Expanded(
+                child: FutureBuilder<List<ForumTask>>(
+                  future: _future,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return AsyncErrorView(
+                        title: '任务加载失败',
+                        message: '${snapshot.error}',
+                        onRetry: _refresh,
+                      );
+                    }
+                    if (!snapshot.hasData) {
+                      return const ThreadListSkeleton(itemCount: 4);
+                    }
 
-                  final tasks = snapshot.data!;
-                  return RefreshIndicator(
-                    color: AppColors.brand,
-                    onRefresh: _refresh,
-                    child: tasks.isEmpty
-                        ? ListView(
-                            padding: EdgeInsets.fromLTRB(gutter, 24, gutter, 28),
-                            children: [
-                              EmptyStateView(
-                                title: _emptyTitle(_status),
-                                message: _emptyMessage(_status),
-                                icon: Icons.task_alt_outlined,
-                              ),
-                            ],
-                          )
-                        : ListView.separated(
-                            padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 28),
-                            itemCount: tasks.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final task = tasks[index];
-                              return _TaskCard(
-                                task: task,
-                                running: task.id != null &&
-                                    _runningIds.contains(task.id),
-                                onRun:
-                                    task.canRun ? () => _runTask(task) : null,
-                              );
-                            },
-                          ),
-                  );
-                },
+                    final tasks = snapshot.data!;
+                    return RefreshIndicator(
+                      color: AppColors.brand,
+                      onRefresh: _refresh,
+                      child: tasks.isEmpty
+                          ? ListView(
+                              padding:
+                                  EdgeInsets.fromLTRB(gutter, 24, gutter, 28),
+                              children: [
+                                EmptyStateView(
+                                  title: _emptyTitle(_status),
+                                  message: _emptyMessage(_status),
+                                  icon: Icons.task_alt_outlined,
+                                ),
+                              ],
+                            )
+                          : ListView.separated(
+                              padding:
+                                  EdgeInsets.fromLTRB(gutter, 0, gutter, 28),
+                              itemCount: tasks.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 10),
+                              itemBuilder: (context, index) {
+                                final task = tasks[index];
+                                final state = _claimedState(task);
+                                final claimed =
+                                    task.isCoolingDown || state != null;
+                                final hours = (task.cooldownThreshold ??
+                                        state?.cooldownThreshold)
+                                    ?.inHours;
+                                return _TaskCard(
+                                  task: task,
+                                  running: task.id != null &&
+                                      _runningIds.contains(task.id),
+                                  onRun: task.canRun && !claimed
+                                      ? () => _runTask(task)
+                                      : null,
+                                  claimed: claimed,
+                                  thresholdHours: hours,
+                                  stateUnknown:
+                                      _status == ForumTaskStatus.available &&
+                                          !claimed &&
+                                          !task.canRun,
+                                  onRefreshState: _refresh,
+                                );
+                              },
+                            ),
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
           );
         }),
       ),
@@ -271,11 +344,22 @@ class _TaskCard extends StatelessWidget {
     required this.task,
     required this.running,
     required this.onRun,
+    this.claimed = false,
+    this.thresholdHours,
+    this.stateUnknown = false,
+    this.onRefreshState,
   });
 
   final ForumTask task;
   final bool running;
   final VoidCallback? onRun;
+
+  /// The reward was taken this cycle; the forum only states the cooldown
+  /// threshold, so no countdown is shown.
+  final bool claimed;
+  final int? thresholdHours;
+  final bool stateUnknown;
+  final VoidCallback? onRefreshState;
 
   @override
   Widget build(BuildContext context) {
@@ -297,8 +381,9 @@ class _TaskCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Icon(
-                  _statusIcon(task.status),
-                  color: _statusColor(task.status),
+                  claimed ? Icons.verified_outlined : _statusIcon(task.status),
+                  color:
+                      claimed ? AppColors.success : _statusColor(task.status),
                 ),
               ),
               const SizedBox(width: 12),
@@ -327,6 +412,13 @@ class _TaskCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (claimed)
+                const _TaskPill(
+                    icon: Icons.check_circle_outline,
+                    label: '已领取',
+                    success: true),
+              if (stateUnknown)
+                const _TaskPill(icon: Icons.help_outline, label: '状态未知'),
               if (task.reward != null)
                 _TaskPill(icon: Icons.toll_outlined, label: task.reward!),
               if (task.endsAt != null)
@@ -351,11 +443,38 @@ class _TaskCard extends StatelessWidget {
               ),
             ),
           ],
+          if (claimed && thresholdHours != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              '上次领取未超过 $thresholdHours 小时',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (stateUnknown)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: onRefreshState,
+                icon: const Icon(Icons.refresh),
+                label: const Text('刷新状态'),
+              ),
+            ),
           if (task.completedAt != null) ...[
             const SizedBox(height: 10),
             Text(
               '完成时间 ${task.completedAt}',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (claimed && task.canRun) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: null,
+                icon: const Icon(Icons.check),
+                label: const Text('已领取'),
+              ),
             ),
           ],
           if (onRun != null) ...[
@@ -391,30 +510,38 @@ class _TaskCard extends StatelessWidget {
 }
 
 class _TaskPill extends StatelessWidget {
-  const _TaskPill({required this.icon, required this.label});
+  const _TaskPill({
+    required this.icon,
+    required this.label,
+    this.success = false,
+  });
 
   final IconData icon;
   final String label;
+  final bool success;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.inkSoft,
+        color: success ? AppColors.successSoft : AppColors.inkSoft,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: AppColors.textMuted),
+          Icon(icon,
+              size: 14,
+              color: success ? AppColors.success : AppColors.textMuted),
           const SizedBox(width: 5),
-          Text(
-            label,
-            style: Theme.of(context)
-                .textTheme
-                .labelMedium
-                ?.copyWith(color: AppColors.textMuted),
+          Flexible(
+            child: Text(
+              label,
+              // The icon carries the colour; the text keeps AA contrast.
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: success ? AppColors.text : AppColors.textMuted),
+            ),
           ),
         ],
       ),
