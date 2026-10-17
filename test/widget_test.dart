@@ -18,6 +18,8 @@ import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
 import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
+import 'package:south_plus_rewrite/features/common/thread_row.dart';
+import 'package:south_plus_rewrite/features/common/grouped_list.dart';
 import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/history/browsing_history_screen.dart';
@@ -981,6 +983,28 @@ void main() {
 
     final label = tester.renderObject<RenderParagraph>(find.text('注册时间'));
     expect(label.size.height, lessThan(label.text.style!.fontSize! * 2 * 2));
+  });
+
+  testWidgets('profile lists are thread rows in one group', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: UserProfileScreen(
+          userUrl: 'u.php', repository: _InfoProfileRepository()),
+    ));
+    await tester.pumpAndSettle();
+    Finder inRows(Finder f) =>
+        find.descendant(of: find.byType(ForumThreadRow), matching: f);
+
+    await tester.tap(find.text('主题'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ForumThreadRow), findsNWidgets(2));
+    expect(find.byType(AppGroup), findsOneWidget);
+    expect(inRows(find.text('茶馆 · 2026-10-10 · 3 回复')), findsOneWidget);
+    // Every topic is the owner's own: no name on each row.
+    expect(inRows(find.textContaining('sample')), findsNothing);
+
+    await tester.tap(find.text('收藏'));
+    await tester.pumpAndSettle();
+    expect(inRows(find.text('资源区 · peer · 2026-10-12')), findsOneWidget);
   });
 
   testWidgets('profile uses cached overview while refreshing fresh data',
@@ -2624,6 +2648,19 @@ class _InfoProfileRepository extends ForumRepository {
         name: 'sample',
         url: url,
         info: const [UserProfileField(label: '注册时间', value: '2020-01-01')],
+        topics: const [
+          UserListItem(
+              title: '合成主题一', url: 'read.php?tid-1.html', section: '茶馆',
+              date: '2026-10-10', author: 'sample', replies: 3),
+          UserListItem(
+              title: '合成主题二', url: 'read.php?tid-2.html', section: '茶馆',
+              date: '2026-10-11', author: 'sample'),
+        ],
+        favorites: const [
+          UserListItem(
+              title: '合成收藏', url: 'read.php?tid-3.html', section: '资源区',
+              date: '2026-10-12', author: 'peer'),
+        ],
       );
 
   @override

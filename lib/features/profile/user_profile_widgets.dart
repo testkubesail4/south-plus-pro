@@ -531,44 +531,58 @@ class _ItemList extends StatelessWidget {
     required this.items,
     required this.emptyText,
     required this.repository,
+    this.showAuthor = false,
   });
 
   final List<UserListItem> items;
   final String emptyText;
   final ForumRepository repository;
 
+  /// Off where every item is the profile owner's own (主题, 回复).
+  final bool showAuthor;
+
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
       return _EmptyList(text: emptyText);
     }
-    return ListView.separated(
+    // One grouped surface of shared thread rows (D§8).
+    return ListView(
       padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
-      itemCount: items.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return _ThreadLikeTile(
-          item: item,
-          repository: repository,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => ThreadDetailScreen(
-                thread: ForumThread(
-                  title: item.title,
-                  url: item.url,
-                  replies: item.replies ?? 0,
-                  section: item.section ?? '用户中心',
-                  author: item.author,
-                  authorUrl: item.authorUrl,
-                  lastPost: item.date,
+      children: [
+        AppGroup(
+          dividerIndent: AppSpace.lg,
+          children: [
+            for (final item in items)
+              ForumThreadRow(
+                title: item.title,
+                meta: [
+                  if (item.section case final section?) section,
+                  if (showAuthor && item.author != null) item.author!,
+                  if (item.date case final date?) date,
+                  if (item.replies case final replies?) '$replies 回复',
+                  if (item.views case final views?) '$views 浏览',
+                ],
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ThreadDetailScreen(
+                      thread: ForumThread(
+                        title: item.title,
+                        url: item.url,
+                        replies: item.replies ?? 0,
+                        section: item.section ?? '用户中心',
+                        author: item.author,
+                        authorUrl: item.authorUrl,
+                        lastPost: item.date,
+                      ),
+                      repository: repository,
+                    ),
+                  ),
                 ),
-                repository: repository,
               ),
-            ),
-          ),
-        );
-      },
+          ],
+        ),
+      ],
     );
   }
 }
@@ -653,129 +667,6 @@ class _ActivityTile extends StatelessWidget {
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ThreadLikeTile extends StatelessWidget {
-  const _ThreadLikeTile({
-    required this.item,
-    required this.repository,
-    required this.onTap,
-  });
-
-  final UserListItem item;
-  final ForumRepository repository;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final meta = [
-      if (item.section != null) item.section!,
-      if (item.date != null) item.date!,
-    ].join(' · ');
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                item.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              if (meta.isNotEmpty) ...[
-                const SizedBox(height: 7),
-                Text(
-                  meta,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-              if (item.author != null) ...[
-                const SizedBox(height: 8),
-                _AuthorLink(
-                  name: item.author!,
-                  url: item.authorUrl,
-                  repository: repository,
-                ),
-              ],
-              if (item.replies != null || item.views != null) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    if (item.replies != null)
-                      _TinyStat(
-                        icon: Icons.forum_outlined,
-                        text: '${item.replies}',
-                      ),
-                    if (item.views != null)
-                      _TinyStat(
-                        icon: Icons.visibility_outlined,
-                        text: '${item.views}',
-                      ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AuthorLink extends StatelessWidget {
-  const _AuthorLink({
-    required this.name,
-    required this.url,
-    required this.repository,
-  });
-
-  final String name;
-  final String? url;
-  final ForumRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: url == null
-          ? null
-          : () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) =>
-                    UserProfileScreen(userUrl: url!, repository: repository),
-              ),
-            ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        decoration: BoxDecoration(
-          color: AppColors.inkSoft,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.person_outline, size: 14, color: AppColors.textMuted),
-            const SizedBox(width: 4),
-            Text(name,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(color: AppColors.text)),
           ],
         ),
       ),
@@ -911,29 +802,6 @@ class _MetricChip extends StatelessWidget {
             .labelMedium
             ?.copyWith(color: AppColors.textMuted),
       ),
-    );
-  }
-}
-
-class _TinyStat extends StatelessWidget {
-  const _TinyStat({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: AppColors.textFaint),
-        const SizedBox(width: 4),
-        Text(text,
-            style: Theme.of(context)
-                .textTheme
-                .labelMedium
-                ?.copyWith(color: AppColors.textMuted)),
-      ],
     );
   }
 }

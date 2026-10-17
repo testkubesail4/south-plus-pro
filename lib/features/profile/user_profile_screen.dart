@@ -7,6 +7,8 @@ import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
+import '../common/grouped_list.dart';
+import '../common/thread_row.dart';
 import '../messages/pm_compose_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
@@ -306,6 +308,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                 items: details.favorites,
                                 emptyText: '没有公开收藏',
                                 repository: widget.repository,
+                                showAuthor: true,
                               ),
                             ),
                           ),
