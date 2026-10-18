@@ -188,8 +188,15 @@ void main() {
     final client = _DetailsClient();
     final repository = ForumRepository(client: client);
     addTearDown(repository.clearSession);
-    await repository.fetchUserProfileDetails(_overview);
-    await repository.fetchUserProfileDetails(_overview, forceReload: true);
+    final initial = await repository.fetchUserProfileDetails(_overview);
+    expect(initial.favorites.single.title, 'fixture-favorite');
+    client
+      ..blockedTab = 'action-favor'
+      ..blockedResponse = '<table class="u-table"></table>';
+    final refreshed =
+        await repository.fetchUserProfileDetails(_overview, forceReload: true);
+    expect(refreshed.favorites, isEmpty);
+    expect(refreshed.topics.single.title, 'fixture-topic');
     expect(client.paths, hasLength(8));
   });
 
