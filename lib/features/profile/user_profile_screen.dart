@@ -1,16 +1,13 @@
-import 'dart:async' show scheduleMicrotask;
-
-import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../models/user_content_query.dart';
 import '../../services/forum_repository.dart';
-import '../../services/search_board_hierarchy.dart';
 import '../../services/user_display_name_store.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
+import '../common/board_picker_sheet.dart';
 import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
