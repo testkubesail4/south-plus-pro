@@ -138,6 +138,30 @@ void main() {
     expect(repository.scans, hasLength(1), reason: 'never restarted by itself');
   });
 
+  testWidgets('a page pushed over the open sheet and a dialog pauses the scan',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openFind(tester, 'needle');
+    await confirmScan(tester);
+    final scan = repository.scans.single;
+    // Popups alone leave the thread on screen: the scan goes on.
+    showDialog<void>(
+      context: tester.element(find.byType(ThreadDetailScreen)),
+      builder: (_) => const AlertDialog(content: Text('a dialog')),
+    );
+    await tester.pumpAndSettle();
+    expect(scan.stopped, isFalse);
+
+    // As an incoming forum link opens a page without closing popups.
+    Navigator.of(tester.element(find.byType(ThreadDetailScreen))).push(
+      MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('another page'))),
+    );
+    await tester.pumpAndSettle();
+    expect(scan.stopped, isTrue);
+    expect(scan.disposed, isFalse);
+  });
+
   testWidgets('a scan confirmed after the session changed never starts',
       (tester) async {
     final repository = await pumpThread(tester);
