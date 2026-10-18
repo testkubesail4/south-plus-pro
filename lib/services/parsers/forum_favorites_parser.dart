@@ -155,6 +155,7 @@ class ForumFavoritesParser {
         categoryId: source,
         thread: UserListItem(
             title: title,
+            titleTruncated: title.endsWith('..'),
             url: base.resolve(href).toString(),
             threadId: tid,
             author: _clean(author?.text ?? ''),

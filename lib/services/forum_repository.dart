@@ -16,6 +16,7 @@ import 'full_scan.dart';
 import 'thread_search.dart';
 import 'forum_account_service.dart';
 import 'forum_favorites_service.dart';
+import 'favorite_search.dart';
 import 'home_reading_preferences.dart';
 import 'user_content_query_service.dart';
 import 'forum_blocking_settings.dart';
@@ -2332,6 +2333,14 @@ class ForumRepository {
 
   Future<FavoriteCollections> fetchFavoriteCollections({String? categoryId}) =>
       _favoritesService.fetchFavoriteCollections(categoryId: categoryId);
+
+  FullScan<FavoriteSearchHit> scanFavorites({
+    String? categoryId,
+    required String keyword,
+    required FavoriteCollections loaded,
+  }) =>
+      _favoritesService.scanFavorites(
+          categoryId: categoryId, keyword: keyword, loaded: loaded);
 
   Future<FavoriteCollectionMutation> createFavoriteCategory(
           FavoriteCollections snapshot, String name) =>

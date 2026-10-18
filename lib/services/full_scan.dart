@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'forum_client.dart';
 import 'forum_request_exception.dart';
 
+const maxScanResults = 200;
+
 enum ScanState { idle, running, waiting, stopped, failed, done }
 
 class ScanProgress {
@@ -64,11 +66,20 @@ class ScanPage<T> {
 }
 
 class ScanRequest {
-  ScanRequest._(this._client, this.checkCurrent);
+  ScanRequest._(this._client, this.checkCurrent, this._setPending, this._owner);
 
   final ForumClient _client;
   final void Function() checkCurrent;
+  final void Function(int count) _setPending;
+  final Object _owner;
   bool _inFlight = false;
+
+  void setPending(int count) {
+    checkCurrent();
+    if (count < 0) throw ArgumentError.value(count, 'count');
+    _setPending(count);
+    checkCurrent();
+  }
 
   Future<String> getOnce(String path) async {
     checkCurrent();
@@ -92,20 +103,28 @@ class PageFullScan<T> extends FullScan<T> {
     required Future<ScanPage<T>> Function(int page, ScanRequest request)
         readPage,
     Iterable<ScanPage<T>> loaded = const [],
+    Iterable<T> initialHits = const [],
+    int initialPending = 0,
     int? totalPages,
-    this.maxResults = 200,
+    this.maxResults = maxScanResults,
     this.maxAttempts = 3,
   })  : _client = client,
         _isCurrentSession = isCurrentSession,
         _readPage = readPage,
-        _totalPages = totalPages {
-    if (maxResults < 1 || maxAttempts < 1 || maxAttempts > 5) {
+        _totalPages = totalPages,
+        _pending = initialPending {
+    if (maxResults < 1 ||
+        maxAttempts < 1 ||
+        maxAttempts > 5 ||
+        initialPending < 0) {
       throw ArgumentError('Invalid scan limits');
     }
     if (totalPages != null && totalPages < 1) {
       throw ArgumentError.value(totalPages, 'totalPages');
     }
+    _acceptResults(initialHits, const []);
     for (final page in loaded) {
+      if (_capped) break;
       _validatePage(page);
       if (!_seeded.add(page.page)) continue;
       _acceptPage(page);
@@ -125,21 +144,44 @@ class PageFullScan<T> extends FullScan<T> {
   final _unresolved = <T>[];
   int _nextPage = 1;
   int _scannedPages = 0;
+  int _pending;
   int? _totalPages;
   bool _capped = false;
   bool _busy = false;
   bool _disposed = false;
+  bool _metadataStarted = false;
   int _generation = 0;
   Timer? _timer;
   Completer<void>? _waiting;
   late ScanProgress _progress;
 
   @override
-  ScanProgress get progress => _progress;
+  ScanProgress get progress => _progress.pending == _pending &&
+          _progress.found == _hits.length &&
+          _progress.unresolved == _unresolved.length
+      ? _progress
+      : _snapshot(_progress.state,
+          failure: _progress.failure,
+          canResume: _progress.canResume,
+          attempt: _progress.attempt,
+          retryAt: _progress.retryAt);
   @override
   List<T> get hits => List.unmodifiable(_hits);
   @override
   List<T> get unresolved => List.unmodifiable(_unresolved);
+
+  void retain(ScanRequest request,
+      {Iterable<T> hits = const [], Iterable<T> unresolved = const []}) {
+    if (!identical(request._owner, this)) {
+      throw ArgumentError('The request belongs to another scan');
+    }
+    request.checkCurrent();
+    if (progress.state != ScanState.running) {
+      throw StateError('Results require an active page');
+    }
+    _acceptResults(hits, unresolved);
+    if (_capped) throw const _ScanCapped();
+  }
 
   @override
   void start() {
@@ -181,11 +223,19 @@ class PageFullScan<T> extends FullScan<T> {
       throw const ForumRequestException(
           ForumRequestKind.loginRequired, '登录状态已改变，请重新搜索');
     }
+    if (_capped) throw const _ScanCapped();
   }
 
   Future<void> _run(int generation) async {
     try {
-      final request = ScanRequest._(_client, () => _check(generation));
+      final request = ScanRequest._(_client, () => _check(generation), (count) {
+        _pending = count;
+        if (count > 0 && !_metadataStarted) {
+          _metadataStarted = true;
+          _publish(ScanState.running);
+        }
+      }, this);
+      var firstPage = true;
       while (true) {
         _check(generation);
         while (_seeded.contains(_nextPage)) {
@@ -195,6 +245,9 @@ class PageFullScan<T> extends FullScan<T> {
           _publish(ScanState.done);
           return;
         }
+        _metadataStarted = false;
+        if (!firstPage) _publish(ScanState.running);
+        firstPage = false;
         ScanPage<T>? result;
         for (var attempt = 1; attempt <= maxAttempts; attempt++) {
           _check(generation);
@@ -245,6 +298,8 @@ class PageFullScan<T> extends FullScan<T> {
         }
         _publish(ScanState.running);
       }
+    } on _ScanCapped {
+      if (!_disposed && generation == _generation) _publish(ScanState.stopped);
     } on _ScanCancelled {
       // Stop/dispose invalidates the response without closing a shared client.
     } on ForumRequestException catch (error) {
@@ -275,9 +330,14 @@ class PageFullScan<T> extends FullScan<T> {
     _scannedPages++;
     if (page.totalPages != null) _totalPages = page.totalPages;
     if (!page.hasMore) _totalPages = page.page;
+    _pending = 0;
+    _acceptResults(page.hits, page.unresolved);
+  }
+
+  void _acceptResults(Iterable<T> hits, Iterable<T> unresolved) {
     for (final (source, destination) in [
-      (page.hits, _hits),
-      (page.unresolved, _unresolved),
+      (hits, _hits),
+      (unresolved, _unresolved),
     ]) {
       for (final hit in source) {
         if (_hits.length + _unresolved.length >= maxResults) {
@@ -299,6 +359,7 @@ class PageFullScan<T> extends FullScan<T> {
         scannedPages: _scannedPages,
         totalPages: _totalPages,
         found: _hits.length,
+        pending: _pending,
         unresolved: _unresolved.length,
         capped: _capped,
         maxAttempts: maxAttempts,
@@ -342,4 +403,8 @@ class PageFullScan<T> extends FullScan<T> {
 
 class _ScanCancelled implements Exception {
   const _ScanCancelled();
+}
+
+class _ScanCapped implements Exception {
+  const _ScanCapped();
 }

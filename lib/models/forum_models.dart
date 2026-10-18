@@ -1051,9 +1051,11 @@ class UserListItem {
     this.boardUrl,
     this.threadId,
     this.postId,
+    this.titleTruncated = false,
   });
 
   final String title;
+  final bool titleTruncated;
   final String url;
   final String? section;
   final String? date;
@@ -1065,6 +1067,22 @@ class UserListItem {
   final String? boardUrl;
   final String? threadId;
   final String? postId;
+
+  UserListItem copyWith({String? title, bool? titleTruncated}) => UserListItem(
+        title: title ?? this.title,
+        titleTruncated: titleTruncated ?? this.titleTruncated,
+        url: url,
+        section: section,
+        date: date,
+        author: author,
+        authorUrl: authorUrl,
+        replies: replies,
+        views: views,
+        boardId: boardId,
+        boardUrl: boardUrl,
+        threadId: threadId,
+        postId: postId,
+      );
 }
 
 class LoginChallenge {

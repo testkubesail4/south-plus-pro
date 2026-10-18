@@ -1,5 +1,7 @@
 import '../models/forum_models.dart';
 import 'forum_client.dart';
+import 'favorite_search.dart';
+import 'full_scan.dart';
 import 'forum_request_exception.dart';
 import 'parsers/forum_favorites_parser.dart';
 
@@ -31,6 +33,39 @@ class ForumFavoritesService {
     final epoch = _epoch();
     return _publish(
         await _read(client, epoch, categoryId: categoryId), client, epoch);
+  }
+
+  FullScan<FavoriteSearchHit> scanFavorites({
+    String? categoryId,
+    required String keyword,
+    required FavoriteCollections loaded,
+  }) {
+    final client = _client();
+    final epoch = _epoch();
+    final owner = _loaded[loaded];
+    final currentOwner = owner == null ||
+        (identical(owner.client, client) && owner.epoch == epoch);
+    final intended = owner != null && currentOwner
+        ? loaded.categories
+            .where((category) => category.id == categoryId)
+            .firstOrNull
+            ?.label
+        : null;
+    // Retired/display-only snapshots are reread, never promoted to capabilities.
+    final seed = owner != null && currentOwner && owner.revision == _revision
+        ? loaded
+        : null;
+    return createFavoriteScan(
+        client: client,
+        isCurrentSession: () =>
+            currentOwner &&
+            _loggedIn() &&
+            identical(client, _client()) &&
+            epoch == _epoch(),
+        categoryId: categoryId,
+        intendedCategory: intended,
+        keyword: keyword,
+        loaded: seed);
   }
 
   Future<FavoriteCollectionMutation> createFavoriteCategory(
