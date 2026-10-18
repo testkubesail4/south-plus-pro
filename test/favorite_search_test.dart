@@ -32,6 +32,7 @@ class _Client extends NativeFavoriteClient {
   final metadata = <String, List<Object>>{};
   final scanPaths = <Uri>[];
   Completer<String>? gate;
+  String? gateTid;
   bool repeatContent = false;
   bool unreadablePager = false;
   int active = 0;
@@ -87,7 +88,7 @@ class _Client extends NativeFavoriteClient {
             category: uri.queryParameters['type']);
       } else {
         final tid = RegExp(r'tid-([1-9]\d*)').firstMatch(uri.query)!.group(1)!;
-        if (gate != null) {
+        if (gate != null && (gateTid == null || gateTid == tid)) {
           result = await gate!.future;
         } else {
           final scripts = metadata[tid];
@@ -113,7 +114,12 @@ void main() {
   testWidgets(
       'known seeds are immediate; truncated titles and later-page hits use read-only sequential requests',
       (tester) async {
-    final client = _Client();
+    final client = _Client()
+      ..pageRows[1] = [
+        _row(701),
+        _row(702),
+        (id: '2702', tid: '702', category: '')
+      ];
     final repo = ForumRepository(client: client);
     addTearDown(() => client.close(force: true));
     final loaded = await repo.fetchFavoriteCollections();
@@ -192,7 +198,7 @@ void main() {
       await tester.pump();
       expect(job.progress.state, ScanState.waiting);
       expect(job.progress.pending, 1);
-      expect(job.hits.map((hit) => hit.thread.threadId), ['701']);
+      expect(job.hits.map((hit) => hit.thread.threadId), ['701', '702']);
       if (failure is String) {
         expect(job.progress.failure, ForumRequestKind.rateLimited);
         await tester.pump(const Duration(seconds: 9));
@@ -205,9 +211,61 @@ void main() {
       expect(job.progress.state, ScanState.done);
       expect(job.hits.map((hit) => hit.thread.threadId), ['701', '702', '703']);
       expect(client.scanPaths.map((uri) => uri.query),
-          ['tid-702.html', 'tid-703.html', 'tid-702.html', 'tid-703.html']);
+          ['tid-702.html', 'tid-703.html', 'tid-703.html']);
       expect(client.peak, 1);
     }
+  });
+
+  testWidgets(
+      'partial title results survive stop, retry exhaustion and explicit resume',
+      (tester) async {
+    final client = _Client()
+      ..pageCount = 1
+      ..pageRows[1] = [_row(701), _row(702), _row(703)]
+      ..titles['703'] = 'another cut..'
+      ..gateTid = '703'
+      ..gate = Completer<String>()
+      ..metadata['703'] = [
+        for (var attempt = 0; attempt < 3; attempt++)
+          const ForumRequestException(ForumRequestKind.network, 'fixture'),
+      ];
+    final repo = ForumRepository(client: client);
+    addTearDown(() => client.close(force: true));
+    final held = client.gate!;
+    addTearDown(() {
+      if (!held.isCompleted) held.complete('disposed fixture');
+    });
+    final job = repo.scanFavorites(
+        keyword: 'needle', loaded: await repo.fetchFavoriteCollections());
+    addTearDown(job.dispose);
+    job.start();
+    await tester.pump();
+    expect(client.scanPaths.map((uri) => uri.query),
+        ['tid-702.html', 'tid-703.html']);
+    expect(job.hits.map((hit) => hit.thread.threadId), ['701', '702']);
+    job.stop();
+    expect(job.progress.state, ScanState.stopped);
+    expect(job.hits.map((hit) => hit.thread.threadId), ['701', '702']);
+    job.resume();
+    client.gate = null;
+    held.complete('<span id="subject_tpc">needle stale 703</span>');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 3));
+    expect(job.progress.state, ScanState.failed);
+    expect(job.progress.canResume, isTrue);
+    expect(job.hits.map((hit) => hit.thread.threadId), ['701', '702']);
+    job.resume();
+    await tester.pump();
+    expect(job.progress.state, ScanState.done);
+    expect(job.hits.map((hit) => hit.thread.threadId), ['701', '702', '703']);
+    expect(client.scanPaths.where((uri) => uri.query == 'tid-702.html'),
+        hasLength(1));
+    expect(client.scanPaths.where((uri) => uri.query == 'tid-703.html'),
+        hasLength(5));
+    expect(client.reads, hasLength(1),
+        reason: 'the admitted list page is not fetched again');
+    expect(client.peak, 1);
   });
 
   testWidgets(
@@ -271,23 +329,35 @@ void main() {
 
   testWidgets('a renumbered category cannot silently change the searched scope',
       (tester) async {
-    final client = _Client()
-      ..pageRows[1] = [_row(701, category: 'A')]
-      ..pageRows[2] = [_row(703, category: 'B')];
-    final repo = ForumRepository(client: client);
-    addTearDown(() => client.close(force: true));
-    final loaded = await repo.fetchFavoriteCollections(categoryId: '1');
-    client.categories = ['B', 'A'];
-    final job =
-        repo.scanFavorites(categoryId: '1', keyword: 'needle', loaded: loaded);
-    addTearDown(job.dispose);
-    job.start();
-    await tester.pump();
-    expect(job.progress.state, ScanState.failed);
-    expect(job.progress.failure, ForumRequestKind.invalidInput);
-    expect(job.hits.single.thread.threadId, '701');
-    expect(client.scanPaths, hasLength(1));
-    expect(client.writes, isEmpty);
+    for (final mode in ['fresh', 'retired-owner', 'consumed']) {
+      final client = _Client()
+        ..pageRows[1] = [_row(701, category: 'A')]
+        ..pageRows[2] = [_row(703, category: 'B')];
+      final repo = ForumRepository(client: client);
+      addTearDown(() => client.close(force: true));
+      final loaded = await repo.fetchFavoriteCollections(categoryId: '1');
+      if (mode != 'fresh') {
+        final writable =
+            mode == 'consumed' ? loaded : await repo.fetchFavoriteCollections();
+        final changed = await repo.createFavoriteCategory(writable, 'new');
+        expect(changed.createdCategory?.label, 'new');
+      }
+      client.categories = ['B', 'A', ...client.categories.skip(2)];
+      client.pageRows[1] = [_row(703, category: 'B')];
+      client.pageRows[2] = [_row(705, category: 'B')];
+      final writes = client.writes.length;
+      final job = repo.scanFavorites(
+          categoryId: '1', keyword: 'needle', loaded: loaded);
+      addTearDown(job.dispose);
+      job.start();
+      await tester.pump();
+      expect(job.progress.state, ScanState.failed, reason: mode);
+      expect(job.progress.failure, ForumRequestKind.invalidInput);
+      expect(job.hits.map((hit) => hit.thread.threadId),
+          mode == 'fresh' ? ['701'] : <String>[]);
+      expect(client.scanPaths, hasLength(mode == 'consumed' ? 0 : 1));
+      expect(client.writes, hasLength(writes));
+    }
   });
 
   testWidgets(

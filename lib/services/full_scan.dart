@@ -66,18 +66,19 @@ class ScanPage<T> {
 }
 
 class ScanRequest {
-  ScanRequest._(this._client, this.checkCurrent, this._setPending);
+  ScanRequest._(this._client, this.checkCurrent, this._setPending, this._owner);
 
   final ForumClient _client;
   final void Function() checkCurrent;
   final void Function(int count) _setPending;
+  final Object _owner;
   bool _inFlight = false;
 
   void setPending(int count) {
     checkCurrent();
     if (count < 0) throw ArgumentError.value(count, 'count');
-    // Page/state notifications sample counts without emitting per metadata row.
     _setPending(count);
+    checkCurrent();
   }
 
   Future<String> getOnce(String path) async {
@@ -148,13 +149,16 @@ class PageFullScan<T> extends FullScan<T> {
   bool _capped = false;
   bool _busy = false;
   bool _disposed = false;
+  bool _metadataStarted = false;
   int _generation = 0;
   Timer? _timer;
   Completer<void>? _waiting;
   late ScanProgress _progress;
 
   @override
-  ScanProgress get progress => _progress.pending == _pending
+  ScanProgress get progress => _progress.pending == _pending &&
+          _progress.found == _hits.length &&
+          _progress.unresolved == _unresolved.length
       ? _progress
       : _snapshot(_progress.state,
           failure: _progress.failure,
@@ -165,6 +169,19 @@ class PageFullScan<T> extends FullScan<T> {
   List<T> get hits => List.unmodifiable(_hits);
   @override
   List<T> get unresolved => List.unmodifiable(_unresolved);
+
+  void retain(ScanRequest request,
+      {Iterable<T> hits = const [], Iterable<T> unresolved = const []}) {
+    if (!identical(request._owner, this)) {
+      throw ArgumentError('The request belongs to another scan');
+    }
+    request.checkCurrent();
+    if (progress.state != ScanState.running) {
+      throw StateError('Results require an active page');
+    }
+    _acceptResults(hits, unresolved);
+    if (_capped) throw const _ScanCapped();
+  }
 
   @override
   void start() {
@@ -206,12 +223,19 @@ class PageFullScan<T> extends FullScan<T> {
       throw const ForumRequestException(
           ForumRequestKind.loginRequired, '登录状态已改变，请重新搜索');
     }
+    if (_capped) throw const _ScanCapped();
   }
 
   Future<void> _run(int generation) async {
     try {
-      final request = ScanRequest._(
-          _client, () => _check(generation), (count) => _pending = count);
+      final request = ScanRequest._(_client, () => _check(generation), (count) {
+        _pending = count;
+        if (count > 0 && !_metadataStarted) {
+          _metadataStarted = true;
+          _publish(ScanState.running);
+        }
+      }, this);
+      var firstPage = true;
       while (true) {
         _check(generation);
         while (_seeded.contains(_nextPage)) {
@@ -221,6 +245,9 @@ class PageFullScan<T> extends FullScan<T> {
           _publish(ScanState.done);
           return;
         }
+        _metadataStarted = false;
+        if (!firstPage) _publish(ScanState.running);
+        firstPage = false;
         ScanPage<T>? result;
         for (var attempt = 1; attempt <= maxAttempts; attempt++) {
           _check(generation);
@@ -271,6 +298,8 @@ class PageFullScan<T> extends FullScan<T> {
         }
         _publish(ScanState.running);
       }
+    } on _ScanCapped {
+      if (!_disposed && generation == _generation) _publish(ScanState.stopped);
     } on _ScanCancelled {
       // Stop/dispose invalidates the response without closing a shared client.
     } on ForumRequestException catch (error) {
@@ -374,4 +403,8 @@ class PageFullScan<T> extends FullScan<T> {
 
 class _ScanCancelled implements Exception {
   const _ScanCancelled();
+}
+
+class _ScanCapped implements Exception {
+  const _ScanCapped();
 }

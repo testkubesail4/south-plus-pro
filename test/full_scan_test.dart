@@ -271,15 +271,104 @@ void main() {
     job.start();
     await tester.pump();
     expect(job.progress.pending, 1);
-    expect(notifications, 1,
-        reason: 'metadata counts do not emit per-row notifications');
+    expect(notifications, 2,
+        reason: 'one metadata-stage notification, not one for every row');
     gate.complete();
     await tester.pump();
     expect(job.hits, [1, 2, 3]);
     expect(job.progress.pending, 0);
     expect(job.progress.capped, isTrue);
     expect(job.progress.canResume, isFalse);
-    expect(notifications, 2);
+    expect(notifications, 3);
+  });
+
+  testWidgets(
+      'metadata discovered after a list response is pushed to observers',
+      (tester) async {
+    final list = Completer<String>();
+    final metadata = Completer<String>();
+    final client = _Client();
+    client.answer =
+        () => client.calls.last == 'list' ? list.future : metadata.future;
+    late final PageFullScan<int> job;
+    job = PageFullScan<int>(
+      client: client,
+      isCurrentSession: () => true,
+      readPage: (page, request) async {
+        await request.getOnce('list');
+        request.setPending(2);
+        await request.getOnce('metadata');
+        request.setPending(1);
+        job.retain(request, hits: [1]);
+        return ScanPage(page: page, hasMore: false);
+      },
+    );
+    addTearDown(() => client.close(force: true));
+    addTearDown(() {
+      if (!list.isCompleted) list.complete('disposed list');
+      if (!metadata.isCompleted) metadata.complete('disposed metadata');
+    });
+    addTearDown(job.dispose);
+    final observed = <ScanProgress>[];
+    job.addListener(() => observed.add(job.progress));
+    job.start();
+    await tester.pump();
+    expect(observed.every((progress) => progress.pending == 0), isTrue);
+    list.complete('list');
+    await tester.pump();
+    expect(observed.last.pending, 2,
+        reason: 'the listener, not a pull of the getter, sees the new work');
+    expect(client.calls, ['list', 'metadata']);
+    metadata.complete('title');
+    await tester.pump();
+    expect(observed.where((progress) => progress.pending > 0), hasLength(1));
+    expect(observed.length, lessThanOrEqualTo(4));
+    expect(job.hits, [1]);
+    expect(job.progress.state, ScanState.done);
+    expect(client.peak, 1);
+  });
+
+  testWidgets('retaining results cannot cross active scan owners',
+      (tester) async {
+    final client = _Client();
+    final held = Completer<void>();
+    final first = PageFullScan<int>(
+      client: client,
+      isCurrentSession: () => true,
+      readPage: (page, request) async {
+        await held.future;
+        return ScanPage(page: page, hasMore: false);
+      },
+    );
+    var calls = 0;
+    final second = PageFullScan<int>(
+      client: client,
+      isCurrentSession: () => true,
+      readPage: (page, request) async {
+        if (++calls > 1)
+          throw StateError('must not restart a failed owner check');
+        first.retain(request, hits: [9]);
+        return ScanPage(page: page, hasMore: false);
+      },
+    );
+    addTearDown(() => client.close(force: true));
+    addTearDown(() {
+      if (!held.isCompleted) held.complete();
+    });
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+    first.start();
+    await tester.pump();
+    second.start();
+    await tester.pump();
+    expect(second.progress.state, ScanState.failed);
+    expect(second.progress.failure, ForumRequestKind.invalidInput);
+    expect(first.hits, isEmpty);
+    expect(calls, 1);
+    held.complete();
+    await tester.pump();
+    expect(first.progress.state, ScanState.done);
+    expect(first.hits, isEmpty);
   });
 
   testWidgets(

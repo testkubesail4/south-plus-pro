@@ -45,6 +45,12 @@ class ForumFavoritesService {
     final owner = _loaded[loaded];
     final currentOwner = owner == null ||
         (identical(owner.client, client) && owner.epoch == epoch);
+    final intended = owner != null && currentOwner
+        ? loaded.categories
+            .where((category) => category.id == categoryId)
+            .firstOrNull
+            ?.label
+        : null;
     // Retired/display-only snapshots are reread, never promoted to capabilities.
     final seed = owner != null && currentOwner && owner.revision == _revision
         ? loaded
@@ -57,6 +63,7 @@ class ForumFavoritesService {
             identical(client, _client()) &&
             epoch == _epoch(),
         categoryId: categoryId,
+        intendedCategory: intended,
         keyword: keyword,
         loaded: seed);
   }

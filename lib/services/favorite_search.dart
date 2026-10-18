@@ -22,6 +22,7 @@ FullScan<FavoriteSearchHit> createFavoriteScan({
   required String keyword,
   required FavoriteCollections? loaded,
   String? categoryId,
+  String? intendedCategory,
 }) {
   if (categoryId != null && !RegExp(r'^(?:0|[1-9]\d*)$').hasMatch(categoryId)) {
     throw const ForumRequestException(ForumRequestKind.invalidInput, '收藏分类无效');
@@ -43,86 +44,123 @@ FullScan<FavoriteSearchHit> createFavoriteScan({
     }
   }
 
-  var categoryName = seedPage?.categories
-      .where((category) => category.id == categoryId)
-      .firstOrNull
-      ?.label;
+  final categoryName = intendedCategory ??
+      loaded?.categories
+          .where((category) => category.id == categoryId)
+          .firstOrNull
+          ?.label;
   int? previousPage;
   String? previousFingerprint;
+  int? workingPage;
+  FavoriteCollections? workingView;
+  var cursor = 0;
+  final processed = <String>{};
   late final PageFullScan<FavoriteSearchHit> scan;
   scan = PageFullScan<FavoriteSearchHit>(
     client: client,
     isCurrentSession: isCurrentSession,
     initialHits: seed(),
-    initialPending:
-        seedPage?.items.where((entry) => entry.thread.titleTruncated).length ??
-            0,
+    initialPending: seedPage?.items
+            .where((entry) => entry.thread.titleTruncated)
+            .map((entry) => key(entry.thread))
+            .toSet()
+            .length ??
+        0,
     totalPages: seedPage?.pageCount,
     readPage: (page, request) async {
-      FavoriteCollections view;
-      if (seedPage != null && page == seedPage.page) {
-        view = seedPage;
-      } else {
-        final path = Uri(path: 'u.php', queryParameters: {
-          'action': 'favor',
-          if (categoryId != null) 'type': categoryId,
-          'page': '$page',
-        }).toString();
-        final html = await request.getOnce(path);
-        final document = html_parser.parse(html);
-        if (document.querySelector('#u-contentmain .u-table') == null) {
-          _rejectPage(document, '未读到收藏列表');
-        }
-        try {
-          view = const ForumFavoritesParser()
-              .parse(html, client.baseUri, categoryId: categoryId)
-              .collections;
-        } on ForumRequestException catch (error) {
-          if (error.kind != ForumRequestKind.server) rethrow;
-          throw const ForumRequestException(
-              ForumRequestKind.invalidInput, '收藏页面格式无效');
-        }
-      }
-      if (view.page != page || view.pageCount == null) {
+      if (categoryId != null && categoryId != '0' && categoryName == null) {
         throw const ForumRequestException(
-            ForumRequestKind.invalidInput, '无法确认收藏分页');
+            ForumRequestKind.invalidInput, '无法确认原收藏分类，请刷新后重试');
       }
-      if (categoryId != null && categoryId != '0') {
-        final current = view.categories
-            .singleWhere((category) => category.id == categoryId)
-            .label;
-        if (categoryName != null && categoryName != current) {
+      if (workingPage != page || workingView == null) {
+        workingView = null;
+        cursor = 0;
+        processed.clear();
+        FavoriteCollections view;
+        if (seedPage != null && page == seedPage.page) {
+          view = seedPage;
+        } else {
+          final path = Uri(path: 'u.php', queryParameters: {
+            'action': 'favor',
+            if (categoryId != null) 'type': categoryId,
+            'page': '$page',
+          }).toString();
+          final html = await request.getOnce(path);
+          final document = html_parser.parse(html);
+          if (document.querySelector('#u-contentmain .u-table') == null) {
+            _rejectPage(document, '未读到收藏列表');
+          }
+          try {
+            view = const ForumFavoritesParser()
+                .parse(html, client.baseUri, categoryId: categoryId)
+                .collections;
+          } on ForumRequestException catch (error) {
+            if (error.kind != ForumRequestKind.server) rethrow;
+            throw const ForumRequestException(
+                ForumRequestKind.invalidInput, '收藏页面格式无效');
+          }
+        }
+        request.checkCurrent();
+        if (view.page != page || view.pageCount == null) {
+          throw const ForumRequestException(
+              ForumRequestKind.invalidInput, '无法确认收藏分页');
+        }
+        if (categoryId != null &&
+            categoryId != '0' &&
+            view.categories
+                    .singleWhere((category) => category.id == categoryId)
+                    .label !=
+                categoryName) {
           throw const ForumRequestException(
               ForumRequestKind.invalidInput, '收藏分类已变更，请重新搜索');
         }
-        categoryName = current;
+        final identities = view.items
+            .map((entry) => key(entry.thread))
+            .toSet()
+            .toList()
+          ..sort();
+        final fingerprint = identities.join(',');
+        if (previousPage != null &&
+            previousPage != page &&
+            previousFingerprint == fingerprint) {
+          throw const ForumRequestException(
+              ForumRequestKind.invalidInput, '收藏分页重复，请刷新后重试');
+        }
+        previousPage = page;
+        previousFingerprint = fingerprint;
+        workingPage = page;
+        workingView = view;
       }
-      final identities =
-          view.items.map((entry) => key(entry.thread)).toSet().toList()..sort();
-      final fingerprint = identities.join(',');
-      if (previousPage != null &&
-          previousPage != page &&
-          previousFingerprint == fingerprint) {
-        throw const ForumRequestException(
-            ForumRequestKind.invalidInput, '收藏分页重复，请刷新后重试');
-      }
-      previousPage = page;
-      previousFingerprint = fingerprint;
+      final view = workingView!;
       final seen = {
         ...scan.hits.map((hit) => key(hit.thread)),
         ...scan.unresolved.map((hit) => key(hit.thread)),
       };
-      final rows =
-          view.items.where((entry) => !seen.contains(key(entry.thread)));
-      var pending = rows.where((entry) => entry.thread.titleTruncated).length;
+      var pending = view.items
+          .skip(cursor)
+          .where((entry) =>
+              !seen.contains(key(entry.thread)) &&
+              !processed.contains(key(entry.thread)) &&
+              entry.thread.titleTruncated)
+          .map((entry) => key(entry.thread))
+          .toSet()
+          .length;
       request.setPending(pending);
-      final hits = <FavoriteSearchHit>[];
-      final unresolved = <FavoriteSearchHit>[];
-      for (final entry in rows) {
-        var item = entry.thread;
-        if (!item.titleTruncated && matchKeyword(keyword, [item.title]) != true)
+      while (cursor < view.items.length) {
+        request.checkCurrent();
+        var item = view.items[cursor].thread;
+        final identity = key(item);
+        if (seen.contains(identity) ||
+            processed.contains(identity) ||
+            (!item.titleTruncated &&
+                matchKeyword(keyword, [item.title]) != true)) {
+          processed.add(identity);
+          cursor++;
           continue;
-        if (item.titleTruncated) {
+        }
+        final truncated = item.titleTruncated;
+        var unknown = false;
+        if (truncated) {
           try {
             final tid = urls.tidFromUrl(item.url);
             if (tid == null) {
@@ -146,27 +184,24 @@ FullScan<FavoriteSearchHit> createFavoriteScan({
           } on ForumRequestException catch (error) {
             if (error.kind != ForumRequestKind.forbidden &&
                 error.kind != ForumRequestKind.invalidInput) rethrow;
-            unresolved.add(FavoriteSearchHit(thread: item, page: page));
-            seen.add(key(item));
-          }
-          request.setPending(--pending);
-          if (item.titleTruncated) {
-            if (seen.length > maxScanResults) break;
-            continue;
+            unknown = true;
           }
         }
-        if (matchKeyword(keyword, [item.title]) == true &&
-            seen.add(key(item))) {
-          hits.add(FavoriteSearchHit(thread: item, page: page));
+        final hit = FavoriteSearchHit(thread: item, page: page);
+        if (unknown) {
+          scan.retain(request, unresolved: [hit]);
+        } else if (matchKeyword(keyword, [item.title]) == true) {
+          scan.retain(request, hits: [hit]);
         }
-        if (seen.length > maxScanResults) break;
+        if (truncated) request.setPending(--pending);
+        processed.add(identity);
+        seen.add(identity);
+        cursor++;
       }
       return ScanPage(
           page: page,
           totalPages: view.pageCount,
-          hasMore: page < view.pageCount!,
-          hits: hits,
-          unresolved: unresolved);
+          hasMore: page < view.pageCount!);
     },
   );
   return scan;
