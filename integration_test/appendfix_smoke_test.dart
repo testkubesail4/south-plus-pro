@@ -251,8 +251,10 @@ void main() {
         const Size(400, 800));
 
     for (final rows in [3, 8]) {
-      await tap(tester, find.byTooltip('显示行数'));
-      await tap(tester, find.widgetWithText(ChoiceChip, '$rows'));
+      await tap(tester, find.byTooltip('速览设置'));
+      await tap(tester, find.text('显示行数'));
+      await tap(tester, find.text('$rows 行'));
+      await tap(tester, find.byType(BackButton));
       expect(
           (await HomeReadingPreferences.load(
                   account: repository.localPreferenceAccount))

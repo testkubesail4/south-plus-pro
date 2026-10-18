@@ -141,7 +141,7 @@ void main() {
         {'section-id:7'});
   });
 
-  testWidgets('failed quick-row save rolls back and locks the picker until a read succeeds', (tester) async {
+  testWidgets('failed quick-row save rolls back and locks 速览设置 until a read succeeds', (tester) async {
     const channel = MethodChannel('plugins.flutter.io/shared_preferences');
     final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final persisted = <String, Object>{};
@@ -175,29 +175,39 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: HomeShell(repository: _HomeRepo())));
     await tester.pumpAndSettle();
     final pick = acknowledged == 3 ? 4 : 3;
+    await tester.tap(find.byTooltip('速览设置'));
+    await tester.pumpAndSettle();
     final writesBefore = writes;
     rejectWrite = true;
-    await tester.tap(find.byTooltip('显示行数'));
+    await tester.tap(find.text('显示行数'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, '$pick'));
+    await tester.tap(find.text('$pick 行'));
     await tester.pumpAndSettle();
     expect(writes, writesBefore + 1);
-    expect(find.text('首页设置未能读取'), findsOneWidget);
-    expect(rowsButton(tester).onPressed, isNull);
+    expect(find.text('速览设置加载失败'), findsOneWidget);
+    // Nothing is offered while what is saved is unknown.
+    expect(find.text('显示行数'), findsNothing);
+    expect(find.text('栏目 1'), findsNothing);
+    expect(writes, writesBefore + 1);
     rejectWrite = false;
     rejectReads = false;
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
-    expect(rowsButton(tester).onPressed, isNotNull);
-    await tester.tap(find.byTooltip('显示行数'));
-    await tester.pumpAndSettle();
-    expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '$acknowledged')).selected, isTrue,
+    expect(find.text('$acknowledged 行'), findsOneWidget,
         reason: 'the rejected count was rolled back');
+    expect(writes, writesBefore + 1, reason: 'the retry only reads');
+    await tester.tap(find.text('显示行数'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('$pick 行'));
+    await tester.pumpAndSettle();
+    expect(
+        (await HomeReadingPreferences.load(account: 'fixture')).quickRowCount,
+        pick);
   });
 }
 
 IconButton rowsButton(WidgetTester tester) => tester.widget<IconButton>(find
-    .ancestor(of: find.byTooltip('显示行数'), matching: find.byType(IconButton))
+    .ancestor(of: find.byTooltip('速览设置'), matching: find.byType(IconButton))
     .first);
 
 class _HomeRepo extends _Repo {

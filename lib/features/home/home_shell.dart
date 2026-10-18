@@ -363,8 +363,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
     }
   }
 
+  // Like every layout write, waits while the saved state is unread.
   void _openQuickSettings() {
-    if (!_current) return;
+    if (!_current || _layoutLocked) return;
     final page = QuickListSettingsScreen(repository: widget.repository);
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
@@ -566,8 +567,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
                             children: [
                               IconButton(
                                 tooltip: '速览设置',
-                                onPressed:
-                                    data == null ? null : _openQuickSettings,
+                                onPressed: data == null || _layoutLocked
+                                    ? null
+                                    : _openQuickSettings,
                                 icon: const Icon(Icons.tune, size: 20),
                               ),
                               data == null

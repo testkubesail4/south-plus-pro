@@ -72,7 +72,8 @@ class _QuickListSettingsScreenState extends State<QuickListSettingsScreen> {
     }
   }
 
-  // One write at a time; a failed one leaves what was saved before on screen.
+  // One write at a time. A failed one puts back what was acknowledged and
+  // reads the settings again; until that read succeeds nothing is offered.
   Future<void> _save(
     VoidCallback apply,
     VoidCallback undo,
@@ -91,6 +92,8 @@ class _QuickListSettingsScreenState extends State<QuickListSettingsScreen> {
       setState(undo);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(failure)));
+      // Still busy: the read decides what is shown and offered next.
+      await _load();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
