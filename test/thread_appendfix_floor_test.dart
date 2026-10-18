@@ -6,6 +6,8 @@ import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/user_note_store.dart';
+import 'package:south_plus_rewrite/services/user_tag_store.dart';
+import 'package:south_plus_rewrite/features/common/user_tags_inline.dart';
 
 // Synthetic fixtures only: fictional tid, uids and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
@@ -104,6 +106,29 @@ void main() {
     expect(
         tester.getRect(signature).top, greaterThanOrEqualTo(timeRect.bottom));
     expect(tester.getRect(signature).right, lessThanOrEqualTo(360));
+  });
+
+  testWidgets('OP and replies show bounded tags live without crowding author or time at text2', (tester) async {
+    await UserTagStore.save('3', ['资源佬', '熟人', '第三个']);
+    await UserTagStore.save('4', [for (var i = 0; i < 8; i++) '标签$i']);
+    final semantics = tester.ensureSemantics();
+    await pumpThread(tester, scale: 2);
+    expect(find.byType(UserTagsInline), findsNWidgets(2));
+    expect(find.text('楼主甲'), findsOneWidget);
+    expect(find.text('路人乙'), findsOneWidget);
+    expect(find.text('2026-10-12 10:20 · B1F'), findsOneWidget);
+    expect(find.bySemanticsLabel('标签 资源佬、熟人、第三个'), findsOneWidget);
+    expect(find.bySemanticsLabel('标签 ${[for (var i = 0; i < 8; i++) '标签$i'].join('、')}'), findsOneWidget);
+    expect(find.byType(UserTagCapsule).evaluate().length, lessThanOrEqualTo(4));
+    expect(tester.takeException(), isNull);
+    await UserTagStore.save('3', ['新楼主标签']);
+    await UserTagStore.clear('4');
+    await tester.pumpAndSettle();
+    expect(find.byType(UserTagsInline), findsOneWidget);
+    expect(find.bySemanticsLabel('标签 新楼主标签'), findsOneWidget);
+    expect(find.text('2026-10-12 10:20 · B1F'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    semantics.dispose();
   });
 
   testWidgets('a local note shows beside the original name and updates live',

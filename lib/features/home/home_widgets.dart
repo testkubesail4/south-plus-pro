@@ -70,6 +70,7 @@ class _SectionHeader extends StatelessWidget {
     this.trailing,
     this.collapsed,
     this.onToggle,
+    this.onLongPress,
   });
 
   final String? title;
@@ -77,6 +78,7 @@ class _SectionHeader extends StatelessWidget {
   final Widget? trailing;
   final bool? collapsed;
   final VoidCallback? onToggle;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +148,7 @@ class _SectionHeader extends StatelessWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(AppRadius.sm),
                 onTap: onToggle,
+                onLongPress: onLongPress,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(minHeight: 48),
                   child: row,
@@ -635,25 +638,25 @@ class _BoardGrid extends StatelessWidget {
   const _BoardGrid({
     super.key,
     required this.boards,
-    this.bones,
     required this.columns,
     required this.onOpen,
+    this.onLongPress,
   });
 
   final List<ForumBoard> boards;
-  final List<int>? bones;
   final int columns;
   final ValueChanged<ForumBoard> onOpen;
+  final ValueChanged<ForumBoard>? onLongPress;
 
   @override
   Widget build(BuildContext context) {
-    final bones = this.bones;
-    final count = bones?.length ?? boards.length;
+    final count = boards.length;
     Widget tile(int i, EdgeInsets padding) => _BoardTile(
-          board: bones == null ? boards[i] : null,
-          lines: bones?[i] ?? 0,
+          board: boards[i],
+          lines: 0,
           padding: padding,
           onOpen: onOpen,
+          onLongPress: onLongPress,
         );
     if (columns == 1) {
       return Container(
@@ -709,6 +712,7 @@ class _BoardTile extends StatelessWidget {
     required this.lines,
     required this.padding,
     required this.onOpen,
+    this.onLongPress,
   });
 
   /// Null for a placeholder showing [lines] (see [_tileLines]).
@@ -716,6 +720,7 @@ class _BoardTile extends StatelessWidget {
   final int lines;
   final EdgeInsets padding;
   final ValueChanged<ForumBoard> onOpen;
+  final ValueChanged<ForumBoard>? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -753,6 +758,7 @@ class _BoardTile extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () => onOpen(board),
+      onLongPress: onLongPress == null ? null : () => onLongPress!(board),
       child: Container(
         width: double.infinity,
         constraints: const BoxConstraints(minHeight: 48),
@@ -1002,5 +1008,104 @@ class _TaskShortcutState extends State<_TaskShortcut> {
     );
     final hint = claimed ? _claimedHint(summary!) : null;
     return hint == null ? button : Tooltip(message: hint, child: button);
+  }
+}
+
+/// Long-press actions for a home section or parent board. Hiding only shortens
+/// the home list; order and every restore live in 首页版块.
+class _HomeActionsSheet extends StatelessWidget {
+  const _HomeActionsSheet({
+    required this.title,
+    required this.caption,
+    required this.board,
+    required this.onPick,
+  });
+
+  final String title;
+  final String? caption;
+  final bool board;
+  final ValueChanged<String?> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget row(String action, IconData icon, String label, [String? note]) =>
+        ListTile(
+          leading: Icon(icon, color: AppColors.textMuted),
+          title: Text(label),
+          subtitle: note == null ? null : Text(note),
+          onTap: () => onPick(action),
+        );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (title.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Semantics(
+                  header: true,
+                  child: Text(title.trim(), style: theme.textTheme.titleMedium),
+                ),
+                if (caption != null && caption!.isNotEmpty)
+                  Text(caption!, style: theme.textTheme.bodySmall),
+              ],
+            ),
+          ),
+        if (board) row('open', Icons.arrow_forward, '打开版块'),
+        row(
+          'hide',
+          Icons.visibility_off_outlined,
+          board ? '在首页隐藏此版块及子版块' : '隐藏此分区',
+          '仅隐藏首页列表；最近、搜索、收藏和常用仍可进入',
+        ),
+        if (!board) row('manage', Icons.tune, '调整顺序与显示…'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpace.lg, AppSpace.sm, AppSpace.lg, AppSpace.lg),
+          child: FilledButton.tonal(
+            onPressed: () => onPick(null),
+            child: const Text('取消'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One quiet centred line at the end of the home list.
+class _HomeFootnote extends StatelessWidget {
+  const _HomeFootnote({
+    super.key,
+    required this.text,
+    required this.action,
+    required this.onAction,
+  });
+
+  final String text;
+  final String action;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpace.xl),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(text, style: Theme.of(context).textTheme.bodySmall),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.brand),
+            onPressed: onAction,
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
   }
 }

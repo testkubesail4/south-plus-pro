@@ -120,7 +120,20 @@ class HomePageParser {
       }
       if (boards.isEmpty) continue;
 
-      sections.add(ForumSection(title: title, items: boards));
+      final href = heading.querySelector('a[href]')?.attributes['href'] ?? '';
+      String? nativeId;
+      if (href.isNotEmpty && urls.isForumUrl(href)) {
+        final uri = Uri.tryParse(urls.absoluteUrl(href));
+        if (uri?.path == '/index.php') {
+          nativeId = RegExp(r'^cateid-([1-9]\d*)\.html$')
+                  .firstMatch(uri!.query)
+                  ?.group(1) ??
+              (RegExp(r'^cateid=[1-9]\d*$').hasMatch(uri.query)
+                  ? uri.queryParameters['cateid']
+                  : null);
+        }
+      }
+      sections.add(ForumSection(title: title, items: boards, nativeId: nativeId));
     }
     return sections;
   }

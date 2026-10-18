@@ -6,6 +6,7 @@ import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/user_note_store.dart';
+import 'package:south_plus_rewrite/services/user_tag_store.dart';
 
 class _LoginClient extends ForumClient {
   String? username;
@@ -40,6 +41,8 @@ void main() {
       () async {
     await UserNoteStore.save('1', 'guest note');
     await UserNoteStore.save('1', 'account note', account: 'Fixture One');
+    await UserTagStore.save('1', ['guest tag']);
+    await UserTagStore.save('1', ['account tag'], account: 'Fixture One');
     final repository = ForumRepository(client: _LoginClient());
     final notes = UserNoteController(repository);
     addTearDown(notes.dispose);
@@ -50,10 +53,12 @@ void main() {
         username: 'Fixture One', password: 'fixture', captcha: '1234');
     await pumpEventQueue();
     expect(notes.noteFor('1'), 'account note');
+    expect(notes.tagsFor('1'), ['account tag']);
 
     await repository.clearSession();
     await pumpEventQueue();
     expect(notes.noteFor('1'), 'guest note');
+    expect(notes.tagsFor('1'), ['guest tag']);
   });
 
   test('a custom origin guest has its own notes and never sees official ones',
@@ -102,6 +107,7 @@ void main() {
               uid: '1',
               name: 'Alice',
               note: 'old note',
+              tags: const ['old tag'],
             ),
             child: const Text('open'),
           ),
@@ -110,8 +116,9 @@ void main() {
     ));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    expect(find.text('用户备注'), findsOneWidget);
+    expect(find.text('备注与标签'), findsOneWidget);
     expect(find.text('old note'), findsOneWidget);
+    expect(find.text('old tag'), findsOneWidget);
 
     await repository.updateNetworkConfig(const ForumNetworkConfig(
       site: ForumSite('first.invalid'),
@@ -120,11 +127,12 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('用户备注'), findsNothing);
+    expect(find.text('备注与标签'), findsNothing);
     expect(find.text('old note'), findsNothing);
+    expect(find.text('old tag'), findsNothing);
     expect(find.text('open'), findsOneWidget, reason: 'the page below stays');
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    expect(find.text('用户备注'), findsOneWidget, reason: 'reopening works');
+    expect(find.text('备注与标签'), findsOneWidget, reason: 'reopening works');
   });
 }

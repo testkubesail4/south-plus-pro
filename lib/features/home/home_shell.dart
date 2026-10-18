@@ -20,6 +20,8 @@ import '../common/thread_row.dart';
 import '../messages/messages_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';
+import '../profile/favorite_collections_sheets.dart';
+import '../profile/home_boards_settings_screen.dart';
 import '../profile/forum_tasks_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
@@ -70,7 +72,7 @@ class _HomeShellState extends State<HomeShell> {
         // data lingers.
         Widget tab(int index, Widget Function() build) => _opened
                 .contains(index)
-            ? KeyedSubtree(key: ValueKey((index, owner, scope)), child: build())
+            ? KeyedSubtree(key: ValueKey((index, owner, scope, _repository.sessionEpoch.value)), child: build())
             : const SizedBox.shrink();
         return PopScope(
           canPop: _index == 0,
@@ -282,6 +284,13 @@ class _ForumHomePageState extends State<ForumHomePage> {
   late final String? _account = widget.repository.localPreferenceAccount;
   HomeReadingPreferences _prefs = const HomeReadingPreferences();
   int _prefsRun = 0;
+  bool _prefsReady = false;
+  bool _layoutBusy = false;
+  Object? _prefsError;
+  late final _epoch = widget.repository.sessionEpoch.value;
+
+  bool get _current => mounted && _account == widget.repository.localPreferenceAccount &&
+      _epoch == widget.repository.sessionEpoch.value;
 
   @override
   void initState() {
@@ -306,9 +315,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
     final run = ++_prefsRun;
     try {
       final prefs = await HomeReadingPreferences.load(account: _account);
-      if (mounted && run == _prefsRun) setState(() => _prefs = prefs);
-    } catch (_) {
-      // The defaults stay.
+      if (_current && run == _prefsRun) setState(() { _prefs = prefs; _prefsReady = true; _prefsError = null; });
+    } catch (error) {
+      if (_current && run == _prefsRun) setState(() => _prefsError = error);
     }
   }
 
@@ -317,48 +326,60 @@ class _ForumHomePageState extends State<ForumHomePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  Future<void> _toggleCollapsed(String id) async {
-    final collapse = !_prefs.collapsedIds.contains(id);
+  // Layout writes wait for the one in flight, and stop while the saved state
+  // could not be read back (the screen may not show what is stored).
+  bool get _layoutLocked => _layoutBusy || _prefsError != null;
+
+  Future<void> _toggleCollapsed(String id, List<ForumSection> sections) async {
+    if (!_current || _layoutLocked) return;
+    final prefs = _prefs.reconcile(sections);
+    final collapse = !prefs.collapsedIds.contains(id);
     setState(() {
-      _prefs = HomeReadingPreferences(
-        quickRowCount: _prefs.quickRowCount,
-        collapsedIds: {
-          for (final other in _prefs.collapsedIds)
-            if (other != id) other,
-          if (collapse) id,
-        },
-        recentBoards: _prefs.recentBoards,
-      );
+      _layoutBusy = true;
+      _prefs = prefs.copyWith(collapsedIds: {
+        ...prefs.collapsedIds.where((other) => other != id),
+        if (collapse) id,
+      });
     });
     try {
       await HomeReadingPreferences.setCollapsed(id, collapse,
-          account: _account);
+          account: _account, sections: sections);
     } catch (_) {
+      // Back to what was acknowledged before reading again, so a failed read
+      // cannot leave the unsaved fold on screen.
+      if (_current) setState(() => _prefs = prefs);
       _showMessage('无法保存折叠状态');
-      _loadPrefs();
+      await _loadPrefs();
+    } finally {
+      if (_current) setState(() => _layoutBusy = false);
     }
   }
 
   Future<void> _pickQuickRows() async {
+    if (!_current || _layoutLocked) return;
     final rows = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
       constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
       builder: (_) => _QuickRowsSheet(current: _prefs.quickRowCount),
     );
-    if (rows == null || rows == _prefs.quickRowCount || !mounted) return;
+    if (rows == null || rows == _prefs.quickRowCount) return;
+    if (!_current || _layoutLocked) return;
+    final before = _prefs;
     setState(() {
-      _prefs = HomeReadingPreferences(
-        quickRowCount: rows,
-        collapsedIds: _prefs.collapsedIds,
-        recentBoards: _prefs.recentBoards,
-      );
+      _layoutBusy = true;
+      _prefs = _prefs.copyWith(quickRowCount: rows);
     });
     try {
       await HomeReadingPreferences.saveQuickRowCount(rows, account: _account);
     } catch (_) {
+      if (_current) {
+        setState(() => _prefs = before);
+      }
       _showMessage('无法保存显示行数');
-      _loadPrefs();
+      await _loadPrefs();
+    } finally {
+      if (_current) setState(() => _layoutBusy = false);
     }
   }
 
@@ -409,29 +430,96 @@ class _ForumHomePageState extends State<ForumHomePage> {
     );
   }
 
-  // A foldable section; the fold is remembered under its title.
-  List<Widget> _section(ForumHomeSnapshot? data, int i, double inner) {
-    final section = data?.sections[i];
-    final title = section?.title.trim() ?? '';
-    final id = title.isEmpty ? null : 'section:$title';
-    final collapsed = id != null && _prefs.collapsedIds.contains(id);
+  void _openHomeSettings() {
+    if (!_current) return;
+    final page = HomeBoardsSettingsScreen(repository: widget.repository);
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+  }
+
+  String? _boardFid(ForumBoard board) => widget.repository.searchBoardId(
+      ForumCategory(name: board.name, slug: board.slug, url: board.url));
+
+  Future<void> _homeActions({String? sectionId, ForumBoard? board,
+      required List<ForumSection> sections}) async {
+    if (!_current || _layoutLocked) return;
+    final fid = board == null ? null : _boardFid(board);
+    if (sectionId == null && fid == null) return;
+    final epoch = widget.repository.sessionEpoch.value;
+    final account = widget.repository.localPreferenceAccount;
+    final sectionTitle = board == null
+        ? sections
+            .where((s) => _prefs.reconcile(sections).sectionId(s, sections) == sectionId)
+            .firstOrNull
+            ?.title
+        : sections.where((s) => s.items.contains(board)).firstOrNull?.title;
+    final caption = board == null
+        ? null
+        : [
+            if (sectionTitle != null && sectionTitle.trim().isNotEmpty)
+              sectionTitle.trim(),
+            if (board.children.isNotEmpty) '含 ${board.children.length} 个子版块',
+          ].join(' · ');
+    final action = await showModalBottomSheet<String>(
+      context: context, showDragHandle: true, isScrollControlled: true,
+      constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
+      builder: (sheetContext) => SessionBound(
+        session: widget.repository.sessionEpoch, generation: epoch,
+        child: SafeArea(child: SingleChildScrollView(child: _HomeActionsSheet(
+          title: board?.name ?? sectionTitle ?? '',
+          caption: caption,
+          board: board != null,
+          onPick: (action) => Navigator.pop(sheetContext, action),
+        ))),
+      ),
+    );
+    if (action == null || !_current || account != _account || epoch != _epoch) return;
+    if (action == 'manage') { _openHomeSettings(); return; }
+    if (action == 'open' && board != null) { _openBoard(board); return; }
+    setState(() => _layoutBusy = true);
+    try {
+      if (sectionId != null) {
+        await HomeReadingPreferences.setSectionHidden(sectionId, true, account: account, sections: sections);
+      } else {
+        await HomeReadingPreferences.setParentHidden(fid!, true, account: account, sections: sections);
+      }
+      await _loadPrefs();
+    } catch (_) {
+      _showMessage('无法保存隐藏设置，请重试');
+    } finally {
+      if (_current) setState(() => _layoutBusy = false);
+    }
+  }
+
+  static String _hiddenSummary(int sections, int boards) => '首页已隐藏 ${[
+        if (sections > 0) '$sections 个分区',
+        if (boards > 0) '$boards 个版块',
+      ].join('、')}';
+
+  List<Widget> _section(ForumSection section, List<ForumSection> sections,
+      int i, double inner, HomeReadingPreferences prefs) {
+    final id = prefs.sectionId(section, sections);
+    final collapsed = id != null && prefs.collapsedIds.contains(id);
+    final boards = section.items.where((board) => !prefs.hiddenParentFids.contains(_boardFid(board))).toList();
     return [
       const SizedBox(height: 32),
       _SectionHeader(
-        section?.title,
+        section.title,
         key: ValueKey('home-section-$i'),
-        note: section == null ? null : '${section.items.length} 个版块',
+        note: '${boards.length} 个版块',
         collapsed: collapsed,
-        onToggle: id == null ? null : () => _toggleCollapsed(id),
+        // Taps while a write is in flight are ignored inside; the header
+        // keeps its look.
+        onToggle: id == null ? null : () => _toggleCollapsed(id, sections),
+        onLongPress: id == null ? null : () => _homeActions(sectionId: id, sections: sections),
       ),
       _Collapsible(
         collapsed: collapsed,
         child: _BoardGrid(
           key: ValueKey('home-grid-$i'),
-          boards: section?.items ?? const [],
-          bones: section == null ? _shape.sections[i] : null,
+          boards: boards,
           columns: inner >= 960 ? 3 : (inner >= 600 ? 2 : 1),
           onOpen: _openBoard,
+          onLongPress: (board) => _homeActions(board: board, sections: sections),
         ),
       ),
     ];
@@ -460,9 +548,11 @@ class _ForumHomePageState extends State<ForumHomePage> {
                 future: _future,
                 builder: (context, snapshot) {
                   final data = snapshot.data;
-                  // Null data renders the same layout with placeholders.
-                  final sectionCount =
-                      data?.sections.length ?? _shape.sections.length;
+                  final sections = data?.sections ?? const <ForumSection>[];
+                  final prefs = _prefs.reconcile(sections);
+                  final hiddenSections = sections.where((s) => prefs.hiddenSectionIds.contains(prefs.sectionId(s, sections))).length;
+                  final hiddenParents = {for (final s in sections) for (final b in s.items) _boardFid(b)}
+                      .where((id) => prefs.hiddenParentFids.contains(id)).length;
                   return ListView(
                     padding: EdgeInsets.fromLTRB(
                       gutter,
@@ -490,7 +580,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
                             children: [
                               IconButton(
                                 tooltip: '显示行数',
-                                onPressed: data == null ? null : _pickQuickRows,
+                                onPressed: data == null || _layoutLocked
+                                    ? null
+                                    : _pickQuickRows,
                                 icon: const Icon(Icons.tune, size: 20),
                               ),
                               data == null
@@ -523,8 +615,29 @@ class _ForumHomePageState extends State<ForumHomePage> {
                           sections: data?.sections,
                           onOpen: _openCategory,
                         ),
-                        for (var i = 0; i < sectionCount; i++)
-                          ..._section(data, i, inner),
+                        if (data == null || !_prefsReady)
+                          SizedBox(height: 120, child: Center(child: _prefsError == null
+                              ? const Text('版块加载中…')
+                              : TextButton(onPressed: _loadPrefs, child: const Text('首页设置加载失败，重试'))))
+                        else ...[
+                          for (final section in prefs.orderedSections(sections))
+                            if (!prefs.hiddenSectionIds.contains(prefs.sectionId(section, sections)))
+                              ..._section(section, sections, sections.indexOf(section), inner, prefs),
+                          if (_prefsError != null)
+                            _HomeFootnote(
+                              key: const ValueKey('home-layout-retry'),
+                              text: '首页设置未能读取',
+                              action: '重试',
+                              onAction: _loadPrefs,
+                            )
+                          else if (hiddenSections + hiddenParents > 0)
+                            _HomeFootnote(
+                              key: const ValueKey('home-hidden-summary'),
+                              text: _hiddenSummary(hiddenSections, hiddenParents),
+                              action: '管理',
+                              onAction: _openHomeSettings,
+                            ),
+                        ],
                       ],
                     ],
                   );

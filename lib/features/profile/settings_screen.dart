@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -15,6 +17,8 @@ import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import 'forum_preferences_screen.dart';
+import 'home_boards_settings_screen.dart';
+import 'local_user_annotations_screen.dart';
 import 'network_settings_screen.dart';
 import 'network_setup_flow_screen.dart';
 
@@ -42,11 +46,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late Future<HomeReadingPreferences> _homeReading = _loadHomeReading();
   bool _clearingCache = false;
   bool _checkingUpdate = false;
+  int _scopeGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     ThreadPagingSettings.load().ignore();
+    HomeReadingPreferences.revision.addListener(_reloadHomeReading);
+    widget.repository.sessionEpoch.addListener(_scopeChanged);
+    widget.repository.sessionUser.addListener(_scopeChanged);
+  }
+
+  @override
+  void dispose() {
+    HomeReadingPreferences.revision.removeListener(_reloadHomeReading);
+    widget.repository.sessionEpoch.removeListener(_scopeChanged);
+    widget.repository.sessionUser.removeListener(_scopeChanged);
+    super.dispose();
+  }
+
+  void _scopeChanged() {
+    if (!mounted) return;
+    setState(() { _scopeGeneration++; _homeReading = _loadHomeReading(); });
+    scheduleMicrotask(_reloadHomeReading);
+  }
+
+  void _reloadHomeReading() {
+    if (mounted) setState(() => _homeReading = _loadHomeReading());
+  }
+
+  void _openHomeBoards() {
+    final page = HomeBoardsSettingsScreen(repository: widget.repository);
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+  }
+
+  void _openLocalAnnotations() {
+    final page = LocalUserAnnotationsScreen(repository: widget.repository);
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
 
   Future<void> _setAutoLoad(bool enabled) async {
@@ -353,6 +389,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       },
                     ),
                     FutureBuilder<HomeReadingPreferences>(
+                      key: ValueKey((_scopeGeneration, widget.repository.localPreferenceAccount)),
                       future: _homeReading,
                       builder: (context, snapshot) {
                         final rows = snapshot.data?.quickRowCount ?? 8;
@@ -372,6 +409,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: _clearingCache ? '正在清理…' : null,
                       trailing: const SizedBox.shrink(),
                       onTap: _clearingCache ? null : _clearImageCache,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpace.xl),
+                AppGroup(
+                  label: '个性化',
+                  children: [
+                    AppRow(
+                      icon: Icons.dashboard_outlined,
+                      title: const Text('首页版块'),
+                      subtitle: const Text('分区顺序与显示、版块隐藏'),
+                      onTap: _openHomeBoards,
+                    ),
+                    AppRow(
+                      icon: Icons.label_outline,
+                      title: const Text('备注与标签'),
+                      subtitle: const Text('仅本机保存，按当前账号区分'),
+                      onTap: _openLocalAnnotations,
                     ),
                   ],
                 ),

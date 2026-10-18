@@ -443,13 +443,14 @@ void main() {
         <a title="在线">加为好友</a>
       </div>
       <div id="u-top">
-        <h1 class="u-h1">Alice</h1>
+        <h1 class="u-h1">1eb7ddbc</h1>
         <span id="honor">您还没有设置个性签名</span>
         <script>function honor(){ getObj('honor').innerHTML = 'x'; }</script>
       </div>
       <div id="u-profile">
         <table>
           <tr><td>UID</td><th>2536715</th></tr>
+          <tr><td>昵称</td><th> 可可萝 </th></tr>
           <tr><td>自我简介</td><th><div><br></div></th></tr>
         </table>
       </div>
@@ -465,6 +466,12 @@ void main() {
       profileDocument: profileDocument,
     );
 
+    expect(profile.name, '1eb7ddbc');
+    expect(profile.nickname, '可可萝');
+    expect(profile.displayName, '可可萝');
+    expect(profile.copyWith(info: []).displayName, '1eb7ddbc');
+    expect(profile.copyWith(info: [const UserProfileField(label: '昵称', value: '   ')]).displayName, '1eb7ddbc');
+    expect(profile.copyWith(name: '', info: []).displayName, '用户 2536715');
     expect(profile.tagline, '您还没有设置个性签名');
     expect(profile.tagline, isNot(contains('function honor')));
     expect(profile.isOnline, isTrue);

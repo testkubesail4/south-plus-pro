@@ -48,6 +48,17 @@ void main() {
     );
   });
 
+  testWidgets('a guest can reach local home personalization without the account group', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await pumpSettings(tester);
+    await tester.scrollUntilVisible(find.text('首页版块'), 180,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('个性化'), findsOneWidget);
+    expect(find.text('账号'), findsNothing);
+    final tile = find.ancestor(of: find.text('首页版块'), matching: find.byType(InkWell)).first;
+    expect(tester.widget<InkWell>(tile).onTap, isNotNull);
+  });
+
   testWidgets('自动加载下一页 shows the saved choice', (tester) async {
     SharedPreferences.setMockInitialValues({'settings.autoLoadNextPage': true});
     final toggle = await pumpSettings(tester);

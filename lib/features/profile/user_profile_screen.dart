@@ -15,6 +15,7 @@ import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../common/thread_row.dart';
 import '../common/user_note.dart';
+import '../common/user_tags_inline.dart';
 import '../messages/pm_compose_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
@@ -150,16 +151,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _editNote(UserProfile profile) async {
+    if (_notes.isLoading || _notes.noteLoadError != null || _notes.tagLoadError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('标记加载失败，请重试')));
+      _notes.reload();
+      return;
+    }
     final saved = await showUserNoteEditor(
       context,
       repository: widget.repository,
       uid: profile.uid.trim(),
-      name: profile.name,
+      name: profile.displayName,
       note: _notes.noteFor(profile.uid.trim()),
+      tags: _notes.tagsFor(profile.uid.trim()),
     );
     if (saved && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('备注已更新')),
+        const SnackBar(content: Text('备注与标签已更新')),
       );
     }
   }
@@ -301,6 +308,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             builder: (context, _) => _ProfileHeader(
                               profile: profile,
                               note: hasUid ? _notes.noteFor(uid) : null,
+                              tags: hasUid ? _notes.tagsFor(uid) : const [],
                               onEditNote:
                                   hasUid ? () => _editNote(profile) : null,
                               onMessage: switch (profile.messageUrl) {

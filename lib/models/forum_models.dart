@@ -758,10 +758,12 @@ class ForumSection {
   const ForumSection({
     required this.title,
     required this.items,
+    this.nativeId,
   });
 
   final String title;
   final List<ForumBoard> items;
+  final String? nativeId;
 }
 
 class ForumBoard {
@@ -930,6 +932,17 @@ class UserProfile {
   final List<UserListItem> topics;
   final List<UserListItem> posts;
   final List<UserListItem> favorites;
+
+  String? get nickname {
+    final value = info
+        .where((field) => field.label.trim() == '昵称')
+        .firstOrNull
+        ?.value
+        .trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  String get displayName => nickname ?? (name.trim().isEmpty ? '用户 $uid' : name);
 
   UserProfile copyWith({
     String? uid,

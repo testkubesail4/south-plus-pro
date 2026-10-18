@@ -54,7 +54,8 @@ class _Repo extends ForumRepository {
         categories: categories,
         items: [
           for (final e in entries)
-            if ((id == null || e.categoryId == id) && !omit.contains(e.id)) e,
+            if ((id == null || e.categoryId == id) && !omit.contains(e.id))
+              FavoriteCollectionEntry(id: e.id, categoryId: e.categoryId, thread: e.thread),
         ],
         categoryId: id,
         canCreate: true,
@@ -136,6 +137,8 @@ class _Repo extends ForumRepository {
     List<FavoriteCollectionEntry> chosen,
     String toCategoryId,
   ) {
+    expect(chosen.every((entry) => snapshot.items.any((current) => identical(current, entry))), isTrue,
+        reason: 'move uses current snapshot objects, never entries retired by category changes');
     final moved = mode == _Mode.partial ? chosen.take(1).toList() : chosen;
     return _answer(
       snapshot,
@@ -178,14 +181,15 @@ class _Repo extends ForumRepository {
     String categoryId,
   ) =>
       _answer(snapshot, 'delete:$categoryId', () {
-        // The site moves the favourites to 默认分类 and renumbers.
+        final kept = categories.where((c) => c.id != categoryId).toList();
+        final renumbered = {for (final (index, c) in kept.indexed) c.id: '$index'};
         entries = [
           for (final e in entries)
-            e.categoryId == categoryId ? _entry(e.id, e.thread.title, '0') : e,
+            _entry(e.id, e.thread.title, e.categoryId == categoryId ? '0' : renumbered[e.categoryId]!),
         ];
         categories = [
-          for (final c in categories)
-            if (c.id != categoryId) c,
+          for (final (index, c) in kept.indexed)
+            FavoriteCategory(id: '$index', label: c.label, canDelete: c.canDelete),
         ];
       });
 }
@@ -239,6 +243,163 @@ void main() {
     expect(find.text('全部'), findsOneWidget);
     expect(key('favorite-folder:1'), findsOneWidget);
     expect(find.textContaining('资料 · Fixture author'), findsOneWidget);
+  });
+
+  _Repo oneCategory() => _Repo()
+    ..categories = [const FavoriteCategory(id: '0', label: '默认分类')]
+    ..entries = [_entry('11', 'Fixture favourite A', '0'), _entry('12', 'Fixture favourite B', '0')];
+
+  Future<void> createInMove(WidgetTester tester, String name) async {
+    await tapKey(tester, 'favorite-move-new');
+    await tester.enterText(key('favorite-category-name'), name);
+    await tester.pump();
+    await tapKey(tester, 'favorite-category-create');
+  }
+
+  testWidgets('selected category is enabled at idle and active tap reads nothing', (tester) async {
+    final repo = await pump(tester);
+    var chip = tester.widget<ChoiceChip>(key('favorite-folder:all'));
+    expect(chip.selected, isTrue);
+    expect(chip.onSelected, isNotNull);
+    await tapKey(tester, 'favorite-folder:all');
+    expect(repo.calls, ['fetch:all']);
+    await tapKey(tester, 'favorite-folder:1');
+    final before = List<String>.of(repo.calls);
+    chip = tester.widget<ChoiceChip>(key('favorite-folder:1'));
+    expect(chip.selected, isTrue);
+    expect(chip.onSelected, isNotNull);
+    await tapKey(tester, 'favorite-folder:1');
+    expect(repo.calls, before);
+    expect(tester.widget<ActionChip>(key('favorite-manage')).onPressed, isNotNull);
+  });
+
+  testWidgets('one-category row disables actual move but creates then explicitly chooses a fresh target', (tester) async {
+    final repo = oneCategory();
+    await pump(tester, repo);
+    await tester.tap(find.byTooltip('更多').first);
+    await tester.pumpAndSettle();
+    expect(tester.widget<PopupMenuItem<void>>(key('favorite-row-move:11')).enabled, isFalse);
+    expect(find.text('暂无其他分类，请先新建'), findsOneWidget);
+    await tapKey(tester, 'favorite-row-move-manage:11');
+    expect(find.text('暂无其他分类，请先新建分类，再选择移入'), findsOneWidget);
+    expect(tester.widget<ListTile>(key('favorite-move-to:0')).enabled, isFalse);
+    await createInMove(tester, '音声');
+    expect(repo.calls.where((call) => call.startsWith('move:')), isEmpty);
+    expect(repo.calls, contains('create:音声'));
+    expect(find.text('关闭'), findsOneWidget);
+    await tapKey(tester, 'favorite-move-to:1');
+    expect(repo.calls.last, 'move:11>1');
+  });
+
+  testWidgets('batch companion preserves selection through create and stops on an unknown result', (tester) async {
+    final repo = oneCategory();
+    await pump(tester, repo);
+    await select(tester, ['11', '12']);
+    expect(tester.widget<OutlinedButton>(key('favorite-move')).onPressed, isNull);
+    await tapKey(tester, 'favorite-move-manage-selected');
+    await createInMove(tester, '资料');
+    expect(find.text('已选 2 个'), findsOneWidget);
+    expect(repo.calls.where((call) => call.startsWith('move:')), isEmpty);
+    await tapKey(tester, 'favorite-move-to:1');
+    expect(repo.calls.last, 'move:11,12>1');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    final unknown = oneCategory()..mode = _Mode.unknown;
+    await pump(tester, unknown);
+    await select(tester, ['11', '12']);
+    await tapKey(tester, 'favorite-move-manage-selected');
+    await createInMove(tester, '未确认');
+    expect(find.text('结果未确认，请刷新核对'), findsWidgets);
+    expect(key('favorite-move-to:1'), findsNothing);
+    expect(unknown.calls.where((call) => call.startsWith('move:')), isEmpty);
+  });
+
+  testWidgets('deleting the selected source rebinds membership and the renamed target number before move', (tester) async {
+    final repo = _Repo()
+      ..categories = [const FavoriteCategory(id: '0', label: '默认分类'),
+        const FavoriteCategory(id: '1', label: '旧分类', canDelete: true),
+        const FavoriteCategory(id: '2', label: '音声', canDelete: true)]
+      ..entries = [_entry('11', 'Fixture favourite A', '1')];
+    await pump(tester, repo);
+    await select(tester, ['11']);
+    await tapKey(tester, 'favorite-move');
+    await tapKey(tester, 'favorite-move-manage');
+    await tapKey(tester, 'favorite-folder-delete:1');
+    expect(find.text('其中的主题会移到默认分类。'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 1 个'), findsOneWidget);
+    expect(tester.widget<ListTile>(key('favorite-move-to:0')).enabled, isFalse);
+    expect(tester.widget<ListTile>(key('favorite-move-to:1')).title, isA<Text>());
+    await tapKey(tester, 'favorite-move-to:1');
+    expect(repo.calls, contains('delete:1'));
+    expect(repo.calls.last, 'move:11>1');
+    expect(repo.categories.singleWhere((c) => c.id == '1').label, '音声');
+  });
+
+  testWidgets('closing the move flow after a create returns to the category it started in', (tester) async {
+    final repo = await pump(tester);
+    await tapKey(tester, 'favorite-folder:1');
+    await select(tester, ['12']);
+    await tapKey(tester, 'favorite-move');
+    await createInMove(tester, '音声');
+    expect(repo.calls, contains('create:音声'));
+    await tapKey(tester, 'favorite-move-cancel');
+    expect(repo.calls.last, 'fetch:1');
+    expect(find.text('已选 1 个'), findsOneWidget);
+    expect(repo.calls.where((call) => call.startsWith('move:')), isEmpty);
+    await tapKey(tester, 'favorite-select-exit');
+    expect(tester.widget<ChoiceChip>(key('favorite-folder:1')).selected, isTrue);
+  });
+
+  testWidgets('a deleted source category leaves the closed move flow in 全部', (tester) async {
+    final repo = await pump(tester);
+    await tapKey(tester, 'favorite-folder:1');
+    await select(tester, ['12']);
+    await tapKey(tester, 'favorite-move');
+    await tapKey(tester, 'favorite-move-manage');
+    await tapKey(tester, 'favorite-folder-delete:1');
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+    expect(repo.calls, contains('delete:1'));
+    await tapKey(tester, 'favorite-move-cancel');
+    expect(repo.calls.last, isNot('fetch:1'));
+    expect(find.text('已选 1 个'), findsOneWidget);
+    await tapKey(tester, 'favorite-select-exit');
+    expect(tester.widget<ChoiceChip>(key('favorite-folder:all')).selected, isTrue);
+  });
+
+  testWidgets('deleting one of two same-named categories is refused aloud and sends nothing', (tester) async {
+    final repo = _Repo()
+      ..categories = [
+        const FavoriteCategory(id: '0', label: '默认分类'),
+        const FavoriteCategory(id: '1', label: '资料', canDelete: true),
+        const FavoriteCategory(id: '2', label: '资料', canDelete: true),
+      ];
+    await pump(tester, repo);
+    await select(tester, ['11']);
+    await tapKey(tester, 'favorite-move');
+    await tapKey(tester, 'favorite-move-manage');
+    await tapKey(tester, 'favorite-folder-delete:2');
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+    expect(find.text('分类名称重复，请在原站整理后重试'), findsOneWidget);
+    expect(repo.calls.where((call) => call.startsWith('delete:')), isEmpty);
+    await tapKey(tester, 'favorite-move-cancel');
+    expect(find.text('已选 1 个'), findsOneWidget);
+  });
+
+  testWidgets('a category change drops an off-page pending row instead of moving a fabricated entry', (tester) async {
+    final repo = oneCategory();
+    await pump(tester, repo);
+    await tester.tap(find.byTooltip('更多').first);
+    await tester.pumpAndSettle();
+    await tapKey(tester, 'favorite-row-move-manage:11');
+    repo.omit = {'11'};
+    await createInMove(tester, '资料');
+    expect(find.text('部分所选主题不在当前页，请重新选择'), findsOneWidget);
+    expect(repo.calls.where((call) => call.startsWith('move:')), isEmpty);
+    expect(key('favorite-move-to:1'), findsNothing);
   });
 
   testWidgets('more pages, or an unreadable pager, is said and never guessed',
@@ -416,6 +577,9 @@ void main() {
     expect(find.text('已选 2 个'), findsOneWidget);
     await tapKey(tester, 'favorite-move');
     expect(find.text('移动 2 个主题到…'), findsOneWidget);
+    expect(tester.widget<ListTile>(key('favorite-move-to:0')).enabled, isTrue);
+    expect(tester.widget<ListTile>(key('favorite-move-to:1')).enabled, isTrue);
+    expect(find.text('当前位置'), findsNothing, reason: 'a mixed selection can move into either source');
     await tapKey(tester, 'favorite-move-to:1');
     expect(repo.calls.where((c) => c.startsWith('move')), ['move:11,12>1']);
     expect(find.text('已移动 2 个到「资料」'), findsOneWidget);

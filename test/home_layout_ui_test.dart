@@ -219,10 +219,8 @@ void main() {
     }
   });
 
-  // The skeleton is the loaded layout with placeholders, so nothing moves.
-  // The first load ever knows no directory: everything down to the first
-  // section's title holds. Later loads remember its shape: everything holds.
-  // Tall views build every section; short and empty 速览 lists keep the card.
+  // Quick/hot geometry stays fixed; directory counts cannot identify hidden
+  // or reordered sections, so it waits for real sections and preferences.
   for (final (width, scale, guest) in const [
     (360.0, 1.0, false),
     (360.0, 2.0, true),
@@ -232,7 +230,7 @@ void main() {
     (1440.0, 2.0, true),
   ]) {
     testWidgets(
-        'loading skeleton matches the loaded layout at ${width.toInt()} '
+        'quick/hot skeleton stays fixed and directory waits at ${width.toInt()} '
         'x$scale ${guest ? 'guest' : 'user'}', (tester) async {
       tester.view.physicalSize = Size(width, 4000);
       tester.view.devicePixelRatio = 1;
@@ -256,28 +254,29 @@ void main() {
         return repo;
       }
 
-      List<Rect> geometry({bool directory = true}) => [
+      List<Rect> geometry() => [
             tester.getRect(find.text('速览')),
             tester.getRect(find.text('热门版块')),
-            tester.getRect(find.byKey(const ValueKey('home-section-0'))),
-            if (directory)
-              for (final key in [
-                'home-grid-0',
-                'home-section-1',
-                'home-grid-1'
-              ])
-                tester.getRect(find.byKey(ValueKey(key))),
           ];
 
+      void directoryPending() {
+        expect(find.text('版块加载中…'), findsOneWidget);
+        expect(find.byKey(const ValueKey('home-section-0')), findsNothing);
+        expect(find.byKey(const ValueKey('home-grid-1')), findsNothing);
+      }
+
       var repo = await launch();
-      final first = geometry(directory: false);
+      final first = geometry();
+      directoryPending();
       repo.homeGate!.complete();
       await tester.pumpAndSettle();
       expect(find.text('Fixture board'), findsOneWidget);
-      expect(geometry(directory: false), first);
+      expect(geometry(), first);
+      expect(find.byKey(const ValueKey('home-section-0')), findsOneWidget);
 
       repo = await launch();
       final later = geometry();
+      directoryPending();
       repo.homeGate!.complete();
       await tester.pumpAndSettle();
       expect(find.text('Fixture board'), findsOneWidget);
@@ -298,7 +297,8 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(tester.takeException(), isNull);
-    expect(find.byKey(const ValueKey('home-grid-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-grid-1')), findsNothing);
+    expect(find.text('版块加载中…'), findsOneWidget);
     repo.homeGate!.complete();
     await tester.pumpAndSettle();
     expect(find.text('Fixture board'), findsOneWidget);

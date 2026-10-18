@@ -15,11 +15,13 @@ class _ProfileHeader extends StatelessWidget {
     this.onCopyLoginName,
     this.onSearchByUser,
     this.note,
+    this.tags = const [],
     this.onEditNote,
   });
 
   final UserProfile profile;
   final String? note;
+  final List<String> tags;
   final VoidCallback? onEditNote;
   final VoidCallback? onMessage;
   final String? loginName;
@@ -64,7 +66,7 @@ class _ProfileHeader extends StatelessWidget {
                       backgroundColor: AppColors.inkSoft,
                       child: profile.avatarUrl == null
                           ? Text(
-                              profile.name.characters.firstOrNull ?? '?',
+                              profile.displayName.characters.firstOrNull ?? '?',
                               style: Theme.of(context)
                                   .textTheme
                                   .headlineSmall
@@ -97,7 +99,7 @@ class _ProfileHeader extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              profile.name,
+                              profile.displayName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.titleLarge,
@@ -110,8 +112,18 @@ class _ProfileHeader extends StatelessWidget {
                           ),
                         ],
                       ),
+                      if (profile.displayName != profile.name) ...[
+                        const SizedBox(height: AppSpace.xs),
+                        Text('${profile.name} · UID ${profile.uid}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ],
                       if (onEditNote != null)
                         _NoteLine(note: note, onEdit: onEditNote!),
+                      if (tags.isNotEmpty && onEditNote != null) ...[
+                        const SizedBox(height: AppSpace.xs),
+                        UserTagsInline(tags: tags, onShowAll: onEditNote!),
+                      ],
                       if (profile.tagline != null) ...[
                         const SizedBox(height: 7),
                         Text(
@@ -167,7 +179,8 @@ class _ProfileHeader extends StatelessWidget {
                     onTap: lookingUp ? null : onShowLoginName,
                   ),
                 ),
-              _MetricChip(label: 'UID', value: profile.uid),
+              if (profile.displayName == profile.name)
+                _MetricChip(label: 'UID', value: profile.uid),
               if (profile.level != null && profile.level!.isNotEmpty)
                 _MetricChip(label: '等级', value: profile.level!),
               ...profile.stats.take(3).map(

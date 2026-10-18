@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
+import '../../services/forum_url_resolver.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/async_state_view.dart';
@@ -30,6 +31,9 @@ class FavoriteThreadsPage extends StatefulWidget {
   @override
   State<FavoriteThreadsPage> createState() => _FavoriteThreadsPageState();
 }
+
+/// Why 移动到… is off when every category already holds the rows.
+const _noTarget = '暂无其他分类，请先新建';
 
 class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
   FavoriteCollections? _data;
@@ -165,15 +169,16 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
 
   /// Runs one write against the snapshot on screen and shows only what the
   /// forum's fresh answer proves.
-  Future<void> _write(
+  Future<FavoriteMutationStatus?> _write(
     Future<FavoriteCollectionMutation> Function(FavoriteCollections snapshot)
         run, {
     required String Function(int done) done,
     int count = 1,
     bool reloadAfter = false,
+    bool keepSelection = false,
   }) async {
     final snapshot = _data;
-    if (snapshot == null || _locked) return;
+    if (snapshot == null || _locked) return null;
     final epoch = _epoch;
     final viewBefore = _view;
     final labelBefore =
@@ -184,7 +189,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
     try {
       result = await run(snapshot);
     } catch (error) {
-      if (!mounted || epoch != _epoch) return;
+      if (!mounted || epoch != _epoch) return null;
       // Whether the forum took the write is known only when it said so.
       final unknown = error is ForumRequestException &&
           (error.kind == ForumRequestKind.server ||
@@ -194,9 +199,9 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
         if (unknown) _unconfirmed = '结果未确认，请刷新核对';
       });
       messenger.showSnackBar(SnackBar(content: Text(forumErrorText(error))));
-      return;
+      return null;
     }
-    if (!mounted || epoch != _epoch) return;
+    if (!mounted || epoch != _epoch) return null;
     final fresh = result.collections;
     final unfinished = {
       for (final item in result.items)
@@ -214,8 +219,10 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
       switch (result.status) {
         case FavoriteMutationStatus.confirmed:
           if (unfinished.isEmpty) {
-            _selected.clear();
-            _selecting = false;
+            if (!keepSelection) {
+              _selected.clear();
+              _selecting = false;
+            }
             text = done(finished);
           } else {
             // Those the forum still holds stay selected for another try.
@@ -243,7 +250,11 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
       }
     });
     messenger.showSnackBar(SnackBar(content: Text(text)));
-    if (_unconfirmed != null) return;
+    if (_unconfirmed != null) return result.status;
+    if (keepSelection) {
+      if (fresh == null) await _load(keep: Set.of(_selected));
+      return result.status;
+    }
     // Without a fresh list the screen holds an old one: read it again.
     if (fresh == null) {
       _load(view: _view);
@@ -262,6 +273,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
         _load(view: named.single.id, keep: Set.of(_selected));
       }
     }
+    return result.status;
   }
 
   Future<void> _remove(List<FavoriteCollectionEntry> entries) async {
@@ -280,27 +292,106 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
     );
   }
 
+  String? _tid(FavoriteCollectionEntry entry) => entry.thread.threadId ??
+      ForumUrlResolver(baseUri: widget.repository.networkConfig.baseUri).tidFromUrl(entry.thread.url);
+
+  bool _knownSources(List<FavoriteCollectionEntry> entries) => entries.isNotEmpty && entries.every((entry) =>
+      _tid(entry) != null && entry.categoryId != null &&
+      _data!.categories.where((c) => c.id == entry.categoryId).length == 1);
+
+  List<FavoriteCategory> _destinations(List<FavoriteCollectionEntry> entries) =>
+      _data == null || !_knownSources(entries) ? [] : [
+        for (final category in _data!.categories)
+          if (!entries.every((entry) => entry.categoryId == category.id)) category,
+      ];
+
+  String? _moveHint(List<FavoriteCollectionEntry> entries) {
+    if (entries.isEmpty) return null;
+    if (!_knownSources(entries)) return '分类信息未确认，请刷新';
+    return _destinations(entries).isEmpty ? _noTarget : null;
+  }
+
   Future<void> _move(List<FavoriteCollectionEntry> entries) async {
-    final data = _data;
-    if (entries.isEmpty || data == null || _locked) return;
-    final epoch = _epoch;
-    final target = await showMoveSheet(
-      context,
-      session: widget.repository.sessionEpoch,
-      count: entries.length,
-      // Not where every one of them already is.
-      categories: [
-        for (final c in data.categories)
-          if (!entries.every((e) => e.categoryId == c.id)) c,
-      ],
-    );
-    if (target == null || !mounted || epoch != _epoch) return;
-    await _write(
-      (snapshot) =>
-          widget.repository.moveFavorites(snapshot, entries, target.id),
-      done: (n) => '已移动 $n 个到「${target.label}」',
-      count: entries.length,
-    );
+    if (entries.isEmpty || _data == null || _locked || !_knownSources(entries)) return;
+    final session = widget.repository.sessionEpoch.value;
+    final wasSelecting = _selecting;
+    final pending = {for (final entry in entries) entry.id: _tid(entry)!};
+    var categoryChanged = false;
+    // A category create/delete answers with the list of everything. Closing
+    // the sheet afterwards goes back to the category the user came from, found
+    // again by name, with the pending choice kept. Not after an unknown
+    // result, a failed read or a session change; and a deleted source stays
+    // in 全部.
+    final viewLabel = _view == null ? null : _labelOf(_data, _view);
+    Future<void> restoreView() async {
+      if (!categoryChanged || viewLabel == null || _view != null) return;
+      if (!mounted || session != widget.repository.sessionEpoch.value || _locked) return;
+      final named = [
+        for (final c in _data!.categories)
+          if (c.label == viewLabel) c,
+      ];
+      if (named.length != 1) return;
+      await _load(
+          view: named.single.id,
+          keep: wasSelecting ? Set.of(_selected) : const {});
+    }
+    while (mounted && session == widget.repository.sessionEpoch.value && !_locked) {
+      final data = _data!;
+      final rebound = <FavoriteCollectionEntry>[];
+      for (final request in pending.entries) {
+        final matches = data.items.where((entry) => entry.id == request.key && _tid(entry) == request.value).toList();
+        if (matches.length == 1) rebound.add(matches.single);
+      }
+      if (rebound.length != pending.length) {
+        // Said now, not queued behind the create/delete confirmation.
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('部分所选主题不在当前页，请重新选择')));
+        pending.removeWhere((id, _) => !rebound.any((entry) => entry.id == id));
+      }
+      if (wasSelecting) setState(() {
+        _selected..clear()..addAll(pending.keys);
+        _selecting = _selected.isNotEmpty;
+      });
+      if (rebound.isEmpty || !_knownSources(rebound)) return;
+      final action = await showMoveSheet(context,
+        session: widget.repository.sessionEpoch, categories: data.categories,
+        count: rebound.length, canCreate: data.canCreate, categoryChanged: categoryChanged,
+        unavailableCategoryIds: {for (final c in data.categories)
+          if (rebound.every((entry) => entry.categoryId == c.id)) c.id},
+      );
+      if (action == null) {
+        await restoreView();
+        return;
+      }
+      if (!mounted || session != widget.repository.sessionEpoch.value || _locked) return;
+      if (action is MoveDestination) {
+        final intended = action.category;
+        final targets = _data!.categories.where((c) => intended.isDefault
+            ? c.isDefault : !c.isDefault && c.label.trim() == intended.label.trim()).toList();
+        if (targets.length != 1) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('分类已变化，请刷新后重试')));
+          return;
+        }
+        final target = targets.single;
+        await _write((snapshot) => widget.repository.moveFavorites(snapshot, rebound, target.id),
+          done: (n) => '已移动 $n 个到「${target.label}」', count: rebound.length);
+        return;
+      }
+      ManageAction? manage;
+      if (action is CreateMoveCategory) {
+        manage = const CreateCategory();
+      } else {
+        manage = await showManageCategoriesSheet(context,
+          session: widget.repository.sessionEpoch, data: _data!);
+      }
+      if (!mounted || session != widget.repository.sessionEpoch.value || _locked) return;
+      if (manage != null) {
+        final result = await _applyManageAction(manage, keepSelection: true);
+        if (!mounted || session != widget.repository.sessionEpoch.value || _locked) return;
+        categoryChanged = categoryChanged || result == FavoriteMutationStatus.confirmed;
+      }
+    }
   }
 
   Future<void> _manage() async {
@@ -313,6 +404,13 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
       data: data,
     );
     if (action == null || !mounted || epoch != _epoch) return;
+    await _applyManageAction(action);
+  }
+
+  Future<FavoriteMutationStatus?> _applyManageAction(ManageAction action, {bool keepSelection = false}) async {
+    final data = _data;
+    if (data == null || _locked) return null;
+    final epoch = _epoch;
     switch (action) {
       case CreateCategory():
         final name = await showNewCategoryDialog(
@@ -324,12 +422,13 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
             name.trim().isEmpty ||
             !mounted ||
             epoch != _epoch) {
-          return;
+          return null;
         }
-        await _write(
+        return _write(
           (snapshot) =>
               widget.repository.createFavoriteCategory(snapshot, name.trim()),
           done: (_) => '已新建分类「${name.trim()}」',
+          keepSelection: keepSelection,
         );
       case DeleteCategory(:final category):
         final ok = await showDeleteCategoryDialog(
@@ -337,13 +436,19 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
           session: widget.repository.sessionEpoch,
           category: category,
         );
-        if (!ok || !mounted || epoch != _epoch) return;
-        await _write(
-          (snapshot) =>
-              widget.repository.deleteFavoriteCategory(snapshot, category.id),
-          done: (_) => '已删除分类「${category.label}」',
-          // Numbers shift when a category goes; start from all again.
+        if (!ok || !mounted || epoch != _epoch) return null;
+        final targets = _data!.categories.where((c) => !c.isDefault && c.label.trim() == category.label.trim()).toList();
+        if (targets.length != 1) {
+          // Never fall back to the number: say why nothing was sent.
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('分类名称重复，请在原站整理后重试')));
+          return null;
+        }
+        return _write(
+          (snapshot) => widget.repository.deleteFavoriteCategory(snapshot, targets.single.id),
+          done: (_) => '已删除分类「${category.label}」，其中的主题已移到默认分类',
           reloadAfter: true,
+          keepSelection: keepSelection,
         );
     }
   }
@@ -438,6 +543,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                 onSelect: () => _startSelecting(entry.id),
                 onRemove: () => _remove([entry]),
                 onMove: () => _move([entry]),
+                moveHint: _moveHint([entry]),
+                onMoveCategories: _knownSources([entry]) ? () => _move([entry]) : null,
               ),
             ],
           ],
@@ -512,6 +619,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                 count: _selected.length,
                 busy: _locked,
                 onMove: () => _move(_chosen),
+                moveHint: _moveHint(_chosen),
+                onManageMove: _knownSources(_chosen) ? () => _move(_chosen) : null,
                 onRemove: () => _remove(_chosen),
               ),
           ],
@@ -636,11 +745,36 @@ class _Views extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The chosen view always reads as chosen, even while another loads; only
+    // the others fade when the row is inert. An active tap does nothing.
     Widget chip(String key, String label, bool on, String? id) => ChoiceChip(
           key: ValueKey('favorite-folder:$key'),
           label: Text(label),
           selected: on,
-          onSelected: enabled && !on ? (_) => onView(id) : null,
+          onSelected: enabled
+              ? (_) {
+                  if (!on) onView(id);
+                }
+              : null,
+          showCheckmark: true,
+          checkmarkColor: AppColors.brand,
+          selectedColor: AppColors.brandSoft,
+          backgroundColor: AppColors.surface,
+          disabledColor: on ? AppColors.brandSoft : AppColors.surface,
+          side: BorderSide(
+            color: on
+                ? AppColors.brand.withValues(alpha: 0.35)
+                : AppColors.border,
+          ),
+          shape: const StadiumBorder(),
+          labelStyle: TextStyle(
+            color: on
+                ? AppColors.brandDark
+                : enabled
+                    ? AppColors.text
+                    : AppColors.textFaint,
+            fontWeight: on ? FontWeight.w600 : FontWeight.w400,
+          ),
         );
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -657,10 +791,15 @@ class _Views extends StatelessWidget {
             ),
           ],
           const SizedBox(width: AppSpace.sm),
+          const SizedBox(height: 24, child: VerticalDivider(width: AppSpace.md)),
           ActionChip(
             key: const ValueKey('favorite-manage'),
-            avatar: const Icon(Icons.tune, size: 18),
+            avatar: Icon(Icons.tune, size: 18, color: canManage ? AppColors.brand : AppColors.textFaint),
             label: const Text('管理'),
+            shape: const StadiumBorder(),
+            backgroundColor: AppColors.surface,
+            side: BorderSide(color: AppColors.border),
+            labelStyle: TextStyle(color: canManage ? AppColors.text : AppColors.textFaint),
             onPressed: canManage ? onManage : null,
           ),
         ],
@@ -705,8 +844,12 @@ class _SelectionBar extends StatelessWidget {
     required this.busy,
     required this.onMove,
     required this.onRemove,
+    this.moveHint,
+    this.onManageMove,
   });
 
+  final String? moveHint;
+  final VoidCallback? onManageMove;
   final int count;
   final bool busy;
   final VoidCallback onMove;
@@ -723,14 +866,40 @@ class _SelectionBar extends StatelessWidget {
         top: false,
         child: Padding(
           padding: const EdgeInsets.all(AppSpace.md),
-          child: Wrap(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Why 移动到… is off, and the way out when it is for lack of
+              // a destination.
+              if (moveHint != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                  child: Row(children: [
+                    Icon(Icons.info_outline,
+                        size: 18, color: AppColors.textMuted),
+                    const SizedBox(width: AppSpace.sm),
+                    Expanded(
+                        child:
+                            Text(moveHint!, style: theme.textTheme.bodySmall)),
+                    if (moveHint == _noTarget && onManageMove != null)
+                      TextButton(
+                        key: const ValueKey('favorite-move-manage-selected'),
+                        style: TextButton.styleFrom(
+                            foregroundColor: AppColors.brand),
+                        onPressed: enabled ? onManageMove : null,
+                        child: const Text('新建或管理分类'),
+                      ),
+                  ]),
+                ),
+              Wrap(
             alignment: WrapAlignment.end,
             spacing: AppSpace.sm,
             runSpacing: AppSpace.sm,
             children: [
               OutlinedButton.icon(
                 key: const ValueKey('favorite-move'),
-                onPressed: enabled ? onMove : null,
+                onPressed: enabled && moveHint == null ? onMove : null,
                 icon: const Icon(Icons.drive_file_move_outline),
                 label: const Text('移动到…'),
               ),
@@ -744,6 +913,8 @@ class _SelectionBar extends StatelessWidget {
                 icon: const Icon(Icons.star_outline),
                 label: const Text('取消收藏'),
               ),
+            ],
+          ),
             ],
           ),
         ),
@@ -767,8 +938,12 @@ class _FavoriteRow extends StatefulWidget {
     required this.onSelect,
     required this.onRemove,
     required this.onMove,
+    this.moveHint,
+    this.onMoveCategories,
   });
 
+  final String? moveHint;
+  final VoidCallback? onMoveCategories;
   final FavoriteCollectionEntry entry;
   final String? categoryLabel;
   final ForumRepository repository;
@@ -847,16 +1022,40 @@ class _FavoriteRowState extends State<_FavoriteRow> {
                     ],
                   ),
                 ),
+                // Genuinely disabled when there is nowhere to go; the hint
+                // says why and the next item is the way out.
                 PopupMenuItem(
-                  onTap: widget.onMove,
-                  child: const Row(
-                    children: [
-                      Icon(Icons.drive_file_move_outline, size: 20),
-                      SizedBox(width: AppSpace.md),
-                      Text('移动到…'),
-                    ],
-                  ),
+                  key: ValueKey('favorite-row-move:${widget.entry.id}'),
+                  enabled: widget.moveHint == null,
+                  onTap: widget.moveHint == null ? widget.onMove : null,
+                  child: Row(children: [
+                    const Icon(Icons.drive_file_move_outline, size: 20),
+                    const SizedBox(width: AppSpace.md),
+                    Flexible(child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('移动到…'),
+                        if (widget.moveHint != null)
+                          Text(widget.moveHint!,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppColors.textFaint)),
+                      ],
+                    )),
+                  ]),
                 ),
+                if (widget.moveHint == _noTarget &&
+                    widget.onMoveCategories != null)
+                  PopupMenuItem(
+                    key: ValueKey(
+                        'favorite-row-move-manage:${widget.entry.id}'),
+                    onTap: widget.onMoveCategories,
+                    child: const Row(children: [
+                      Icon(Icons.create_new_folder_outlined, size: 20),
+                      SizedBox(width: AppSpace.md),
+                      Text('新建或管理分类…'),
+                    ]),
+                  ),
                 PopupMenuItem(
                   onTap: widget.onRemove,
                   child: const Row(

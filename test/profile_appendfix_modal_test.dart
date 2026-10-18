@@ -96,7 +96,7 @@ void main() {
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
-    expect(find.text('用户备注'), findsNothing);
+    expect(find.text('备注与标签'), findsNothing);
     expect(find.text('open'), findsOneWidget);
     expect(editorResult, isTrue);
     expect((await UserNoteStore.load())['1'], 'new note');
@@ -110,7 +110,7 @@ void main() {
     await repository.updateNetworkConfig(_customConfig);
     await tester.pumpAndSettle();
 
-    expect(find.text('用户备注'), findsNothing);
+    expect(find.text('备注与标签'), findsNothing);
     expect(find.text('old note'), findsNothing);
     expect(find.text('open'), findsOneWidget);
     expect(editorResult, isFalse);
@@ -152,7 +152,7 @@ void main() {
 
     expect(find.text('foreign page'), findsOneWidget,
         reason: 'the finished write must not pop the current foreign route');
-    expect(find.text('用户备注'), findsNothing);
+    expect(find.text('备注与标签'), findsNothing);
     expect(find.text('old note'), findsNothing);
   });
 }

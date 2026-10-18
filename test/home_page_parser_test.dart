@@ -3,6 +3,24 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:south_plus_rewrite/services/parsers/home_page_parser.dart';
 
 void main() {
+  test('section identity admits only native same-forum cateid links', () {
+    String section(String href, String title) => '''
+      <table><tr><th><h2><a href="$href">$title</a></h2></th></tr>
+      <tr><th><h3><a href="thread.php?fid-42.html">Board</a></h3></th></tr></table>''';
+    final parser = HomePageParser();
+    for (final href in ['index.php?cateid-7.html', 'index.php?cateid=7']) {
+      final result = parser.parseDesktopForumSections(html_parser.parse(section(href, '改名')));
+      expect(result.single.nativeId, '7');
+    }
+    for (final href in ['https://evil.invalid/index.php?cateid-7.html',
+      'thread.php?cateid-7.html', 'index.php?cateid-0.html',
+      'index.php?cateid=7&cateid=8', 'index.php?cateid-7-other-2.html']) {
+      expect(parser.parseDesktopForumSections(html_parser.parse(section(href, '分区'))).single.nativeId, isNull);
+    }
+    expect(parser.parseDesktopForumSections(html_parser.parse(
+      '<table><tr><th><h2>公告</h2></th></tr><tbody id="cate_info"><tr><td>公告</td></tr></tbody></table>')), isEmpty);
+  });
+
   test('HomePageParser preserves nested boards under unlinked headings', () {
     final document = html_parser.parse('''
       <h2>Outside the directory</h2>
@@ -29,6 +47,7 @@ void main() {
 
     expect(sections.map((section) => section.title),
         ['Fixture section', 'Linked section']);
+    expect(sections.first.nativeId, isNull);
     final parent = sections.first.items.single;
     expect(parent.name, 'Fixture parent');
     expect(parent.topicCount, 0);
@@ -113,6 +132,7 @@ void main() {
       '漫区特设',
       '综合交流',
     ]);
+    expect(sections.map((section) => section.nativeId), ['39', '3']);
     expect(sections.first.items, hasLength(2));
 
     final comicMarket = sections.first.items.first;

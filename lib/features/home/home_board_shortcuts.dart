@@ -217,11 +217,13 @@ class _MyBoardsState extends State<_MyBoards> {
   /// A pin with the board it sits under, so same-named boards tell apart. Pins
   /// saved as a bare name gain the parent from the current tree; storage keeps
   /// whatever was saved.
-  String _pinLabel(ForumSearchPinnedBoard pin) {
+  String _pinLabel(ForumSearchPinnedBoard pin, {bool preferTree = false}) {
     final node = _byId[pin.id];
+    if (node != null && preferTree) return node.pinLabel;
     final parent = node?.parent;
     if (node == null || parent == null) return pin.label;
-    return pin.label.trim() == node.label ? node.pinLabel : pin.label;
+    return pin.label.trim() == node.label || pin.label.contains(' / ')
+        ? node.pinLabel : pin.label;
   }
 
   /// Recent and hot boards that no home section lists.
@@ -279,7 +281,7 @@ class _MyBoardsState extends State<_MyBoards> {
       content = _ChipRow(chips: [
         for (final board in boards)
           _boardChip(context,
-              tab == _MyBoardsTab.pinned ? _pinLabel(board) : board.label,
+              _pinLabel(board, preferTree: tab == _MyBoardsTab.recent),
               onTap: () => widget.onOpen(_category(board))),
       ]);
     } else if (tab == _MyBoardsTab.pinned) {

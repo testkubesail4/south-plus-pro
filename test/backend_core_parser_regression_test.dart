@@ -164,6 +164,25 @@ void main() {
         ['42']);
   });
 
+  test('off-home visits persist the immediate breadcrumb parent without extra reads', () async {
+    final client = _CoreClient('''
+      <div id="breadcrumbs"><a href="index.php">首页</a>
+        <a href="thread.php?fid-13.html">资源区</a>
+        <a href="thread.php?fid-14.html">直接父版</a>
+        <a href="thread.php?fid-42.html">真实版名</a>
+      </div>
+      <table><tr><td>子版块</td></tr><tr><td>论坛</td><td>文章</td></tr>
+        <tr><th><h2><a href="thread.php?fid-43.html" class="fnamecolor a1">Child</a></h2></th><td>0</td><td>0</td></tr>
+      </table>
+    ''');
+    final repo = ForumRepository(client: client);
+    await repo.fetchBoardThreadPage(const ForumCategory(name: '旧名', slug: 'f42'));
+    final recent = (await HomeReadingPreferences.load()).recentBoards.single;
+    expect(recent.id, '42');
+    expect(recent.label, '直接父版 / 真实版名');
+    expect(client.gets, hasLength(1));
+  });
+
   test('task tab and concurrent snapshots share only in-flight reads',
       () async {
     final client = _PendingTaskClient();
@@ -473,10 +492,13 @@ class _CoreClient extends ForumClient {
   _CoreClient(this.html, {this.response});
   final String html;
   final Future<String>? response;
+  final gets = <String>[];
 
   @override
-  Future<String> get(String path) async =>
-      response == null ? html : await response!;
+  Future<String> get(String path) async {
+    gets.add(path);
+    return response == null ? html : await response!;
+  }
 
   @override
   Future<String> getOnce(String path) => get(path);

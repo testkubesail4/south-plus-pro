@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
 import 'package:south_plus_rewrite/services/user_note_store.dart';
+import 'package:south_plus_rewrite/services/user_tag_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -63,6 +64,7 @@ void main() {
 
   Future<void> seed() async {
     await UserNoteStore.save('42', '原备注');
+    await UserTagStore.save('42', ['原标签']);
     await HomeReadingPreferences.saveQuickRowCount(5);
     await HomeReadingPreferences.setCollapsed('board:42', true);
     await HomeReadingPreferences.recordBoardVisit(board42);
@@ -70,12 +72,18 @@ void main() {
 
   final mutations = <String, Future<void> Function()>{
     'note update': () => UserNoteStore.save('42', '失败的更新'),
+    'tag update': () => UserTagStore.save('42', ['未保存']),
+    'last tag clear': () => UserTagStore.clear('42'),
     'last note clear': () => UserNoteStore.clear('42'),
     'quick row change': () => HomeReadingPreferences.saveQuickRowCount(3),
     'collapse removal': () =>
         HomeReadingPreferences.setCollapsed('board:42', false),
     'recent visit': () => HomeReadingPreferences.recordBoardVisit(board43),
     'recent clear': () => HomeReadingPreferences.clearRecentBoards(),
+    'layout section hide': () => HomeReadingPreferences.setSectionHidden('section-id:7', true),
+    'layout parent hide': () => HomeReadingPreferences.setParentHidden('42', true),
+    'layout order': () => HomeReadingPreferences.saveSectionOrder(['section-id:7']),
+    'layout restore': () => HomeReadingPreferences.restoreLayout(),
   };
 
   for (final mutation in mutations.entries) {
@@ -84,8 +92,18 @@ void main() {
           '${mutation.key} rejected by ${throws ? 'exception' : 'false'} '
           'preserves acknowledged state for later writes', () async {
         await seed();
+        final restoring = mutation.key == 'layout restore';
+        if (restoring) {
+          await HomeReadingPreferences.saveSectionOrder(['section-id:39', 'section-id:7']);
+          await HomeReadingPreferences.setSectionHidden('section-id:7', true);
+          await HomeReadingPreferences.setParentHidden('42', true);
+        }
+        final expectedOrder = restoring ? ['section-id:39', 'section-id:7'] : <String>[];
+        final expectedSections = restoring ? {'section-id:7'} : <String>{};
+        final expectedParents = restoring ? {'42'} : <String>{};
         final before = Map<String, Object>.of(persisted);
         final notesRevision = UserNoteStore.revision.value;
+        final tagsRevision = UserTagStore.revision.value;
         final homeRevision = HomeReadingPreferences.revision.value;
         rejectWrites = true;
         throwWrites = throws;
@@ -93,21 +111,32 @@ void main() {
             throwsA(throws ? isA<PlatformException>() : isA<StateError>()));
         expect(persisted, before);
         expect(UserNoteStore.revision.value, notesRevision);
+        expect(UserTagStore.revision.value, tagsRevision);
         expect(HomeReadingPreferences.revision.value, homeRevision);
         expect(await UserNoteStore.load(), {'42': '原备注'});
+        expect(await UserTagStore.load(), {'42': ['原标签']});
+        await (await SharedPreferences.getInstance()).reload();
         final restored = await HomeReadingPreferences.load();
+        expect(restored.sectionOrder, expectedOrder);
+        expect(restored.hiddenSectionIds, expectedSections);
+        expect(restored.hiddenParentFids, expectedParents);
         expect(restored.quickRowCount, 5);
         expect(restored.collapsedIds, {'board:42'});
         expect(restored.recentBoards.map((board) => board.id), ['42']);
 
         rejectWrites = false;
         await UserNoteStore.save('43', '新备注');
+        await UserTagStore.save('43', ['新标签']);
         await HomeReadingPreferences.saveQuickRowCount(6);
         await HomeReadingPreferences.setCollapsed('board:43', true);
         await HomeReadingPreferences.recordBoardVisit(board43);
         await (await SharedPreferences.getInstance()).reload();
         expect(await UserNoteStore.load(), {'42': '原备注', '43': '新备注'});
+        expect(await UserTagStore.load(), {'42': ['原标签'], '43': ['新标签']});
         final retried = await HomeReadingPreferences.load();
+        expect(retried.sectionOrder, expectedOrder);
+        expect(retried.hiddenSectionIds, expectedSections);
+        expect(retried.hiddenParentFids, expectedParents);
         expect(retried.quickRowCount, 6);
         expect(retried.collapsedIds, {'board:42', 'board:43'});
         expect(retried.recentBoards.map((board) => board.id), ['43', '42']);

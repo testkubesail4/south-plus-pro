@@ -30,6 +30,7 @@ import '../common/forum_link_opener.dart';
 import '../common/forum_pager.dart';
 import '../common/thread_row.dart' show AppTag;
 import '../common/user_note.dart';
+import '../common/user_tags_inline.dart';
 import '../profile/blocking_settings_screen.dart';
 import '../profile/favorite_collections_sheets.dart' show showNewCategoryDialog;
 import '../profile/user_profile_screen.dart';
@@ -792,13 +793,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         await _showAuthorPosts(reply);
       case ThreadFloorAction.editNote:
         // The controller reloads itself on the store's revision.
-        await showUserNoteEditor(
-          context,
-          repository: repository,
-          uid: uid!,
-          name: reply.author,
-          note: _notes.noteFor(uid),
-        );
+        await _editLocalAnnotations(uid!, reply.author);
       case ThreadFloorAction.manageBlocking:
         await Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => BlockingSettingsScreen(repository: widget.repository),
@@ -1461,6 +1456,16 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
   }
 
+  Future<void> _editLocalAnnotations(String uid, String name) async {
+    if (_notes.isLoading || _notes.noteLoadError != null || _notes.tagLoadError != null) {
+      _messenger.showSnackBar(const SnackBar(content: Text('标记加载失败，请重试')));
+      _notes.reload();
+      return;
+    }
+    await showUserNoteEditor(context, repository: widget.repository,
+        uid: uid, name: name, note: _notes.noteFor(uid), tags: _notes.tagsFor(uid));
+  }
+
   Widget _threadList(ThreadDetail detail) {
     return NotificationListener<ScrollNotification>(
       onNotification: _onScroll,
@@ -1488,6 +1493,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           purchaseReveals: _purchaseReveals,
           revealPlayed: _revealPlayed,
           noteFor: _notes.noteFor,
+          tagsFor: _notes.tagsFor,
+          onEditAnnotations: _editLocalAnnotations,
           loadingQuoteDrafts: _loadingQuoteDrafts,
           scrollController: _scrollController,
           onRefresh: _refresh,
@@ -1723,6 +1730,8 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.purchaseReveals,
     required this.revealPlayed,
     required this.noteFor,
+    required this.tagsFor,
+    required this.onEditAnnotations,
     required this.loadingQuoteDrafts,
     required this.scrollController,
     required this.onRefresh,
@@ -1762,6 +1771,8 @@ class _ThreadDetailContent extends StatelessWidget {
   final Map<String, Set<String>> purchaseReveals;
   final Set<String> revealPlayed;
   final String? Function(String? uid) noteFor;
+  final List<String> Function(String? uid) tagsFor;
+  final void Function(String uid, String name) onEditAnnotations;
   final Set<String> loadingQuoteDrafts;
   final ScrollController scrollController;
   final Future<void> Function() onRefresh;
@@ -1894,6 +1905,9 @@ class _ThreadDetailContent extends StatelessWidget {
             child: _ThreadHeaderCard(
               title: detail.thread.title,
               author: detail.thread.author,
+              note: noteFor(detail.thread.authorUid),
+              tags: tagsFor(detail.thread.authorUid),
+              onTagsMore: detail.thread.authorUid == null ? null : () => onEditAnnotations(detail.thread.authorUid!, detail.thread.author ?? '楼主'),
               avatarUrl: rules.isAvatarBlocked(detail.thread.authorUid)
                   ? null
                   : detail.thread.authorAvatarUrl,
@@ -1949,6 +1963,8 @@ class _ThreadDetailContent extends StatelessWidget {
             postedAt: detail.bodyPostedAt,
             personalSignature: detail.personalSignature,
             note: noteFor(detail.thread.authorUid),
+            tags: tagsFor(detail.thread.authorUid),
+            onTagsMore: detail.thread.authorUid == null ? null : () => onEditAnnotations(detail.thread.authorUid!, detail.thread.author ?? '楼主'),
             floor: '楼主',
             onReply: () => onReplyToFloor(
               detail.bodyReplyTitle ?? 'Re:${detail.thread.title}',
@@ -2039,6 +2055,8 @@ class _ThreadDetailContent extends StatelessWidget {
             postedAt: reply.postedAt,
             personalSignature: reply.personalSignature,
             note: noteFor(reply.authorUid),
+            tags: tagsFor(reply.authorUid),
+            onTagsMore: reply.authorUid == null ? null : () => onEditAnnotations(reply.authorUid!, reply.author),
             floor: reply.floor,
             onReply: () => onReplyToFloor(
               reply.replyTitle ?? 'Re:${detail.thread.title}',
@@ -2203,9 +2221,15 @@ class _ThreadHeaderCard extends StatelessWidget {
     this.author,
     this.avatarUrl,
     this.onAuthorTap,
+    this.note,
+    this.tags = const [],
+    this.onTagsMore,
   });
 
   final String title;
+  final String? note;
+  final List<String> tags;
+  final VoidCallback? onTagsMore;
   final String? author;
   final String? avatarUrl;
   final VoidCallback? onAuthorTap;
@@ -2232,12 +2256,16 @@ class _ThreadHeaderCard extends StatelessWidget {
                       avatarUrl: avatarUrl,
                     ),
                     const SizedBox(width: AppSpace.md),
-                    Flexible(child: _FloorAuthorName(author: authorName)),
+                    Flexible(child: _FloorAuthorName(author: authorName, note: note)),
                     const SizedBox(width: AppSpace.sm),
                     const AppTag('楼主', accent: true),
                   ],
                 ),
               ),
+              if (tags.isNotEmpty && onTagsMore != null) ...[
+                const SizedBox(height: AppSpace.xs),
+                UserTagsInline(tags: tags, onShowAll: onTagsMore!),
+              ],
               const SizedBox(height: AppSpace.lg),
             ],
             actions,
@@ -2323,6 +2351,8 @@ class _FloorCard extends StatelessWidget {
     this.postedAt,
     this.personalSignature,
     this.note,
+    this.tags = const [],
+    this.onTagsMore,
     this.floor,
     this.onReply,
     this.quoteLoading = false,
@@ -2348,6 +2378,8 @@ class _FloorCard extends StatelessWidget {
 
   /// The reader's local note on the author.
   final String? note;
+  final List<String> tags;
+  final VoidCallback? onTagsMore;
   final String? floor;
   final VoidCallback? onReply;
   final bool quoteLoading;
@@ -2418,6 +2450,10 @@ class _FloorCard extends StatelessWidget {
                           ],
                         ],
                       ),
+                      if (tags.isNotEmpty && onTagsMore != null) ...[
+                        const SizedBox(height: AppSpace.xs),
+                        UserTagsInline(tags: tags, onShowAll: onTagsMore!),
+                      ],
                       if (meta.isNotEmpty || signature != null) ...[
                         const SizedBox(height: AppSpace.xs),
                         _FloorMeta(meta: meta, signature: signature),

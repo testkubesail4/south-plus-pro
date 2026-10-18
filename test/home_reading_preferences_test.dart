@@ -10,6 +10,66 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('layout migrates folds, keeps native identity and restores only visibility/order', () async {
+    SharedPreferences.setMockInitialValues({
+      'account/a/home_collapsed_ids_v1': ['section:旧标题', 'board:42'],
+    });
+    const original = [
+      ForumSection(nativeId: '7', title: '旧标题', items: []),
+      ForumSection(nativeId: '39', title: '另一分区', items: []),
+    ];
+    await HomeReadingPreferences.setSectionHidden('section-id:7', true,
+        account: 'a', sections: original);
+    await HomeReadingPreferences.setParentHidden('42', true, account: 'a');
+    await HomeReadingPreferences.saveSectionOrder(['section-id:39', 'section-id:7'], account: 'a');
+    var state = await HomeReadingPreferences.load(account: 'a');
+    expect(state.collapsedIds, {'section-id:7', 'board:42'});
+    expect(state.hiddenSectionIds, {'section-id:7'});
+    expect(state.hiddenParentFids, {'42'});
+    const renamed = [
+      ForumSection(nativeId: '7', title: '新标题', items: []),
+      ForumSection(nativeId: '1', title: '新增', items: []),
+      ForumSection(nativeId: '39', title: '另一分区', items: []),
+    ];
+    expect(state.orderedSections(renamed).map((s) => s.nativeId), ['39', '7', '1']);
+    const simple = [ForumSection(title: '旧标题', items: [])];
+    expect(state.sectionId(simple.single, simple), 'section-id:7');
+    expect((await HomeReadingPreferences.load()).hiddenSectionIds, isEmpty);
+    await HomeReadingPreferences.restoreLayout(account: 'a');
+    state = await HomeReadingPreferences.load(account: 'a');
+    expect(state.sectionOrder, isEmpty);
+    expect(state.hiddenSectionIds, isEmpty);
+    expect(state.hiddenParentFids, isEmpty);
+    expect(state.collapsedIds, {'section-id:7', 'board:42'});
+  });
+
+  test('layout sanitizes invalid values, keeps unknown ids and never revives v1', () async {
+    SharedPreferences.setMockInitialValues({
+      'anonymous/home_collapsed_ids_v1': ['section:旧状态'],
+      'anonymous/home_layout_v2': jsonEncode({
+        'sectionOrder': ['section-id:7', 'section-id:7', 'section-id:999', 'index:0'],
+        'hiddenSectionIds': ['section-id:7', 'section-id:0'],
+        'hiddenParentFids': ['42', '0', 43],
+        'collapsedIds': ['board:42'],
+      }),
+    });
+    final state = await HomeReadingPreferences.load();
+    expect(state.sectionOrder, ['section-id:7', 'section-id:999']);
+    expect(state.hiddenSectionIds, {'section-id:7'});
+    expect(state.hiddenParentFids, {'42'});
+    expect(state.collapsedIds, {'board:42'});
+    const duplicate = [
+      ForumSection(title: '同名', items: []),
+      ForumSection(title: '同名', items: []),
+    ];
+    expect(state.sectionId(duplicate.first, duplicate), isNull);
+    SharedPreferences.setMockInitialValues({
+      'anonymous/home_collapsed_ids_v1': ['section:旧状态'],
+      'anonymous/home_layout_v2': '{invalid',
+    });
+    expect((await HomeReadingPreferences.load()).collapsedIds, isEmpty);
+  });
+
   test('quick rows persist every allowed count and reject out-of-range writes',
       () async {
     expect((await HomeReadingPreferences.load()).quickRowCount, 8);
@@ -42,6 +102,7 @@ void main() {
 
   test('recent boards deduplicate FID across URL forms and bound MRU order',
       () async {
+    await HomeReadingPreferences.setParentHidden('5', true);
     for (var fid = 1; fid <= 10; fid++) {
       await HomeReadingPreferences.recordBoardVisit(
           ForumCategory(name: '版块$fid', slug: 'fid-$fid'));
@@ -58,6 +119,7 @@ void main() {
     expect(recent.map((board) => board.id),
         ['5', '10', '9', '8', '7', '6', '4', '3']);
     expect(recent.first.label, '更新后的名称');
+    expect((await HomeReadingPreferences.load()).hiddenParentFids, {'5'});
     await HomeReadingPreferences.recordBoardVisit(const ForumCategory(
       name: '查询格式',
       slug: '',
@@ -66,6 +128,15 @@ void main() {
     expect((await HomeReadingPreferences.load()).recentBoards.length, 8);
     expect(
         (await HomeReadingPreferences.load()).recentBoards.first.label, '查询格式');
+  });
+
+  test('a visit without ancestry preserves a known qualified label, explicit root replaces it', () async {
+    const child = ForumCategory(name: 'Child', slug: 'f42');
+    await HomeReadingPreferences.recordBoardVisit(child, label: 'Parent / Child');
+    await HomeReadingPreferences.recordBoardVisit(child);
+    expect((await HomeReadingPreferences.load()).recentBoards.single.label, 'Parent / Child');
+    await HomeReadingPreferences.recordBoardVisit(child, label: 'Child');
+    expect((await HomeReadingPreferences.load()).recentBoards.single.label, 'Child');
   });
 
   test('anonymous and account home state stay isolated and pins stay separate',

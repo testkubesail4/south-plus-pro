@@ -282,15 +282,35 @@ Future<bool> showRemoveFavoritesDialog(
   return confirmed == true;
 }
 
-/// The category [count] favourites go to; null when dismissed.
-Future<FavoriteCategory?> showMoveSheet(
+sealed class MoveSheetAction {
+  const MoveSheetAction();
+}
+
+class MoveDestination extends MoveSheetAction {
+  const MoveDestination(this.category);
+  final FavoriteCategory category;
+}
+
+class CreateMoveCategory extends MoveSheetAction {
+  const CreateMoveCategory();
+}
+
+class ManageMoveCategories extends MoveSheetAction {
+  const ManageMoveCategories();
+}
+
+Future<MoveSheetAction?> showMoveSheet(
   BuildContext context, {
   required ValueListenable<int> session,
   required List<FavoriteCategory> categories,
   required int count,
+  Set<String> unavailableCategoryIds = const {},
+  bool canCreate = false,
+  bool categoryChanged = false,
 }) {
   final generation = session.value;
-  return showModalBottomSheet<FavoriteCategory>(
+  final hasTarget = categories.any((category) => !unavailableCategoryIds.contains(category.id));
+  return showModalBottomSheet<MoveSheetAction>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -300,33 +320,168 @@ Future<FavoriteCategory?> showMoveSheet(
       generation: generation,
       child: SafeArea(
         child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SheetTitle('移动 $count 个主题到…'),
-              for (final category in categories)
-                ListTile(
-                  key: ValueKey('favorite-move-to:${category.id}'),
-                  leading: const Icon(Icons.folder_outlined),
-                  title: Text(category.label),
-                  onTap: () => Navigator.of(sheetContext).pop(category),
-                ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                    AppSpace.lg, AppSpace.sm, AppSpace.lg, AppSpace.sm),
-                child: TextButton(
-                  key: const ValueKey('favorite-move-cancel'),
-                  onPressed: () => Navigator.of(sheetContext).pop(),
-                  child: const Text('取消'),
-                ),
-              ),
-            ],
+          child: _MoveSheetBody(
+            count: count,
+            categories: categories,
+            unavailable: unavailableCategoryIds,
+            hasTarget: hasTarget,
+            canCreate: canCreate,
+            categoryChanged: categoryChanged,
+            onPick: (action) => Navigator.of(sheetContext).pop(action),
           ),
         ),
       ),
     ),
   );
+}
+
+/// The current folder is shown but cannot be chosen. With nowhere to go the
+/// sheet says so and puts 新建分类 / 管理分类 first; otherwise they sit
+/// quietly under the destinations.
+class _MoveSheetBody extends StatelessWidget {
+  const _MoveSheetBody({
+    required this.count,
+    required this.categories,
+    required this.unavailable,
+    required this.hasTarget,
+    required this.canCreate,
+    required this.categoryChanged,
+    required this.onPick,
+  });
+
+  final int count;
+  final List<FavoriteCategory> categories;
+  final Set<String> unavailable;
+  final bool hasTarget;
+  final bool canCreate;
+  final bool categoryChanged;
+  final ValueChanged<MoveSheetAction?> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const createKey = ValueKey('favorite-move-new');
+    const manageKey = ValueKey('favorite-move-manage');
+    void onCreate() => onPick(const CreateMoveCategory());
+    void onManage() => onPick(const ManageMoveCategories());
+    const createIcon = Icon(Icons.add);
+    const manageIcon = Icon(Icons.tune);
+    const createLabel = Text('新建分类');
+    const manageLabel = Text('管理分类');
+    final quiet = TextButton.styleFrom(foregroundColor: AppColors.brand);
+    final Widget? create = !canCreate
+        ? null
+        : hasTarget
+            ? TextButton.icon(
+                key: createKey,
+                style: quiet,
+                onPressed: onCreate,
+                icon: createIcon,
+                label: createLabel)
+            : FilledButton.icon(
+                key: createKey,
+                onPressed: onCreate,
+                icon: createIcon,
+                label: createLabel);
+    final Widget manage = hasTarget
+        ? TextButton.icon(
+            key: manageKey,
+            style: quiet,
+            onPressed: onManage,
+            icon: manageIcon,
+            label: manageLabel)
+        : FilledButton.tonalIcon(
+            key: manageKey,
+            onPressed: onManage,
+            icon: manageIcon,
+            label: manageLabel);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SheetTitle('移动 $count 个主题到…'),
+        for (final category in categories)
+          _destination(context, category, unavailable.contains(category.id)),
+        const SizedBox(height: AppSpace.sm),
+        if (!hasTarget) ...[
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
+            padding: const EdgeInsets.all(AppSpace.md),
+            decoration: BoxDecoration(
+              color: AppColors.inkSoft,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: Row(children: [
+              Icon(Icons.info_outline, size: 20, color: AppColors.textMuted),
+              const SizedBox(width: AppSpace.sm),
+              Expanded(
+                child: Text('暂无其他分类，请先新建分类，再选择移入',
+                    style: theme.textTheme.bodySmall),
+              ),
+            ]),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
+            child: Row(children: [
+              if (create != null) ...[
+                Expanded(child: create),
+                const SizedBox(width: AppSpace.md),
+              ],
+              Expanded(child: manage),
+            ]),
+          ),
+        ] else ...[
+          const Divider(indent: AppSpace.lg, endIndent: AppSpace.lg),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [if (create != null) create else const SizedBox(), manage],
+            ),
+          ),
+        ],
+        Padding(
+          padding: const EdgeInsets.all(AppSpace.sm),
+          child: TextButton(
+            key: const ValueKey('favorite-move-cancel'),
+            onPressed: () => onPick(null),
+            // After a confirmed create/delete nothing is undone by leaving.
+            child: Text(categoryChanged ? '关闭' : '取消'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _destination(
+      BuildContext context, FavoriteCategory category, bool current) {
+    return ListTile(
+      key: ValueKey('favorite-move-to:${category.id}'),
+      enabled: !current,
+      leading: const Icon(Icons.folder_outlined),
+      title: Text(category.label),
+      subtitle: category.count == null || current
+          ? null
+          : Text('${category.count} 个主题'),
+      trailing: current
+          ? Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpace.sm, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.inkSoft,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Text('当前位置',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelMedium
+                      ?.copyWith(color: AppColors.textMuted)),
+            )
+          : Icon(Icons.chevron_right, color: AppColors.textFaint),
+      onTap: current ? null : () => onPick(MoveDestination(category)),
+    );
+  }
 }
 
 class _SheetTitle extends StatelessWidget {

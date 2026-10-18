@@ -17,7 +17,8 @@ void main() {
       level: 'Lv.3',
       isOnline: true,
       statusText: '在线',
-      info: [UserProfileField(label: 'UID', value: '123')],
+      info: [UserProfileField(label: 'UID', value: '123'),
+        UserProfileField(label: '昵称', value: ' 昵称甲 ')],
       stats: [UserProfileField(label: '在线时间', value: '9 小时')],
     );
 
@@ -30,7 +31,10 @@ void main() {
     expect(loaded?.name, 'Alice');
     expect(loaded?.tagline, '签名');
     expect(loaded?.isOnline, isTrue);
-    expect(loaded?.info.single.label, 'UID');
+    expect(loaded?.info.first.label, 'UID');
+    expect(loaded?.nickname, '昵称甲');
+    expect(loaded?.displayName, '昵称甲');
+    expect(loaded?.copyWith(tagline: 'new').displayName, '昵称甲');
   });
 
   test('UserProfileCache ignores expired overview entries', () async {

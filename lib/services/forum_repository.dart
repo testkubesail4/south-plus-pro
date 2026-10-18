@@ -490,11 +490,7 @@ class ForumRepository {
   void _applyAccountProfile(UserProfile profile) {
     final identity = _accountIdentity.value;
     if (identity == null || identity.uid != profile.uid) return;
-    final nickname = profile.info
-        .where((field) => field.label.trim() == '昵称')
-        .firstOrNull
-        ?.value
-        .trim();
+    final nickname = profile.nickname;
     _accountIdentity.value = ForumAccountIdentity(
       systemName: identity.systemName,
       uid: identity.uid,
@@ -2026,8 +2022,12 @@ class ForumRepository {
         throw const ForumRepositoryException('网络或登录状态已改变，请重试');
       }
       try {
+        final parentName = parents.lastOrNull?.name.trim();
         await HomeReadingPreferences.recordBoardVisit(category,
-            account: account);
+            account: account,
+            label: parentName != null && parentName.isNotEmpty
+                ? '$parentName / ${category.name}'
+                : boardName != null ? category.name : null);
       } catch (_) {
         // A local history failure must not discard the fetched board.
       }
