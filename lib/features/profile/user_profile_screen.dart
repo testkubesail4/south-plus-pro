@@ -12,6 +12,7 @@ import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../common/thread_row.dart';
+import '../common/unresolved_group.dart';
 import '../common/user_note.dart';
 import '../common/user_tags_inline.dart';
 import '../messages/pm_compose_screen.dart';

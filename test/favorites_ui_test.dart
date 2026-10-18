@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:south_plus_rewrite/features/profile/favorite_threads_page.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/favorite_search.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/full_scan.dart';
 
 // Synthetic titles and names only.
 FavoriteCollectionEntry _entry(String id, String title, String category) =>
@@ -45,6 +47,19 @@ class _Repo extends ForumRepository {
 
   @override
   bool get isLoggedIn => true;
+
+  final scans = <_FavScan>[];
+
+  @override
+  FullScan<FavoriteSearchHit> scanFavorites({
+    String? categoryId,
+    required String keyword,
+    required FavoriteCollections loaded,
+  }) {
+    final scan = _FavScan(keyword, categoryId);
+    scans.add(scan);
+    return scan;
+  }
 
   /// What the forum says about its pages (page 1 of 1 unless a test says).
   int? pageCount = 1;
@@ -192,6 +207,52 @@ class _Repo extends ForumRepository {
             FavoriteCategory(id: '$index', label: c.label, canDelete: c.canDelete),
         ];
       });
+}
+
+/// A scan the test drives: running once started, done when told.
+class _FavScan extends FullScan<FavoriteSearchHit> {
+  _FavScan(this.keyword, this.categoryId);
+
+  final String keyword;
+  final String? categoryId;
+  bool disposed = false;
+  ScanProgress _progress = const ScanProgress();
+  List<FavoriteSearchHit> _hits = const [];
+
+  @override
+  ScanProgress get progress => _progress;
+  @override
+  List<FavoriteSearchHit> get hits => _hits;
+  @override
+  List<FavoriteSearchHit> get unresolved => const [];
+
+  @override
+  void start() {
+    _progress = const ScanProgress(
+        state: ScanState.running, scannedPages: 1, totalPages: 2);
+    notifyListeners();
+  }
+
+  void finish(List<FavoriteSearchHit> hits) {
+    _hits = hits;
+    _progress = ScanProgress(
+        state: ScanState.done,
+        scannedPages: 2,
+        totalPages: 2,
+        found: hits.length);
+    notifyListeners();
+  }
+
+  @override
+  void stop() {}
+  @override
+  void resume() {}
+
+  @override
+  void dispose() {
+    disposed = true;
+    super.dispose();
+  }
 }
 
 class _PushWatcher extends NavigatorObserver {
@@ -627,6 +688,88 @@ void main() {
     await tapKey(tester, 'favorite-select-exit');
     expect(key('favorite-select:11'), findsNothing);
     expect(find.text('已加载 2 个主题'), findsOneWidget);
+  });
+
+  group('搜索收藏', () {
+    Future<void> search(WidgetTester tester, String keyword) async {
+      if (key('favorite-search').evaluate().isNotEmpty) {
+        await tapKey(tester, 'favorite-search');
+      }
+      await tester.enterText(find.byType(TextField), keyword);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'filters the page, counts cut titles, and a new keyword ends choosing',
+        (tester) async {
+      final repo = _Repo()
+        ..pageCount = 2
+        ..entries = [
+          _entry('11', 'Fixture alpha', '0'),
+          _entry('12', 'Fixture beta', '0'),
+          const FavoriteCollectionEntry(
+            id: '13',
+            categoryId: '0',
+            thread: UserListItem(
+                title: 'Fixture lo..',
+                url: 'read.php?tid-13.html',
+                titleTruncated: true),
+          ),
+        ];
+      await pump(tester, repo);
+      await search(tester, 'alpha');
+      expect(find.text('Fixture alpha'), findsOneWidget);
+      expect(find.text('Fixture beta'), findsNothing);
+      expect(find.text('标题不完整 (1)'), findsOneWidget);
+
+      await tapKey(tester, 'favorite-select-start');
+      await tapKey(tester, 'favorite-select-all');
+      expect(find.text('已选 1 个'), findsOneWidget);
+      await search(tester, 'alph');
+      expect(find.textContaining('已选'), findsNothing);
+      expect(key('favorite-select:11'), findsNothing);
+    });
+
+    testWidgets('every page is read only when asked, and its rows only open',
+        (tester) async {
+      final repo = _Repo()..pageCount = 2;
+      await pump(tester, repo);
+      await search(tester, 'favourite');
+      await tester.tap(find.text('搜索全部页面'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('开始搜索'));
+      await tester.pumpAndSettle();
+      final scan = repo.scans.single;
+      expect((scan.keyword, scan.categoryId), ('favourite', null));
+
+      scan.finish(const [
+        FavoriteSearchHit(
+          thread: UserListItem(
+              title: 'Fixture favourite C', url: 'read.php?tid-21.html'),
+          page: 2,
+        ),
+      ]);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('第 2 页'), findsOneWidget);
+      expect(find.text('全部页面的结果只能打开；移动或取消收藏请在所在页面操作'),
+          findsOneWidget);
+      expect(find.byTooltip('更多'), findsNothing);
+      expect(key('favorite-select-start'), findsNothing);
+
+      await tester.tap(find.text('返回已加载'));
+      await tester.pumpAndSettle();
+      expect(scan.disposed, isTrue);
+      expect(find.text('Fixture favourite A'), findsOneWidget);
+    });
+
+    testWidgets('one whole page with whole titles has nothing more to read',
+        (tester) async {
+      await pump(tester);
+      await search(tester, 'favourite');
+      expect(find.text('搜索全部页面'), findsNothing);
+      await search(tester, 'missing');
+      expect(find.text('没有符合的收藏'), findsOneWidget);
+    });
   });
 
   testWidgets('removing several asks once and sends one request',

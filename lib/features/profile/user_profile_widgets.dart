@@ -1302,12 +1302,14 @@ class _ContentTabState extends State<_ContentTab>
             ),
           if (unresolved.isNotEmpty) ...[
             const SizedBox(height: AppSpace.md),
-            _UnresolvedGroup(
-              items: unresolved,
+            UnresolvedGroup(
+              title: '未确认分类 (${unresolved.length})',
+              description: '这些内容的版块、分类或类型暂时无法核实，可能符合条件。',
               expanded: _unresolvedOpen,
               onToggle: () =>
                   setState(() => _unresolvedOpen = !_unresolvedOpen),
-              repository: widget.repository,
+              child: _threadGroup(context, unresolved, widget.repository,
+                  showAuthor: false),
             ),
           ],
           _ContentFooter(
@@ -1469,85 +1471,6 @@ class _ContentFooter extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: AppSpace.md),
       child: Center(child: child),
-    );
-  }
-}
-
-/// Rows whose board, classification or type could not be verified. Shown in
-/// full on demand; never folded into the matches and never dropped.
-class _UnresolvedGroup extends StatelessWidget {
-  const _UnresolvedGroup({
-    required this.items,
-    required this.expanded,
-    required this.onToggle,
-    required this.repository,
-  });
-
-  final List<UserListItem> items;
-  final bool expanded;
-  final VoidCallback onToggle;
-  final ForumRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final body = expanded
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpace.sm),
-                child: Text(
-                  '这些内容的版块、分类或类型暂时无法核实，可能符合条件。',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-              _threadGroup(context, items, repository, showAuthor: false),
-            ],
-          )
-        : const SizedBox(width: double.infinity);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Semantics(
-          button: true,
-          expanded: expanded,
-          child: InkWell(
-            onTap: onToggle,
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 48),
-              child: Row(
-                children: [
-                  Icon(
-                    expanded ? Icons.expand_less : Icons.expand_more,
-                    color: AppColors.textMuted,
-                  ),
-                  const SizedBox(width: AppSpace.sm),
-                  Expanded(
-                    child: Text(
-                      '未确认分类 (${items.length})',
-                      style: theme.textTheme.titleSmall,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        // Reduced motion shows the content directly: a zero-duration
-        // AnimatedSize finishes its controller inside its own layout and
-        // dirties itself there.
-        if (MediaQuery.disableAnimationsOf(context))
-          body
-        else
-          AnimatedSize(
-            duration: AppMotion.short,
-            curve: AppMotion.enter,
-            alignment: Alignment.topCenter,
-            child: body,
-          ),
-      ],
     );
   }
 }
