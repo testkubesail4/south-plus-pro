@@ -14,7 +14,9 @@ class _Client extends ForumClient {
 
   @override
   Future<String> getOnceGuarded(String path,
-      {required void Function() requireCurrentSession}) async {
+      {required void Function() requireCurrentSession,
+      ForumReadRedirectPolicy redirectPolicy =
+          ForumReadRedirectPolicy.none}) async {
     requireCurrentSession();
     calls.add(path);
     active++;

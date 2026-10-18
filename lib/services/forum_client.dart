@@ -9,6 +9,8 @@ import 'forum_request_exception.dart';
 import 'forum_session_store.dart';
 import 'forum_trace_logger.dart';
 
+enum ForumReadRedirectPolicy { none, board }
+
 class ForumAttachment {
   const ForumAttachment({
     required this.file,
@@ -93,7 +95,8 @@ class ForumClient {
   Future<String> getOnce(String path) => _readText('GET', path);
 
   Future<String> getOnceGuarded(String path,
-      {required void Function() requireCurrentSession}) {
+      {required void Function() requireCurrentSession,
+      ForumReadRedirectPolicy redirectPolicy = ForumReadRedirectPolicy.none}) {
     if (!_sameOrigin(baseUri.resolve(path))) {
       throw const ForumRequestException(
           ForumRequestKind.invalidInput, '不能读取其他站点的页面');
@@ -101,7 +104,8 @@ class ForumClient {
     return _readText('GET', path,
         requireCurrentSession: requireCurrentSession,
         requireOk: true,
-        invalidPageStatus: true);
+        invalidPageStatus: true,
+        redirectPolicy: redirectPolicy);
   }
 
   Future<String> getForm(String path,
@@ -352,6 +356,7 @@ class ForumClient {
     void Function()? requireCurrentSession,
     bool requireOk = false,
     bool invalidPageStatus = false,
+    ForumReadRedirectPolicy redirectPolicy = ForumReadRedirectPolicy.none,
     bool sensitiveAccount = false,
     bool followRedirects = true,
   }) async {
@@ -362,6 +367,7 @@ class ForumClient {
           requireCurrentSession: requireCurrentSession,
           sensitiveAccount: sensitiveAccount,
           guardedRead: invalidPageStatus,
+          redirectPolicy: redirectPolicy,
           followRedirects: followRedirects);
       if (result.status >= 500) {
         throw const ForumRequestException(
@@ -467,6 +473,7 @@ class ForumClient {
     bool sensitiveBlocking = false,
     bool sensitiveAccount = false,
     bool guardedRead = false,
+    ForumReadRedirectPolicy redirectPolicy = ForumReadRedirectPolicy.none,
     bool followRedirects = true,
     Uint8List? body,
     ContentType? contentType,
@@ -557,6 +564,21 @@ class ForumClient {
     if (_redirectStatuses.contains(response.statusCode)) {
       final location = response.headers.value(HttpHeaders.locationHeader);
       await response.drain<void>();
+      if (guardedRead) {
+        final parsed = location == null ? null : Uri.tryParse(location);
+        final target = parsed == null ? null : uri.resolveUri(parsed);
+        final sameOrigin = target != null && _sameOrigin(target);
+        if (sameOrigin && target.path == '/login.php') {
+          throw const ForumRequestException(
+              ForumRequestKind.loginRequired, '请重新登录后再搜索');
+        }
+        if (redirectPolicy != ForumReadRedirectPolicy.board ||
+            !sameOrigin ||
+            !_isReadOnlyBoardRedirect(target)) {
+          throw const ForumRequestException(
+              ForumRequestKind.invalidInput, '页面跳转不在允许的只读范围内');
+        }
+      }
       if (!followRedirects || isPm || (isAccount && method == 'POST')) {
         throw const ForumRequestException(
           ForumRequestKind.server,
@@ -604,6 +626,7 @@ class ForumClient {
         sensitiveBlocking: sensitiveBlocking,
         sensitiveAccount: sensitiveAccount,
         guardedRead: guardedRead,
+        redirectPolicy: redirectPolicy,
         followRedirects: followRedirects,
         requireCurrentSession: requireCurrentSession,
       );
@@ -631,6 +654,15 @@ class ForumClient {
       );
     }
     return (status: response.statusCode, bytes: bytes);
+  }
+
+  bool _isReadOnlyBoardRedirect(Uri uri) {
+    final fields = uri.queryParametersAll;
+    return {'/thread.php', '/thread_new.php'}.contains(uri.path) &&
+        !uri.hasFragment &&
+        fields.length == 1 &&
+        fields['fid']?.length == 1 &&
+        RegExp(r'^[1-9]\d*$').hasMatch(fields['fid']!.single);
   }
 
   void _throwForHttpStatus(int status) {

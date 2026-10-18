@@ -34,7 +34,9 @@ class _Client extends ForumClient {
   Completer<String>? gate;
   @override
   Future<String> getOnceGuarded(String path,
-      {required void Function() requireCurrentSession}) async {
+      {required void Function() requireCurrentSession,
+      ForumReadRedirectPolicy redirectPolicy =
+          ForumReadRedirectPolicy.none}) async {
     requireCurrentSession();
     paths.add(path);
     final page = int.tryParse(
