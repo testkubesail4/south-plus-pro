@@ -62,9 +62,17 @@ void main() {
     await ForumSearchPreferences.saveDefaultTime(ForumSearchTime.year,
         account: account);
     await ForumSearchPreferences.savePinnedBoards(pins, account: account);
+    await ForumSearchPreferences.recordKeyword('保留乙', account: account);
+    await ForumSearchPreferences.recordKeyword('保留甲', account: account);
   }
 
   final mutations = <String, Future<void> Function()>{
+    'keyword record': () async {
+      await ForumSearchPreferences.recordKeyword('未保存', account: account);
+    },
+    'keyword clear': () async {
+      await ForumSearchPreferences.clearKeywords(account: account);
+    },
     'pin clear': () =>
         ForumSearchPreferences.savePinnedBoards([], account: account),
     'default match': () => ForumSearchPreferences.saveDefaultMatch(
@@ -90,6 +98,7 @@ void main() {
         final restored = await ForumSearchPreferences.load(account: account);
         expect(restored.defaultMatch, ForumSearchMatch.partial);
         expect(restored.defaultTime, ForumSearchTime.year);
+        expect(restored.recentKeywords, ['保留甲', '保留乙']);
         expect(restored.pinnedBoards.map((pin) => (pin.id, pin.label)),
             [('42', '保留甲'), ('43', '保留乙')]);
 
@@ -102,10 +111,12 @@ void main() {
             account: account);
         await ForumSearchPreferences.saveDefaultTime(ForumSearchTime.day,
             account: account);
+        await ForumSearchPreferences.recordKeyword('新增', account: account);
         await (await SharedPreferences.getInstance()).reload();
         final saved = await ForumSearchPreferences.load(account: account);
         expect(saved.defaultMatch, ForumSearchMatch.exact);
         expect(saved.defaultTime, ForumSearchTime.day);
+        expect(saved.recentKeywords, ['新增', '保留甲', '保留乙']);
         expect(saved.pinnedBoards.map((pin) => (pin.id, pin.label)),
             [('42', '保留甲'), ('43', '保留乙'), ('44', '新增')]);
         expect((await ForumSearchPreferences.load()).pinnedBoards, isEmpty);

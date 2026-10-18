@@ -14,12 +14,16 @@ class ForumSearchPreferences {
     this.defaultMatch = ForumSearchMatch.partial,
     this.defaultTime = ForumSearchTime.year,
     this.pinnedBoards = const [],
+    this.recentKeywords = const [],
   });
 
   final ForumSearchMatch defaultMatch;
   final ForumSearchTime defaultTime;
   final List<ForumSearchPinnedBoard> pinnedBoards;
+  final List<String> recentKeywords;
 
+  static const maxRecentKeywords = 30;
+  static const _keywordsKey = 'forum_search_recent_keywords_v1';
   static const _matchKey = 'forum_search_match_v1';
   static const _timeKey = 'forum_search_time_v1';
   static const _boardsKey = 'forum_search_pinned_boards_v1';
@@ -51,6 +55,7 @@ class ForumSearchPreferences {
           defaultMatch: match.isEmpty ? ForumSearchMatch.partial : match.first,
           defaultTime: time.isEmpty ? ForumSearchTime.year : time.first,
           pinnedBoards: List.unmodifiable(_validBoards(pinned)),
+          recentKeywords: _keywords(prefs.get(_key(_keywordsKey, account))),
         );
       });
 
@@ -72,6 +77,59 @@ class ForumSearchPreferences {
             for (final board in _validBoards(values))
               {'id': board.id, 'label': board.label},
           ])));
+
+  static Future<List<String>> recordKeyword(String keyword, {String? account}) {
+    final value = keyword.trim();
+    if (value.isEmpty) {
+      return LocalStatePreferences.read(
+          (prefs) => _keywords(prefs.get(_key(_keywordsKey, account))));
+    }
+    return _updateKeywords(
+        (keywords) => [value, ...keywords.where((entry) => entry != value)]
+            .take(maxRecentKeywords)
+            .toList(),
+        account: account);
+  }
+
+  static Future<List<String>> removeKeyword(String keyword,
+          {String? account}) =>
+      _updateKeywords(
+          (keywords) =>
+              keywords.where((entry) => entry != keyword.trim()).toList(),
+          account: account);
+
+  static Future<List<String>> clearKeywords({String? account}) =>
+      _updateKeywords((_) => [], account: account);
+
+  static Future<List<String>> _updateKeywords(
+    List<String> Function(List<String>) update, {
+    String? account,
+  }) async {
+    late List<String> keywords;
+    final key = _key(_keywordsKey, account);
+    await LocalStatePreferences.write((prefs) {
+      keywords = List.unmodifiable(update(_keywords(prefs.get(key))));
+      return keywords.isEmpty
+          ? prefs.remove(key)
+          : prefs.setStringList(key, keywords);
+    });
+    return keywords;
+  }
+
+  static List<String> _keywords(Object? raw) {
+    final keywords = <String>[];
+    final seen = <String>{};
+    if (raw is List) {
+      for (final entry in raw) {
+        if (entry is! String) continue;
+        final value = entry.trim();
+        if (value.isEmpty || !seen.add(value)) continue;
+        keywords.add(value);
+        if (keywords.length == maxRecentKeywords) break;
+      }
+    }
+    return List.unmodifiable(keywords);
+  }
 
   static String _key(String key, String? account) =>
       account == null || account.isEmpty
