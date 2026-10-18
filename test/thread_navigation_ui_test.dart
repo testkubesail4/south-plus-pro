@@ -83,19 +83,14 @@ void main() {
     expect(repository.pages, [1, 2]);
   });
 
-  testWidgets('到底部 appends the next page', (tester) async {
-    final repository = await pumpThread(tester);
-    await jump(tester, '到底部');
-    await tester.pumpAndSettle();
-    expect(repository.pages, [1, 2]);
-  });
-
-  testWidgets('buying on an appended page refreshes that page in place', (
+  testWidgets('bottom shortcut appends; buying refreshes that page in place', (
     tester,
   ) async {
     final repository = await pumpThread(tester);
     await jump(tester, '到底部');
     await tester.pumpAndSettle();
+    expect(repository.pages, [1, 2],
+        reason: 'shortcut appends before any drag');
     await tester.scrollUntilVisible(find.text('购买查看').hitTestable(), 300);
     final floorY = tester.getTopLeft(floor('B31F')).dy;
     await tester.tap(find.text('购买查看'));
@@ -112,7 +107,8 @@ void main() {
   });
 
   for (final reverseResponses in [false, true]) {
-    testWidgets('two purchases retain both unlocks (reversed refreshes: $reverseResponses)',
+    testWidgets(
+        'two purchases retain both unlocks (reversed refreshes: $reverseResponses)',
         (tester) async {
       final repository = _FakeRepository(twoSales: true)..delayBuys = true;
       await pumpThread(tester, repository: repository);
@@ -128,18 +124,24 @@ void main() {
       expect(repository.heldPurchases.keys, containsAll(['/buy', '/buy-b']));
 
       repository.hold = reverseResponses;
-      repository.heldPurchases['/buy']!.complete(
-          const ReplyResult(success: true, message: 'purchase A'));
-      for (var i = 0; i < 3; i++) { await tester.pump(); }
+      repository.heldPurchases['/buy']!
+          .complete(const ReplyResult(success: true, message: 'purchase A'));
+      for (var i = 0; i < 3; i++) {
+        await tester.pump();
+      }
       final earlierResponse = repository.page(2);
       expect(repository.pages, [1, 2, 2]);
-      repository.heldPurchases['/buy-b']!.complete(
-          const ReplyResult(success: true, message: 'purchase B'));
-      for (var i = 0; i < 3; i++) { await tester.pump(); }
+      repository.heldPurchases['/buy-b']!
+          .complete(const ReplyResult(success: true, message: 'purchase B'));
+      for (var i = 0; i < 3; i++) {
+        await tester.pump();
+      }
       if (reverseResponses) {
         expect(repository.held, hasLength(2));
         repository.held.last.complete(repository.page(2));
-        for (var i = 0; i < 3; i++) { await tester.pump(); }
+        for (var i = 0; i < 3; i++) {
+          await tester.pump();
+        }
         repository.held.first.complete(earlierResponse);
       }
       await tester.pumpAndSettle();
@@ -371,7 +373,8 @@ class _FakeRepository extends ForumRepository {
   @override
   Future<ReplyResult> buySaleBox(ThreadSaleBox saleBox) async {
     final result = delayBuys
-        ? await (heldPurchases[saleBox.buyPath] = Completer<ReplyResult>()).future
+        ? await (heldPurchases[saleBox.buyPath] = Completer<ReplyResult>())
+            .future
         : const ReplyResult(success: true, message: 'purchased');
     if (result.success) purchased.add(saleBox.buyPath);
     return result;
@@ -424,9 +427,11 @@ class _FakeRepository extends ForumRepository {
             saleBoxes: floor == 31
                 ? [
                     if (!purchased.contains('/buy'))
-                      const ThreadSaleBox(summary: 'synthetic sale', buyPath: '/buy'),
+                      const ThreadSaleBox(
+                          summary: 'synthetic sale', buyPath: '/buy'),
                     if (twoSales && !purchased.contains('/buy-b'))
-                      const ThreadSaleBox(summary: 'second synthetic sale', buyPath: '/buy-b'),
+                      const ThreadSaleBox(
+                          summary: 'second synthetic sale', buyPath: '/buy-b'),
                   ]
                 : const [],
             anchors: ['${1000 + floor}', 'read_${1000 + floor}', 'fl-$floor'],

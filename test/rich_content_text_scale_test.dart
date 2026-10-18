@@ -23,6 +23,9 @@ void main() {
       ),
     ));
 
+    final richBody = tester.widget<RichText>(find.byWidgetPredicate(
+        (widget) => widget is RichText && widget.text.toPlainText() == '正文'));
+    expect(richBody.textScaler.scale(10), closeTo(20, 0.001));
     // getRect includes paint transforms, so a doubled scale shows up here.
     final link = tester.getRect(find.text('链接'));
     final body = tester.getRect(find.text('正文', findRichText: true));

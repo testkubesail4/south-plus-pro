@@ -148,44 +148,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('favorite-category:0')));
   }
 
-  testWidgets('收藏 toggles on and off, showing its state', (tester) async {
-    final repository = await pumpThread(tester);
-    expect(
-      tester.getSemantics(find.text('收藏')),
-      containsSemantics(isSelected: false),
-    );
-
-    await tester.ensureVisible(button('收藏'));
-    await tester.tap(button('收藏'));
-    await pickDefault(tester);
-    await tester.pumpAndSettle();
-    expect(
-      tester.getSemantics(find.text('已收藏')),
-      containsSemantics(isSelected: true),
-    );
-
-    await tester.tap(button('已收藏'));
-    await tester.pumpAndSettle();
-    expect(repository.favoriteCalls, ['add', 'remove']);
-    expect(find.text('收藏'), findsOneWidget);
-  });
-
-  testWidgets('the toggles share the floor actions row on a phone',
-      (tester) async {
-    setView(tester, const Size(400, 800));
-    await pumpThread(tester);
-
-    final reply = tester.getCenter(find.byTooltip('回复')).dy;
-    expect(tester.getCenter(button('收藏')).dy, reply);
-    expect(tester.getCenter(button('只看楼主')).dy, reply);
-    // The neighbour row sits below, 上一主题 at the start, 下一主题 at the end.
-    expect(tester.getTopLeft(button('上一主题')).dy, greaterThan(reply));
-    expect(tester.getTopLeft(button('上一主题')).dx,
-        lessThan(tester.getTopLeft(button('收藏')).dx + 1));
-    expect(tester.getTopRight(button('下一主题')).dx,
-        greaterThan(tester.getTopRight(find.byTooltip('更多操作')).dx - 16));
-  });
-
   for (final width in [320.0, 400.0]) {
     testWidgets(
         'at large text on a $width px phone the toggles take their '
@@ -210,9 +172,20 @@ void main() {
     });
   }
 
-  testWidgets('every thread control is a 48 px target', (tester) async {
+  testWidgets('phone controls align, have 48 px targets and toggle favorites',
+      (tester) async {
     setView(tester, const Size(400, 800));
     final repository = await pumpThread(tester);
+    expect(tester.getSemantics(find.text('收藏')),
+        containsSemantics(isSelected: false));
+    final reply = tester.getCenter(find.byTooltip('回复')).dy;
+    expect(tester.getCenter(button('收藏')).dy, reply);
+    expect(tester.getCenter(button('只看楼主')).dy, reply);
+    expect(tester.getTopLeft(button('上一主题')).dy, greaterThan(reply));
+    expect(tester.getTopLeft(button('上一主题')).dx,
+        lessThan(tester.getTopLeft(button('收藏')).dx + 1));
+    expect(tester.getTopRight(button('下一主题')).dx,
+        greaterThan(tester.getTopRight(find.byTooltip('更多操作')).dx - 16));
 
     for (final label in ['收藏', '只看楼主', '上一主题', '下一主题']) {
       final size = tester.getSize(button(label));
@@ -228,6 +201,12 @@ void main() {
     await pickDefault(tester);
     await tester.pumpAndSettle();
     expect(repository.favoriteCalls, ['add']);
+    expect(tester.getSemantics(find.text('已收藏')),
+        containsSemantics(isSelected: true));
+    await tester.tap(button('已收藏'));
+    await tester.pumpAndSettle();
+    expect(repository.favoriteCalls, ['add', 'remove']);
+    expect(find.text('收藏'), findsOneWidget);
   });
 
   testWidgets('a busy 收藏 is announced as disabled until it settles',

@@ -11,7 +11,8 @@ import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic fixtures only: fictional host, tid and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
-const _thread = ForumThread(title: 'paging', url: _url, replies: 0, section: '');
+const _thread =
+    ForumThread(title: 'paging', url: _url, replies: 0, section: '');
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -59,8 +60,7 @@ void main() {
     (ThemeMode.light, AppTheme.light, AppColors.lightPalette),
     (ThemeMode.dark, AppTheme.dark, AppColors.darkPalette),
   ]) {
-    testWidgets('the 写回复 button takes the brand pair ($mode)',
-        (tester) async {
+    testWidgets('the 写回复 button takes the brand pair ($mode)', (tester) async {
       AppThemeController.notifier.value = mode;
       addTearDown(() => AppThemeController.notifier.value = ThemeMode.system);
       await pumpThread(tester, theme: theme);
@@ -119,9 +119,14 @@ void main() {
     expect(find.text('第 3 / 3 页'), findsOneWidget);
   });
 
-  testWidgets('a floor 回复 docks the composer without moving the reading',
+  testWidgets('a floor 回复 keeps the draft and docks without moving reading',
       (tester) async {
     await pumpThread(tester);
+    await tester.tap(find.byTooltip('写回复'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'existing body');
+    await tester.tap(find.byTooltip('收起回复框'));
+    await tester.pumpAndSettle();
     final footer = find.ancestor(
       of: find.byKey(const ValueKey('floor-actions-user1-B1F')),
       matching: find.byType(ThreadFloorFooter),
@@ -132,15 +137,17 @@ void main() {
     expect(before, greaterThan(0));
     expect(composerShown(tester), isFalse);
 
-    await tester.tap(find.descendant(of: footer, matching: find.byIcon(Icons.reply_outlined)));
+    await tester.tap(find.descendant(
+        of: footer, matching: find.byIcon(Icons.reply_outlined)));
     await tester.pumpAndSettle();
 
     expect(composerShown(tester), isTrue);
     expect(list(tester).pixels, before);
-    // The site's own subject for that floor, never a quote in the body.
+    // The site's own subject changes without replacing the draft body.
     expect(find.text('回 1楼(user1) 的帖子'), findsOneWidget);
-    expect(tester.widget<TextField>(find.byType(TextField).last).controller!.text,
-        isEmpty);
+    expect(
+        tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+        'existing body');
   });
 
   testWidgets('folding the composer keeps its draft; back folds it first',
@@ -207,7 +214,8 @@ void main() {
     );
     await tester.ensureVisible(footer);
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(of: footer, matching: find.byIcon(Icons.reply_outlined)));
+    await tester.tap(find.descendant(
+        of: footer, matching: find.byIcon(Icons.reply_outlined)));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'to floor one');
     await tester.pump();
@@ -224,27 +232,6 @@ void main() {
       tester.widget<TextField>(find.byType(TextField).last).controller!.text,
       isEmpty,
     );
-  });
-
-  testWidgets('replyTo sets only the subject and keeps the body',
-      (tester) async {
-    final key = GlobalKey<ReplyComposerState>();
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: ReplyComposer(
-          key: key,
-          thread: _thread,
-          repository: _Repository(),
-          onSubmitted: (_) {},
-        ),
-      ),
-    ));
-    await tester.enterText(find.byType(TextField).last, 'body');
-    key.currentState!.replyTo('回 2楼(someone) 的帖子');
-    await tester.pump();
-
-    expect(find.text('回 2楼(someone) 的帖子'), findsOneWidget);
-    expect(find.text('body'), findsOneWidget);
   });
 }
 

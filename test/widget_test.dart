@@ -79,32 +79,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('login failure remains visible if captcha refresh fails',
+  testWidgets(
+      'login sends selected options and keeps errors when captcha refresh fails',
       (tester) async {
-    final repository = _FakeLoginRepository();
-
-    await tester.pumpWidget(
-      MaterialApp(home: LoginScreen(repository: repository)),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    await tester.enterText(find.byType(TextField).at(0), 'alice');
-    await tester.enterText(find.byType(TextField).at(1), 'secret');
-    await tester.enterText(find.byType(TextField).at(2), '1234');
-    await tester.ensureVisible(find.widgetWithText(FilledButton, '登录'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, '登录'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('密码错误'), findsOneWidget);
-    expect(
-      find.textContaining('验证码加载失败：没有找到登录表单'),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('login submits selected forum options', (tester) async {
     SharedPreferences.setMockInitialValues({});
     await ImageLoadingSettings.saveMode(ImageLoadMode.noImages);
     addTearDown(() => ImageLoadingSettings.saveMode(ImageLoadMode.automatic));
@@ -142,6 +119,8 @@ void main() {
     expect(repository.lastFields, containsPair('lgt', '1'));
     expect(repository.lastFields, containsPair('hideid', '1'));
     expect(repository.lastFields, containsPair('cktime', '2592000'));
+    expect(find.text('密码错误'), findsOneWidget);
+    expect(find.textContaining('验证码加载失败：没有找到登录表单'), findsOneWidget);
   });
 
   testWidgets('login type labels stay on one line at text scale 2',
@@ -763,28 +742,11 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
-  testWidgets('rich post body follows the app text scaler', (tester) async {
-    // System 1.5 x large 1.15, as composed by SouthPlusApp.
-    await tester.pumpWidget(MaterialApp(
-      home: MediaQuery(
-        data: const MediaQueryData(textScaler: TextScaler.linear(1.5 * 1.15)),
-        child: Scaffold(
-          body: ThreadRichContent(
-            segments: const [ThreadContentSegment.text('body text')],
-          ),
-        ),
-      ),
-    ));
-
-    final body = tester.widget<RichText>(find.byWidgetPredicate((widget) =>
-        widget is RichText && widget.text.toPlainText() == 'body text'));
-    expect(body.textScaler.scale(10), closeTo(10 * 1.5 * 1.15, 0.001));
-  });
-
-  testWidgets('compose defaults reply notice on and permits opting out',
+  testWidgets(
+      'compose submits once while busy and permits opting out of reply notices',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final repository = _FakeComposeRepository();
+    final repository = _FakeComposeRepository()..pending = Completer();
     await tester.pumpWidget(MaterialApp(
       home: ThreadComposeScreen(
         category: _FakeBoardRepository.category,
@@ -792,10 +754,21 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
-    final submit = find.text('发布');
-
+    final submit = find.byKey(const ValueKey('compose-submit'));
     await tester.tap(submit);
+    await tester.pump();
+    expect(
+        find.descendant(of: submit, matching: find.text('发布')), findsOneWidget);
+    expect(
+        find.descendant(
+            of: submit, matching: find.byType(CircularProgressIndicator)),
+        findsOneWidget);
+    expect(tester.widget<ButtonStyleButton>(submit).enabled, isFalse);
+    await tester.tap(submit);
+    expect(repository.replyNotices, [true], reason: 'no double submit');
+    repository.pending!.complete();
     await tester.pumpAndSettle();
+    expect(tester.widget<ButtonStyleButton>(submit).enabled, isTrue);
 
     await tester.tap(find.text('新回复站内通知'));
     await tester.pump();
@@ -851,36 +824,6 @@ void main() {
     final toolbarTop = tester.getRect(find.byType(WindCodeToolbar)).top;
     expect(tester.getRect(find.byType(TextField).last).top,
         lessThan(toolbarTop - 40));
-  });
-
-  testWidgets('compose keeps the 发布 label while a submit is pending',
-      (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    final repository = _FakeComposeRepository()..pending = Completer();
-    await tester.pumpWidget(MaterialApp(
-      home: ThreadComposeScreen(
-        category: _FakeBoardRepository.category,
-        repository: repository,
-      ),
-    ));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('发布'));
-    await tester.pump();
-
-    final submit = find.byKey(const ValueKey('compose-submit'));
-    expect(
-        find.descendant(of: submit, matching: find.text('发布')), findsOneWidget);
-    expect(
-        find.descendant(
-            of: submit, matching: find.byType(CircularProgressIndicator)),
-        findsOneWidget);
-    expect(tester.widget<ButtonStyleButton>(submit).enabled, isFalse);
-    await tester.tap(find.text('发布'));
-    expect(repository.replyNotices, hasLength(1), reason: 'no double submit');
-
-    repository.pending!.complete();
-    await tester.pumpAndSettle();
-    expect(tester.widget<ButtonStyleButton>(submit).enabled, isTrue);
   });
 
   testWidgets('account screen exposes app version and update check',
