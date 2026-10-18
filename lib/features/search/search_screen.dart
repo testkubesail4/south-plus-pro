@@ -17,6 +17,8 @@ import '../thread/thread_detail_screen.dart';
 
 const _allBoards = ForumSearchBoard(id: 'all', name: '全部版块');
 
+typedef _KeywordOwner = ({ForumRepository repository, (String?, int) session});
+
 const _matchLabels = {
   ForumSearchMatch.partial: '部分匹配',
   ForumSearchMatch.exact: '完全匹配',
@@ -125,7 +127,12 @@ class _SearchScreenState extends State<SearchScreen> {
   void _dropResults() {
     if (!mounted) return;
     _scopeChanges.value++;
-    setState(_clearResults);
+    setState(() {
+      _clearResults();
+      _recent = const [];
+    });
+    // The new owner's keywords show at once.
+    _loadPrefs();
   }
 
   void _clearResults() {
@@ -155,6 +162,8 @@ class _SearchScreenState extends State<SearchScreen> {
     // A rebuild follows; an open picker is told after this frame, since
     // it may not rebuild during this one.
     _clearResults();
+    _recent = const [];
+    _loadPrefs();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _scopeChanges.value++;
     });
@@ -173,7 +182,10 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _refreshFocus() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    // A login without a new session still brings its own keywords.
+    if (_keywordFocus.hasFocus && _prefsAccount != _account) _loadPrefs();
   }
 
   // Preferences belong to the signed-in account (anonymous otherwise).
@@ -341,6 +353,7 @@ class _SearchScreenState extends State<SearchScreen> {
       // An answered search counts, even with no results.
       if (keyword.isNotEmpty) {
         _editRecent(
+          (repository: repository, session: session),
           (account) =>
               ForumSearchPreferences.recordKeyword(keyword, account: account),
           failure: '搜索记录保存失败',
@@ -368,31 +381,41 @@ class _SearchScreenState extends State<SearchScreen> {
     if (request != null && !_searching) _run(request, keyword: _lastKeyword);
   }
 
-  // A write belongs to the session it was made in; its answer replaces the
-  // list only while that account is still the one shown.
+  _KeywordOwner get _owner =>
+      (repository: widget.repository, session: _session);
+
+  bool _owns(_KeywordOwner owner) =>
+      mounted &&
+      identical(owner.repository, widget.repository) &&
+      owner.session == _session;
+
+  // A keyword write belongs to whoever was signed in when the user acted:
+  // a confirmation or a retry that outlives that login writes nothing.
   Future<void> _editRecent(
+    _KeywordOwner owner,
     Future<List<String>> Function(String? account) edit, {
     required String failure,
   }) async {
-    final session = _session;
+    if (!_owns(owner)) return;
     try {
-      final recent = await edit(session.$1);
-      if (mounted && session == _session) setState(() => _recent = recent);
+      final recent = await edit(owner.session.$1);
+      if (_owns(owner)) setState(() => _recent = recent);
     } catch (_) {
-      if (!mounted || session != _session) return;
+      if (!_owns(owner)) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
           content: Text(failure),
           action: SnackBarAction(
             label: '重试',
-            onPressed: () => _editRecent(edit, failure: failure),
+            onPressed: () => _editRecent(owner, edit, failure: failure),
           ),
         ));
     }
   }
 
   Future<void> _clearRecent() async {
+    final owner = _owner;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -410,8 +433,9 @@ class _SearchScreenState extends State<SearchScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true) return;
     await _editRecent(
+      owner,
       (account) => ForumSearchPreferences.clearKeywords(account: account),
       failure: '清空失败',
     );
@@ -808,6 +832,7 @@ class _SearchScreenState extends State<SearchScreen> {
               );
             }),
             onRemove: (keyword) => _editRecent(
+              _owner,
               (account) => ForumSearchPreferences.removeKeyword(keyword,
                   account: account),
               failure: '删除失败',

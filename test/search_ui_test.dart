@@ -1029,6 +1029,36 @@ void main() {
     expect((await ForumSearchPreferences.load()).recentKeywords, isEmpty);
   });
 
+  testWidgets('recent keywords follow the login; a stale clear writes nothing',
+      (tester) async {
+    await ForumSearchPreferences.recordKeyword('kw-a',
+        account: 'fixture-account-a');
+    await ForumSearchPreferences.recordKeyword('kw-b',
+        account: 'fixture-account-b');
+    Future<List<String>> saved(String account) async =>
+        (await ForumSearchPreferences.load(account: account)).recentKeywords;
+    final repo = _Repo()..account = 'fixture-account-a';
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(repository: repo)));
+    await tester.pumpAndSettle();
+    expect(find.text('kw-a'), findsOneWidget);
+
+    // Confirmed for A only after B signed in: neither list changes.
+    await tester.tap(find.widgetWithText(TextButton, '清空'));
+    await tester.pumpAndSettle();
+    repo.account = 'fixture-account-b';
+    repo.session.value++;
+    await tester.tap(find.widgetWithText(FilledButton, '清空'));
+    await tester.pumpAndSettle();
+    expect(await saved('fixture-account-a'), ['kw-a']);
+    expect(await saved('fixture-account-b'), ['kw-b']);
+
+    // B's keywords are there without searching first.
+    await tester.tap(find.byType(TextField).first);
+    await tester.pumpAndSettle();
+    expect(find.text('kw-b'), findsOneWidget);
+    expect(find.text('kw-a'), findsNothing);
+  });
+
   testWidgets('field help shows only for the focused field', (tester) async {
     await pump(tester);
     const keywordHelp = '多个关键词用空格或 | 分隔';
