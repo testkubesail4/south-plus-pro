@@ -158,6 +158,8 @@ class ForumRepository {
       <({ForumClient client, int epoch}), Future<ForumTaskSnapshot>>{};
   int _homeGeneration = 0;
   Set<ForumQuickList> _homeQuickLists = {};
+  String? _homePreferenceAccount;
+  int _homeSourcesRevision = 0;
   final _quickListRequests = <ForumQuickList, Future<List<ForumThread>>>{};
 
   ForumBlockingSettings? _blocking;
@@ -849,29 +851,53 @@ class ForumRepository {
     _quickListRequests.clear();
   }
 
+  void _requireHome(ForumClient client, int epoch, int generation,
+      String? account, int sourcesRevision) {
+    if (!identical(client, _client) ||
+        epoch != _sessionEpoch.value ||
+        generation != _homeGeneration ||
+        account != localPreferenceAccount ||
+        sourcesRevision !=
+            HomeReadingPreferences.quickSourcesRevision(account: account)) {
+      throw const ForumRepositoryException('首页已更新，请重新打开列表');
+    }
+  }
+
   Future<List<ForumThread>> fetchQuickList(ForumQuickList list) async {
     if (!_homeQuickLists.contains(list)) {
       throw const ForumRepositoryException('首页已更新，请重新打开列表');
     }
+    final generation = _homeGeneration;
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final account = _homePreferenceAccount;
+    final sourcesRevision = _homeSourcesRevision;
+    void requireCurrent() =>
+        _requireHome(client, epoch, generation, account, sourcesRevision);
+    requireCurrent();
     if (list.threads != null) return list.threads!;
     final cached = _quickListRequests[list];
     if (cached != null) return cached;
-    final generation = _homeGeneration;
-    final client = _client;
     final script = list.scriptUrl;
     if (script == null || !_urls.isForumUrl(script)) {
       throw const ForumRepositoryException('没有找到讨论列表');
     }
-    final request = client.get(_urls.relativePath(script)).then((response) {
-      if (generation != _homeGeneration || !identical(client, _client)) {
-        throw const ForumRepositoryException('首页已更新，请重新打开列表');
-      }
-      final threads = _homePageParser.parseLatestThreadsFromScript(response);
-      if (threads.isEmpty) throw const ForumRepositoryException('没有解析到讨论列表');
-      return threads;
-    }).catchError((Object error, StackTrace stack) {
-      if (generation == _homeGeneration &&
-          identical(client, _client) &&
+    final request = (list.source.kind == HomeQuickSourceKind.board
+            ? _readBoardQuickList(list, client, requireCurrent)
+            : client
+                .getOnceGuarded(_urls.relativePath(script),
+                    requireCurrentSession: requireCurrent)
+                .then((response) {
+                requireCurrent();
+                final threads =
+                    _homePageParser.parseLatestThreadsFromScript(response);
+                if (threads.isEmpty)
+                  throw const ForumRepositoryException('没有解析到讨论列表');
+                return threads;
+              }))
+        .catchError((Object error, StackTrace stack) {
+      requireCurrent();
+      if (list.source.kind == HomeQuickSourceKind.site &&
           list.fallbackThreads.isNotEmpty) return list.fallbackThreads;
       Error.throwWithStackTrace(error, stack);
     });
@@ -885,6 +911,107 @@ class ForumRepository {
     }
   }
 
+  Future<List<ForumThread>> _readBoardQuickList(ForumQuickList list,
+      ForumClient client, void Function() requireCurrent) async {
+    final feed = await client.getOnceGuarded(
+        _urls.relativePath(list.scriptUrl!),
+        requireCurrentSession: requireCurrent);
+    requireCurrent();
+    final threads = _homePageParser.parseLatestThreadsFromScript(feed);
+    if (threads.isNotEmpty) return threads.take(8).toList(growable: false);
+    _throwIfBlockedPage(feed);
+    var fid = list.source.fid!;
+    final order = list.source.order == QuickOrder.posted
+        ? ForumThreadOrder.postedAt
+        : ForumThreadOrder.lastPost;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final category = ForumCategory(name: '版块 $fid', slug: 'fid-$fid');
+      final path = _urls.boardDesktopPath(category, order: order)!;
+      final response = await client.getOnceGuarded(path,
+          requireCurrentSession: requireCurrent,
+          redirectPolicy: ForumReadRedirectPolicy.board);
+      requireCurrent();
+      final document = _boardDocument(response, category);
+      final links = document.querySelectorAll('#breadcrumbs a[href]');
+      final boardIds = [
+        for (final link in links)
+          if (_urls.fidFromUrl(link.attributes['href']!) case final fid?) fid
+      ];
+      final listIds = [
+        for (final link in links)
+          if (link.text.contains('列表模式'))
+            if (_urls.fidFromUrl(link.attributes['href']!) case final fid?) fid
+      ];
+      final canonical = listIds.lastOrNull ?? boardIds.lastOrNull;
+      final validPage =
+          document.querySelector('ul.stream') != null || listIds.isNotEmpty;
+      if (canonical == null || !validPage) {
+        throw ForumRequestException(
+            canonical == null
+                ? ForumRequestKind.invalidInput
+                : ForumRequestKind.server,
+            canonical == null ? '来源版块不存在' : '没有解析到版块列表');
+      }
+      if (canonical != fid) {
+        // A picture-wall redirect drops the requested order; apply it to the real board.
+        fid = canonical;
+        continue;
+      }
+      final name = _boardThreadPageParser.parseBoardName(document, category) ??
+          category.name;
+      return _boardThreadPageParser
+          .parseWallThreads(
+              document, ForumCategory(name: name, slug: category.slug))
+          .take(8)
+          .toList(growable: false);
+    }
+    throw const ForumRequestException(
+        ForumRequestKind.invalidInput, '来源版块已变更，请重新选择');
+  }
+
+  List<ForumQuickList> _configuredQuickLists(List<ForumQuickList> native,
+      List<HomeQuickSource> sources, List<ForumSection> sections) {
+    String? boardName(List<ForumBoard> boards, String fid) {
+      for (final board in boards) {
+        if (_urls.fidFromUrl(board.url) == fid) return board.name;
+        final child = boardName(board.children, fid);
+        if (child != null) return child;
+      }
+      return null;
+    }
+
+    final lists = <ForumQuickList>[];
+    for (var index = 0; index < sources.length; index++) {
+      final source = sources[index];
+      if (source.kind == HomeQuickSourceKind.site) {
+        if (index < native.length) lists.add(native[index]);
+      } else if (source.kind == HomeQuickSourceKind.board) {
+        final name = boardName(
+                [for (final section in sections) ...section.items],
+                source.fid!) ??
+            source.boardPath?.split(' / ').last ??
+            '版块 ${source.fid}';
+        final script = Uri(path: 'new.php', queryParameters: {
+          'action': 'article',
+          'fidin': source.fid!,
+          'order': source.order == QuickOrder.posted ? '2' : '1',
+          'num': '8',
+          'length': '120',
+          'postdate': '1',
+          'author': '1',
+          'replies': '1',
+          'fname': '1',
+          'simple': '1',
+        });
+        lists.add(ForumQuickList(
+            title: '$name ${source.order == QuickOrder.posted ? '新帖' : '回复'}',
+            source: source,
+            scriptUrl: _urls.baseUri.resolveUri(script).toString()));
+      }
+    }
+    return List.unmodifiable(lists);
+  }
+
   Future<ForumHomeSnapshot> fetchHome() async {
     _invalidateQuickLists();
     final generation = _homeGeneration;
@@ -893,16 +1020,29 @@ class ForumRepository {
     _restoredDesktopHtml = null;
     final client = _client;
     final epoch = _sessionEpoch.value;
-    final html = await client.get('simple/index.php');
+    final account = localPreferenceAccount;
+    final sourcesRevision =
+        HomeReadingPreferences.quickSourcesRevision(account: account);
+    void requireCurrent() =>
+        _requireHome(client, epoch, generation, account, sourcesRevision);
+    final sources =
+        (await HomeReadingPreferences.load(account: account)).quickSources;
+    requireCurrent();
+    final html = await client.getOnceGuarded('simple/index.php',
+        requireCurrentSession: requireCurrent);
     if (!identical(client, _client) || epoch != _sessionEpoch.value) {
       throw const ForumRepositoryException('网络或登录状态已改变，请重试');
     }
     final document = html_parser.parse(html);
     var latest = _homePageParser.parseLatestThreads(document);
     final latestScriptUrl = _homePageParser.latestThreadsScriptUrl(document);
-    if (latestScriptUrl != null) {
+    if (latestScriptUrl != null &&
+        sources.first.kind == HomeQuickSourceKind.site) {
       try {
-        final script = await client.get(_urls.relativePath(latestScriptUrl));
+        final script = await client.getOnceGuarded(
+            _urls.relativePath(latestScriptUrl),
+            requireCurrentSession: requireCurrent);
+        requireCurrent();
         final fetched = _homePageParser.parseLatestThreadsFromScript(script);
         if (fetched.isNotEmpty) latest = fetched;
       } catch (_) {
@@ -913,8 +1053,9 @@ class ForumRepository {
     var sections = _homePageParser.parseForumSections(document);
     dom.Document? indexDocument;
     try {
-      final desktopDocument = html_parser
-          .parse(restoredDesktopHtml ?? await client.get('index.php'));
+      final desktopDocument = html_parser.parse(restoredDesktopHtml ??
+          await client.getOnceGuarded('index.php',
+              requireCurrentSession: requireCurrent));
       final desktopSections =
           _homePageParser.parseDesktopForumSections(desktopDocument);
       if (desktopSections.isNotEmpty) sections = desktopSections;
@@ -926,7 +1067,8 @@ class ForumRepository {
     if (!identical(client, _client) || epoch != _sessionEpoch.value) {
       throw const ForumRepositoryException('网络或登录状态已改变，请重试');
     }
-    if (latest.isEmpty) {
+    requireCurrent();
+    if (latest.isEmpty && sources.first.kind == HomeQuickSourceKind.site) {
       throw const ForumRepositoryException('没有解析到最新讨论');
     }
     if (hot.isEmpty && sections.isEmpty) {
@@ -936,8 +1078,14 @@ class ForumRepository {
     if (generation != _homeGeneration) {
       throw const ForumRepositoryException('首页已更新，请重试');
     }
-    final quickLists = _homePageParser.parseQuickLists(document, latest);
+    final quickLists = _configuredQuickLists(
+        _homePageParser.parseQuickLists(document, latest), sources, sections);
+    if (quickLists.isEmpty) {
+      throw const ForumRequestException(ForumRequestKind.server, '没有找到速览栏目');
+    }
     _homeQuickLists = quickLists.toSet();
+    _homePreferenceAccount = account;
+    _homeSourcesRevision = sourcesRevision;
     if (indexDocument != null) {
       _captureIndexNotices(indexDocument);
       _captureAccountIdentity(indexDocument);

@@ -192,6 +192,17 @@ class _NoticeClient extends ForumClient {
   Future<void> clearSession() async {}
 
   @override
+  Future<String> getOnceGuarded(String path,
+      {required void Function() requireCurrentSession,
+      ForumReadRedirectPolicy redirectPolicy =
+          ForumReadRedirectPolicy.none}) async {
+    requireCurrentSession();
+    final response = await get(path);
+    requireCurrentSession();
+    return response;
+  }
+
+  @override
   Future<String> post(String path, Map<String, String> fields) async {
     posts.add(path);
     postTimes.add(DateTime.now());

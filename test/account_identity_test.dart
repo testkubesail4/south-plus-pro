@@ -106,6 +106,18 @@ class _AccountClient extends ForumClient {
   Future<void> restoreCookies() async {}
   @override
   Future<void> clearSession() async {}
+
+  @override
+  Future<String> getOnceGuarded(String path,
+      {required void Function() requireCurrentSession,
+      ForumReadRedirectPolicy redirectPolicy =
+          ForumReadRedirectPolicy.none}) async {
+    requireCurrentSession();
+    final response = await get(path);
+    requireCurrentSession();
+    return response;
+  }
+
   @override
   Future<String> get(String path) async {
     gets.add(path);

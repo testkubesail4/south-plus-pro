@@ -211,6 +211,8 @@ class _Request implements HttpClientRequest {
   @override
   bool followRedirects = true;
   @override
+  void abort([Object? exception, StackTrace? stackTrace]) {}
+  @override
   Future<HttpClientResponse> close() async => _Response(body);
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
