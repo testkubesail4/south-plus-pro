@@ -329,8 +329,8 @@ void main() {
       const ThreadFavorite(tid: '1', verify: 'token\n'),
       const ThreadFavorite(tid: '1', verify: ''),
     ]) {
-      await expectLater(repo.addFavoriteToCollection(snapshot, favorite, '2'),
-          _invalid);
+      await expectLater(
+          repo.addFavoriteToCollection(snapshot, favorite, '2'), _invalid);
     }
     expect(client.writes, isEmpty);
     final result = await repo.addFavoriteToCollection(snapshot,

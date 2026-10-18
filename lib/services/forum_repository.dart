@@ -2031,7 +2031,9 @@ class ForumRepository {
             account: account,
             label: parentName != null && parentName.isNotEmpty
                 ? '$parentName / ${category.name}'
-                : boardName != null ? category.name : null);
+                : boardName != null
+                    ? category.name
+                    : null);
       } catch (_) {
         // A local history failure must not discard the fetched board.
       }

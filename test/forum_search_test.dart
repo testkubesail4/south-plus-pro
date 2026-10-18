@@ -1,13 +1,44 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html/parser.dart' as html_parser;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
+import 'package:south_plus_rewrite/services/parsers/search_result_parser.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  test('the search parser distinguishes error pages, empty results and rows',
+      () {
+    final parser = SearchResultParser();
+    for (final html in [
+      '<html><title>提示信息</title><body>请先登录后再继续</body></html>',
+      '<html><body>您没有权限执行此操作</body></html>',
+      '<html><title>刷新不要快于 9 秒</title><body></body></html>',
+      '<html><title>出错了</title><body>内部错误</body></html>',
+    ]) {
+      expect(() => parser.parse(html_parser.parse(html)),
+          throwsA(isA<ForumRequestException>()),
+          reason: html);
+    }
+    for (final body in [
+      '共找到 0 条<table><tr><th>标题</th></tr></table>',
+      '<table><tr><th>标题</th><th>版块</th></tr></table>',
+    ]) {
+      expect(
+          parser.parse(html_parser.parse('<title>搜索结果</title>$body')), isEmpty);
+    }
+    expect(
+        parser
+            .parse(html_parser.parse('<title>搜索结果</title><table><tr><td>'
+                '<a href="read.php?tid-100.html">示例主题甲</a></td></tr></table>'))
+            .single
+            .title,
+        '示例主题甲');
+  });
+
   test('advanced search submits explicit fields and parses server page links',
       () async {
     final client = _SearchClient();

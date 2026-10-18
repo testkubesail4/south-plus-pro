@@ -3,13 +3,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:html/parser.dart' as html_parser;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
-import 'package:south_plus_rewrite/services/parsers/search_result_parser.dart';
 
 const _archive = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 1, 2, 3];
 
@@ -111,7 +109,8 @@ void main() {
     _scripted = scripts;
   });
 
-  test('forum HTTP starts, including redirects, stay at least 1s apart', () async {
+  test('forum HTTP starts, including redirects, stay at least 1s apart',
+      () async {
     _scripted.addAll([
       _text('alpha'),
       _text('beta'),
@@ -215,8 +214,7 @@ void main() {
     _scripted.addAll([
       (request) {
         request.response.statusCode = HttpStatus.temporaryRedirect;
-        request.response.headers
-            .set(HttpHeaders.locationHeader, '/landed-get');
+        request.response.headers.set(HttpHeaders.locationHeader, '/landed-get');
         request.response.close();
       },
       _text('followed'),
@@ -226,7 +224,8 @@ void main() {
     expect(hits, contains('GET /landed-get'));
   });
 
-  test('a sleeping search rereads the deadline when cooldown is raised', () async {
+  test('a sleeping search rereads the deadline when cooldown is raised',
+      () async {
     final held = _HoldClock();
     final paced = _LocalForumClient(
       client.baseUri,
@@ -361,7 +360,8 @@ void main() {
     ]);
   });
 
-  test('a search cooldown is rateLimited and later searches wait 10s', () async {
+  test('a search cooldown is rateLimited and later searches wait 10s',
+      () async {
     final elapsed = Stopwatch()..start();
     _scripted.addAll([
       _text(_searchForm),
@@ -430,7 +430,8 @@ void main() {
         ),
       ),
     );
-    expect(hits.where((hit) => hit.contains('search.php')), ['POST /search.php']);
+    expect(
+        hits.where((hit) => hit.contains('search.php')), ['POST /search.php']);
   });
 
   test('PM requests are paced but never retry, redirect, or accept non-200',
@@ -493,7 +494,8 @@ void main() {
     expect(clock.delays, [const Duration(seconds: 10)]);
   });
 
-  test('searchThreads returns rows or an empty normal page, and classifies failures',
+  test(
+      'searchThreads returns rows or an empty normal page, and classifies failures',
       () async {
     final repository = ForumRepository(client: client);
 
@@ -569,7 +571,8 @@ void main() {
     );
   });
 
-  test('posting and replies throw transport failures once and keep business results',
+  test(
+      'posting and replies throw transport failures once and keep business results',
       () async {
     const category = ForumCategory(name: '版块甲', slug: 'f7');
     const thread = ForumThread(
@@ -713,35 +716,6 @@ void main() {
           ForumRequestKind.network,
         ),
       ),
-    );
-  });
-
-  test('the search parser does not turn an error page into an empty list', () {
-    final parser = SearchResultParser();
-    for (final html in [
-      '<html><title>提示信息</title><body>请先登录后再继续</body></html>',
-      '<html><body>您没有权限执行此操作</body></html>',
-      '<html><title>刷新不要快于 9 秒</title><body></body></html>',
-      '<html><title>出错了</title><body>内部错误</body></html>',
-    ]) {
-      expect(
-        () => parser.parse(html_parser.parse(html)),
-        throwsA(isA<ForumRequestException>()),
-        reason: html,
-      );
-    }
-
-    expect(
-      parser.parse(html_parser.parse(_zeroTotal)),
-      isEmpty,
-    );
-    expect(
-      parser.parse(html_parser.parse(_resultWithoutRows)),
-      isEmpty,
-    );
-    expect(
-      parser.parse(html_parser.parse(_oneResult)).single.title,
-      '示例主题甲',
     );
   });
 }
