@@ -64,6 +64,14 @@ class ThreadFind extends ChangeNotifier {
     return true;
   }
 
+  /// The scan stops where it is; its results and 继续 stay.
+  void pause() {
+    final state = _scan?.progress.state;
+    if (state == ScanState.running || state == ScanState.waiting) {
+      _scan!.stop();
+    }
+  }
+
   /// Back to the loaded pages: the scan stops and its results go.
   void stop() {
     _drop();

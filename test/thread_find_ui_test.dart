@@ -95,6 +95,7 @@ void main() {
     await tester.tapAt(const Offset(200, 20));
     await tester.pumpAndSettle();
     expect(first.disposed, isFalse);
+    expect(first.stopped, isFalse);
     first.finish();
     await tester.pump();
     expect(find.text('帖内查找完成：找到 1 条'), findsOneWidget);
@@ -106,6 +107,35 @@ void main() {
     expect(second, isNot(first));
     await tester.pumpWidget(const SizedBox());
     expect(second.disposed, isTrue);
+  });
+
+  testWidgets('another page over the thread pauses its scan, keeping 继续',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openFind(tester, 'needle');
+    await confirmScan(tester);
+    final scan = repository.scans.single;
+    await tester.tapAt(const Offset(200, 20));
+    await tester.pumpAndSettle();
+
+    Navigator.of(tester.element(find.byType(ThreadDetailScreen))).push(
+      MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('another page'))),
+    );
+    await tester.pumpAndSettle();
+    expect(scan.stopped, isTrue);
+    expect(scan.disposed, isFalse);
+
+    Navigator.of(tester.element(find.text('another page'))).pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('帖内查找'));
+    await tester.pumpAndSettle();
+    expect(find.text('已停止，结果不完整'), findsOneWidget);
+    expect(find.text('继续'), findsOneWidget);
+    expect(find.text('返回已加载'), findsOneWidget);
+    expect(repository.scans, hasLength(1), reason: 'never restarted by itself');
   });
 
   testWidgets('a scan confirmed after the session changed never starts',
@@ -255,8 +285,19 @@ class _Scan extends FullScan<ThreadSearchHit> {
     notifyListeners();
   }
 
+  bool stopped = false;
+
   @override
-  void stop() {}
+  void stop() {
+    stopped = true;
+    _progress = const ScanProgress(
+        state: ScanState.stopped,
+        scannedPages: 1,
+        totalPages: 3,
+        canResume: true);
+    notifyListeners();
+  }
+
   @override
   void resume() {}
 

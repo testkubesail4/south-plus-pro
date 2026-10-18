@@ -188,6 +188,28 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     return fragment.isEmpty ? null : fragment;
   }
 
+  // Runs while another page is pushed over this one; sheets and dialogs
+  // above do not drive it.
+  Animation<double>? _coveredBy;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final cover = ModalRoute.of(context)?.secondaryAnimation;
+    if (identical(cover, _coveredBy)) return;
+    _coveredBy?.removeStatusListener(_onCovered);
+    _coveredBy = cover?..addStatusListener(_onCovered);
+  }
+
+  // Leaving the thread for another page pauses its scan; coming back keeps
+  // what it found, with 继续.
+  void _onCovered(AnimationStatus status) {
+    if (status == AnimationStatus.forward ||
+        status == AnimationStatus.completed) {
+      _find.pause();
+    }
+  }
+
   @override
   void didUpdateWidget(covariant ThreadDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -740,6 +762,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
     _notes.removeListener(_onNotesChanged);
     _notes.dispose();
+    _coveredBy?.removeStatusListener(_onCovered);
     _find.dispose();
     _favoriteFlow.dispose();
     _scrollController.dispose();
