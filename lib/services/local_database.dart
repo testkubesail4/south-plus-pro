@@ -115,8 +115,9 @@ class LocalDatabase {
     }
   }
 
-  List<BrowsingHistoryEntry> browsingHistory({int limit = 100}) {
-    final normalizedLimit = limit.clamp(1, 500).toInt();
+  List<BrowsingHistoryEntry> browsingHistory(
+      {int limit = browsingHistoryLimit}) {
+    final normalizedLimit = limit.clamp(1, browsingHistoryLimit).toInt();
     final rows = _db.select(
       '''
       SELECT thread_url, title, replies, section, body_preview, last_post,
@@ -134,7 +135,7 @@ class LocalDatabase {
   void saveBrowsingHistory({
     required ForumThread thread,
     required DateTime viewedAt,
-    int maxEntries = 200,
+    int maxEntries = browsingHistoryLimit,
   }) {
     final statement = _db.prepare('''
       INSERT INTO browsing_history (
@@ -182,7 +183,7 @@ class LocalDatabase {
           LIMIT ?
         );
         ''',
-        [maxEntries.clamp(1, 1000).toInt()],
+        [maxEntries.clamp(1, browsingHistoryLimit).toInt()],
       );
       _db.execute('COMMIT;');
     } catch (_) {

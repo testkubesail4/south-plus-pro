@@ -1,11 +1,15 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/browsing_history_store.dart';
+import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/local_database.dart';
 import 'package:south_plus_rewrite/services/user_profile_cache.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   test('UserProfileCache stores and loads overview by equivalent profile URLs',
       () async {
     final db = LocalDatabase.openForTesting();
@@ -133,6 +137,37 @@ void main() {
     expect(history.first.thread.replies, 3);
     expect(history.first.thread.author, 'Alice');
     expect(history.last.thread.title, '另一个帖子');
+  });
+
+  test('history defaults return all 200 retained rows through every boundary',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final db = LocalDatabase.openForTesting();
+    addTearDown(db.close);
+    final store = BrowsingHistoryStore(databaseProvider: () async => db);
+    final repository = ForumRepository(historyStore: store);
+    for (var index = 0; index < 205; index++) {
+      await store.recordThread(
+        ForumThread(
+          title: 'topic $index',
+          url: 'https://south-plus.net/read.php?tid-${index + 1}.html',
+          replies: 0,
+          author: 'Author $index',
+          section: 'Board $index',
+        ),
+        viewedAt: DateTime.utc(2026).add(Duration(minutes: index)),
+      );
+    }
+    final history = await repository.browsingHistory();
+    expect(history, hasLength(200));
+    expect((await store.recent()), hasLength(200));
+    expect(db.browsingHistory(), hasLength(200));
+    expect(history.first.thread.title, 'topic 204');
+    expect(history.last.thread.title, 'topic 5');
+    final older =
+        history.singleWhere((entry) => entry.thread.title == 'topic 54');
+    expect(
+        (older.thread.author, older.thread.section), ('Author 54', 'Board 54'));
   });
 
   test('LocalDatabase caps browsing history entries', () {

@@ -1784,7 +1784,8 @@ class ForumRepository {
     return 2;
   }
 
-  Future<List<BrowsingHistoryEntry>> browsingHistory({int limit = 100}) {
+  Future<List<BrowsingHistoryEntry>> browsingHistory(
+      {int limit = browsingHistoryLimit}) {
     return _historyStore.recent(limit: limit);
   }
 

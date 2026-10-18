@@ -255,6 +255,8 @@ class ThreadReadPosition {
   final String? anchor;
 }
 
+const browsingHistoryLimit = 200;
+
 class BrowsingHistoryEntry {
   const BrowsingHistoryEntry({
     required this.thread,

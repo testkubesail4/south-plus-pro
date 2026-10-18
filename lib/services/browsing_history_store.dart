@@ -4,13 +4,14 @@ import 'local_database.dart';
 class BrowsingHistoryStore {
   BrowsingHistoryStore({
     Future<LocalDatabase> Function()? databaseProvider,
-    this.maxEntries = 200,
+    this.maxEntries = browsingHistoryLimit,
   }) : _databaseProvider = databaseProvider ?? LocalDatabase.instance;
 
   final Future<LocalDatabase> Function() _databaseProvider;
   final int maxEntries;
 
-  Future<List<BrowsingHistoryEntry>> recent({int limit = 100}) async {
+  Future<List<BrowsingHistoryEntry>> recent(
+      {int limit = browsingHistoryLimit}) async {
     final db = await _databaseProvider();
     return db.browsingHistory(limit: limit);
   }
