@@ -518,6 +518,49 @@ void main() {
     expect(find.textContaining('09:30'), findsOneWidget);
   });
 
+  testWidgets('browsing history search covers every kept entry',
+      (tester) async {
+    final now = DateTime.now();
+    final repository = _FakeHistoryRepository()
+      .._entries = [
+        for (var i = 0; i < 200; i++)
+          BrowsingHistoryEntry(
+            thread: ForumThread(
+              title: 'topic $i',
+              url: 'https://south-plus.net/read.php?tid-$i.html',
+              replies: 0,
+              section: i == 150 ? '同人音声' : '茶馆',
+            ),
+            viewedAt: now.subtract(Duration(minutes: i)),
+          ),
+      ];
+    await tester.pumpWidget(
+      MaterialApp(home: BrowsingHistoryScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+    // Rows are built as they scroll into view.
+    expect(find.text('topic 150'), findsNothing);
+
+    await tester.tap(find.byTooltip('搜索浏览历史'));
+    await tester.pumpAndSettle();
+    // Clearing would clear everything, not just what the search shows.
+    expect(find.byTooltip('清空浏览历史'), findsNothing);
+    await tester.enterText(find.byType(TextField), '音声');
+    await tester.pump();
+    expect(find.text('topic 150'), findsOneWidget);
+    expect(find.text('找到 1 条'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'nothing');
+    await tester.pump();
+    expect(find.text('没有符合的浏览记录'), findsOneWidget);
+    expect(find.text('还没有浏览历史'), findsNothing);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('topic 0'), findsOneWidget);
+    expect(find.byTooltip('清空浏览历史'), findsOneWidget);
+  });
+
   testWidgets('browsing history can be cleared after confirmation',
       (tester) async {
     final repository = _FakeHistoryRepository();

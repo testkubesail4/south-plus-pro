@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/keyword_match.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
-import '../common/grouped_list.dart';
 import '../common/thread_row.dart';
 import '../thread/thread_detail_screen.dart';
 
@@ -27,6 +27,21 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
   late Future<List<BrowsingHistoryEntry>> _future = _fetch();
   List<BrowsingHistoryEntry> _items = const [];
   bool _clearing = false;
+  final _query = TextEditingController();
+  bool _searchOpen = false;
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  void _openSearch() => setState(() => _searchOpen = true);
+
+  void _closeSearch() => setState(() {
+        _searchOpen = false;
+        _query.clear();
+      });
 
   Future<List<BrowsingHistoryEntry>> _fetch() async {
     final items = await widget.repository.browsingHistory();
@@ -123,75 +138,177 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('浏览历史'),
-        actions: [
-          IconButton(
-            tooltip: '清空浏览历史',
-            onPressed: _items.isEmpty || _clearing ? null : _clearHistory,
-            icon: _clearing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(Icons.delete_outline),
-          ),
-        ],
-      ),
-      body: FutureBuilder<List<BrowsingHistoryEntry>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return AsyncErrorView(
-              title: '浏览历史加载失败',
-              message: '${snapshot.error}',
-              onRetry: _refresh,
-            );
-          }
+    return PopScope(
+      // Back closes the search before it leaves the page.
+      canPop: !_searchOpen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _closeSearch();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: _searchOpen ? BackButton(onPressed: _closeSearch) : null,
+          title: _searchOpen ? _searchField() : const Text('浏览历史'),
+          // Clearing always clears everything, so it is not offered beside
+          // a filtered list.
+          actions: _searchOpen
+              ? null
+              : [
+                  IconButton(
+                    tooltip: '搜索浏览历史',
+                    onPressed: _items.isEmpty ? null : _openSearch,
+                    icon: const Icon(Icons.search),
+                  ),
+                  IconButton(
+                    tooltip: '清空浏览历史',
+                    onPressed:
+                        _items.isEmpty || _clearing ? null : _clearHistory,
+                    icon: _clearing
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.delete_outline),
+                  ),
+                ],
+        ),
+        body: FutureBuilder<List<BrowsingHistoryEntry>>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return AsyncErrorView(
+                title: '浏览历史加载失败',
+                message: '${snapshot.error}',
+                onRetry: _refresh,
+              );
+            }
 
-          final items = snapshot.data;
-          if (items == null) {
-            return const ThreadListSkeleton(itemCount: 6);
-          }
-          _items = items;
+            final items = snapshot.data;
+            if (items == null) {
+              return const ThreadListSkeleton(itemCount: 6);
+            }
+            _items = items;
+            final query = _searchOpen ? _query.text.trim() : '';
+            final shown = query.isEmpty
+                ? items
+                : [
+                    for (final entry in items)
+                      if (matchKeyword(query, [
+                            entry.thread.title,
+                            entry.thread.author,
+                            entry.thread.section,
+                          ]) ==
+                          true)
+                        entry,
+                  ];
 
-          return RefreshIndicator(
-            color: AppColors.brand,
-            onRefresh: _refresh,
-            child: items.isEmpty
-                ? _EmptyHistory(onBrowseHome: widget.onBrowseHome)
-                : ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.only(
-                        top: AppSpace.md, bottom: AppSpace.xxl),
-                    children: [
-                      AppContentWidth(
-                        maxWidth: AppWidths.list,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+            return RefreshIndicator(
+              color: AppColors.brand,
+              onRefresh: _refresh,
+              child: items.isEmpty
+                  ? _EmptyHistory(onBrowseHome: widget.onBrowseHome)
+                  : shown.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
                           children: [
-                            for (final (i, (label, entries))
-                                in _byDay(items, DateTime.now()).indexed) ...[
-                              if (i > 0) const SizedBox(height: AppSpace.xl),
-                              AppGroup(
-                                label: label,
-                                dividerIndent: AppSpace.lg,
-                                children: [
-                                  for (final entry in entries)
-                                    _historyRow(entry),
-                                ],
-                              ),
-                            ],
+                            EmptyStateView(
+                              icon: Icons.manage_search_outlined,
+                              title: '没有符合的浏览记录',
+                              message:
+                                  '已在全部 ${items.length} 条本机记录的标题、作者和版块中查找。',
+                            ),
                           ],
+                        )
+                      : _historyList(shown, counted: query.isNotEmpty),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _searchField() => TextField(
+        controller: _query,
+        autofocus: true,
+        textInputAction: TextInputAction.search,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: '搜索标题、作者或版块',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _query.text.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: '清空',
+                  onPressed: () => setState(_query.clear),
+                  icon: const Icon(Icons.close),
+                ),
+        ),
+      );
+
+  /// Day groups built as slivers, so only the rows on screen are built.
+  Widget _historyList(List<BrowsingHistoryEntry> items,
+      {required bool counted}) {
+    final theme = Theme.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final gutter = appGutter(constraints.maxWidth, AppWidths.list);
+        return CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          slivers: [
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                  gutter, AppSpace.md, gutter, AppSpace.xxl),
+              sliver: SliverMainAxisGroup(
+                slivers: [
+                  if (counted)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                            AppSpace.lg, 0, AppSpace.lg, AppSpace.md),
+                        child: Semantics(
+                          liveRegion: true,
+                          child: Text('找到 ${items.length} 条',
+                              style: theme.textTheme.bodySmall),
                         ),
                       ),
-                    ],
-                  ),
-          );
-        },
-      ),
+                    ),
+                  for (final (i, (label, entries))
+                      in _byDay(items, DateTime.now()).indexed) ...[
+                    // The AppGroup label, above a lazily built surface.
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(AppSpace.lg,
+                            i == 0 ? 0 : AppSpace.xl, AppSpace.lg, AppSpace.sm),
+                        child: Semantics(
+                          header: true,
+                          child: Text(
+                            label,
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                    ),
+                    DecoratedSliver(
+                      decoration: appSurface(context),
+                      sliver: SliverList.separated(
+                        itemCount: entries.length,
+                        separatorBuilder: (_, __) =>
+                            const Divider(indent: AppSpace.lg),
+                        itemBuilder: (_, index) => _historyRow(entries[index]),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
