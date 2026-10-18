@@ -246,6 +246,43 @@ void main() {
   });
 
   testWidgets(
+      'partial seeds retain known hits while pending metadata shares the cap',
+      (tester) async {
+    final client = _Client();
+    final gate = Completer<void>();
+    final job = PageFullScan<int>(
+      client: client,
+      isCurrentSession: () => true,
+      initialHits: const [1, 2],
+      initialPending: 2,
+      maxResults: 3,
+      readPage: (page, request) async {
+        request.setPending(1);
+        await gate.future;
+        return ScanPage(page: page, hasMore: false, hits: [3, 4]);
+      },
+    );
+    addTearDown(() => client.close(force: true));
+    addTearDown(job.dispose);
+    var notifications = 0;
+    job.addListener(() => notifications++);
+    expect(job.hits, [1, 2]);
+    expect(job.progress.pending, 2);
+    job.start();
+    await tester.pump();
+    expect(job.progress.pending, 1);
+    expect(notifications, 1,
+        reason: 'metadata counts do not emit per-row notifications');
+    gate.complete();
+    await tester.pump();
+    expect(job.hits, [1, 2, 3]);
+    expect(job.progress.pending, 0);
+    expect(job.progress.capped, isTrue);
+    expect(job.progress.canResume, isFalse);
+    expect(notifications, 2);
+  });
+
+  testWidgets(
       'dispose never notifies or starts another page after a late reply',
       (tester) async {
     final gate = Completer<String>();
