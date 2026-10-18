@@ -206,6 +206,145 @@ void main() {
         reason: 'successful form cannot be replayed');
   });
 
+  test('birthday complete tuple posts the exact three native names and values',
+      () async {
+    final client = _Client()
+      ..responses.addAll([
+        birthdayProfile(),
+        birthdayProfile(token: 'fresh'),
+        success,
+      ]);
+    final service = accountService(client);
+    final form = await service.fetchAccountProfileForm();
+    await service.saveAccountProfileForm(form, {
+      'proyear': ['1990'],
+      'promonth': ['6'],
+      'proday': ['15'],
+    });
+    final post = client.posts.single;
+    expect(values(post, 'proyear'), ['1990']);
+    expect(values(post, 'promonth'), ['6']);
+    expect(values(post, 'proday'), ['15']);
+    expect(values(post, 'profrom'), ['Old place']);
+    expect(values(post, 'verify'), ['fresh']);
+    expect(
+        ['proyear', 'promonth', 'proday']
+            .map((name) => form.field(name)!.group),
+        ['basic', 'basic', 'basic']);
+  });
+
+  test(
+      'birthday day-only patch rejects a concurrent fresh month instead of merging another date',
+      () async {
+    final client = _Client()
+      ..responses.addAll([
+        birthdayProfile(year: '1990', month: '6', day: '14'),
+        birthdayProfile(year: '1990', month: '7', day: '14'),
+        success,
+      ]);
+    final service = accountService(client);
+    final form = await service.fetchAccountProfileForm();
+    final patch = {
+      'proday': ['15']
+    };
+    await expectLater(
+        service.saveAccountProfileForm(form, patch),
+        throwsA(isA<ForumAccountValidationException>().having(
+            (error) => error.fieldErrors.keys,
+            'conflicting native member',
+            ['promonth'])));
+    expect(client.posts, isEmpty);
+    expect(client.getPaths, hasLength(2));
+    expect(patch.keys, ['proday'],
+        reason: 'tuple expansion never mutates the caller patch');
+  });
+
+  test(
+      'clearing a pre-existing half birthday carries already-empty members and conflicts if they changed',
+      () async {
+    for (final concurrent in [false, true]) {
+      final original = birthdayProfile(year: '1990');
+      final client = _Client()
+        ..responses.addAll([
+          original,
+          concurrent
+              ? birthdayProfile(year: '1990', month: '6', day: '15')
+              : original,
+          success,
+        ]);
+      final service = accountService(client);
+      final form = await service.fetchAccountProfileForm();
+      final save = service.saveAccountProfileForm(form, {
+        'proyear': ['']
+      });
+      if (concurrent) {
+        await expectLater(save, invalidInput);
+        expect(client.posts, isEmpty);
+      } else {
+        await save;
+        for (final name in ['proyear', 'promonth', 'proday']) {
+          expect(values(client.posts.single, name), ['']);
+        }
+      }
+    }
+  });
+
+  test(
+      'unrelated profile patch never repairs untouched birthday and preserves fresh native controls in POST',
+      () async {
+    final client = _Client()
+      ..responses.addAll([
+        birthdayProfile(year: '1990'),
+        birthdayProfile(year: '2000', month: '6')
+            .replaceFirst('value="Old place"', 'value="Fresh place"'),
+        success,
+      ]);
+    final service = accountService(client);
+    final form = await service.fetchAccountProfileForm();
+    await service.saveAccountProfileForm(form, {
+      'field_1': ['New nickname']
+    });
+    final post = client.posts.single;
+    expect(values(post, 'field_1'), ['New nickname']);
+    expect(values(post, 'proyear'), ['2000']);
+    expect(values(post, 'promonth'), ['6']);
+    expect(values(post, 'proday'), ['']);
+    expect(values(post, 'profrom'), ['Fresh place']);
+  });
+
+  test(
+      'edited partial or impossible birthday rejects with a specific reason before refresh or POST',
+      () async {
+    for (final invalid in [
+      (
+        {
+          'proyear': ['1990']
+        },
+        '不完整的日期，请选择年、月、日或清空'
+      ),
+      (
+        {
+          'proyear': ['1990'],
+          'promonth': ['2'],
+          'proday': ['30']
+        },
+        '日期不存在，请重新选择'
+      ),
+    ]) {
+      final client = _Client()..responses.add(birthdayProfile());
+      final service = accountService(client);
+      final form = await service.fetchAccountProfileForm();
+      await expectLater(
+          service.saveAccountProfileForm(form, invalid.$1),
+          throwsA(isA<ForumAccountValidationException>().having(
+              (error) => error.fieldErrors['proyear'],
+              'birthday reason',
+              invalid.$2)));
+      expect(client.getPaths, hasLength(1));
+      expect(client.posts, isEmpty);
+    }
+  });
+
   test(
       'sensitive edits, forged forms, nickname blacklist and invalid native options never reach POST',
       () async {
@@ -947,6 +1086,28 @@ String preferences({String token = 'fixture', String blacklist = ''}) => '''
 <input type="submit" name="submit" value="never">
 </form>
 ''';
+String birthdayProfile(
+    {String year = '',
+    String month = '',
+    String day = '',
+    String token = 'fixture'}) {
+  String select(String name, List<String> options, String value) =>
+      '<select name="$name">${options.map((option) => '<option value="$option"${option == value ? ' selected' : ''}>${option.isEmpty ? '未设置' : option}</option>').join()}</select>';
+  final row = '<tr><td>生日</td><td>'
+      '${select('proyear', ['', '1990', '2000'], year)}'
+      '${select('promonth', [
+            '',
+            for (var month = 1; month <= 12; month++) '$month'
+          ], month)}'
+      '${select('proday', [
+            '',
+            for (var day = 1; day <= 31; day++) '$day'
+          ], day)}'
+      '</td></tr>';
+  return profile(token: token)
+      .replaceFirst('<tr><td>来自</td>', '$row<tr><td>来自</td>');
+}
+
 String profile({String token = 'fixture', String sensitive = 'fixture'}) => '''
 <form method="post" action="profile.php?action=modify&amp;" enctype="multipart/form-data">
 <input type="hidden" name="verify" value="$token"><input type="hidden" name="step" value="2">

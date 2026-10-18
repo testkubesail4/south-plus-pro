@@ -105,9 +105,12 @@ Future<bool> showUserNoteEditor(
   BuildContext context, {
   required ForumRepository repository,
   required String uid,
-  required String name,
+  // The real name when one is known; null shows the UID alone.
+  required String? name,
   String? note,
   List<String> tags = const [],
+  // Offered only while nothing is unsaved; the sheet closes first.
+  VoidCallback? onOpenProfile,
 }) async {
   // Captured now, not in the deferred builder: a switch before the first
   // frame must blank the sheet instead of re-binding it to the new scope.
@@ -126,6 +129,7 @@ Future<bool> showUserNoteEditor(
       name: name,
       note: note,
       tags: tags,
+      onOpenProfile: onOpenProfile,
     ),
   );
   return saved ?? false;
@@ -140,14 +144,16 @@ class _UserNoteSheet extends StatefulWidget {
     required this.name,
     required this.note,
     required this.tags,
+    this.onOpenProfile,
   });
 
+  final VoidCallback? onOpenProfile;
   final ForumRepository repository;
   // Captured when the sheet opened; a write never lands in another account.
   final String? account;
   final int epoch;
   final String uid;
-  final String name;
+  final String? name;
   final String? note;
   final List<String> tags;
 
@@ -238,6 +244,29 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
         ? '标签未保存，请重试' : _tagError;
   }
 
+  /// Both drafts equal what the store acknowledged: leaving loses nothing.
+  bool get _clean {
+    try {
+      return _controller.text.trim() == _savedNote &&
+          listEquals(_draftTags(), _savedTags);
+    } on ArgumentError {
+      return false;
+    }
+  }
+
+  void _openProfile() {
+    final open = widget.onOpenProfile;
+    final route = _route;
+    if (open == null || _busy || !_clean || !_current) return;
+    if (route == null || !route.isActive) return;
+    if (route.isCurrent) {
+      route.navigator?.pop(_hasWritten);
+    } else {
+      route.navigator?.removeRoute(route);
+    }
+    open();
+  }
+
   void _addTag() {
     try {
       final tags = _draftTags();
@@ -311,12 +340,36 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('备注与标签', style: theme.textTheme.titleMedium),
-          const SizedBox(height: AppSpace.xs),
-          Text(
-            '原名：${widget.name}　UID ${widget.uid}',
-            style: theme.textTheme.bodySmall,
-          ),
+          Row(children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('备注与标签', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: AppSpace.xs),
+                  // Each identity once: the UID alone when no name is known.
+                  Text(
+                    switch (widget.name?.trim()) {
+                      final name? when name.isNotEmpty =>
+                        '原名：$name　UID ${widget.uid}',
+                      _ => 'UID ${widget.uid}',
+                    },
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            if (widget.onOpenProfile != null)
+              Tooltip(
+                message: _clean ? '查看个人资料' : '先保存或撤销修改',
+                child: TextButton.icon(
+                  key: const ValueKey('annotation-editor-profile'),
+                  onPressed: _busy || !_clean ? null : _openProfile,
+                  icon: const Icon(Icons.person_outline, size: 18),
+                  label: const Text('个人资料'),
+                ),
+              ),
+          ]),
           const SizedBox(height: AppSpace.md),
           TextField(
             controller: _controller,

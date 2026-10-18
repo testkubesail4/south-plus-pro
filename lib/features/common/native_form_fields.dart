@@ -11,7 +11,7 @@ import 'grouped_list.dart';
 /// Edits on top of a native [ForumAccountForm]: only fields the user touched
 /// leave this object, everything else stays with the forum's own values.
 class NativeFormController extends ChangeNotifier {
-  NativeFormController(this.form, {this.activeField});
+  NativeFormController(this.form, {this.activeField, this.fieldCheck});
 
   final ForumAccountForm form;
 
@@ -19,6 +19,10 @@ class NativeFormController extends ChangeNotifier {
   /// avatar mode). Edits of other fields stay as drafts but are neither saved
   /// nor validated; `upload` names the picked file.
   final bool Function(NativeFormController c, String name)? activeField;
+
+  /// A rule across fields (a date made of three selects): its message for a
+  /// touched field, or null. Saving waits until it passes.
+  final String? Function(NativeFormController c, String name)? fieldCheck;
   final _edits = <String, List<String>>{};
   final _serverErrors = <String, String>{};
   ForumAccountUpload? _upload;
@@ -132,7 +136,8 @@ class NativeFormController extends ChangeNotifier {
     return _serverErrors[name] ??
         (field == null || edited == null
             ? null
-            : validateNativeField(field, edited));
+            : validateNativeField(field, edited) ??
+                fieldCheck?.call(this, name));
   }
 
   /// Marks the fields the forum rejected until they are edited again.
@@ -680,12 +685,16 @@ class NativeFormPage extends StatefulWidget {
     required this.builder,
     this.onSaved,
     this.activeField,
+    this.fieldCheck,
   });
 
   final String title;
 
   /// See [NativeFormController.activeField].
   final bool Function(NativeFormController c, String name)? activeField;
+
+  /// See [NativeFormController.fieldCheck].
+  final String? Function(NativeFormController c, String name)? fieldCheck;
 
   /// Changes whenever the account or network changes; the form reloads.
   final Listenable sessionEpoch;
@@ -751,7 +760,8 @@ class _NativeFormPageState extends State<NativeFormPage> {
     widget.load().then((form) {
       if (!mounted || generation != _generation) return;
       setState(() {
-        _adopt(NativeFormController(form, activeField: widget.activeField));
+        _adopt(NativeFormController(form,
+            activeField: widget.activeField, fieldCheck: widget.fieldCheck));
         _loading = false;
       });
     }, onError: (Object error) {
@@ -816,7 +826,7 @@ class _NativeFormPageState extends State<NativeFormPage> {
     final NativeFormController fresh;
     try {
       fresh = NativeFormController(await widget.load(),
-          activeField: widget.activeField);
+          activeField: widget.activeField, fieldCheck: widget.fieldCheck);
     } catch (_) {
       // The edits stay on screen; only the proof is missing.
       if (!mounted || generation != _generation) return;
@@ -856,7 +866,7 @@ class _NativeFormPageState extends State<NativeFormPage> {
     final NativeFormController fresh;
     try {
       fresh = NativeFormController(await widget.load(),
-          activeField: widget.activeField);
+          activeField: widget.activeField, fieldCheck: widget.fieldCheck);
     } catch (_) {
       if (!mounted || generation != _generation) return;
       setState(() => _saving = false);

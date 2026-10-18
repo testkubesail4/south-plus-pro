@@ -8,6 +8,8 @@ import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../common/user_note.dart';
 import '../common/user_tags_inline.dart';
+import 'favorite_collections_sheets.dart' show SessionBound;
+import 'user_profile_screen.dart';
 
 class LocalUserAnnotationsScreen extends StatefulWidget {
   LocalUserAnnotationsScreen({super.key, required this.repository})
@@ -64,9 +66,69 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
   Future<void> _edit(String uid) async {
     if (!_current || _annotations.isLoading ||
         _annotations.noteLoadError != null || _annotations.tagLoadError != null) return;
+    // No name is known here; the header shows the UID once.
+    final url = widget.repository.userProfileUrl(uid);
     await showUserNoteEditor(context,
-      repository: widget.repository, uid: uid, name: 'UID $uid',
-      note: _annotations.noteFor(uid), tags: _annotations.tagsFor(uid));
+      repository: widget.repository, uid: uid, name: null,
+      note: _annotations.noteFor(uid), tags: _annotations.tagsFor(uid),
+      onOpenProfile: url == null ? null : () => _openProfile(url));
+  }
+
+  // The forum profile is read only after this tap, never to draw a row.
+  // The route is bound to the scope of the tap: a switch before its first
+  // frame removes only this route, and the profile never reads the old UID
+  // under another account.
+  void _openProfile(String url) {
+    if (!_current) return;
+    final repository = widget.repository;
+    final account = repository.localPreferenceAccount;
+    final epoch = repository.sessionEpoch.value;
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => SessionBound(
+        session: repository.sessionEpoch,
+        generation: epoch,
+        child: Builder(
+          builder: (_) => repository.localPreferenceAccount == account
+              ? UserProfileScreen(userUrl: url, repository: repository)
+              : const SizedBox.shrink(),
+        ),
+      ),
+    ));
+  }
+
+  /// Tap opens the user's forum profile; the pencil edits the annotations.
+  /// The note is labelled so it never reads as another tag.
+  Widget _userRow(String uid, {required bool editable}) {
+    final url = widget.repository.userProfileUrl(uid);
+    final edit = editable ? () => _edit(uid) : null;
+    return AppRow(
+      key: ValueKey('annotation-user:$uid'),
+      icon: Icons.person_outline,
+      title: Text('UID $uid'),
+      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // One line: a long note ellipsizes on its own, the tags keep theirs.
+        if (_annotations.noteFor(uid) case final note?)
+          Text('备注：$note', maxLines: 1, overflow: TextOverflow.ellipsis),
+        if (_annotations.tagsFor(uid).isNotEmpty) ...[
+          const SizedBox(height: AppSpace.xs),
+          UserTagsInline(tags: _annotations.tagsFor(uid), onShowAll: edit ?? () {}),
+        ],
+      ]),
+      // Without a valid profile address the row itself edits.
+      onTap: url == null ? edit : () => _openProfile(url),
+      enabled: true,
+      trailing: url == null
+          ? null
+          : Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(
+                key: ValueKey('annotation-edit:$uid'),
+                tooltip: '编辑备注与标签',
+                onPressed: edit,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              Icon(Icons.chevron_right, color: AppColors.textFaint),
+            ]),
+    );
   }
 
   @override
@@ -125,20 +187,7 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
                 if (users.isNotEmpty)
                   AppGroup(children: [
                     for (final uid in users)
-                      AppRow(
-                        key: ValueKey('annotation-user:$uid'),
-                        icon: Icons.person_outline,
-                        title: Text('UID $uid'),
-                        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          if (_annotations.noteFor(uid) case final note?) Text(note),
-                          if (_annotations.tagsFor(uid).isNotEmpty) ...[
-                            const SizedBox(height: AppSpace.xs),
-                            UserTagsInline(tags: _annotations.tagsFor(uid), onShowAll: () => _edit(uid)),
-                          ],
-                        ]),
-                        onTap: _annotations.isLoading || failed ? null : () => _edit(uid),
-                        enabled: true,
-                      ),
+                      _userRow(uid, editable: !_annotations.isLoading && !failed),
                   ]),
               ] else ...[
                 if (tagKeys.isEmpty && !_annotations.isLoading && !failed)

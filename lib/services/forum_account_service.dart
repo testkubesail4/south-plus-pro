@@ -5,6 +5,7 @@ import 'package:html/parser.dart' as html_parser;
 import '../models/forum_account_models.dart';
 import 'forum_client.dart';
 import 'forum_request_exception.dart';
+import 'native_date_validator.dart';
 import 'parsers/forum_account_parser.dart';
 
 class ForumAccountService {
@@ -19,6 +20,7 @@ class ForumAccountService {
   final ForumClient Function() _client;
   final int Function() _sessionEpoch;
   final bool Function() _isLoggedIn;
+  static const _birthdayNames = ['proyear', 'promonth', 'proday'];
   final _parser = const ForumAccountParser();
   final _loaded = Expando<_AccountSession>();
   bool _saving = false;
@@ -94,6 +96,15 @@ class ForumAccountService {
       for (final entry in changes.entries)
         entry.key: List<String>.of(entry.value)
     };
+    // Edited birthdays claim the full tuple; untouched ones stay fresh native controls.
+    if (kind == ForumAccountFormKind.profile &&
+        _birthdayNames.any(patch.containsKey) &&
+        _birthdayNames.every((name) => form.field(name)?.type == 'select')) {
+      for (final name in _birthdayNames) {
+        patch.putIfAbsent(
+            name, () => List<String>.of(form.field(name)!.values));
+      }
+    }
     _validate(form, patch, avatar);
     if (patch.isEmpty && avatar == null) return;
     _saving = true;
@@ -248,6 +259,28 @@ class ForumAccountService {
 
   void _validate(ForumAccountForm form, Map<String, List<String>> patch,
       ForumAccountUpload? avatar) {
+    final birthday = [for (final name in _birthdayNames) form.field(name)];
+    if (form.kind == ForumAccountFormKind.profile &&
+        _birthdayNames.any(patch.containsKey) &&
+        birthday.every((field) =>
+            field != null &&
+            field.type == 'select' &&
+            field.options.isNotEmpty &&
+            field.options.every((option) =>
+                option.value.isEmpty ||
+                RegExp(r'^[0-9]+$').hasMatch(option.value)))) {
+      String selected(String name) =>
+          (patch[name] ?? form.field(name)!.values).firstOrNull ?? '';
+      final error = validateNativeDate(
+        year: selected('proyear'),
+        month: selected('promonth'),
+        day: selected('proday'),
+        yearOptions: birthday[0]!.options.map((option) => option.value),
+        monthOptions: birthday[1]!.options.map((option) => option.value),
+        dayOptions: birthday[2]!.options.map((option) => option.value),
+      );
+      if (error != null) _invalidField('proyear', error);
+    }
     for (final entry in patch.entries) {
       final field = form.field(entry.key);
       if (field == null || field.type == 'file') _invalid('此资料项目不能修改');

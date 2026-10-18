@@ -112,6 +112,32 @@ void main() {
     expect((await UserTagStore.load())['123'], ['Other']);
   });
 
+  testWidgets('editor header names a known user once and an unknown one by UID alone', (tester) async {
+    final repository = FakeProfileRepository();
+    Future<void> open(String? name) async {
+      await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => Scaffold(
+        body: TextButton(
+          onPressed: () => showUserNoteEditor(context,
+              repository: repository, uid: '123', name: name),
+          child: const Text('open'),
+        ),
+      ))));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    await open(null);
+    expect(find.text('UID 123'), findsOneWidget);
+    expect(find.textContaining('原名'), findsNothing);
+    expect(find.byKey(const ValueKey('annotation-editor-profile')), findsNothing,
+        reason: 'no profile route unless the caller offers one');
+    await tester.pumpWidget(const SizedBox());
+
+    // A numeric-looking nickname is a real name, shown as given.
+    await open('2860844');
+    expect(find.text('原名：2860844　UID 123'), findsOneWidget);
+  });
+
   testWidgets('note editor limits the note to 40 characters', (tester) async {
     final repository = FakeProfileRepository();
     await openProfile(tester, repository);

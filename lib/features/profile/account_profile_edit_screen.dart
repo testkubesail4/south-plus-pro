@@ -9,6 +9,7 @@ import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../common/grouped_list.dart';
 import '../common/native_form_fields.dart';
+import 'account_birthday_field.dart';
 import 'avatar_crop.dart';
 import 'account_screen.dart';
 
@@ -171,7 +172,9 @@ class _AccountProfileEditScreenState extends State<AccountProfileEditScreen> {
           .saveAccountProfileForm(form, changes, avatar: upload),
       onSaved: _refreshAvatar,
       activeField: avatarFieldActive,
+      fieldCheck: birthdayFieldCheck,
       builder: (context, c) {
+        final birthday = hasNativeBirthday(c.form);
         List<String> names(String group) => [
               for (final f in c.form.fields)
                 if (f.group == group) f.name,
@@ -186,7 +189,12 @@ class _AccountProfileEditScreenState extends State<AccountProfileEditScreen> {
               dividerIndent: AppSpace.lg,
               children: [
                 for (final name in fields)
-                  NativeFieldRow(controller: c, name: name),
+                  // The three birthday selects read as one date, in the
+                  // year's place; without all three, one row each.
+                  if (birthday && name == birthdayYear)
+                    NativeBirthdayRow(controller: c)
+                  else if (!birthday || !birthdayFields.contains(name))
+                    NativeFieldRow(controller: c, name: name),
               ],
             ),
           );

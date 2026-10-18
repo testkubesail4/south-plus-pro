@@ -14,6 +14,26 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('profile URL builder validates UID without requests and uses the current forum origin', () async {
+    final prefs = await SharedPreferences.getInstance();
+    final before = {for (final key in prefs.getKeys()) key: prefs.get(key)};
+    final client = _CoreClient('');
+    final repository = ForumRepository(client: client);
+    expect(repository.userProfileUrl('2860844'),
+        'https://south-plus.net/u.php?action-show-uid-2860844.html');
+    expect(repository.userProfileUrl('1'),
+        'https://south-plus.net/u.php?action-show-uid-1.html');
+    for (final uid in ['', '0', '-1', '+1', '01', ' 42', '42 ', '42\n',
+      '42&action=favor', '４２', 'abc']) {
+      expect(repository.userProfileUrl(uid), isNull, reason: 'invalid UID: $uid');
+    }
+    expect(client.gets, isEmpty);
+    final custom = ForumRepository(client: _ScopeClient(const ForumSite('custom.invalid')));
+    expect(custom.userProfileUrl('2860844'),
+        'https://custom.invalid/u.php?action-show-uid-2860844.html');
+    expect({for (final key in prefs.getKeys()) key: prefs.get(key)}, before);
+  });
+
   test('opening metadata propagates without borrowing last-reply time',
       () async {
     final repository = ForumRepository(client: _CoreClient('''

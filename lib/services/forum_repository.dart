@@ -287,6 +287,10 @@ class ForumRepository {
   String? searchBoardId(ForumCategory category) =>
       _urls.fidFromCategory(category);
 
+  String? userProfileUrl(String uid) => RegExp(r'^[1-9]\d*$').hasMatch(uid)
+      ? _urls.userTabUrl(uid, UserProfileTab.profile)
+      : null;
+
   String? originalPosterPostsUrl(ForumThread thread) {
     final tid = _urls.tidFromUrl(thread.url);
     if (tid == null) return null;
