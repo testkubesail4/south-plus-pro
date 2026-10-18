@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,11 @@ import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
 
 // Synthetic boards only.
 class _Repo extends ForumRepository {
+  final epoch = ValueNotifier<int>(0);
+
+  @override
+  ValueListenable<int> get sessionEpoch => epoch;
+
   @override
   Future<List<ForumSearchBoard>> fetchSearchBoards() async => const [
         ForumSearchBoard(id: 'all', name: '全部版块'),
@@ -74,5 +80,86 @@ void main() {
           order: QuickOrder.replied),
     );
     expect(find.text('示例分区 / Fixture board · 最新回复'), findsOneWidget);
+  });
+
+  testWidgets('a list back on the site keeps no order: all default again',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await HomeReadingPreferences.saveQuickSources(const [
+      HomeQuickSource(),
+      HomeQuickSource(
+          kind: HomeQuickSourceKind.board,
+          fid: '12',
+          order: QuickOrder.replied),
+      HomeQuickSource(),
+    ]);
+    await tester.pumpWidget(
+        MaterialApp(home: QuickListSettingsScreen(repository: _Repo())));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('栏目 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('原站默认').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, '恢复默认'))
+            .onPressed,
+        isNull);
+  });
+
+  testWidgets('the same board found under a new parent keeps its new path',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await HomeReadingPreferences.saveQuickSources(const [
+      HomeQuickSource(),
+      HomeQuickSource(
+          kind: HomeQuickSourceKind.board,
+          fid: '12',
+          boardPath: 'Old parent / Fixture board',
+          order: QuickOrder.replied),
+      HomeQuickSource(),
+    ]);
+    await tester.pumpWidget(
+        MaterialApp(home: QuickListSettingsScreen(repository: _Repo())));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('栏目 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Old parent / Fixture board').last);
+    await tester.pumpAndSettle();
+    // The chosen board opens with its parents expanded.
+    await tester.tap(find.text('Fixture board'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect((await HomeReadingPreferences.load()).quickSources[1].boardPath,
+        '示例分区 / Fixture board');
+    expect(find.text('示例分区 / Fixture board · 最新回复'), findsOneWidget);
+  });
+
+  testWidgets('another login closes an open list editor', (tester) async {
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = _Repo();
+    await tester.pumpWidget(
+        MaterialApp(home: QuickListSettingsScreen(repository: repo)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('栏目 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('指定版块'), findsOneWidget);
+
+    repo.epoch.value++;
+    await tester.pumpAndSettle();
+    expect(find.text('指定版块'), findsNothing);
+    expect(find.text('登录状态已变化'), findsOneWidget);
   });
 }

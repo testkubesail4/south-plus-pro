@@ -8,6 +8,7 @@ import '../common/async_state_view.dart';
 import '../common/board_picker_sheet.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
+import '../profile/favorite_collections_sheets.dart' show SessionBound;
 
 String quickOrderLabel(QuickOrder order) => switch (order) {
       QuickOrder.posted => '新帖',
@@ -102,21 +103,26 @@ class _QuickListSettingsScreenState extends State<QuickListSettingsScreen> {
       showDragHandle: true,
       isScrollControlled: true,
       constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SheetTitle('显示行数'),
-              for (var rows = 3; rows <= 8; rows++)
-                AppRow(
-                  title: Text('$rows 行'),
-                  selected: rows == current,
-                  onTap: () => Navigator.of(context).pop(rows),
-                ),
-              const SizedBox(height: AppSpace.sm),
-            ],
+      // Another login's choices close with it.
+      builder: (context) => SessionBound(
+        session: widget.repository.sessionEpoch,
+        generation: _epoch,
+        child: SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _SheetTitle('显示行数'),
+                for (var rows = 3; rows <= 8; rows++)
+                  AppRow(
+                    title: Text('$rows 行'),
+                    selected: rows == current,
+                    onTap: () => Navigator.of(context).pop(rows),
+                  ),
+                const SizedBox(height: AppSpace.sm),
+              ],
+            ),
           ),
         ),
       ),
@@ -149,15 +155,27 @@ class _QuickListSettingsScreenState extends State<QuickListSettingsScreen> {
       showDragHandle: true,
       isScrollControlled: true,
       constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
-      builder: (_) => _SlotSheet(
-        title: '栏目 ${index + 1}',
-        initial: sources[index],
-        // The home page always keeps one list.
-        canHide: sources[index].kind == HomeQuickSourceKind.hidden || shown > 1,
-        pickBoard: _pickBoard,
+      builder: (_) => SessionBound(
+        session: widget.repository.sessionEpoch,
+        generation: _epoch,
+        child: _SlotSheet(
+          title: '栏目 ${index + 1}',
+          initial: sources[index],
+          // The home page always keeps one list.
+          canHide:
+              sources[index].kind == HomeQuickSourceKind.hidden || shown > 1,
+          pickBoard: _pickBoard,
+        ),
       ),
     );
-    if (picked == null || !_current || picked == sources[index]) return;
+    // Equal sources read the same feed; a new path for the same board is
+    // still the user's to keep.
+    if (picked == null ||
+        !_current ||
+        (picked == sources[index] &&
+            picked.boardPath == sources[index].boardPath)) {
+      return;
+    }
     await _saveSources([
       for (final (i, source) in sources.indexed) i == index ? picked : source,
     ]);
@@ -382,7 +400,8 @@ class _SlotSheetState extends State<_SlotSheet> {
                           kind: _kind,
                           fid: board ? _fid : null,
                           boardPath: board ? _path : null,
-                          order: _order,
+                          // Only a board list has an order to keep.
+                          order: board ? _order : QuickOrder.posted,
                         )),
                 child: const Text('保存'),
               ),

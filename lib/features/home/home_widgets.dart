@@ -316,12 +316,13 @@ const _quickListIcons = {
 bool _boardSource(ForumQuickList list) =>
     list.source.kind == HomeQuickSourceKind.board;
 
-/// A board list is named by its board and order; a site list keeps the
-/// site's title.
-String _quickTitle(ForumQuickList list) => _boardSource(list)
-    ? '${list.source.boardPath?.split(' / ').last ?? '版块 ${list.source.fid}'} '
-        '${list.source.order == QuickOrder.posted ? '新帖' : '回复'}'
-    : list.title;
+/// The title the snapshot gives; a board list without one is named by its
+/// saved board and order.
+String _quickTitle(ForumQuickList list) => list.title.isNotEmpty ||
+        !_boardSource(list)
+    ? list.title
+    : '${list.source.boardPath?.split(' / ').last ?? '版块 ${list.source.fid}'} '
+        '${list.source.order == QuickOrder.posted ? '新帖' : '回复'}';
 
 IconData _quickIcon(ForumQuickList list) => _boardSource(list)
     ? Icons.dashboard_outlined

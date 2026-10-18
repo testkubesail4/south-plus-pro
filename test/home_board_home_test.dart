@@ -93,7 +93,10 @@ class _SourceRepo extends _Repo {
       hot: home.hot,
       sections: home.sections,
       quickLists: source.kind == HomeQuickSourceKind.board
-          ? [ForumQuickList(title: '', source: source), ...home.quickLists]
+          ? [
+              ForumQuickList(title: 'Games 新帖', source: source),
+              ...home.quickLists
+            ]
           : home.quickLists,
     );
   }
@@ -252,7 +255,8 @@ void main() {
     ], account: _account);
     await tester.pumpAndSettle();
     expect(repo.homeFetches, 2);
-    expect(find.text('Gone board 新帖'), findsOneWidget);
+    // The snapshot's title wins over the path saved with the source.
+    expect(find.text('Games 新帖'), findsOneWidget);
     expect(find.text('来源版块不存在'), findsOneWidget);
     await tester.tap(find.text('更换来源'));
     await tester.pumpAndSettle();
