@@ -1116,6 +1116,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _recomputeDetailRenderState();
       _recordPurchaseReveals(before, postKey, buyPath);
     });
+    _find.pagesChanged();
     // Lazy row measurement can shift a floor even when scroll pixels stay put.
     await WidgetsBinding.instance.endOfFrame;
     if (!current() ||

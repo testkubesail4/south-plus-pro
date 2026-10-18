@@ -330,6 +330,38 @@ void main() {
     expect(find.byType(ThreadPurchaseReveal), findsNothing);
   });
 
+  testWidgets('帖内查找 searches a purchased page that arrives while open',
+      (tester) async {
+    final repo = _Repo();
+    await pumpThread(tester, repo);
+    await bringBoxIntoView(tester);
+    final gate = Completer<void>();
+    repo.fetchGates.add(gate);
+    await tester.tap(find.text('购买查看'));
+    await tester.pump();
+    await tester.pump();
+    expect(repo.buys, 1);
+
+    // The refresh spinner keeps animating: step through the transitions.
+    Future<void> step() async {
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    await tester.tap(find.byTooltip('更多'));
+    await step();
+    await tester.tap(find.text('帖内查找'));
+    await step();
+    await tester.enterText(find.byType(TextField), 'paid 11');
+    await step();
+    expect(find.textContaining('本帖没有找到'), findsOneWidget);
+
+    // The unlocked page replaces the locked one under the open sheet.
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('第 1 页 ·'), findsOneWidget);
+  });
+
   testWidgets('a purchased page overtaken by a pull-to-refresh is dropped',
       (tester) async {
     final repo = _Repo();
