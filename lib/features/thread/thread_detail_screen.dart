@@ -19,6 +19,8 @@ import '../../services/attachment_saver.dart';
 import '../../services/perf_trace.dart';
 import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
+import '../../services/full_scan.dart';
+import '../../services/thread_search.dart';
 import '../../services/thread_paging_settings.dart';
 import '../../services/thread_share_service.dart';
 import '../../theme/app_theme.dart';
@@ -36,6 +38,7 @@ import '../profile/favorite_collections_sheets.dart' show showNewCategoryDialog;
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
 import '../search/search_screen.dart';
+import 'thread_find.dart';
 import 'thread_floor_actions.dart';
 import 'thread_page_end_card.dart';
 import 'thread_post_body.dart';
@@ -114,6 +117,10 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   // Mounted posts (ThreadDetail = opening post, or a ThreadReply) for
   // finding the post at the top of the screen.
   final _mountedPosts = Map<Object, BuildContext>.identity();
+  // 帖内查找 outlives its sheet: a scan goes on while the reader looks at
+  // a hit, and stops with the thread, its author scope or the session.
+  late final _find = ThreadFind(onScanEnded: _onFindEnded);
+  bool _findOpen = false;
 
   @override
   void initState() {
@@ -184,6 +191,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _favoriteFlow.value++;
     _favoriteBusy = false;
     _favoriteOverrides.clear();
+    _find.reset();
     _thread = widget.thread;
     _authorFilterName = null;
     _detail = null;
@@ -574,6 +582,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   }
 
   Future<void> _showAuthorFilter(String authorPostsUrl, String author) async {
+    _find.stop();
     final current = _detail?.thread ?? _thread;
     setState(() {
       _thread = current.copyWith(url: authorPostsUrl);
@@ -586,6 +595,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   // Covers filters chosen here and uid deep links alike; never reloads the
   // incoming URL, which may itself carry the filter or a page/fragment.
   Future<void> _clearAuthorFilter() async {
+    _find.stop();
     final current = _detail?.thread ?? _thread;
     final url = widget.repository.unfilteredThreadUrl(current);
     if (url == null) return;
@@ -724,6 +734,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
     _notes.removeListener(_onNotesChanged);
     _notes.dispose();
+    _find.dispose();
     _favoriteFlow.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -921,6 +932,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     if (!mounted) return;
     // Another account's purchases are not this one's.
     _favoriteFlow.value++;
+    _find.stop();
     setState(() {
       _favoriteBusy = false;
       // Another account's favorite is not this one's.
@@ -932,7 +944,77 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   // Rules apply as they change, here or in 屏蔽配置; nothing is refetched.
   void _onBlockingChanged() {
+    // A scan read under the old rules could show a floor now hidden.
+    _find.stop();
     if (mounted) setState(() {});
+  }
+
+  List<ThreadDetail> get _loadedPages =>
+      _detail == null ? const [] : [_detail!, ..._morePages];
+
+  Future<void> _openFind() async {
+    final detail = _detail;
+    if (detail == null || _findOpen) return;
+    _findOpen = true;
+    final ThreadSearchHit? hit;
+    try {
+      hit = await showModalBottomSheet<ThreadSearchHit>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        useSafeArea: true,
+        constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
+        builder: (_) => ThreadFindSheet(
+          find: _find,
+          pages: _loadedPages,
+          totalPages: _lastLoaded!.pagination.totalPages,
+          rules: widget.repository.blocking.notifier.value,
+          authorFilterName:
+              _authorFilterActive ? _authorFilterName ?? '该作者' : null,
+          onStartScan: () => _find.start(widget.repository.scanThread(
+            detail.thread,
+            _find.keyword,
+            loaded: _loadedPages,
+            rules: widget.repository.blocking.notifier.value,
+          )),
+        ),
+      );
+    } finally {
+      _findOpen = false;
+    }
+    if (hit != null && mounted) await _openFindHit(hit);
+  }
+
+  /// Shows the hit's floor: in place when its page is loaded, otherwise by
+  /// loading that page.
+  Future<void> _openFindHit(ThreadSearchHit hit) async {
+    final anchor = hit.anchor;
+    final page = _loadedPages
+        .where((page) => page.pagination.currentPage == hit.page)
+        .firstOrNull;
+    final target =
+        page == null || anchor == null ? null : _anchorTargetIn(page, anchor);
+    if (target != null) {
+      setState(() {
+        _anchorTarget = target;
+        _recomputeDetailRenderState();
+      });
+      await _revealAnchor();
+      return;
+    }
+    _pendingAnchor = anchor;
+    await _loadPage(hit.page, scrollToTop: anchor == null);
+  }
+
+  // Said only while the sheet is closed; an open one shows it already.
+  void _onFindEnded(ScanProgress progress) {
+    if (!mounted || _findOpen) return;
+    _messenger.showSnackBar(SnackBar(
+      content: Text(progress.state == ScanState.done
+          ? '帖内查找完成：找到 ${progress.found} 条'
+          : '帖内查找已中断'),
+      action: SnackBarAction(label: '查看', onPressed: _openFind),
+    ));
   }
 
   // 设置 can change while this thread stays open below it.
@@ -1552,6 +1634,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                   icon: const Icon(Icons.share_outlined),
                 ),
                 _ThreadMoreMenu(
+                  onFind: detail == null ? null : _openFind,
                   // Loaded title only; the pre-load title can be a placeholder.
                   onSearchTitle:
                       detail == null || detail.thread.title.trim().isEmpty
@@ -2972,14 +3055,20 @@ class _BoardTitle extends StatelessWidget {
 
 /// Rare thread actions behind ⋮; an action without a target is omitted.
 class _ThreadMoreMenu extends StatelessWidget {
-  const _ThreadMoreMenu({required this.onSearchTitle, required this.onRss});
+  const _ThreadMoreMenu({
+    required this.onFind,
+    required this.onSearchTitle,
+    required this.onRss,
+  });
 
+  final VoidCallback? onFind;
   final VoidCallback? onSearchTitle;
   final VoidCallback? onRss;
 
   @override
   Widget build(BuildContext context) {
     final items = [
+      if (onFind != null) ('帖内查找', Icons.find_in_page_outlined, onFind!),
       if (onSearchTitle != null)
         ('搜索同名主题', Icons.manage_search, onSearchTitle!),
       if (onRss != null) ('RSS 订阅', Icons.rss_feed_outlined, onRss!),
