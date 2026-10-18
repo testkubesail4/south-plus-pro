@@ -230,6 +230,11 @@ String _reason(ForumRequestKind? kind) =>
 /// The headline and detail lines [SearchScopeBar] shows for [p] at [now].
 (String, String) scanStatusText(ScanProgress p, DateTime now) {
   final pages = _pages(p);
+  // What a stopped scan keeps: matches and rows it could not decide.
+  final kept = [
+    '找到 ${p.found} 条',
+    if (p.unresolved > 0) '待确认 ${p.unresolved} 条',
+  ].join(' · ');
   return switch (p.state) {
     ScanState.idle => (
         '搜索范围：已加载内容',
@@ -260,13 +265,13 @@ String _reason(ForumRequestKind? kind) =>
       ),
     ScanState.stopped when p.capped => (
         '结果较多，已停止',
-        '仅保留前 ${p.found} 条，请使用更具体的关键词',
+        '仅保留前 ${p.found + p.unresolved} 条：$kept，请使用更具体的关键词',
       ),
-    ScanState.stopped => ('已停止，结果不完整', '已搜索 $pages · 找到 ${p.found} 条'),
+    ScanState.stopped => ('已停止，结果不完整', '已搜索 $pages · $kept'),
     ScanState.failed => (
         '搜索中断：${_reason(p.failure)}',
         [
-          '已搜索 $pages · 找到 ${p.found} 条，结果不完整',
+          '已搜索 $pages · $kept，结果不完整',
           if (p.failure == ForumRequestKind.loginRequired) '请重新登录后再搜索',
         ].join(' · '),
       ),
