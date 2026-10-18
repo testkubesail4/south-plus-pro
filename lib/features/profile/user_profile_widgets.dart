@@ -1061,7 +1061,12 @@ class _ContentTabState extends State<_ContentTab>
     }
   }
 
+  // Moves with every keyword, selector, refresh and scan; a scan confirmed
+  // under an older value never starts.
+  int _scanGen = 0;
+
   void _dropScan() {
+    _scanGen++;
     _scan
       ?..removeListener(_onScan)
       ..dispose();
@@ -1072,12 +1077,10 @@ class _ContentTabState extends State<_ContentTab>
     if (mounted) setState(() {});
   }
 
+  // The keyword only filters what is loaded: pages being read stay wanted.
   void _keywordChanged(String value) {
     widget.selection.keyword = value;
-    setState(() {
-      _epoch++;
-      _dropScan();
-    });
+    setState(_dropScan);
   }
 
   String get _subject => switch (widget.tab) {
@@ -1086,23 +1089,48 @@ class _ContentTabState extends State<_ContentTab>
         _ => '主题列表',
       };
 
-  Future<void> _searchAll({
-    required List<UserListItem> loaded,
-    required int loadedPages,
-    required int? totalPages,
-  }) async {
+  /// What the tab has read in its scope (selectors applied, before the
+  /// keyword): rows, undecided rows, pages read and the page count.
+  ({
+    List<UserListItem> rows,
+    List<UserListItem> unresolved,
+    int loadedPages,
+    int? totalPages,
+  }) get _readScope {
+    final result = _result;
+    return (
+      rows: _items,
+      unresolved: result?.unresolvedItems ?? const <UserListItem>[],
+      // The profile page itself is page one, rows or none.
+      loadedPages: result?.scannedPages ?? 1,
+      totalPages: result == null
+          ? widget.defaultTotalPages
+          : result.totalPages > 0
+              ? result.totalPages
+              : null,
+    );
+  }
+
+  Future<void> _searchAll() async {
     final epoch = _epoch;
+    final generation = _scanGen;
     final session = widget.repository.sessionEpoch.value;
+    final asked = _readScope;
     final go = await confirmFullScan(context,
         subject: _subject,
-        remainingPages: totalPages == null ? null : totalPages - loadedPages);
+        remainingPages: asked.totalPages == null
+            ? null
+            : asked.totalPages! - asked.loadedPages);
     // Asked for this keyword, scope and session; any change cancels it.
     if (!go ||
         !mounted ||
         epoch != _epoch ||
+        generation != _scanGen ||
         session != widget.repository.sessionEpoch.value) {
       return;
     }
+    // Pages loaded while asking count too: read what the tab holds now.
+    final scope = _readScope;
     final scan = widget.repository.scanUserContent(
       UserContentQuery(
         uid: widget.uid,
@@ -1112,9 +1140,9 @@ class _ContentTabState extends State<_ContentTab>
         classificationId: _classification?.id,
         keyword: _kw,
       ),
-      loaded: loaded,
-      loadedPages: loadedPages,
-      totalPages: totalPages,
+      loaded: [...scope.rows, ...scope.unresolved],
+      loadedPages: scope.loadedPages,
+      totalPages: scope.totalPages,
     );
     setState(() {
       _dropScan();
@@ -1243,6 +1271,8 @@ class _ContentTabState extends State<_ContentTab>
       builder: (_) => BoardPickerSheet(
         allOption: _allBoardsOption,
         ownRowLabel: (name) => '仅筛选 $name',
+        // A search category's value is a category id, not a board's fid.
+        canPick: (board) => board.selectable && !isSearchCategory(board),
         loadBoards: widget.loadBoards,
         loadSections: widget.loadSections,
         selectedId: _board?.id ?? _allBoardsOption.id,
@@ -1358,13 +1388,9 @@ class _ContentTabState extends State<_ContentTab>
     final gutter = _gutter(context);
     final filtered = !_isDefault;
     final searching = filtered || keyword.isNotEmpty;
-    final loadedPages =
-        result?.scannedPages ?? (widget.defaultItems.isEmpty ? 0 : 1);
-    final totalPages = result == null
-        ? widget.defaultTotalPages
-        : result.totalPages > 0
-            ? result.totalPages
-            : null;
+    final read = _readScope;
+    final loadedPages = read.loadedPages;
+    final totalPages = read.totalPages;
     final allRead = totalPages != null &&
         loadedPages >= totalPages &&
         !(result?.hasMore ?? false);
@@ -1436,11 +1462,7 @@ class _ContentTabState extends State<_ContentTab>
                   ),
               onSearchAll: allRead && unresolved.isEmpty
                   ? null
-                  : () => _searchAll(
-                        loaded: [...scope, ...scopeUnresolved],
-                        loadedPages: loadedPages,
-                        totalPages: totalPages,
-                      ),
+                  : _searchAll,
               onStop: scan?.stop,
               onResume: scan?.resume,
               onBackToLoaded: () => setState(_dropScan),

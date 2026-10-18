@@ -186,6 +186,116 @@ void main() {
     });
   }
 
+  testWidgets('typing while a filtered page loads keeps that page',
+      (tester) async {
+    final page = Completer<UserContentResult>();
+    final repository = FakeProfileRepository(
+      topics: [listItem('第一页主题', tid: '1')],
+      onContent: (_) => page.future,
+    );
+    await openTab(tester, repository, '主题');
+    await tester.tap(find.text('类型：全部'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('精华'));
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField), 'alpha');
+    await tester.pump();
+    page.complete(contentResult(
+        items: [listItem('Alpha arrived', tid: '5')], hasMore: true));
+    await tester.pumpAndSettle();
+    expect(find.text('Alpha arrived'), findsOneWidget);
+    expect(find.text('继续查找'), findsOneWidget, reason: 'not stuck loading');
+  });
+
+  testWidgets('a page loaded while asking is part of what the scan is given',
+      (tester) async {
+    final answers = [
+      Completer<UserContentResult>(),
+      Completer<UserContentResult>(),
+    ];
+    var asked = 0;
+    final repository = FakeProfileRepository(
+      topics: [listItem('第一页主题', tid: '1')],
+      onContent: (_) => answers[asked++].future,
+    );
+    await openTab(tester, repository, '主题');
+    await tester.tap(find.text('类型：全部'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('精华'));
+    await tester.pump();
+    // Loading spinners keep animating: step instead of settling.
+    Future<void> step() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    answers[0].complete(contentResult(
+        items: [listItem('Alpha one', tid: '5')], scanned: 1, total: 3));
+    await step();
+    await tester.enterText(find.byType(TextField), 'alpha');
+    await step();
+    // Page 2 is asked for, by 继续查找 or by scrolling to the end.
+    if (asked < 2) {
+      await tester.ensureVisible(find.text('继续查找'));
+      await tester.tap(find.text('继续查找'));
+      await step();
+    }
+    expect(asked, 2);
+    await tester.ensureVisible(find.text('搜索全部页面'));
+    await tester.tap(find.text('搜索全部页面'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    // Page 2 arrives while the confirmation is open.
+    answers[1].complete(contentResult(items: [
+      listItem('Alpha one', tid: '5'),
+      listItem('Alpha two', tid: '6'),
+    ], scanned: 2, total: 3));
+    await tester.pump();
+    await tester.tap(find.text('开始搜索'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final scan = repository.scans.single;
+    expect(scan.loadedPages, 2);
+    expect(scan.loaded!.map((item) => item.title), ['Alpha one', 'Alpha two']);
+  });
+
+  testWidgets('an empty first page the profile counts as all there is',
+      (tester) async {
+    final repository = FakeProfileRepository(
+      pagination: const {
+        UserProfileTab.topics: ThreadPagination(currentPage: 1, totalPages: 1),
+      },
+      onContent: (_) async => contentResult(),
+    );
+    await openTab(tester, repository, '主题');
+    await tester.enterText(find.byType(TextField), 'alpha');
+    await tester.pumpAndSettle();
+    expect(find.text('在已加载的 1 页中找到 0 条'), findsOneWidget);
+    expect(find.text('搜索全部页面'), findsNothing);
+    expect(find.text('没有符合条件的内容'), findsOneWidget);
+  });
+
+  testWidgets('a search category is no board to filter by', (tester) async {
+    final repository = FakeProfileRepository(
+      favorites: [listItem('Saved', tid: '1')],
+      onContent: (_) async => contentResult(),
+    )..boards = const [
+        ForumSearchBoard(id: 'all', name: '全部版块'),
+        // A category id the search form takes; no board has it as fid.
+        ForumSearchBoard(id: '2', name: '>> 范围类别'),
+        ForumSearchBoard(id: '7', name: '|- 影视区', depth: 1),
+      ];
+    await openTab(tester, repository, '收藏');
+    await tester.tap(find.text('版块：全部'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('board-filter-group:2')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('board-filter:7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('board-filter:2')), findsNothing);
+  });
+
   testWidgets('favourites filter by board and classification, not type',
       (tester) async {
     final repository = FakeProfileRepository(

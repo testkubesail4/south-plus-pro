@@ -54,8 +54,12 @@ class FakeProfileRepository extends ForumRepository {
     this.topics = const [],
     this.posts = const [],
     this.favorites = const [],
+    this.pagination = const {},
     this.onContent,
   }) : super(client: ForumClient());
+
+  /// Page counts the profile page states, per tab.
+  final Map<UserProfileTab, ThreadPagination> pagination;
 
   final List<UserListItem> topics;
   final List<UserListItem> posts;
@@ -90,7 +94,10 @@ class FakeProfileRepository extends ForumRepository {
   }) async {
     await holdDetails?.future;
     return overview.copyWith(
-        topics: topics, posts: posts, favorites: favorites);
+        topics: topics,
+        posts: posts,
+        favorites: favorites,
+        contentPagination: pagination);
   }
 
   @override
