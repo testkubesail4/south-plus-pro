@@ -12,6 +12,8 @@ import '../models/user_content_query.dart';
 import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
+import 'full_scan.dart';
+import 'thread_search.dart';
 import 'forum_account_service.dart';
 import 'forum_favorites_service.dart';
 import 'home_reading_preferences.dart';
@@ -2332,12 +2334,22 @@ class ForumRepository {
     final detailPath = _urls.threadDetailPath(thread.url, page: normalizedPage);
     final html =
         await _client.get(Uri.parse(detailPath).removeFragment().toString());
-    final document = html_parser.parse(html);
     final favorite = await _extractThreadFavorite(thread, html);
+    final detail = _parseThreadPage(thread, html_parser.parse(html), html,
+        page: normalizedPage, detailPath: detailPath, favorite: favorite);
+    await _recordThreadView(detail.thread);
+    return detail;
+  }
+
+  ThreadDetail _parseThreadPage(
+      ForumThread thread, dom.Document document, String html,
+      {required int page,
+      required String detailPath,
+      ThreadFavorite? favorite}) {
     final posts = _threadDetailParser.desktopThreadCards(document);
     final pagination = _threadDetailParser.desktopPagination(
       document,
-      requestedPage: normalizedPage,
+      requestedPage: page,
       threadUrl: thread.url,
     );
     final board = _threadDetailParser.board(document);
@@ -2373,7 +2385,7 @@ class ForumRepository {
       lastPost: first?.postedAt ?? thread.lastPost,
     );
 
-    final detail = ThreadDetail(
+    return ThreadDetail(
       thread: detailThread,
       board: board,
       body: first?.content ?? '',
@@ -2396,8 +2408,75 @@ class ForumRepository {
       nextThread: _threadDetailParser.nextThread(document),
       rssFeed: _threadDetailParser.rssFeed(document),
     );
-    await _recordThreadView(detail.thread);
-    return detail;
+  }
+
+  FullScan<ThreadSearchHit> scanThread(
+    ForumThread current,
+    String keyword, {
+    required List<ThreadDetail> loaded,
+    required BlockingRules rules,
+  }) {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final tid = _urls.tidFromUrl(current.url);
+    if (tid == null) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '帖子链接无效');
+    }
+    final uid = _urls.uidFromUrl(current.url);
+    final source = current.copyWith(
+        url: _urls.absoluteUrl(
+            'read.php?tid-$tid${uid == null ? '' : '-uid-$uid'}.html'));
+    final seed = loaded.where((detail) =>
+        _urls.tidFromUrl(detail.thread.url) == tid &&
+        _urls.uidFromUrl(detail.thread.url) == uid);
+    final total = seed.fold<int>(
+        1,
+        (count, detail) => detail.pagination.totalPages > count
+            ? detail.pagination.totalPages
+            : count);
+    return PageFullScan<ThreadSearchHit>(
+      client: client,
+      isCurrentSession: () =>
+          identical(client, _client) && epoch == _sessionEpoch.value,
+      totalPages: seed.isEmpty ? null : total,
+      loaded: seed.map((detail) => ScanPage(
+          page: detail.pagination.currentPage,
+          totalPages: detail.pagination.totalPages,
+          hasMore: detail.pagination.hasNext,
+          hits: searchLoadedThread([detail], keyword, rules))),
+      readPage: (page, request) async {
+        final path = _urls.threadDetailPath(source.url, page: page);
+        final html = await request.getOnce(path);
+        final document = html_parser.parse(html);
+        ThreadDetail detail;
+        try {
+          detail = _parseThreadPage(source, document, html,
+              page: page, detailPath: path);
+        } on ForumRepositoryException {
+          _throwIfBlockedPage(html);
+          throw const ForumRequestException(
+              ForumRequestKind.invalidInput, '未读到可搜索的帖子页面');
+        }
+        final pager = document.querySelectorAll('.pages, .pagesone');
+        if (pager.isNotEmpty &&
+            !RegExp(r'Pages:\s*[1-9]\d*\s*/\s*[1-9]\d*')
+                .hasMatch(pager.map((element) => element.text).join(' '))) {
+          throw const ForumRequestException(
+              ForumRequestKind.invalidInput, '无法确认帖子的分页');
+        }
+        final linked = _threadDetailParser.threadUrl(document);
+        if (linked != null && _urls.tidFromUrl(linked) != tid) {
+          throw const ForumRequestException(
+              ForumRequestKind.invalidInput, '响应不是所选帖子');
+        }
+        return ScanPage(
+            page: detail.pagination.currentPage,
+            totalPages: detail.pagination.totalPages,
+            hasMore: detail.pagination.hasNext,
+            hits: searchLoadedThread([detail], keyword, rules));
+      },
+    );
   }
 
   Future<String?> fetchQuoteDraft(ThreadReply reply) async {
