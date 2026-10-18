@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/profile/favorite_threads_page.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/favorite_search.dart';
@@ -218,13 +219,15 @@ class _FavScan extends FullScan<FavoriteSearchHit> {
   bool disposed = false;
   ScanProgress _progress = const ScanProgress();
   List<FavoriteSearchHit> _hits = const [];
+  List<FavoriteSearchHit> _unresolved = const [];
+  bool stopped = false;
 
   @override
   ScanProgress get progress => _progress;
   @override
   List<FavoriteSearchHit> get hits => _hits;
   @override
-  List<FavoriteSearchHit> get unresolved => const [];
+  List<FavoriteSearchHit> get unresolved => _unresolved;
 
   @override
   void start() {
@@ -233,18 +236,29 @@ class _FavScan extends FullScan<FavoriteSearchHit> {
     notifyListeners();
   }
 
-  void finish(List<FavoriteSearchHit> hits) {
+  void finish(List<FavoriteSearchHit> hits,
+      {List<FavoriteSearchHit> unresolved = const []}) {
     _hits = hits;
+    _unresolved = unresolved;
     _progress = ScanProgress(
         state: ScanState.done,
         scannedPages: 2,
         totalPages: 2,
-        found: hits.length);
+        found: hits.length,
+        unresolved: unresolved.length);
     notifyListeners();
   }
 
   @override
-  void stop() {}
+  void stop() {
+    stopped = true;
+    _progress = const ScanProgress(
+        state: ScanState.stopped,
+        scannedPages: 1,
+        totalPages: 2,
+        canResume: true);
+    notifyListeners();
+  }
   @override
   void resume() {}
 
@@ -253,6 +267,18 @@ class _FavScan extends FullScan<FavoriteSearchHit> {
     disposed = true;
     super.dispose();
   }
+}
+
+/// The favourites inside the real home shell, for its tabs.
+class _ShellRepo extends _Repo {
+  @override
+  Future<ForumHomeSnapshot> fetchHome() async =>
+      const ForumHomeSnapshot(latest: [], hot: [], sections: []);
+  @override
+  Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() async => null;
+  @override
+  Future<ForumTaskQuickClaimResult?> autoClaimForumTaskRewardsIfDue() async =>
+      null;
 }
 
 class _PushWatcher extends NavigatorObserver {
@@ -760,6 +786,98 @@ void main() {
       await tester.pumpAndSettle();
       expect(scan.disposed, isTrue);
       expect(find.text('Fixture favourite A'), findsOneWidget);
+    });
+
+    testWidgets('undecided rows at the end are never a final miss',
+        (tester) async {
+      final repo = _Repo()..pageCount = 2;
+      await pump(tester, repo);
+      await search(tester, 'favourite');
+      await tester.tap(find.text('搜索全部页面'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('开始搜索'));
+      await tester.pumpAndSettle();
+      repo.scans.single.finish(const [], unresolved: const [
+        FavoriteSearchHit(
+          thread: UserListItem(
+              title: 'Fixture lo..',
+              url: 'read.php?tid-31.html',
+              titleTruncated: true),
+          page: 2,
+        ),
+      ]);
+      await tester.pumpAndSettle();
+      expect(find.text('没有符合的收藏'), findsNothing);
+      expect(find.text('没有确认符合的收藏'), findsOneWidget);
+      expect(find.text('标题不完整 (1)'), findsOneWidget);
+    });
+
+    testWidgets('one page with a cut title still offers to complete it',
+        (tester) async {
+      final repo = _Repo()
+        ..entries = [
+          _entry('11', 'Fixture favourite A', '0'),
+          const FavoriteCollectionEntry(
+            id: '13',
+            categoryId: '0',
+            thread: UserListItem(
+                title: 'Fixture favourite lo..',
+                url: 'read.php?tid-13.html',
+                titleTruncated: true),
+          ),
+        ];
+      await pump(tester, repo);
+      await search(tester, 'favourite');
+      expect(find.text('搜索全部页面'), findsOneWidget);
+    });
+
+    Future<_FavScan> startScan(WidgetTester tester, _Repo repo) async {
+      await search(tester, 'favourite');
+      await tester.tap(find.text('搜索全部页面'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('开始搜索'));
+      // A running scan's bar keeps animating.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      return repo.scans.single;
+    }
+
+    testWidgets('a page pushed over the list stops the scan, keeping 继续',
+        (tester) async {
+      final repo = _Repo()..pageCount = 2;
+      await pump(tester, repo);
+      final scan = await startScan(tester, repo);
+
+      Navigator.of(tester.element(find.byType(FavoriteThreadsPage))).push(
+        MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('a thread'))),
+      );
+      await tester.pumpAndSettle();
+      expect(scan.stopped, isTrue);
+      expect(scan.disposed, isFalse);
+
+      Navigator.of(tester.element(find.text('a thread'))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('已停止，结果不完整'), findsOneWidget);
+      expect(find.text('继续'), findsOneWidget);
+      expect(repo.scans, hasLength(1), reason: 'never restarted by itself');
+    });
+
+    testWidgets('another home tab stops the scan', (tester) async {
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = _ShellRepo()..pageCount = 2;
+      await tester.pumpWidget(MaterialApp(home: HomeShell(repository: repo)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('收藏').last);
+      await tester.pumpAndSettle();
+      final scan = await startScan(tester, repo);
+
+      await tester.tap(find.text('首页').last);
+      await tester.pumpAndSettle();
+      expect(scan.stopped, isTrue);
+      expect(scan.disposed, isFalse);
     });
 
     testWidgets('one whole page with whole titles has nothing more to read',

@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
+import '../common/leave_watch.dart';
 import '../common/search_scope_bar.dart';
 import '../common/thread_row.dart';
 import '../common/unresolved_group.dart';
@@ -40,7 +41,8 @@ class FavoriteThreadsPage extends StatefulWidget {
 /// Why 移动到… is off when every category already holds the rows.
 const _noTarget = '暂无其他分类，请先新建';
 
-class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
+class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
+    with LeaveWatch<FavoriteThreadsPage> {
   FavoriteCollections? _data;
   Object? _error;
   bool _loading = false;
@@ -129,6 +131,16 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
 
   void _onScan() {
     if (mounted) setState(() {});
+  }
+
+  // Leaving the page (another page, another tab) stops the scan where it
+  // is; its rows and 继续 stay.
+  @override
+  void onLeft() {
+    final state = _scan?.progress.state;
+    if (state == ScanState.running || state == ScanState.waiting) {
+      _scan!.stop();
+    }
   }
 
   // Rows chosen under another keyword may be out of sight: choosing ends.
@@ -770,10 +782,10 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                                   unresolved: undecided.length,
                                 ),
                             // One whole page with whole titles is all there is.
-                            onSearchAll:
-                                data.pageCount == 1 && undecided.isEmpty
-                                    ? null
-                                    : () => _searchAll(data),
+                            onSearchAll: data.pageCount == 1 &&
+                                    !items.any((e) => e.thread.titleTruncated)
+                                ? null
+                                : () => _searchAll(data),
                             onStop: scan?.stop,
                             onResume: scan?.resume,
                             onBackToLoaded: () => setState(_dropScan),
@@ -837,10 +849,17 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
         ),
         if (hits.isNotEmpty)
           rows(hits)
-        else if (scan.progress.state == ScanState.done)
+        // Undecided rows may still match: only none at all is final.
+        else if (scan.progress.state == ScanState.done && unresolved.isEmpty)
           const EmptyStateView(
             icon: Icons.manage_search_outlined,
             title: '没有符合的收藏',
+          )
+        else if (scan.progress.state == ScanState.done)
+          const EmptyStateView(
+            icon: Icons.manage_search_outlined,
+            title: '没有确认符合的收藏',
+            message: '下方标题不完整的收藏仍可能符合。',
           )
         else
           const EmptyStateView(
