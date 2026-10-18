@@ -899,6 +899,7 @@ class UserProfile {
     required this.uid,
     required this.name,
     required this.url,
+    this.nativeHashName,
     this.tagline,
     this.avatarUrl,
     this.level,
@@ -918,6 +919,8 @@ class UserProfile {
   final String uid;
   final String name;
   final String url;
+  // Native profile heading only; name can contain a generated display fallback.
+  final String? nativeHashName;
   final String? tagline;
   final String? avatarUrl;
   final String? level;
@@ -942,12 +945,14 @@ class UserProfile {
     return value == null || value.isEmpty ? null : value;
   }
 
-  String get displayName => nickname ?? (name.trim().isEmpty ? '用户 $uid' : name);
+  String get displayName =>
+      nickname ?? (name.trim().isEmpty ? '用户 $uid' : name);
 
   UserProfile copyWith({
     String? uid,
     String? name,
     String? url,
+    String? nativeHashName,
     String? tagline,
     String? avatarUrl,
     String? level,
@@ -967,6 +972,7 @@ class UserProfile {
       uid: uid ?? this.uid,
       name: name ?? this.name,
       url: url ?? this.url,
+      nativeHashName: nativeHashName ?? this.nativeHashName,
       tagline: tagline ?? this.tagline,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       level: level ?? this.level,

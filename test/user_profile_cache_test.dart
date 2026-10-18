@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/local_database.dart';
@@ -13,12 +15,15 @@ void main() {
       uid: '123',
       name: 'Alice',
       url: 'https://south-plus.net/u.php?action-show-uid-123.html',
+      nativeHashName: 'Alice',
       tagline: '签名',
       level: 'Lv.3',
       isOnline: true,
       statusText: '在线',
-      info: [UserProfileField(label: 'UID', value: '123'),
-        UserProfileField(label: '昵称', value: ' 昵称甲 ')],
+      info: [
+        UserProfileField(label: 'UID', value: '123'),
+        UserProfileField(label: '昵称', value: ' 昵称甲 ')
+      ],
       stats: [UserProfileField(label: '在线时间', value: '9 小时')],
     );
 
@@ -29,12 +34,41 @@ void main() {
     );
 
     expect(loaded?.name, 'Alice');
+    expect(loaded?.nativeHashName, 'Alice');
+    expect(loaded?.copyWith(tagline: 'new').nativeHashName, 'Alice');
     expect(loaded?.tagline, '签名');
     expect(loaded?.isOnline, isTrue);
     expect(loaded?.info.first.label, 'UID');
     expect(loaded?.nickname, '昵称甲');
     expect(loaded?.displayName, '昵称甲');
     expect(loaded?.copyWith(tagline: 'new').displayName, '昵称甲');
+  });
+
+  test(
+      'legacy overview cache never invents native hash provenance from an old display name',
+      () async {
+    final db = LocalDatabase.openForTesting();
+    addTearDown(db.close);
+    final cache = UserProfileCache(databaseProvider: () async => db);
+    const profile = UserProfile(
+        uid: '42',
+        name: '49371b5d',
+        nativeHashName: '49371b5d',
+        url: 'https://south-plus.net/u.php?action-show-uid-42.html');
+    await cache.saveOverview(profile.url, profile);
+    final key = 'profile_overview_v1:${profile.url}';
+    final saved = db.profileOverview(key)!;
+    final legacy = jsonDecode(saved.payloadJson) as Map<String, dynamic>;
+    legacy.remove('nativeHashName');
+    db.saveProfileOverview(
+        cacheKeys: [key],
+        profileUrl: profile.url,
+        uid: profile.uid,
+        payloadJson: jsonEncode(legacy),
+        cachedAt: saved.cachedAt);
+    final loaded = await cache.loadOverview(profile.url);
+    expect(loaded?.name, '49371b5d');
+    expect(loaded?.nativeHashName, isNull);
   });
 
   test('UserProfileCache ignores expired overview entries', () async {

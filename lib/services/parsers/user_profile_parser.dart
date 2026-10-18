@@ -80,6 +80,7 @@ class UserProfileParser {
       uid: uid,
       name: shell.name,
       url: profileUrl,
+      nativeHashName: shell.nativeHashName,
       tagline: shell.tagline,
       avatarUrl: shell.avatarUrl,
       level: shell.level,
@@ -139,6 +140,7 @@ class UserProfileParser {
     final statusText = _onlineStatusText(document);
     return _UserProfileShell(
       name: name.isEmpty ? '用户 $uid' : name,
+      nativeHashName: name.isEmpty ? null : name,
       tagline: tagline,
       avatarUrl:
           avatar == null || avatar.isEmpty ? null : urls.absoluteUrl(avatar),
@@ -518,6 +520,7 @@ class UserProfileParser {
 class _UserProfileShell {
   const _UserProfileShell({
     required this.name,
+    this.nativeHashName,
     this.tagline,
     this.avatarUrl,
     this.level,
@@ -527,6 +530,7 @@ class _UserProfileShell {
   });
 
   final String name;
+  final String? nativeHashName;
   final String? tagline;
   final String? avatarUrl;
   final String? level;

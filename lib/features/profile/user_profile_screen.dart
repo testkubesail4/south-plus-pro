@@ -8,6 +8,7 @@ import '../../models/forum_models.dart';
 import '../../models/user_content_query.dart';
 import '../../services/forum_repository.dart';
 import '../../services/search_board_hierarchy.dart';
+import '../../services/user_display_name_store.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
@@ -160,9 +161,17 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       context,
       repository: widget.repository,
       uid: profile.uid.trim(),
-      name: profile.displayName,
+      // Only a name the forum showed (or one learned before); a generated
+      // `用户 n` fallback is no name, and the header then shows the UID once.
+      name: profile.nickname ??
+          profile.nativeHashName ??
+          _notes.namesFor(profile.uid.trim())?.displayName,
       note: _notes.noteFor(profile.uid.trim()),
       tags: _notes.tagsFor(profile.uid.trim()),
+      // Only names this screen read from the forum itself, never a cached or
+      // generated fallback.
+      learnNickname: identical(profile, _fresh) ? profile.nickname : null,
+      learnHashName: identical(profile, _fresh) ? profile.nativeHashName : null,
     );
     if (saved && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -196,6 +205,33 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
+  // The overview this screen fetched from the forum (not the cache).
+  UserProfile? _fresh;
+
+  (String?, int) _scope() => (widget.repository.localPreferenceAccount,
+      widget.repository.sessionEpoch.value);
+
+  /// Remembers the forum's names for an annotated user once a fetched profile
+  /// is on screen, in the scope the fetch started in. Unannotated users and
+  /// cached or generated names are never recorded; a failure is silent.
+  void _learnNames(UserProfile overview, (String?, int) scope) {
+    _fresh = overview;
+    final (account, epoch) = scope;
+    if (account != widget.repository.localPreferenceAccount ||
+        epoch != widget.repository.sessionEpoch.value) {
+      return;
+    }
+    final uid = overview.uid.trim();
+    final annotated =
+        _notes.noteFor(uid) != null || _notes.tagsFor(uid).isNotEmpty;
+    final nickname = overview.nickname;
+    final hashName = overview.nativeHashName;
+    if (!annotated || (nickname == null && hashName == null)) return;
+    UserDisplayNameStore.save(uid,
+            nickname: nickname, hashName: hashName, account: account)
+        .then((_) {}, onError: (Object _) {});
+  }
+
   void _loadProfile({bool forceReload = false}) {
     _detailsFuture = null;
     _overviewFuture = _fetchOverviewWithCache(forceReload: forceReload);
@@ -216,20 +252,24 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       return cached;
     }
 
+    final scope = _scope();
     final overview = await widget.repository.fetchUserProfileOverview(
       widget.userUrl,
     );
     if (epoch == _lookupEpoch) {
       _detailsFuture = widget.repository
           .fetchUserProfileDetails(overview, forceReload: forceReload);
+      _learnNames(overview, scope);
     }
     return overview;
   }
 
   void _refreshOverviewAfterCache(String cachedUid) {
     final epoch = _lookupEpoch;
+    final scope = _scope();
     widget.repository.fetchUserProfileOverview(widget.userUrl).then((overview) {
       if (!mounted || epoch != _lookupEpoch) return;
+      _learnNames(overview, scope);
       setState(() {
         _overviewFuture = Future.value(overview);
         // Details are per user; the cached user's request already covers it.

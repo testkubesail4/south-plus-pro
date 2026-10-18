@@ -10,6 +10,8 @@ import 'package:south_plus_rewrite/services/forum_repository.dart';
 const profileFixture = UserProfile(
   uid: '123',
   name: 'Alice',
+  // As parsed from the forum page, so the name is a proven one.
+  nativeHashName: 'Alice',
   url: 'u.php?action-show-uid-123.html',
 );
 

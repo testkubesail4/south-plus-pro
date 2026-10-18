@@ -56,6 +56,7 @@ class UserProfileCache {
       'uid': profile.uid,
       'name': profile.name,
       'url': profile.url,
+      'nativeHashName': profile.nativeHashName,
       'tagline': profile.tagline,
       'avatarUrl': profile.avatarUrl,
       'level': profile.level,
@@ -90,6 +91,9 @@ class UserProfileCache {
       uid: uid,
       name: name,
       url: url,
+      nativeHashName: cache['nativeHashName'] is String
+          ? cache['nativeHashName'] as String
+          : null,
       tagline: cache['tagline'] is String ? cache['tagline'] as String : null,
       avatarUrl:
           cache['avatarUrl'] is String ? cache['avatarUrl'] as String : null,

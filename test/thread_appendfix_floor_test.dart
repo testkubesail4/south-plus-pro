@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/user_display_name_store.dart';
 import 'package:south_plus_rewrite/services/user_note_store.dart';
 import 'package:south_plus_rewrite/services/user_tag_store.dart';
 import 'package:south_plus_rewrite/features/common/user_tags_inline.dart';
@@ -145,5 +146,31 @@ void main() {
       tester.widget<Text>(label).textSpan!.toPlainText(),
       contains('路人乙'),
     );
+  });
+
+  testWidgets('saving an annotation from a floor remembers that author\'s shown name for that UID only',
+      (tester) async {
+    await UserTagStore.save('4', ['熟人']);
+    await pumpThread(tester);
+    await tester.tap(find.byType(UserTagsInline));
+    await tester.pumpAndSettle();
+    expect(find.text('原名：路人乙　UID 4'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, '老乙');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect((await UserNoteStore.load())['4'], '老乙');
+    final names = await UserDisplayNameStore.load();
+    expect(names['4']?.nickname, '路人乙');
+    expect(names.containsKey('3'), isFalse, reason: 'unannotated authors are not recorded');
+  });
+
+  testWidgets('an unchanged Save records no name', (tester) async {
+    await UserTagStore.save('4', ['熟人']);
+    await pumpThread(tester);
+    await tester.tap(find.byType(UserTagsInline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(await UserDisplayNameStore.load(), isEmpty);
   });
 }

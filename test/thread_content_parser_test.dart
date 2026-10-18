@@ -433,6 +433,29 @@ void main() {
         lessThan(replies.single.content.indexOf('图片：')));
   });
 
+  test(
+      'UserProfileParser exposes native hash provenance without guessing from display fallbacks',
+      () {
+    for (final heading in <String?>[
+      null,
+      '   ',
+      '49371b5d',
+      '12345678',
+      '用户 42'
+    ]) {
+      final profile = UserProfileParser().parseOverview(
+        uid: '42',
+        profileUrl: 'https://south-plus.net/u.php?action-show-uid-42.html',
+        profileDocument: html_parser.parse(
+            '<div id="u-top">${heading == null ? '' : '<h1 class="u-h1">$heading</h1>'}</div>'),
+      );
+      final native = heading == null || heading.trim().isEmpty ? null : heading;
+      expect(profile.nativeHashName, native);
+      expect(profile.name, native ?? '用户 42');
+      expect(profile.copyWith(signature: 'new').nativeHashName, native);
+    }
+  });
+
   test('UserProfileParser strips honor scripts and extracts online status', () {
     final profileDocument = html_parser.parse('''
       <div id="u-sidebar">
@@ -467,10 +490,15 @@ void main() {
     );
 
     expect(profile.name, '1eb7ddbc');
+    expect(profile.nativeHashName, '1eb7ddbc');
     expect(profile.nickname, '可可萝');
     expect(profile.displayName, '可可萝');
     expect(profile.copyWith(info: []).displayName, '1eb7ddbc');
-    expect(profile.copyWith(info: [const UserProfileField(label: '昵称', value: '   ')]).displayName, '1eb7ddbc');
+    expect(
+        profile.copyWith(info: [
+          const UserProfileField(label: '昵称', value: '   ')
+        ]).displayName,
+        '1eb7ddbc');
     expect(profile.copyWith(name: '', info: []).displayName, '用户 2536715');
     expect(profile.tagline, '您还没有设置个性签名');
     expect(profile.tagline, isNot(contains('function honor')));

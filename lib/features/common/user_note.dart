@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../../services/forum_repository.dart';
 import '../../services/user_note_store.dart';
+import '../../services/tag_vocabulary.dart';
+import '../../services/user_display_name_store.dart';
 import '../../services/user_tag_store.dart';
 import '../../theme/app_theme.dart';
 
@@ -17,6 +19,7 @@ class UserNoteController extends ChangeNotifier {
   UserNoteController(this.repository) {
     UserNoteStore.revision.addListener(reload);
     UserTagStore.revision.addListener(reload);
+    UserDisplayNameStore.revision.addListener(reload);
     // The epoch moves before the final user/config is set, the user moves
     // after: observe both, and reload from a microtask so the scope is final.
     repository.sessionEpoch.addListener(_onScopeChange);
@@ -27,6 +30,8 @@ class UserNoteController extends ChangeNotifier {
   final ForumRepository repository;
   Map<String, String> _notes = const {};
   Map<String, List<String>> _tags = const {};
+  // Names learned from the forum; a missing or unreadable one shows the UID.
+  Map<String, UserDisplayName> _names = const {};
   Object? noteLoadError;
   Object? tagLoadError;
   bool isLoading = true;
@@ -49,10 +54,17 @@ class UserNoteController extends ChangeNotifier {
 
   List<String> tagsFor(String? uid) => uid == null ? const [] : tags[uid] ?? const [];
 
+  /// The learned forum names for [uid] in the loaded scope, if any.
+  UserDisplayName? namesFor(String? uid) =>
+      uid == null || _loadedScope != repository.localPreferenceAccount
+          ? null
+          : _names[uid];
+
   void _onScopeChange() {
     _generation++;
     _notes = const {};
     _tags = const {};
+    _names = const {};
     _hasLoaded = false;
     _hasTagsLoaded = false;
     noteLoadError = null;
@@ -78,10 +90,17 @@ class UserNoteController extends ChangeNotifier {
     try {
       loadedTags = await UserTagStore.load(account: scope);
     } catch (error) { tagError = error; }
+    Map<String, UserDisplayName>? loadedNames;
+    try {
+      loadedNames = await UserDisplayNameStore.load(account: scope);
+    } catch (_) {
+      // Names only label rows; without them the UID shows.
+    }
     if (_disposed || generation != _generation) return;
     if (scope != repository.localPreferenceAccount) return reload();
     if (loadedNotes != null) { _notes = loadedNotes; _hasLoaded = true; }
     if (loadedTags != null) { _tags = loadedTags; _hasTagsLoaded = true; }
+    _names = loadedNames ?? const {};
     _loadedScope = scope;
     noteLoadError = noteError;
     tagLoadError = tagError;
@@ -94,6 +113,7 @@ class UserNoteController extends ChangeNotifier {
     _disposed = true;
     UserNoteStore.revision.removeListener(reload);
     UserTagStore.revision.removeListener(reload);
+    UserDisplayNameStore.revision.removeListener(reload);
     repository.sessionEpoch.removeListener(_onScopeChange);
     repository.sessionUser.removeListener(_onScopeChange);
     super.dispose();
@@ -111,6 +131,11 @@ Future<bool> showUserNoteEditor(
   List<String> tags = const [],
   // Offered only while nothing is unsaved; the sheet closes first.
   VoidCallback? onOpenProfile,
+  // Names the forum itself showed for this UID (a floor's author link, a
+  // loaded profile), remembered once an annotation is saved. Never a
+  // placeholder or fallback.
+  String? learnNickname,
+  String? learnHashName,
 }) async {
   // Captured now, not in the deferred builder: a switch before the first
   // frame must blank the sheet instead of re-binding it to the new scope.
@@ -130,6 +155,8 @@ Future<bool> showUserNoteEditor(
       note: note,
       tags: tags,
       onOpenProfile: onOpenProfile,
+      learnNickname: learnNickname,
+      learnHashName: learnHashName,
     ),
   );
   return saved ?? false;
@@ -145,9 +172,13 @@ class _UserNoteSheet extends StatefulWidget {
     required this.note,
     required this.tags,
     this.onOpenProfile,
+    this.learnNickname,
+    this.learnHashName,
   });
 
   final VoidCallback? onOpenProfile;
+  final String? learnNickname;
+  final String? learnHashName;
   final ForumRepository repository;
   // Captured when the sheet opened; a write never lands in another account.
   final String? account;
@@ -177,10 +208,18 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
   // opened for no longer belong on screen.
   bool _revoked = false;
   ModalRoute<Object?>? _route;
+  // Every tag in the captured account, for picking; never written from here.
+  Map<String, List<String>>? _vocabulary;
+  bool _vocabularyFailed = false;
+  // The store revision the vocabulary was read at; a later write makes it
+  // stale for resolving new labels.
+  int? _vocabularyRevision;
+  bool _resolving = false;
 
   @override
   void initState() {
     super.initState();
+    _loadVocabulary();
     // The epoch moves before the final user/origin is set and the user moves
     // after it, so any change of either revokes the sheet.
     widget.repository.sessionEpoch.addListener(_revoke);
@@ -221,6 +260,45 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
     _removeOwnRoute();
   }
 
+  // Read once, from the scope the sheet was opened for; a later scope change
+  // revokes the sheet, so another account's words never show here.
+  Future<void> _loadVocabulary() async {
+    // A write that lands while reading makes the result older than the
+    // revision it ends at: read again rather than mark it fresh.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final revision = UserTagStore.revision.value;
+      try {
+        final all = await UserTagStore.load(account: widget.account);
+        if (!_current) return;
+        if (revision != UserTagStore.revision.value) continue;
+        setState(() {
+          _vocabulary = all;
+          _vocabularyRevision = revision;
+          _vocabularyFailed = false;
+        });
+        return;
+      } catch (_) {
+        if (_current) setState(() => _vocabularyFailed = true);
+        return;
+      }
+    }
+    if (_current) setState(() => _vocabularyFailed = true);
+  }
+
+  /// A source a new label may be resolved against: the loaded snapshot while
+  /// the store has not moved since, otherwise a fresh read of the same scope.
+  Future<bool> _currentVocabulary() async {
+    if (_vocabulary != null &&
+        !_vocabularyFailed &&
+        _vocabularyRevision == UserTagStore.revision.value) {
+      return true;
+    }
+    await _loadVocabulary();
+    return _current && _vocabulary != null && !_vocabularyFailed;
+  }
+
+  static const _unreadable = '已有标签暂时无法读取，请重试';
+
   void _removeOwnRoute() {
     final route = _route;
     if (route != null && route.isActive) route.navigator?.removeRoute(route);
@@ -230,9 +308,11 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
       widget.account == widget.repository.localPreferenceAccount &&
       widget.epoch == widget.repository.sessionEpoch.value;
 
+  // A typed, unadded tag counts too, in its stored spelling when it has one.
   List<String> _draftTags() => UserTagStore.normalize([
     ..._tags,
-    if (_addingTag && _tagController.text.trim().isNotEmpty) _tagController.text,
+    if (_addingTag && _tagController.text.trim().isNotEmpty)
+      _storedSpelling(_tagController.text) ?? _tagController.text,
   ]);
 
   String? get _visibleTagError {
@@ -267,23 +347,150 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
     open();
   }
 
-  void _addTag() {
+  /// The stored spelling of [text] in this account's vocabulary, if any.
+  String? _storedSpelling(String text) {
+    final key = text.trim().toLowerCase();
+    if (key.isEmpty) return null;
+    for (final entry in tagVocabulary(_vocabulary ?? const {}, query: text)) {
+      if (entry.label.toLowerCase() == key) return entry.label;
+    }
+    return null;
+  }
+
+  /// Adds the typed tag, in its stored spelling when the account already has
+  /// it, so one word never splits by letter case. The field stays open for
+  /// the next pick.
+  ///
+  /// Every add, picked or typed, is resolved against a current source (the
+  /// snapshot while the store has not moved, else a fresh read); without one
+  /// nothing is added and the text stays.
+  Future<void> _addTag([String? picked]) async {
+    if (_resolving) return;
+    // What the field held when this add began; text typed while the source
+    // is read is the user's next query and is left alone.
+    final query = _tagController.text;
+    final typed = picked ?? query;
+    if (typed.trim().isEmpty) return;
+    setState(() => _resolving = true);
+    final ok = await _currentVocabulary();
+    if (!_current) return;
+    setState(() => _resolving = false);
+    if (!ok) {
+      setState(() => _tagError = _unreadable);
+      return;
+    }
+    final label = _storedSpelling(typed) ?? typed;
     try {
-      final tags = _draftTags();
-      setState(() { _tags = tags; _tagController.clear(); _addingTag = false; _tagError = null; });
+      final tags = UserTagStore.normalize([..._tags, label]);
+      setState(() {
+        _tags = tags;
+        if (_tagController.text == query) _tagController.clear();
+        _tagError = null;
+        if (tags.length >= UserTagStore.maxTags) _addingTag = false;
+      });
     } on ArgumentError catch (error) {
       setState(() => _tagError = error.message.toString());
     }
   }
 
+  /// Tags already used in this account, best matches first, without the ones
+  /// this user has. Picking only edits this user's draft.
+  Widget _suggestions(ThemeData theme) {
+    final vocabulary = _vocabulary;
+    final muted = theme.textTheme.bodySmall;
+    if (_vocabularyFailed) {
+      return Text('已有标签暂时无法读取', style: muted);
+    }
+    if (vocabulary == null) return const SizedBox.shrink();
+    final query = _tagController.text.trim();
+    final tooLong = query.runes.length > UserTagStore.maxTagRunes;
+    final entries = tagVocabulary(vocabulary, query: query, exclude: _tags)
+        .take(12)
+        .toList();
+    final onUser = _tags.any((t) => t.toLowerCase() == query.toLowerCase());
+    final offerNew = query.isNotEmpty &&
+        !tooLong &&
+        !onUser &&
+        _storedSpelling(query) == null;
+    if (tooLong) {
+      return Text('最多 ${UserTagStore.maxTagRunes} 个字符，这个标签太长',
+          key: const ValueKey('user-tag-too-long'),
+          style: muted?.copyWith(color: theme.colorScheme.error));
+    }
+    if (!offerNew && entries.isEmpty) return const SizedBox.shrink();
+    final chipStyle = theme.textTheme.bodySmall?.copyWith(color: AppColors.textMuted);
+    return Wrap(spacing: AppSpace.sm, runSpacing: AppSpace.sm, children: [
+      if (offerNew)
+        ActionChip(
+          key: const ValueKey('tag-suggestion-new'),
+          label: Text('新建「$query」'),
+          labelStyle: theme.textTheme.bodySmall?.copyWith(color: AppColors.brand),
+          backgroundColor: AppColors.surface,
+          side: BorderSide(color: AppColors.brand.withValues(alpha: 0.35)),
+          shape: const StadiumBorder(),
+          visualDensity: VisualDensity.compact,
+          onPressed: _busy || _resolving ? null : () => _addTag(query),
+        ),
+      for (final entry in entries)
+        ActionChip(
+          key: ValueKey('tag-suggestion:${entry.label}'),
+          tooltip: '${entry.userCount} 位用户使用',
+          label: Text('${entry.label} · ${entry.userCount}'),
+          labelStyle: chipStyle,
+          backgroundColor: AppColors.inkSoft,
+          side: BorderSide.none,
+          shape: const StadiumBorder(),
+          visualDensity: VisualDensity.compact,
+          onPressed: _busy || _resolving ? null : () => _addTag(entry.label),
+        ),
+    ]);
+  }
+
+  /// Remembers the forum's names for this UID after an annotation write was
+  /// acknowledged. Best effort: it never delays, fails or changes that result.
+  void _learnName() {
+    // The captured scope only, whether or not the sheet is still shown.
+    if (_revoked ||
+        widget.account != widget.repository.localPreferenceAccount ||
+        widget.epoch != widget.repository.sessionEpoch.value) {
+      return;
+    }
+    String? clean(String? v) =>
+        v == null || v.trim().isEmpty ? null : v.trim();
+    final nickname = clean(widget.learnNickname);
+    final hashName = clean(widget.learnHashName);
+    if (nickname == null && hashName == null) return;
+    UserDisplayNameStore.save(widget.uid,
+            nickname: nickname, hashName: hashName, account: widget.account)
+        .then((_) {}, onError: (Object _) {});
+  }
+
   Future<void> _write(String text) async {
-    if (!_current || _busy) return;
+    if (!_current || _busy || _resolving) return;
+    // Pending tag text is a new assignment too: resolve its spelling first.
+    // The whole save, this read included, locks the fields, so nothing typed
+    // after 保存 can be lost when it completes.
+    if (_addingTag && _tagController.text.trim().isNotEmpty) {
+      setState(() => _busy = true);
+      final ok = await _currentVocabulary();
+      if (!_current) return;
+      if (!ok) {
+        setState(() {
+          _busy = false;
+          _tagError = _unreadable;
+        });
+        return;
+      }
+    }
     final note = text.trim();
     List<String> tags;
     try {
       tags = _draftTags();
     } on ArgumentError catch (error) {
-      setState(() => _tagError = error.message.toString());
+      setState(() {
+        _busy = false;
+        _tagError = error.message.toString();
+      });
       return;
     }
     setState(() {
@@ -312,6 +519,8 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
       } else {
         route.navigator?.removeRoute(route);
       }
+      // Only after the annotation outcome is settled and shown.
+      if (_hasWritten) _learnName();
     } catch (_) {
       if (!_current) return;
       setState(() {
@@ -322,6 +531,8 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
           _error = '备注保存失败，标签尚未保存';
         }
       });
+      // A partial save still wrote something; its outcome is shown first.
+      if (_hasWritten) _learnName();
     }
   }
 
@@ -427,7 +638,14 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
                 onPressed: _busy ? null : () => setState(() => _addingTag = true),
               ),
           ]),
-          if (_addingTag) ...[
+          if (_tags.length >= UserTagStore.maxTags)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpace.sm),
+              child: Text('已达 ${UserTagStore.maxTags} 个标签上限',
+                  key: const ValueKey('user-tag-full'),
+                  style: theme.textTheme.bodySmall),
+            )
+          else if (_addingTag) ...[
             const SizedBox(height: AppSpace.sm),
             TextField(
               key: const ValueKey('user-tag-input'),
@@ -435,14 +653,17 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
               autofocus: true,
               enabled: !_busy,
               onChanged: (_) => setState(() => _tagError = null),
-              onSubmitted: (_) => _busy ? null : _addTag(),
+              onSubmitted: (_) => _busy || _resolving ? null : _addTag(),
               decoration: InputDecoration(
                 labelText: '标签',
+                hintText: '搜索或新建标签',
                 counterText: '${_tagController.text.trim().runes.length}/16',
                 helperText: '最多 16 个字符，部分表情占多个字符',
-                suffixIcon: IconButton(tooltip: '添加标签', onPressed: _busy ? null : _addTag, icon: const Icon(Icons.check)),
+                suffixIcon: IconButton(tooltip: '添加标签', onPressed: _busy || _resolving ? null : _addTag, icon: const Icon(Icons.check)),
               ),
             ),
+            const SizedBox(height: AppSpace.sm),
+            _suggestions(theme),
           ],
           if (_visibleTagError != null)
             Padding(

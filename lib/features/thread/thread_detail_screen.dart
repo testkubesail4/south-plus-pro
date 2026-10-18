@@ -1456,14 +1456,17 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
   }
 
-  Future<void> _editLocalAnnotations(String uid, String name) async {
+  // [name] is the floor's author link text as the forum shows it, or null;
+  // never a placeholder, since it is also remembered as the user's name.
+  Future<void> _editLocalAnnotations(String uid, String? name) async {
     if (_notes.isLoading || _notes.noteLoadError != null || _notes.tagLoadError != null) {
       _messenger.showSnackBar(const SnackBar(content: Text('标记加载失败，请重试')));
       _notes.reload();
       return;
     }
     await showUserNoteEditor(context, repository: widget.repository,
-        uid: uid, name: name, note: _notes.noteFor(uid), tags: _notes.tagsFor(uid));
+        uid: uid, name: name, note: _notes.noteFor(uid), tags: _notes.tagsFor(uid),
+        learnNickname: name);
   }
 
   Widget _threadList(ThreadDetail detail) {
@@ -1772,7 +1775,7 @@ class _ThreadDetailContent extends StatelessWidget {
   final Set<String> revealPlayed;
   final String? Function(String? uid) noteFor;
   final List<String> Function(String? uid) tagsFor;
-  final void Function(String uid, String name) onEditAnnotations;
+  final void Function(String uid, String? name) onEditAnnotations;
   final Set<String> loadingQuoteDrafts;
   final ScrollController scrollController;
   final Future<void> Function() onRefresh;
@@ -1907,7 +1910,7 @@ class _ThreadDetailContent extends StatelessWidget {
               author: detail.thread.author,
               note: noteFor(detail.thread.authorUid),
               tags: tagsFor(detail.thread.authorUid),
-              onTagsMore: detail.thread.authorUid == null ? null : () => onEditAnnotations(detail.thread.authorUid!, detail.thread.author ?? '楼主'),
+              onTagsMore: detail.thread.authorUid == null ? null : () => onEditAnnotations(detail.thread.authorUid!, detail.thread.author),
               avatarUrl: rules.isAvatarBlocked(detail.thread.authorUid)
                   ? null
                   : detail.thread.authorAvatarUrl,
@@ -1964,7 +1967,7 @@ class _ThreadDetailContent extends StatelessWidget {
             personalSignature: detail.personalSignature,
             note: noteFor(detail.thread.authorUid),
             tags: tagsFor(detail.thread.authorUid),
-            onTagsMore: detail.thread.authorUid == null ? null : () => onEditAnnotations(detail.thread.authorUid!, detail.thread.author ?? '楼主'),
+            onTagsMore: detail.thread.authorUid == null ? null : () => onEditAnnotations(detail.thread.authorUid!, detail.thread.author),
             floor: '楼主',
             onReply: () => onReplyToFloor(
               detail.bodyReplyTitle ?? 'Re:${detail.thread.title}',

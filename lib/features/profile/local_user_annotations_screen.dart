@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../services/forum_repository.dart';
+import '../../services/tag_vocabulary.dart';
 import '../../theme/app_theme.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
@@ -66,10 +67,12 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
   Future<void> _edit(String uid) async {
     if (!_current || _annotations.isLoading ||
         _annotations.noteLoadError != null || _annotations.tagLoadError != null) return;
-    // No name is known here; the header shows the UID once.
+    // The learned name when there is one; otherwise the header shows the
+    // UID once.
     final url = widget.repository.userProfileUrl(uid);
     await showUserNoteEditor(context,
-      repository: widget.repository, uid: uid, name: null,
+      repository: widget.repository, uid: uid,
+      name: _annotations.namesFor(uid)?.displayName,
       note: _annotations.noteFor(uid), tags: _annotations.tagsFor(uid),
       onOpenProfile: url == null ? null : () => _openProfile(url));
   }
@@ -96,16 +99,36 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
     ));
   }
 
+  /// Under a learned name, who it is exactly: the forum's hash name when the
+  /// title is the nickname, and always the record's UID. Nothing for a row
+  /// that already reads `UID n`.
+  String? _caption(String uid) {
+    final names = _annotations.namesFor(uid);
+    final title = names?.displayName;
+    if (title == null) return null;
+    final hash = names!.hashName;
+    return names.nickname != null && hash != null && hash != names.nickname
+        ? '$hash · UID $uid'
+        : 'UID $uid';
+  }
+
   /// Tap opens the user's forum profile; the pencil edits the annotations.
   /// The note is labelled so it never reads as another tag.
   Widget _userRow(String uid, {required bool editable}) {
     final url = widget.repository.userProfileUrl(uid);
     final edit = editable ? () => _edit(uid) : null;
+    final caption = _caption(uid);
     return AppRow(
       key: ValueKey('annotation-user:$uid'),
       icon: Icons.person_outline,
-      title: Text('UID $uid'),
+      title: Text(_annotations.namesFor(uid)?.displayName ?? 'UID $uid'),
       subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (caption != null)
+          Text(caption,
+              key: ValueKey('annotation-caption:$uid'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppColors.textFaint)),
         // One line: a long note ellipsizes on its own, the tags keep theirs.
         if (_annotations.noteFor(uid) case final note?)
           Text('备注：$note', maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -141,32 +164,37 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
         builder: (context, _) {
           final ids = {..._annotations.notes.keys, ..._annotations.tags.keys}.toList()
             ..sort((a, b) => BigInt.parse(a).compareTo(BigInt.parse(b)));
-          final tagUsers = <String, Set<String>>{};
-          final tagLabels = <String, String>{};
-          for (final uid in ids) {
-            for (final tag in _annotations.tagsFor(uid)) {
-              final key = tag.toLowerCase();
-              tagLabels.putIfAbsent(key, () => tag);
-              (tagUsers[key] ??= {}).add(uid);
-            }
-          }
+          // One definition of a tag's spelling and user count, shared with the
+          // editor's picker (store order decides the spelling).
+          final vocabulary = tagVocabulary(_annotations.tags);
           final query = _search.text.trim().toLowerCase();
+          bool carries(String uid, String key) =>
+              _annotations.tagsFor(uid).any((tag) => tag.toLowerCase() == key);
           final users = ids.where((uid) =>
-            (_tagFilter == null || (tagUsers[_tagFilter]?.contains(uid) ?? false)) &&
+            (_tagFilter == null || carries(uid, _tagFilter!)) &&
             (query.isEmpty || uid.contains(query) ||
+                (_annotations.namesFor(uid)?.nickname?.toLowerCase().contains(query) ?? false) ||
+                (_annotations.namesFor(uid)?.hashName?.toLowerCase().contains(query) ?? false) ||
                 (_annotations.noteFor(uid)?.toLowerCase().contains(query) ?? false) ||
                 _annotations.tagsFor(uid).any((tag) => tag.toLowerCase().contains(query)))).toList();
-          final tagKeys = tagUsers.keys.where((key) => query.isEmpty || key.contains(query)).toList()..sort();
+          final tagEntries = [
+            for (final entry in vocabulary)
+              if (query.isEmpty || entry.label.toLowerCase().contains(query)) entry
+          ]..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+          String labelOf(String key) => vocabulary
+              .firstWhere((e) => e.label.toLowerCase() == key,
+                  orElse: () => TagVocabularyEntry(label: key, userCount: 0))
+              .label;
           final failed = _annotations.noteLoadError != null || _annotations.tagLoadError != null;
           return ListView(
             padding: EdgeInsets.symmetric(horizontal: appGutter(MediaQuery.sizeOf(context).width, AppWidths.form), vertical: AppSpace.md),
             children: [
               TextField(controller: _search, onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '搜索 UID、备注或标签')),
+                decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '搜索 UID、备注、标签或名称')),
               const SizedBox(height: AppSpace.md),
               SegmentedButton<int>(segments: [
                 ButtonSegment(value: 0, label: Text(failed || _annotations.isLoading ? '用户' : '用户 ${ids.length}')),
-                ButtonSegment(value: 1, label: Text(failed || _annotations.isLoading ? '标签' : '标签 ${tagUsers.length}')),
+                ButtonSegment(value: 1, label: Text(failed || _annotations.isLoading ? '标签' : '标签 ${vocabulary.length}')),
               ], selected: {_tab}, onSelectionChanged: (value) => setState(() { _tab = value.first; _tagFilter = null; })),
               const SizedBox(height: AppSpace.sm),
               Text('仅保存在本机，按当前账号区分', style: Theme.of(context).textTheme.bodySmall),
@@ -180,7 +208,7 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
               const SizedBox(height: AppSpace.md),
               if (_tab == 0) ...[
                 if (_tagFilter != null)
-                  ListTile(leading: const Icon(Icons.arrow_back), title: Text('标签：${tagLabels[_tagFilter] ?? _tagFilter}'),
+                  ListTile(leading: const Icon(Icons.arrow_back), title: Text('标签：${labelOf(_tagFilter!)}'),
                       onTap: () => setState(() => _tagFilter = null)),
                 if (users.isEmpty && !_annotations.isLoading && !failed)
                   const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('暂无标记'))),
@@ -190,14 +218,14 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
                       _userRow(uid, editable: !_annotations.isLoading && !failed),
                   ]),
               ] else ...[
-                if (tagKeys.isEmpty && !_annotations.isLoading && !failed)
+                if (tagEntries.isEmpty && !_annotations.isLoading && !failed)
                   const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('暂无标签'))),
-                if (tagKeys.isNotEmpty)
+                if (tagEntries.isNotEmpty)
                   AppGroup(children: [
-                    for (final key in tagKeys)
-                      AppRow(title: Align(alignment: Alignment.centerLeft, child: UserTagCapsule(tag: tagLabels[key]!)),
-                        value: '${tagUsers[key]!.length} 位用户',
-                        onTap: () => setState(() { _tab = 0; _tagFilter = key; })),
+                    for (final entry in tagEntries)
+                      AppRow(title: Align(alignment: Alignment.centerLeft, child: UserTagCapsule(tag: entry.label)),
+                        value: '${entry.userCount} 位用户',
+                        onTap: () => setState(() { _tab = 0; _tagFilter = entry.label.toLowerCase(); })),
                   ]),
                 const SizedBox(height: AppSpace.md),
                 Text('点开标签查看用户；在用户上编辑可增删标签', style: Theme.of(context).textTheme.bodySmall),

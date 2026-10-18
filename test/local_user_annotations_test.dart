@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
+import 'package:south_plus_rewrite/services/user_display_name_store.dart';
 import 'package:south_plus_rewrite/services/user_note_store.dart';
 import 'package:south_plus_rewrite/services/user_tag_store.dart';
 
@@ -40,19 +42,25 @@ void main() {
   final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   final persisted = <String, Object>{};
   var rejectReads = false;
+  var rejectWrites = false;
+  Completer<void>? holdReads;
   var writes = 0;
 
   setUp(() {
     SharedPreferences.resetStatic();
     persisted.clear();
     rejectReads = false;
+    rejectWrites = false;
+    holdReads = null;
     writes = 0;
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'getAll') {
+        if (holdReads != null) await holdReads!.future;
         if (rejectReads) throw PlatformException(code: 'read-unavailable');
         return Map<String, Object>.of(persisted);
       }
       writes++;
+      if (rejectWrites) return false;
       final args = call.arguments as Map;
       if (call.method == 'remove') {
         persisted.remove(args['key']);
@@ -201,4 +209,143 @@ void main() {
       expect(find.text('open local'), findsOneWidget, reason: 'only the bound routes went');
     });
   }
+
+  testWidgets('an unreadable vocabulary is said, typing stays possible, and a new label waits for a readable source', (tester) async {
+    await UserTagStore.save('42', ['old']);
+    final repo = _Repo();
+    await pump(tester, repo);
+    // A refused write leaves the store unreadable until a reload succeeds.
+    rejectWrites = true;
+    rejectReads = true;
+    await expectLater(UserNoteStore.save('99', 'x'), throwsA(anything));
+    rejectWrites = false;
+    await tester.tap(find.byKey(const ValueKey('annotation-edit:42')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('+ 添加标签'));
+    await tester.pumpAndSettle();
+    expect(find.text('已有标签暂时无法读取'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), 'typed');
+    await tester.tap(find.byTooltip('添加标签'));
+    await tester.pumpAndSettle();
+    expect(find.text('已有标签暂时无法读取，请重试'), findsOneWidget);
+    expect(find.widgetWithText(InputChip, 'typed'), findsNothing, reason: 'no spelling is invented');
+    expect(find.text('typed'), findsOneWidget, reason: 'the typed text stays');
+    rejectReads = false;
+    await tester.tap(find.byTooltip('添加标签'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(InputChip, 'typed'), findsOneWidget);
+  });
+
+  testWidgets('rows lead with a learned name and keep the real UID in the caption', (tester) async {
+    for (final uid in ['42', '43', '44', '45']) {
+      await UserNoteStore.save(uid, 'n$uid');
+    }
+    await UserDisplayNameStore.save('42', nickname: '禁止事项', hashName: '3f365ae9');
+    await UserDisplayNameStore.save('43', hashName: '49371b5d');
+    await UserDisplayNameStore.save('45', hashName: '12345');
+    await UserDisplayNameStore.save('46', nickname: '只有名字');
+    final repo = _Repo();
+    await pump(tester, repo);
+    String? caption(String uid) => tester
+        .widgetList<Text>(find.byKey(ValueKey('annotation-caption:$uid')))
+        .map((t) => t.data)
+        .firstOrNull;
+    expect(find.text('禁止事项'), findsOneWidget);
+    expect(caption('42'), '3f365ae9 · UID 42');
+    expect(find.text('49371b5d'), findsOneWidget);
+    expect(caption('43'), 'UID 43');
+    expect(find.text('UID 44'), findsOneWidget);
+    expect(caption('44'), isNull, reason: 'the UID is never said twice');
+    expect(find.text('12345'), findsOneWidget, reason: 'a numeric hash is still a name');
+    expect(caption('45'), 'UID 45');
+    expect(find.text('只有名字'), findsNothing, reason: 'a name alone is no annotation row');
+    expect(find.text('用户 4'), findsOneWidget);
+    expect(repo.profileRequests, 0);
+
+    await tester.enterText(find.byType(TextField).first, '禁止');
+    await tester.pump();
+    expect(find.text('禁止事项'), findsOneWidget);
+    expect(find.text('49371b5d'), findsNothing);
+    await tester.enterText(find.byType(TextField).first, '4937');
+    await tester.pump();
+    expect(find.text('49371b5d'), findsOneWidget);
+    expect(find.text('禁止事项'), findsNothing);
+    await tester.enterText(find.byType(TextField).first, '');
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('annotation-edit:42')));
+    await tester.pumpAndSettle();
+    expect(find.text('原名：禁止事项　UID 42'), findsOneWidget);
+    // Opening the profile route still uses the record UID.
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('禁止事项'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<UserProfileScreen>(find.byType(UserProfileScreen)).userUrl,
+        repo.userProfileUrl('42'));
+  });
+
+  testWidgets('names learned under one account never show under another', (tester) async {
+    await UserNoteStore.save('42', 'mine');
+    await UserDisplayNameStore.save('42', nickname: '别的账号的名字', account: 'other');
+    await pump(tester, _Repo());
+    expect(find.text('别的账号的名字'), findsNothing);
+    expect(find.text('UID 42'), findsOneWidget);
+  });
+
+  // Opens the editor for UID 42 with the tag source unreadable, then lets the
+  // next read through only when the test completes the returned hold.
+  Future<Completer<void>> editorWithHeldSource(WidgetTester tester) async {
+    await UserNoteStore.save('42', 'old');
+    await pump(tester, _Repo());
+    rejectWrites = true;
+    rejectReads = true;
+    await expectLater(UserNoteStore.save('99', 'x'), throwsA(anything));
+    rejectWrites = false;
+    await tester.tap(find.byKey(const ValueKey('annotation-edit:42')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('+ 添加标签'));
+    await tester.pumpAndSettle();
+    rejectReads = false;
+    final hold = holdReads = Completer<void>();
+    // A read left waiting would stall the shared preference queue for later
+    // tests.
+    addTearDown(() {
+      if (!hold.isCompleted) hold.complete();
+    });
+    return hold;
+  }
+
+  Finder noteField() => find.widgetWithText(TextField, '备注');
+
+  testWidgets('Save locks the fields while it resolves a pending tag, so no later typing is lost', (tester) async {
+    final hold = await editorWithHeldSource(tester);
+    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), 'typed');
+    await tester.enterText(noteField(), 'newer');
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    expect(tester.widget<TextField>(noteField()).enabled, isFalse,
+        reason: 'nothing can be typed that the running save would not keep');
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('user-tag-input'))).enabled, isFalse);
+    holdReads = null;
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect((await UserNoteStore.load())['42'], 'newer');
+    expect((await UserTagStore.load())['42'], ['typed']);
+  });
+
+  testWidgets('a query typed while an add resolves survives that add', (tester) async {
+    final hold = await editorWithHeldSource(tester);
+    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), 'First');
+    await tester.tap(find.byTooltip('添加标签'));
+    await tester.pump();
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('user-tag-input'))).enabled, isTrue,
+        reason: 'typing stays responsive while the source is read');
+    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), 'Second');
+    holdReads = null;
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(InputChip, 'First'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('user-tag-input'))).controller!.text, 'Second');
+  });
 }
