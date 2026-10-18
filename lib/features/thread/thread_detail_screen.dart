@@ -119,7 +119,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final _mountedPosts = Map<Object, BuildContext>.identity();
   // 帖内查找 outlives its sheet: a scan goes on while the reader looks at
   // a hit, and stops with the thread, its author scope or the session.
-  late final _find = ThreadFind(onScanEnded: _onFindEnded);
+  late final _find = ThreadFind(
+    onScanEnded: _onFindEnded,
+    pages: () => _loadedPages,
+    rules: () => widget.repository.blocking.notifier.value,
+  );
   bool _findOpen = false;
 
   @override
@@ -258,6 +262,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                 : _anchorTargetIn(detail, anchor);
         _recomputeDetailRenderState();
       });
+      _find.pagesChanged();
       if (anchor != null || latest) {
         // The reveal steps down from the top of the newly loaded page.
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
@@ -371,6 +376,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         }
         _recomputeDetailRenderState();
       });
+      _find.pagesChanged();
     } catch (_) {
       if (!mounted || runId != _loadRunId) return;
       setState(() {
@@ -966,17 +972,14 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
         builder: (_) => ThreadFindSheet(
           find: _find,
-          pages: _loadedPages,
-          totalPages: _lastLoaded!.pagination.totalPages,
-          rules: widget.repository.blocking.notifier.value,
           authorFilterName:
               _authorFilterActive ? _authorFilterName ?? '该作者' : null,
-          onStartScan: () => _find.start(widget.repository.scanThread(
-            detail.thread,
+          createScan: () => widget.repository.scanThread(
+            _detail!.thread,
             _find.keyword,
             loaded: _loadedPages,
             rules: widget.repository.blocking.notifier.value,
-          )),
+          ),
         ),
       );
     } finally {

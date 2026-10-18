@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
@@ -10,15 +12,33 @@ import '../common/search_scope_bar.dart';
 
 /// 帖内查找's query and its optional scan of every page. The thread screen
 /// owns it, so both outlive the sheet; a new keyword drops the scan.
+///
+/// The loaded pages and blocking rules are read when shown, never kept: the
+/// screen calls [pagesChanged] when its pages change and [stop] when rules,
+/// author scope or session do.
 class ThreadFind extends ChangeNotifier {
-  ThreadFind({required this.onScanEnded});
+  ThreadFind({
+    required this.onScanEnded,
+    required this.pages,
+    required this.rules,
+  });
 
   /// A scan finished, failed or hit its cap.
   final ValueChanged<ScanProgress> onScanEnded;
 
+  /// The pages the thread screen holds now, in order.
+  final List<ThreadDetail> Function() pages;
+  final BlockingRules Function() rules;
+
   final query = TextEditingController();
   FullScan<ThreadSearchHit>? _scan;
   ScanState? _scanState;
+  bool _disposed = false;
+
+  /// Moves whenever the scope or keyword does; a scan asked for under an
+  /// older value never starts.
+  int get generation => _generation;
+  int _generation = 0;
 
   FullScan<ThreadSearchHit>? get scan => _scan;
 
@@ -29,17 +49,23 @@ class ThreadFind extends ChangeNotifier {
     notifyListeners();
   }
 
-  void start(FullScan<ThreadSearchHit> scan) {
+  void pagesChanged() => notifyListeners();
+
+  /// Starts the scan [create] makes, unless the scope or keyword moved on
+  /// since [generation] was read, or the thread is gone.
+  bool startIfCurrent(
+      int generation, FullScan<ThreadSearchHit> Function() create) {
+    if (_disposed || generation != _generation) return false;
     _drop();
-    _scan = scan..addListener(_onScan);
-    _scanState = scan.progress.state;
-    scan.start();
+    _scan = create()..addListener(_onScan);
+    _scanState = _scan!.progress.state;
+    _scan!.start();
     notifyListeners();
+    return true;
   }
 
   /// Back to the loaded pages: the scan stops and its results go.
   void stop() {
-    if (_scan == null) return;
     _drop();
     notifyListeners();
   }
@@ -63,6 +89,7 @@ class ThreadFind extends ChangeNotifier {
   }
 
   void _drop() {
+    _generation++;
     _scan
       ?..removeListener(_onScan)
       ..dispose();
@@ -72,6 +99,7 @@ class ThreadFind extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _drop();
     query.dispose();
     super.dispose();
@@ -84,23 +112,17 @@ class ThreadFindSheet extends StatelessWidget {
   const ThreadFindSheet({
     super.key,
     required this.find,
-    required this.pages,
-    required this.totalPages,
-    required this.rules,
     required this.authorFilterName,
-    required this.onStartScan,
+    required this.createScan,
   });
 
   final ThreadFind find;
 
-  /// The pages the thread screen holds, in order.
-  final List<ThreadDetail> pages;
-  final int totalPages;
-  final BlockingRules rules;
-
   /// Set while the thread shows one author's floors only.
   final String? authorFilterName;
-  final VoidCallback onStartScan;
+
+  /// A scan of every page for the current keyword and scope.
+  final FullScan<ThreadSearchHit> Function() createScan;
 
   @override
   Widget build(BuildContext context) {
@@ -114,6 +136,14 @@ class ThreadFindSheet extends StatelessWidget {
           builder: (context, _) {
             final keyword = find.keyword;
             final scan = find.scan;
+            final pages = find.pages();
+            // Pages read at different times may disagree; the most is the
+            // least the thread has.
+            final total = pages.fold<int>(
+                1, (most, page) => math.max(most, page.pagination.totalPages));
+            final loaded = {
+              for (final page in pages) page.pagination.currentPage,
+            }.length;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -140,12 +170,12 @@ class ThreadFindSheet extends StatelessWidget {
                           icon: Icons.find_in_page_outlined,
                           title: '查找本帖内容',
                           message: [
-                            '输入关键词，查找已加载的 ${pages.length} 页内容',
-                            if (totalPages > pages.length)
-                              '（本帖共 $totalPages 页）',
+                            '输入关键词，查找已加载的 $loaded 页内容',
+                            if (total > loaded) '（本帖共 $total 页）',
                           ].join(),
                         )
-                      : _results(context, keyword, scan),
+                      : _results(context, keyword, scan, pages,
+                          loaded: loaded, total: total),
                 ),
               ],
             );
@@ -159,25 +189,31 @@ class ThreadFindSheet extends StatelessWidget {
     BuildContext context,
     String keyword,
     FullScan<ThreadSearchHit>? scan,
-  ) {
-    final hits = scan?.hits ?? searchLoadedThread(pages, keyword, rules);
+    List<ThreadDetail> pages, {
+    required int loaded,
+    required int total,
+  }) {
+    final hits = scan?.hits ?? searchLoadedThread(pages, keyword, find.rules());
     final progress = scan?.progress ??
         ScanProgress(
-          scannedPages: pages.length,
-          totalPages: totalPages,
-          found: hits.length,
-        );
-    final complete = progress.state == ScanState.done ||
-        (scan == null && pages.length >= totalPages);
+            scannedPages: loaded, totalPages: total, found: hits.length);
+    final allLoaded = loaded >= total;
+    final complete =
+        progress.state == ScanState.done || (scan == null && allLoaded);
     final bar = SearchScopeBar(
       progress: progress,
-      onSearchAll: pages.length < totalPages
-          ? () async {
+      onSearchAll: allLoaded
+          ? null
+          : () async {
+              // Asked for this keyword and scope; any change while asking
+              // cancels it.
+              final generation = find.generation;
               final go = await confirmFullScan(context,
-                  subject: '本帖', remainingPages: totalPages - pages.length);
-              if (go) onStartScan();
-            }
-          : null,
+                  subject: '本帖', remainingPages: total - loaded);
+              if (go && context.mounted) {
+                find.startIfCurrent(generation, createScan);
+              }
+            },
       onStop: scan?.stop,
       onResume: scan?.resume,
       onBackToLoaded: find.stop,
@@ -191,8 +227,8 @@ class ThreadFindSheet extends StatelessWidget {
         : scan == null
             ? EmptyStateView(
                 icon: Icons.manage_search_outlined,
-                title: '已加载的 ${pages.length} 页中没有找到',
-                message: '本帖共 $totalPages 页，可搜索全部页面。',
+                title: '已加载的 $loaded 页中没有找到',
+                message: '本帖共 $total 页，可搜索全部页面。',
               )
             : const EmptyStateView(
                 icon: Icons.manage_search_outlined,
@@ -203,7 +239,7 @@ class ThreadFindSheet extends StatelessWidget {
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       slivers: [
         // The loaded pages are all there is: nothing to scan, no bar.
-        if (!(scan == null && pages.length >= totalPages))
+        if (!(scan == null && allLoaded))
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(
                 AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),

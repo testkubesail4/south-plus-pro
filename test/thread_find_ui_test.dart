@@ -1,21 +1,22 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
+import 'package:south_plus_rewrite/features/thread/thread_find.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/full_scan.dart';
 import 'package:south_plus_rewrite/services/thread_search.dart';
 
-// Synthetic fixtures only: fictional host, tid, pids and authors.
+// Synthetic fixtures only: fictional host, tid, pids, uids and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('帖内查找 finds loaded floors, scans on request and opens a hit',
-      (tester) async {
+  Future<_Repo> pumpThread(WidgetTester tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -28,22 +29,37 @@ void main() {
       ),
     ));
     await tester.pumpAndSettle();
+    return repository;
+  }
 
+  Future<void> openFind(WidgetTester tester, String keyword) async {
     await tester.tap(find.byTooltip('更多'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('帖内查找'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'needle');
+    await tester.enterText(find.byType(TextField), keyword);
     await tester.pumpAndSettle();
-    expect(find.textContaining('第 1 页'), findsOneWidget);
-    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+  }
 
+  Future<void> confirmScan(WidgetTester tester) async {
     await tester.tap(find.text('搜索全部页面'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('开始搜索'));
     await tester.pumpAndSettle();
+  }
+
+  testWidgets('帖内查找 finds loaded floors, scans on request and opens a hit',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openFind(tester, 'needle');
+    expect(find.textContaining('第 1 页'), findsOneWidget);
+    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+
+    await confirmScan(tester);
     final scan = repository.scans.single;
     expect(scan.keyword, 'needle');
+    scan.finish();
+    await tester.pumpAndSettle();
     expect(find.text('已搜索全部页面'), findsOneWidget);
 
     await tester.tap(find.textContaining('第 3 页'));
@@ -65,6 +81,91 @@ void main() {
     expect(scan.disposed, isTrue);
     expect(find.text('搜索范围：已加载内容'), findsOneWidget);
   });
+
+  testWidgets(
+      'a running scan goes on without the sheet and stops with the page',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openFind(tester, 'needle');
+    await confirmScan(tester);
+    final first = repository.scans.single;
+    expect(find.text('正在搜索全部页面'), findsOneWidget);
+
+    // Closing the sheet keeps the scan; its end is announced.
+    await tester.tapAt(const Offset(200, 20));
+    await tester.pumpAndSettle();
+    expect(first.disposed, isFalse);
+    first.finish();
+    await tester.pump();
+    expect(find.text('帖内查找完成：找到 1 条'), findsOneWidget);
+    await tester.pumpAndSettle(const Duration(seconds: 5));
+
+    await openFind(tester, 'far');
+    await confirmScan(tester);
+    final second = repository.scans.last;
+    expect(second, isNot(first));
+    await tester.pumpWidget(const SizedBox());
+    expect(second.disposed, isTrue);
+  });
+
+  testWidgets('a scan confirmed after the session changed never starts',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openFind(tester, 'needle');
+    await tester.tap(find.text('搜索全部页面'));
+    await tester.pumpAndSettle();
+    repository.session.value++;
+    await tester.tap(find.text('开始搜索'));
+    await tester.pumpAndSettle();
+    expect(repository.scans, isEmpty);
+    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+  });
+
+  testWidgets('a floor blocked while the sheet is open leaves its hits',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openFind(tester, 'needle');
+    expect(find.textContaining('第 1 页'), findsOneWidget);
+
+    repository.blocking.notifier.value = const BlockingRules(users: [
+      BlockedUser(
+          uid: '101', name: 'near', userBlocked: true, avatarBlocked: false),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('第 1 页'), findsNothing);
+    expect(find.text('已加载的 1 页中没有找到'), findsOneWidget);
+  });
+
+  testWidgets('pages read at different times count the most pages seen',
+      (tester) async {
+    ThreadDetail page(int number, int total) => ThreadDetail(
+          thread: const ForumThread(
+              title: 'find', url: _url, replies: 0, section: ''),
+          body: '',
+          pagination: ThreadPagination(currentPage: number, totalPages: total),
+          replies: const [],
+        );
+    final threadFind = ThreadFind(
+      onScanEnded: (_) {},
+      pages: () => [page(1, 3), page(2, 2)],
+      rules: () => const BlockingRules(),
+    );
+    addTearDown(threadFind.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ThreadFindSheet(
+          find: threadFind,
+          authorFilterName: null,
+          createScan: () => throw UnimplementedError(),
+        ),
+      ),
+    ));
+    await tester.enterText(find.byType(TextField), 'needle');
+    await tester.pumpAndSettle();
+    // Page 3 was never read: nothing here may say the thread lacks it.
+    expect(find.text('搜索全部页面'), findsOneWidget);
+    expect(find.textContaining('本帖没有找到'), findsNothing);
+  });
 }
 
 class _Scan extends FullScan<ThreadSearchHit> {
@@ -84,6 +185,13 @@ class _Scan extends FullScan<ThreadSearchHit> {
 
   @override
   void start() {
+    _progress = const ScanProgress(
+        state: ScanState.running, scannedPages: 1, totalPages: 3);
+    notifyListeners();
+  }
+
+  /// Ends the way a scan of all three pages would.
+  void finish() {
     _hits = const [
       ThreadSearchHit(
           page: 3,
@@ -112,6 +220,10 @@ class _Scan extends FullScan<ThreadSearchHit> {
 class _Repo extends ForumRepository {
   final pages = <int>[];
   final scans = <_Scan>[];
+  final session = ValueNotifier<int>(0);
+
+  @override
+  ValueListenable<int> get sessionEpoch => session;
 
   @override
   FullScan<ThreadSearchHit> scanThread(
@@ -138,6 +250,8 @@ class _Repo extends ForumRepository {
       replies: [
         ThreadReply(
           author: page == 1 ? 'near' : 'far',
+          authorUrl:
+              'https://south-plus.net/u.php?action-show-uid-${page}01.html',
           content: text,
           floor: '${page * 20}F',
           segments: [ThreadContentSegment.text(text)],
