@@ -607,6 +607,10 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                   null)
                 e,
           ];
+    // 全选 takes the rows the search shows; chosen undecided rows are not
+    // what it counts.
+    final shownIds = {for (final e in shown) e.id};
+    final allChosen = shownIds.isNotEmpty && _selected.containsAll(shownIds);
     Widget rows(List<FavoriteCollectionEntry> entries) => DecoratedBox(
           decoration: appSurface(context),
           child: Column(
@@ -722,8 +726,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                           page: data == null ? null : _pageNote(data),
                           selecting: _selecting,
                           selected: _selected.length,
-                          allSelected: shown.isNotEmpty &&
-                              _selected.length == shown.length,
+                          allSelected: allChosen,
                           // Scan rows only open threads.
                           canSelect: data != null &&
                               shown.isNotEmpty &&
@@ -736,10 +739,10 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                           onStart: _startSelecting,
                           // Only the rows the search shows.
                           onAll: () => setState(() {
-                            if (_selected.length == shown.length) {
+                            if (allChosen) {
                               _selected.clear();
                             } else {
-                              _selected.addAll([for (final e in shown) e.id]);
+                              _selected.addAll(shownIds);
                             }
                           }),
                           onExit: _stopSelecting,

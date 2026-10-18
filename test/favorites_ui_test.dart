@@ -788,6 +788,35 @@ void main() {
       expect(find.text('Fixture favourite A'), findsOneWidget);
     });
 
+    testWidgets('全选 takes the shown rows, whatever undecided rows are chosen',
+        (tester) async {
+      final repo = _Repo()
+        ..pageCount = 2
+        ..entries = [
+          _entry('11', 'Fixture alpha', '0'),
+          const FavoriteCollectionEntry(
+            id: '13',
+            categoryId: '0',
+            thread: UserListItem(
+                title: 'Fixture lo..',
+                url: 'read.php?tid-13.html',
+                titleTruncated: true),
+          ),
+        ];
+      await pump(tester, repo);
+      await search(tester, 'alpha');
+      await tester.tap(find.text('标题不完整 (1)'));
+      await tester.pumpAndSettle();
+      await tapKey(tester, 'favorite-select-start');
+      await tapKey(tester, 'favorite-select:13');
+      expect(find.text('全选结果'), findsOneWidget,
+          reason: 'one chosen row is not all the shown ones');
+
+      await tapKey(tester, 'favorite-select-all');
+      expect(tester.widget<Checkbox>(key('favorite-select:11')).value, isTrue);
+      expect(find.text('取消全选'), findsOneWidget);
+    });
+
     testWidgets('undecided rows at the end are never a final miss',
         (tester) async {
       final repo = _Repo()..pageCount = 2;
