@@ -73,6 +73,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   ForumSearchPreferences _prefs = const ForumSearchPreferences();
   String? _prefsAccount;
+  // Recent keywords of [_prefsAccount], newest first.
+  List<String> _recent = const [];
   ForumSearchMatch _match = ForumSearchMatch.partial;
   late ForumSearchBoard _board = widget.initialBoard ?? _allBoards;
   ForumSearchTime _time = ForumSearchTime.year;
@@ -96,6 +98,8 @@ class _SearchScreenState extends State<SearchScreen> {
   ForumSearchQuery? _query;
   ForumSearchPage? _page;
   Future<ForumSearchPage> Function()? _lastRequest;
+  // The keyword the last request remembers once answered; empty for pages.
+  String _lastKeyword = '';
   Object? _error;
   bool _searching = false;
   int _requestId = 0;
@@ -193,6 +197,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _prefsAccount = account;
       _prefs = prefs;
+      _recent = prefs.recentKeywords;
       if (!_matchTouched) _match = prefs.defaultMatch;
       if (!_timeTouched) _time = prefs.defaultTime;
     });
@@ -293,7 +298,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _query = query;
       _page = null;
     });
-    _run(() => widget.repository.searchForum(query));
+    _run(() => widget.repository.searchForum(query), keyword: query.keyword);
   }
 
   void _openPage(String pagePath) {
@@ -304,7 +309,10 @@ class _SearchScreenState extends State<SearchScreen> {
     _run(() => widget.repository.searchForumPage(query, pagePath));
   }
 
-  Future<void> _run(Future<ForumSearchPage> Function() request) async {
+  Future<void> _run(
+    Future<ForumSearchPage> Function() request, {
+    String keyword = '',
+  }) async {
     final id = ++_requestId;
     final repository = widget.repository;
     final session = _session;
@@ -316,6 +324,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _searching = true;
       _error = null;
       _lastRequest = request;
+      _lastKeyword = keyword;
     });
     try {
       final page = await request();
@@ -329,6 +338,14 @@ class _SearchScreenState extends State<SearchScreen> {
         _searching = false;
         if (page.threads.isNotEmpty) _editing = false;
       });
+      // An answered search counts, even with no results.
+      if (keyword.isNotEmpty) {
+        _editRecent(
+          (account) =>
+              ForumSearchPreferences.recordKeyword(keyword, account: account),
+          failure: '搜索记录保存失败',
+        );
+      }
       // Each new result page starts at its summary and first result.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -348,7 +365,70 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _retry() {
     final request = _lastRequest;
-    if (request != null && !_searching) _run(request);
+    if (request != null && !_searching) _run(request, keyword: _lastKeyword);
+  }
+
+  // A write belongs to the session it was made in; its answer replaces the
+  // list only while that account is still the one shown.
+  Future<void> _editRecent(
+    Future<List<String>> Function(String? account) edit, {
+    required String failure,
+  }) async {
+    final session = _session;
+    try {
+      final recent = await edit(session.$1);
+      if (mounted && session == _session) setState(() => _recent = recent);
+    } catch (_) {
+      if (!mounted || session != _session) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(failure),
+          action: SnackBarAction(
+            label: '重试',
+            onPressed: () => _editRecent(edit, failure: failure),
+          ),
+        ));
+    }
+  }
+
+  Future<void> _clearRecent() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清空搜索记录？'),
+        content: const Text('只清除本机的关键词记录。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _editRecent(
+      (account) => ForumSearchPreferences.clearKeywords(account: account),
+      failure: '清空失败',
+    );
+  }
+
+  /// Recent keywords containing what is typed, while the field is edited;
+  /// none once the field holds the only match.
+  List<String> get _recentMatches {
+    if (!_keywordFocus.hasFocus || _prefsAccount != _account) return const [];
+    final typed = _keyword.text.trim().toLowerCase();
+    final hits = _recent
+        .where((keyword) => keyword.toLowerCase().contains(typed))
+        .take(10)
+        .toList();
+    return hits.length == 1 && hits.single == _keyword.text.trim()
+        ? const []
+        : hits;
   }
 
   Future<void> _pickTime() async {
@@ -717,6 +797,23 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
           ),
         ),
+        if (_recentMatches case final recent when recent.isNotEmpty)
+          _RecentKeywords(
+            keywords: recent,
+            // Fills the field only; searching stays an explicit submit.
+            onPick: (keyword) => setState(() {
+              _keyword.value = TextEditingValue(
+                text: keyword,
+                selection: TextSelection.collapsed(offset: keyword.length),
+              );
+            }),
+            onRemove: (keyword) => _editRecent(
+              (account) => ForumSearchPreferences.removeKeyword(keyword,
+                  account: account),
+              failure: '删除失败',
+            ),
+            onClear: _clearRecent,
+          ),
         const SizedBox(height: 12),
         TextField(
           controller: _username,
@@ -869,6 +966,97 @@ Future<T?> _showChoiceSheet<T>(
       ),
     ),
   );
+}
+
+/// Recent keywords under the keyword field. Taps here keep the field
+/// focused, so the list stays put while it is used.
+class _RecentKeywords extends StatelessWidget {
+  const _RecentKeywords({
+    required this.keywords,
+    required this.onPick,
+    required this.onRemove,
+    required this.onClear,
+  });
+
+  final List<String> keywords;
+  final ValueChanged<String> onPick;
+  final ValueChanged<String> onRemove;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return TextFieldTapRegion(
+      child: Container(
+        margin: const EdgeInsets.only(top: AppSpace.sm),
+        decoration: appSurface(context),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: AppSpace.lg),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      header: true,
+                      child: Text(
+                        '最近搜索',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  TextButton(onPressed: onClear, child: const Text('清空')),
+                ],
+              ),
+            ),
+            for (final keyword in keywords)
+              Material(
+                type: MaterialType.transparency,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => onPick(keyword),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 48),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpace.lg, vertical: AppSpace.sm),
+                            child: Row(
+                              children: [
+                                Icon(Icons.history,
+                                    size: 20, color: AppColors.textMuted),
+                                const SizedBox(width: AppSpace.md),
+                                Expanded(
+                                  child: Text(
+                                    keyword,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '删除“$keyword”',
+                      onPressed: () => onRemove(keyword),
+                      icon: Icon(Icons.close,
+                          size: 18, color: AppColors.textFaint),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _FiltersHeader extends StatelessWidget {

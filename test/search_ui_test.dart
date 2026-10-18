@@ -1003,6 +1003,32 @@ void main() {
     expect(submit.center.dx, 720);
   });
 
+  testWidgets('recent keywords fill the field and never search by themselves',
+      (tester) async {
+    final repo = await pump(tester);
+    final field = find.byType(TextField).first;
+    await tester.enterText(field, 'alpha');
+    await tapVisible(tester, _submit, settle: false);
+    // An answered search counts, even with no results.
+    repo.pending.last.complete(ForumSearchPage(threads: const []));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(field, 'al');
+    await tester.pumpAndSettle();
+    expect(find.text('最近搜索'), findsOneWidget);
+    await tester.tap(find.text('alpha'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(field).controller!.text, 'alpha');
+    expect(repo.queries, hasLength(1));
+
+    await tester.enterText(field, '');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('删除“alpha”'));
+    await tester.pumpAndSettle();
+    expect(find.text('最近搜索'), findsNothing);
+    expect((await ForumSearchPreferences.load()).recentKeywords, isEmpty);
+  });
+
   testWidgets('field help shows only for the focused field', (tester) async {
     await pump(tester);
     const keywordHelp = '多个关键词用空格或 | 分隔';
