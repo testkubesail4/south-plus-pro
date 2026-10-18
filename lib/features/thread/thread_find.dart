@@ -144,39 +144,47 @@ class ThreadFindSheet extends StatelessWidget {
             final loaded = {
               for (final page in pages) page.pagination.currentPage,
             }.length;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
+            // One scroll view, field included: a short window with the
+            // keyboard up and large text still reaches every part.
+            return CustomScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              slivers: [
+                SliverPadding(
                   padding: const EdgeInsets.fromLTRB(
                       AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
-                  child: ListSearchField(
-                    controller: find.query,
-                    hintText: '查找本帖内容',
-                    autofocus: keyword.isEmpty,
-                    onChanged: (_) => find.keywordChanged(),
+                  sliver: SliverToBoxAdapter(
+                    child: ListSearchField(
+                      controller: find.query,
+                      hintText: '查找本帖内容',
+                      autofocus: keyword.isEmpty,
+                      onChanged: (_) => find.keywordChanged(),
+                    ),
                   ),
                 ),
                 if (authorFilterName != null)
-                  Padding(
+                  SliverPadding(
                     padding: const EdgeInsets.fromLTRB(
                         AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
-                    child: Text('范围：只看 $authorFilterName',
-                        style: theme.textTheme.bodySmall),
+                    sliver: SliverToBoxAdapter(
+                      child: Text('范围：只看 $authorFilterName',
+                          style: theme.textTheme.bodySmall),
+                    ),
                   ),
-                Expanded(
-                  child: keyword.isEmpty
-                      ? EmptyStateView(
-                          icon: Icons.find_in_page_outlined,
-                          title: '查找本帖内容',
-                          message: [
-                            '输入关键词，查找已加载的 $loaded 页内容',
-                            if (total > loaded) '（本帖共 $total 页）',
-                          ].join(),
-                        )
-                      : _results(context, keyword, scan, pages,
-                          loaded: loaded, total: total),
-                ),
+                if (keyword.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: EmptyStateView(
+                      icon: Icons.find_in_page_outlined,
+                      title: '查找本帖内容',
+                      message: [
+                        '输入关键词，查找已加载的 $loaded 页内容',
+                        if (total > loaded) '（本帖共 $total 页）',
+                      ].join(),
+                    ),
+                  )
+                else
+                  ..._results(context, keyword, scan, pages,
+                      loaded: loaded, total: total),
               ],
             );
           },
@@ -185,7 +193,7 @@ class ThreadFindSheet extends StatelessWidget {
     );
   }
 
-  Widget _results(
+  List<Widget> _results(
     BuildContext context,
     String keyword,
     FullScan<ThreadSearchHit>? scan,
@@ -235,37 +243,34 @@ class ThreadFindSheet extends StatelessWidget {
                 title: '暂未找到',
                 message: '搜索未完成，结果可能不全。',
               );
-    return CustomScrollView(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      slivers: [
-        // The loaded pages are all there is: nothing to scan, no bar.
-        if (!(scan == null && allLoaded))
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
-            sliver: SliverToBoxAdapter(child: bar),
-          ),
-        if (hits.isEmpty)
-          SliverFillRemaining(hasScrollBody: false, child: empty)
-        else
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpace.lg, 0, AppSpace.lg, AppSpace.xl),
-            sliver: DecoratedSliver(
-              decoration: appSurface(context),
-              sliver: SliverList.separated(
-                itemCount: hits.length,
-                separatorBuilder: (_, __) => const Divider(indent: AppSpace.lg),
-                itemBuilder: (context, index) => _HitRow(
-                  hit: hits[index],
-                  keyword: keyword,
-                  onTap: () => Navigator.of(context).pop(hits[index]),
-                ),
+    return [
+      // The loaded pages are all there is: nothing to scan, no bar.
+      if (!(scan == null && allLoaded))
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
+          sliver: SliverToBoxAdapter(child: bar),
+        ),
+      if (hits.isEmpty)
+        SliverFillRemaining(hasScrollBody: false, child: empty)
+      else
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpace.lg, 0, AppSpace.lg, AppSpace.xl),
+          sliver: DecoratedSliver(
+            decoration: appSurface(context),
+            sliver: SliverList.separated(
+              itemCount: hits.length,
+              separatorBuilder: (_, __) => const Divider(indent: AppSpace.lg),
+              itemBuilder: (context, index) => _HitRow(
+                hit: hits[index],
+                keyword: keyword,
+                onTap: () => Navigator.of(context).pop(hits[index]),
               ),
             ),
           ),
-      ],
-    );
+        ),
+    ];
   }
 }
 

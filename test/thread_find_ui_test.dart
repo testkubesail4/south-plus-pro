@@ -136,6 +136,56 @@ void main() {
     expect(find.text('已加载的 1 页中没有找到'), findsOneWidget);
   });
 
+  testWidgets('a short window with the keyboard up and large text scrolls',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 360);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 250);
+    addTearDown(tester.view.reset);
+    final threadFind = ThreadFind(
+      onScanEnded: (_) {},
+      pages: () => const [],
+      rules: () => const BlockingRules(),
+    );
+    addTearDown(threadFind.dispose);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: const TextScaler.linear(2)),
+        child: child!,
+      ),
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            // As the thread screen opens it.
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              showDragHandle: true,
+              useSafeArea: true,
+              constraints: const BoxConstraints(maxWidth: 640),
+              builder: (_) => ThreadFindSheet(
+                find: threadFind,
+                authorFilterName: '该作者',
+                createScan: () => throw UnimplementedError(),
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.scrollUntilVisible(find.text('范围：只看 该作者'), 40,
+        scrollable: find
+            .ancestor(
+                of: find.byType(TextField), matching: find.byType(Scrollable))
+            .first);
+    expect(find.text('范围：只看 该作者').hitTestable(), findsOneWidget);
+  });
+
   testWidgets('pages read at different times count the most pages seen',
       (tester) async {
     ThreadDetail page(int number, int total) => ThreadDetail(
