@@ -188,6 +188,25 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     return fragment.isEmpty ? null : fragment;
   }
 
+  // Off while an opaque page covers this one, however many sheets or
+  // dialogs lie between; a sheet or dialog alone leaves it on.
+  ValueListenable<bool>? _onstage;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final onstage = TickerMode.getNotifier(context);
+    if (identical(onstage, _onstage)) return;
+    _onstage?.removeListener(_onCovered);
+    _onstage = onstage..addListener(_onCovered);
+  }
+
+  // Leaving the thread for another page pauses its scan; coming back keeps
+  // what it found, with 继续. Raised while the overlay builds.
+  void _onCovered() => scheduleMicrotask(() {
+        if (mounted && _onstage?.value == false) _find.pause();
+      });
+
   @override
   void didUpdateWidget(covariant ThreadDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -740,6 +759,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
     _notes.removeListener(_onNotesChanged);
     _notes.dispose();
+    _onstage?.removeListener(_onCovered);
     _find.dispose();
     _favoriteFlow.dispose();
     _scrollController.dispose();
