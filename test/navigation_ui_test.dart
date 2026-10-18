@@ -269,10 +269,6 @@ class _NavRepository extends ForumRepository {
       overview;
 
   @override
-  Future<UserProfile> fetchUserProfileFavorites(String url) =>
-      fetchUserProfileOverview(url);
-
-  @override
   Future<FavoriteCollections> fetchFavoriteCollections(
           {String? categoryId}) async =>
       FavoriteCollections(categories: const [], items: const []);

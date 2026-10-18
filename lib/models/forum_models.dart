@@ -733,25 +733,16 @@ class FavoriteCollectionMutation {
   final List<FavoriteItemMutation> items;
 }
 
-class FavoriteCategorySelection {
-  FavoriteCategorySelection({required List<FavoriteCategory> categories})
-      : categories = List.unmodifiable(categories);
-
-  final List<FavoriteCategory> categories;
-}
-
 class FavoriteResult {
   const FavoriteResult({
     required this.success,
     required this.message,
     required this.state,
-    this.categorySelection,
   });
 
   final bool success;
   final String message;
   final ThreadFavoriteState state;
-  final FavoriteCategorySelection? categorySelection;
 }
 
 class ForumSection {
@@ -1014,13 +1005,6 @@ class UserActivityItem {
   final String? date;
 }
 
-class FavoriteListRemoval {
-  const FavoriteListRemoval({required this.id, required this.verify});
-
-  final String id;
-  final String verify;
-}
-
 class UserListItem {
   const UserListItem({
     required this.title,
@@ -1031,7 +1015,6 @@ class UserListItem {
     this.authorUrl,
     this.replies,
     this.views,
-    this.favoriteRemoval,
     this.boardId,
     this.boardUrl,
     this.threadId,
@@ -1046,7 +1029,6 @@ class UserListItem {
   final String? authorUrl;
   final int? replies;
   final int? views;
-  final FavoriteListRemoval? favoriteRemoval;
   final String? boardId;
   final String? boardUrl;
   final String? threadId;

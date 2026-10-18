@@ -20,9 +20,7 @@ class ForumFavoritesService {
   final void Function() _didWrite;
   final _parser = const ForumFavoritesParser();
   final _loaded = Expando<_FavoritesContext>();
-  final _legacy = Expando<({ForumClient client, int epoch, int serial})>();
   int _revision = 0;
-  int _legacySerial = 0;
   bool _writing = false;
 
   Future<FavoriteCollections> fetchFavoriteCollections(
@@ -53,32 +51,6 @@ class ForumFavoritesService {
           ThreadFavorite favorite,
           String categoryId) =>
       _change(snapshot, 'favorite', categoryId: categoryId, favorite: favorite);
-
-  void registerLegacyFavoriteList(Iterable<UserListItem> items) {
-    final serial = ++_legacySerial;
-    for (final item in items) {
-      if (item.favoriteRemoval != null) {
-        _legacy[item] = (client: _client(), epoch: _epoch(), serial: serial);
-      }
-    }
-  }
-
-  Future<FavoriteResult> removeFavoriteFromList(UserListItem item) async {
-    final context = _legacy[item];
-    if (context == null || context.serial != _legacySerial)
-      _invalid('收藏列表已更新，请刷新后重试');
-    _check(context.client, context.epoch);
-    final snapshot = await fetchFavoriteCollections();
-    final entries = snapshot.items
-        .where((entry) =>
-            entry.id == item.favoriteRemoval?.id &&
-            entry.thread.url ==
-                context.client.baseUri.resolve(item.url).toString())
-        .toList();
-    if (entries.length != 1) _invalid('收藏已变更，请刷新后重试');
-    _legacy[item] = null;
-    return _legacyResult(await removeFavorites(snapshot, entries));
-  }
 
   Future<FavoriteResult> removeFavorite(ThreadFavorite favorite) async {
     final snapshot = await fetchFavoriteCollections();

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 
@@ -322,6 +324,15 @@ void main() {
     final client = NativeFavoriteClient();
     final repo = repository(client);
     final snapshot = await repo.fetchFavoriteCollections();
+    for (final favorite in [
+      const ThreadFavorite(tid: '1&tid=2', verify: 'token'),
+      const ThreadFavorite(tid: '1', verify: 'token\n'),
+      const ThreadFavorite(tid: '1', verify: ''),
+    ]) {
+      await expectLater(repo.addFavoriteToCollection(snapshot, favorite, '2'),
+          _invalid);
+    }
+    expect(client.writes, isEmpty);
     final result = await repo.addFavoriteToCollection(snapshot,
         const ThreadFavorite(tid: '703', verify: 'old-thread-token'), '2');
     expect(result.status, FavoriteMutationStatus.confirmed);
@@ -343,6 +354,46 @@ void main() {
             'already-favorite ACK does not move a default favorite to the chosen folder');
     expect(client.rows.first.category, '');
   });
+
+  for (final status in [302, 307]) {
+    test('typed favorite refuses HTTP $status replay and remains unconfirmed',
+        () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final transport =
+          HttpOverrides.runWithHttpOverrides(HttpClient.new, _RealHttp());
+      final repo = ForumRepository(
+          client: _LocalClient(
+              Uri.http('127.0.0.1:${server.port}', '/'), transport));
+      addTearDown(() async {
+        await repo.clearSession();
+        transport.close(force: true);
+        await server.close(force: true);
+      });
+      final writes = <Uri>[];
+      server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType =
+            ContentType('text', 'html', charset: 'utf-8');
+        if (request.uri.path == '/pw_ajax.php') {
+          writes.add(request.uri);
+          request.response.statusCode = status;
+          request.response.headers
+              .set(HttpHeaders.locationHeader, request.uri.toString());
+        } else {
+          request.response.write(nativeFavoriteHtml(
+              categories: ['A'], rows: [], token: 'fresh&tid=2'));
+        }
+        await request.response.close();
+      });
+      final snapshot = await repo.fetchFavoriteCollections();
+      final result = await repo.addFavoriteToCollection(
+          snapshot, const ThreadFavorite(tid: '703', verify: 'old'), '1');
+      expect(result.status, FavoriteMutationStatus.unknown);
+      expect(writes, hasLength(1));
+      expect(writes.single.queryParametersAll['tid'], ['703']);
+      expect(writes.single.queryParametersAll['verify'], ['fresh&tid=2']);
+    });
+  }
 
   test(
       'literal native add rejection is distinct from a user category named 收藏成功',
@@ -429,6 +480,17 @@ void main() {
     pendingClient.readGate!.complete();
     await rejected;
   });
+}
+
+class _RealHttp extends HttpOverrides {}
+
+class _LocalClient extends ForumClient {
+  _LocalClient(this.baseUri, HttpClient transport)
+      : super(httpClient: transport, delay: (_) async {});
+  @override
+  final Uri baseUri;
+  @override
+  bool get isLoggedIn => true;
 }
 
 List<String> _values(NativeFavoriteClient client, String name) =>

@@ -34,13 +34,17 @@ class _DetailsClient extends ForumClient {
       {void Function()? requireCurrentSession,
       bool followRedirects = true}) async {
     requireCurrentSession?.call();
-    if (path == 'u.php?action=favor') {
+    final uri = Uri.parse(path);
+    if (uri.path == 'u.php' && uri.queryParameters['action'] == 'favor') {
       paths.add(path);
       return nativeFavoriteHtml(
           categories: [],
           rows: hasFavorite ? [(id: '456', tid: '456', category: '')] : []);
     }
     final response = await get(path);
+    if (uri.path == 'pw_ajax.php' && uri.queryParameters['action'] == 'favor') {
+      hasFavorite = true;
+    }
     requireCurrentSession?.call();
     return response;
   }
@@ -387,8 +391,14 @@ void main() {
       Future<void> write() async {
         switch (mutation) {
           case 'favorite':
+            client.hasFavorite = false;
             client.mutationResponse = '收藏成功';
-            expect((await repository.addFavorite(favorite)).success, isTrue);
+            final snapshot = await repository.fetchFavoriteCollections();
+            expect(
+                (await repository.addFavoriteToCollection(
+                        snapshot, favorite, '0'))
+                    .status,
+                FavoriteMutationStatus.confirmed);
           case 'remove':
             client.hasFavorite = true;
             client.mutationResponse = '操作完成';
