@@ -277,6 +277,21 @@ void main() {
     expect(find.text('没有符合条件的内容'), findsOneWidget);
   });
 
+  testWidgets('an empty list with no pager is not counted as read',
+      (tester) async {
+    final repository =
+        FakeProfileRepository(onContent: (_) async => contentResult());
+    await openTab(tester, repository, '主题');
+    await tester.enterText(find.byType(TextField), 'alpha');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('搜索全部页面'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始搜索'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(repository.scans.single.loadedPages, 0);
+  });
+
   testWidgets('a search category is no board to filter by', (tester) async {
     final repository = FakeProfileRepository(
       favorites: [listItem('Saved', tid: '1')],

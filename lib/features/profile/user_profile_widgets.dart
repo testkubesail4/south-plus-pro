@@ -1101,8 +1101,12 @@ class _ContentTabState extends State<_ContentTab>
     return (
       rows: _items,
       unresolved: result?.unresolvedItems ?? const <UserListItem>[],
-      // The profile page itself is page one, rows or none.
-      loadedPages: result?.scannedPages ?? 1,
+      // The profile page is page one when it showed rows or its pager; an
+      // empty list with neither may not have been read at all.
+      loadedPages: result?.scannedPages ??
+          (widget.defaultItems.isNotEmpty || widget.defaultTotalPages != null
+              ? 1
+              : 0),
       totalPages: result == null
           ? widget.defaultTotalPages
           : result.totalPages > 0
