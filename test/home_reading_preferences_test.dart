@@ -10,7 +10,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('layout migrates folds, keeps native identity and restores only visibility/order', () async {
+  test(
+      'layout migrates folds, keeps native identity and restores only visibility/order',
+      () async {
     SharedPreferences.setMockInitialValues({
       'account/a/home_collapsed_ids_v1': ['section:旧标题', 'board:42'],
     });
@@ -21,7 +23,9 @@ void main() {
     await HomeReadingPreferences.setSectionHidden('section-id:7', true,
         account: 'a', sections: original);
     await HomeReadingPreferences.setParentHidden('42', true, account: 'a');
-    await HomeReadingPreferences.saveSectionOrder(['section-id:39', 'section-id:7'], account: 'a');
+    await HomeReadingPreferences.saveSectionOrder(
+        ['section-id:39', 'section-id:7'],
+        account: 'a');
     var state = await HomeReadingPreferences.load(account: 'a');
     expect(state.collapsedIds, {'section-id:7', 'board:42'});
     expect(state.hiddenSectionIds, {'section-id:7'});
@@ -31,7 +35,8 @@ void main() {
       ForumSection(nativeId: '1', title: '新增', items: []),
       ForumSection(nativeId: '39', title: '另一分区', items: []),
     ];
-    expect(state.orderedSections(renamed).map((s) => s.nativeId), ['39', '7', '1']);
+    expect(state.orderedSections(renamed).map((s) => s.nativeId),
+        ['39', '7', '1']);
     const simple = [ForumSection(title: '旧标题', items: [])];
     expect(state.sectionId(simple.single, simple), 'section-id:7');
     expect((await HomeReadingPreferences.load()).hiddenSectionIds, isEmpty);
@@ -43,11 +48,18 @@ void main() {
     expect(state.collapsedIds, {'section-id:7', 'board:42'});
   });
 
-  test('layout sanitizes invalid values, keeps unknown ids and never revives v1', () async {
+  test(
+      'layout sanitizes invalid values, keeps unknown ids and never revives v1',
+      () async {
     SharedPreferences.setMockInitialValues({
       'anonymous/home_collapsed_ids_v1': ['section:旧状态'],
       'anonymous/home_layout_v2': jsonEncode({
-        'sectionOrder': ['section-id:7', 'section-id:7', 'section-id:999', 'index:0'],
+        'sectionOrder': [
+          'section-id:7',
+          'section-id:7',
+          'section-id:999',
+          'index:0'
+        ],
         'hiddenSectionIds': ['section-id:7', 'section-id:0'],
         'hiddenParentFids': ['42', '0', 43],
         'collapsedIds': ['board:42'],
@@ -68,6 +80,101 @@ void main() {
       'anonymous/home_layout_v2': '{invalid',
     });
     expect((await HomeReadingPreferences.load()).collapsedIds, isEmpty);
+  });
+
+  test(
+      'quick sources keep three scoped slots and restore without changing layout',
+      () async {
+    const sources = [
+      HomeQuickSource(
+          kind: HomeQuickSourceKind.board,
+          fid: '6',
+          boardPath: ' Root / Games '),
+      HomeQuickSource(kind: HomeQuickSourceKind.hidden),
+      HomeQuickSource(
+          kind: HomeQuickSourceKind.board,
+          fid: '36',
+          order: QuickOrder.replied),
+    ];
+    expect((await HomeReadingPreferences.load()).quickSources,
+        HomeReadingPreferences.defaultQuickSources);
+    await HomeReadingPreferences.saveQuickSources(sources, account: 'reader/a');
+    await HomeReadingPreferences.saveQuickRowCount(5, account: 'reader/a');
+    await HomeReadingPreferences.setCollapsed('board:42', true,
+        account: 'reader/a');
+    final saved = await HomeReadingPreferences.load(account: 'reader/a');
+    expect(saved.quickSources, sources);
+    expect(saved.quickSources.first.boardPath, 'Root / Games');
+    expect(() => saved.quickSources.add(const HomeQuickSource()),
+        throwsUnsupportedError);
+    expect(
+        (await HomeReadingPreferences.load(account: 'reader%2Fa')).quickSources,
+        HomeReadingPreferences.defaultQuickSources);
+    expect((await HomeReadingPreferences.load()).quickSources,
+        HomeReadingPreferences.defaultQuickSources);
+    await HomeReadingPreferences.saveQuickSources(
+        HomeReadingPreferences.defaultQuickSources,
+        account: 'reader/a');
+    final restored = await HomeReadingPreferences.load(account: 'reader/a');
+    expect(restored.quickSources, HomeReadingPreferences.defaultQuickSources);
+    expect(restored.quickRowCount, 5);
+    expect(restored.collapsedIds, {'board:42'});
+  });
+
+  test('quick sources reject invalid writes and salvage corrupt slots safely',
+      () async {
+    const board = HomeQuickSource(kind: HomeQuickSourceKind.board, fid: '6');
+    const site = HomeQuickSource();
+    const hidden = HomeQuickSource(kind: HomeQuickSourceKind.hidden);
+    const valid = [board, site, hidden];
+    await HomeReadingPreferences.saveQuickSources(valid);
+    final revision = HomeReadingPreferences.quickSourcesRevision();
+    for (final values in <List<HomeQuickSource>>[
+      [],
+      [site],
+      [hidden, hidden, hidden],
+      [HomeQuickSource(kind: HomeQuickSourceKind.board, fid: '0'), site, site],
+      [
+        HomeQuickSource(
+            kind: HomeQuickSourceKind.board, fid: '6&action=delete'),
+        site,
+        site
+      ],
+    ]) {
+      await expectLater(
+          HomeReadingPreferences.saveQuickSources(values), throwsArgumentError);
+    }
+    expect((await HomeReadingPreferences.load()).quickSources, valid);
+    expect(HomeReadingPreferences.quickSourcesRevision(), revision);
+    const key = 'anonymous/home_quick_sources_v1';
+    for (final raw in [
+      false,
+      '{bad',
+      '[]',
+      jsonEncode([
+        for (var i = 0; i < 3; i++) {'kind': 'hidden'}
+      ])
+    ]) {
+      SharedPreferences.setMockInitialValues({key: raw});
+      expect((await HomeReadingPreferences.load()).quickSources,
+          HomeReadingPreferences.defaultQuickSources);
+    }
+    SharedPreferences.setMockInitialValues({
+      key: jsonEncode([
+        {'kind': 'board', 'fid': '0', 'order': 'posted'},
+        {'kind': 'board', 'fid': '36', 'order': 'replied'},
+        {'kind': 'hidden'},
+      ])
+    });
+    final repaired = (await HomeReadingPreferences.load()).quickSources;
+    expect(repaired, const [
+      site,
+      HomeQuickSource(
+          kind: HomeQuickSourceKind.board,
+          fid: '36',
+          order: QuickOrder.replied),
+      hidden
+    ]);
   });
 
   test('quick rows persist every allowed count and reject out-of-range writes',
@@ -130,13 +237,18 @@ void main() {
         (await HomeReadingPreferences.load()).recentBoards.first.label, '查询格式');
   });
 
-  test('a visit without ancestry preserves a known qualified label, explicit root replaces it', () async {
+  test(
+      'a visit without ancestry preserves a known qualified label, explicit root replaces it',
+      () async {
     const child = ForumCategory(name: 'Child', slug: 'f42');
-    await HomeReadingPreferences.recordBoardVisit(child, label: 'Parent / Child');
+    await HomeReadingPreferences.recordBoardVisit(child,
+        label: 'Parent / Child');
     await HomeReadingPreferences.recordBoardVisit(child);
-    expect((await HomeReadingPreferences.load()).recentBoards.single.label, 'Parent / Child');
+    expect((await HomeReadingPreferences.load()).recentBoards.single.label,
+        'Parent / Child');
     await HomeReadingPreferences.recordBoardVisit(child, label: 'Child');
-    expect((await HomeReadingPreferences.load()).recentBoards.single.label, 'Child');
+    expect((await HomeReadingPreferences.load()).recentBoards.single.label,
+        'Child');
   });
 
   test('anonymous and account home state stay isolated and pins stay separate',

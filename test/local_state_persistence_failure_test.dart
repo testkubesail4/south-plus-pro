@@ -68,6 +68,11 @@ void main() {
     await HomeReadingPreferences.saveQuickRowCount(5);
     await HomeReadingPreferences.setCollapsed('board:42', true);
     await HomeReadingPreferences.recordBoardVisit(board42);
+    await HomeReadingPreferences.saveQuickSources(const [
+      HomeQuickSource(kind: HomeQuickSourceKind.board, fid: '42'),
+      HomeQuickSource(),
+      HomeQuickSource(kind: HomeQuickSourceKind.hidden),
+    ]);
   }
 
   final mutations = <String, Future<void> Function()>{
@@ -76,13 +81,21 @@ void main() {
     'last tag clear': () => UserTagStore.clear('42'),
     'last note clear': () => UserNoteStore.clear('42'),
     'quick row change': () => HomeReadingPreferences.saveQuickRowCount(3),
+    'quick source change': () => HomeReadingPreferences.saveQuickSources(const [
+          HomeQuickSource(kind: HomeQuickSourceKind.board, fid: '43'),
+          HomeQuickSource(),
+          HomeQuickSource(kind: HomeQuickSourceKind.hidden),
+        ]),
     'collapse removal': () =>
         HomeReadingPreferences.setCollapsed('board:42', false),
     'recent visit': () => HomeReadingPreferences.recordBoardVisit(board43),
     'recent clear': () => HomeReadingPreferences.clearRecentBoards(),
-    'layout section hide': () => HomeReadingPreferences.setSectionHidden('section-id:7', true),
-    'layout parent hide': () => HomeReadingPreferences.setParentHidden('42', true),
-    'layout order': () => HomeReadingPreferences.saveSectionOrder(['section-id:7']),
+    'layout section hide': () =>
+        HomeReadingPreferences.setSectionHidden('section-id:7', true),
+    'layout parent hide': () =>
+        HomeReadingPreferences.setParentHidden('42', true),
+    'layout order': () =>
+        HomeReadingPreferences.saveSectionOrder(['section-id:7']),
     'layout restore': () => HomeReadingPreferences.restoreLayout(),
   };
 
@@ -94,17 +107,20 @@ void main() {
         await seed();
         final restoring = mutation.key == 'layout restore';
         if (restoring) {
-          await HomeReadingPreferences.saveSectionOrder(['section-id:39', 'section-id:7']);
+          await HomeReadingPreferences.saveSectionOrder(
+              ['section-id:39', 'section-id:7']);
           await HomeReadingPreferences.setSectionHidden('section-id:7', true);
           await HomeReadingPreferences.setParentHidden('42', true);
         }
-        final expectedOrder = restoring ? ['section-id:39', 'section-id:7'] : <String>[];
+        final expectedOrder =
+            restoring ? ['section-id:39', 'section-id:7'] : <String>[];
         final expectedSections = restoring ? {'section-id:7'} : <String>{};
         final expectedParents = restoring ? {'42'} : <String>{};
         final before = Map<String, Object>.of(persisted);
         final notesRevision = UserNoteStore.revision.value;
         final tagsRevision = UserTagStore.revision.value;
         final homeRevision = HomeReadingPreferences.revision.value;
+        final sourcesRevision = HomeReadingPreferences.quickSourcesRevision();
         rejectWrites = true;
         throwWrites = throws;
         await expectLater(mutation.value(),
@@ -113,14 +129,18 @@ void main() {
         expect(UserNoteStore.revision.value, notesRevision);
         expect(UserTagStore.revision.value, tagsRevision);
         expect(HomeReadingPreferences.revision.value, homeRevision);
+        expect(HomeReadingPreferences.quickSourcesRevision(), sourcesRevision);
         expect(await UserNoteStore.load(), {'42': '原备注'});
-        expect(await UserTagStore.load(), {'42': ['原标签']});
+        expect(await UserTagStore.load(), {
+          '42': ['原标签']
+        });
         await (await SharedPreferences.getInstance()).reload();
         final restored = await HomeReadingPreferences.load();
         expect(restored.sectionOrder, expectedOrder);
         expect(restored.hiddenSectionIds, expectedSections);
         expect(restored.hiddenParentFids, expectedParents);
         expect(restored.quickRowCount, 5);
+        expect(restored.quickSources.first.fid, '42');
         expect(restored.collapsedIds, {'board:42'});
         expect(restored.recentBoards.map((board) => board.id), ['42']);
 
@@ -132,12 +152,16 @@ void main() {
         await HomeReadingPreferences.recordBoardVisit(board43);
         await (await SharedPreferences.getInstance()).reload();
         expect(await UserNoteStore.load(), {'42': '原备注', '43': '新备注'});
-        expect(await UserTagStore.load(), {'42': ['原标签'], '43': ['新标签']});
+        expect(await UserTagStore.load(), {
+          '42': ['原标签'],
+          '43': ['新标签']
+        });
         final retried = await HomeReadingPreferences.load();
         expect(retried.sectionOrder, expectedOrder);
         expect(retried.hiddenSectionIds, expectedSections);
         expect(retried.hiddenParentFids, expectedParents);
         expect(retried.quickRowCount, 6);
+        expect(retried.quickSources.first.fid, '42');
         expect(retried.collapsedIds, {'board:42', 'board:43'});
         expect(retried.recentBoards.map((board) => board.id), ['43', '42']);
       });

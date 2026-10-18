@@ -847,14 +847,44 @@ class ForumReplyNotice {
   final String date;
 }
 
+enum HomeQuickSourceKind { site, board, hidden }
+
+enum QuickOrder { posted, replied }
+
+class HomeQuickSource {
+  const HomeQuickSource({
+    this.kind = HomeQuickSourceKind.site,
+    this.fid,
+    this.boardPath,
+    this.order = QuickOrder.posted,
+  });
+
+  final HomeQuickSourceKind kind;
+  final String? fid;
+  final String? boardPath;
+  final QuickOrder order;
+
+  @override
+  bool operator ==(Object other) =>
+      other is HomeQuickSource &&
+      other.kind == kind &&
+      other.fid == fid &&
+      other.order == order;
+
+  @override
+  int get hashCode => Object.hash(kind, fid, order);
+}
+
 class ForumQuickList {
   const ForumQuickList({
     required this.title,
     this.threads,
     this.scriptUrl,
     this.fallbackThreads = const [],
+    this.source = const HomeQuickSource(),
   });
 
+  final HomeQuickSource source;
   final String title;
   final List<ForumThread>? threads;
   final String? scriptUrl;
