@@ -581,9 +581,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Alice'), findsOneWidget);
+    expect(find.text('alice'), findsOneWidget);
     expect(find.text('在线'), findsOneWidget);
-    expect(find.text('UID 1'), findsOneWidget);
+    expect(find.text('Alice · UID 1'), findsOneWidget);
     expect(find.text('个人动态'), findsNothing);
 
     await tester.tap(find.text('资料'));

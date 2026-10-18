@@ -408,12 +408,22 @@ void main() {
         initialTab: profile.initialTab,
       )));
       await resize(tester, const Size(1100, 800));
-      expect(identical(tester.state(find.byType(UserProfileScreen)), profileState), isTrue,
-          reason: 'the fresh root must rebuild without replacing the profile filter state');
+      expect(
+          identical(tester.state(find.byType(UserProfileScreen)), profileState),
+          isTrue,
+          reason:
+              'the fresh root must rebuild without replacing the profile filter state');
       expect(AppThemeController.themeMode, ThemeMode.light);
-      expect(Theme.of(tester.element(find.byType(UserProfileScreen))).brightness, Brightness.light);
-      final profileScaffold = find.descendant(of: find.byType(UserProfileScreen), matching: find.byType(Scaffold)).first;
-      expect(tester.widget<Scaffold>(profileScaffold).backgroundColor, AppColors.lightPalette.background);
+      expect(
+          Theme.of(tester.element(find.byType(UserProfileScreen))).brightness,
+          Brightness.light);
+      final profileScaffold = find
+          .descendant(
+              of: find.byType(UserProfileScreen),
+              matching: find.byType(Scaffold))
+          .first;
+      expect(tester.widget<Scaffold>(profileScaffold).backgroundColor,
+          AppColors.lightPalette.background);
       expect(find.text('版块：CM108 / 同人志&CG'), findsOneWidget);
       expect(find.text('CM108 子版主题'), findsOneWidget);
       expect(find.text('CM108 父版主题'), findsNothing);
