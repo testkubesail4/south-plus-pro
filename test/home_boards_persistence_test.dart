@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -148,9 +150,12 @@ void main() {
     var rejectWrite = false;
     var rejectReads = false;
     var writes = 0;
+    // Holds reads while set, as a slow platform would.
+    Completer<void>? holdReads;
     SharedPreferences.resetStatic();
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'getAll') {
+        await holdReads?.future;
         if (rejectReads) throw PlatformException(code: 'read-unavailable');
         return Map<String, Object>.of(persisted);
       }
@@ -191,7 +196,15 @@ void main() {
     expect(writes, writesBefore + 1);
     rejectWrite = false;
     rejectReads = false;
+    final hold = holdReads = Completer<void>();
     await tester.tap(find.text('重试'));
+    await tester.pump();
+    // The retry's read is still out: nothing can be written yet.
+    expect(find.text('显示行数'), findsNothing);
+    expect(find.text('栏目 1'), findsNothing);
+    expect(writes, writesBefore + 1);
+    holdReads = null;
+    hold.complete();
     await tester.pumpAndSettle();
     expect(find.text('$acknowledged 行'), findsOneWidget,
         reason: 'the rejected count was rolled back');

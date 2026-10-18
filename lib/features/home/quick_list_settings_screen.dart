@@ -58,8 +58,13 @@ class _QuickListSettingsScreenState extends State<QuickListSettingsScreen> {
     if (mounted) setState(() {});
   }
 
+  // Nothing is offered until this read answers: what is saved is unknown.
   Future<void> _load() async {
-    setState(() => _error = null);
+    setState(() {
+      _error = null;
+      _rows = null;
+      _sources = null;
+    });
     try {
       final prefs = await HomeReadingPreferences.load(account: _account);
       if (!_current) return;
