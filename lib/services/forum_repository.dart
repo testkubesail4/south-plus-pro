@@ -943,8 +943,8 @@ class ForumRepository {
             if (_urls.fidFromUrl(link.attributes['href']!) case final fid?) fid
       ];
       final canonical = listIds.lastOrNull ?? boardIds.lastOrNull;
-      final validPage =
-          document.querySelector('ul.stream') != null || listIds.isNotEmpty;
+      final validPage = document.querySelector('ul.stream') != null ||
+          (canonical != fid && listIds.isNotEmpty);
       if (canonical == null || !validPage) {
         throw ForumRequestException(
             canonical == null

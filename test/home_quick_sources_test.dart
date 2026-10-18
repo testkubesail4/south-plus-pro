@@ -244,8 +244,8 @@ void main() {
       ForumRequestKind.invalidInput
     ),
     (
-      'unrecognized template',
-      '<div id="breadcrumbs"><a href="thread.php?fid-13.html">Board</a></div>',
+      'unrecognized template with retained navigation',
+      _board('13').replaceFirst('<ul class="stream"></ul>', ''),
       ForumRequestKind.server
     ),
   ]) {
