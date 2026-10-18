@@ -226,6 +226,58 @@ void main() {
             'the fixture really exposes the favorite lookup that scans must avoid');
   });
 
+  testWidgets('mixed-age loaded pages keep the largest observed total',
+      (tester) async {
+    final client = _Client();
+    final repo = ForumRepository(client: client, historyStore: _History());
+    addTearDown(() => client.close(force: true));
+    final job = repo.scanThread(_thread, 'needle',
+        loaded: const [
+          ThreadDetail(
+              thread: _thread,
+              body: 'needle refreshed',
+              replies: [],
+              pagination: ThreadPagination(currentPage: 1, totalPages: 3)),
+          ThreadDetail(
+              thread: _thread,
+              body: '',
+              replies: [
+                ThreadReply(author: 'old append', content: 'needle old')
+              ],
+              pagination: ThreadPagination(currentPage: 2, totalPages: 2)),
+        ],
+        rules: const BlockingRules());
+    addTearDown(job.dispose);
+    job.start();
+    await tester.pump();
+    expect(client.paths, ['read.php?tid-701-fpage-0-toread--page-3.html']);
+    expect(job.progress.totalPages, 3);
+    expect(job.progress.scannedPages, 3);
+    expect(job.progress.state, ScanState.done);
+    expect(job.hits.map((hit) => hit.page), [1, 2, 3]);
+  });
+
+  testWidgets('another thread in either supported URL form is not admitted',
+      (tester) async {
+    for (final link in ['read.php?tid-999.html', 'read.php?tid=999']) {
+      final client = _Client()
+        ..response = (_) => _html(1, 1, 'needle wrong')
+            .replaceFirst('read.php?tid-701.html', link);
+      final job = ForumRepository(client: client, historyStore: _History())
+          .scanThread(_thread, 'needle',
+              loaded: const [], rules: const BlockingRules());
+      addTearDown(() => client.close(force: true));
+      addTearDown(job.dispose);
+      job.start();
+      await tester.pump();
+      expect(job.progress.state, ScanState.failed, reason: link);
+      expect(job.progress.failure, ForumRequestKind.invalidInput);
+      expect(job.hits, isEmpty);
+      await tester.pump(const Duration(minutes: 1));
+      expect(client.paths, hasLength(1));
+    }
+  });
+
   testWidgets(
       'author scope survives normalization and does not trust unrelated loaded pages or server rows',
       (tester) async {

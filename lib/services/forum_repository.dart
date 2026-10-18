@@ -2442,8 +2442,8 @@ class ForumRepository {
       totalPages: seed.isEmpty ? null : total,
       loaded: seed.map((detail) => ScanPage(
           page: detail.pagination.currentPage,
-          totalPages: detail.pagination.totalPages,
-          hasMore: detail.pagination.hasNext,
+          totalPages: total,
+          hasMore: detail.pagination.currentPage < total,
           hits: searchLoadedThread([detail], keyword, rules))),
       readPage: (page, request) async {
         final path = _urls.threadDetailPath(source.url, page: page);

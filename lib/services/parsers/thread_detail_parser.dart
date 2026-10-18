@@ -194,17 +194,17 @@ class ThreadDetailParser {
   }
 
   String? threadUrl(dom.Document document) {
-    for (final link in document.querySelectorAll('a[href*="read.php?tid-"]')) {
+    for (final link in document.querySelectorAll('a[href*="read.php?"]')) {
       final href = link.attributes['href'] ?? '';
       final title = _cleanText(link.text);
       if (title.isEmpty ||
-          href.contains('page-') ||
-          href.contains('-uid-') ||
+          RegExp(r'(?:^|[?&-])page[-=]').hasMatch(href) ||
+          urls.uidFromUrl(href) != null ||
           href.contains('skinco-') ||
           !_isThreadReadHref(href)) {
         continue;
       }
-      return urls.absoluteUrl(href);
+      return urls.absoluteUrl(urls.threadDetailPath(href));
     }
     return null;
   }
@@ -294,8 +294,8 @@ class ThreadDetailParser {
   }
 
   bool _isThreadReadHref(String href) {
-    return RegExp(r'read\.php\?tid-\d+\.html$').hasMatch(href) ||
-        RegExp(r'read\.php\?tid-\d+(?:-|&)').hasMatch(href);
+    final uri = Uri.tryParse(urls.absoluteUrl(href));
+    return uri?.path == '/read.php' && urls.tidFromUrl(href) != null;
   }
 
   ThreadActionLink? _actionLink(
