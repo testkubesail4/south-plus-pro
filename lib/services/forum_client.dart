@@ -566,8 +566,10 @@ class ForumClient {
       final next =
           location == null ? null : uri.resolve(location).removeFragment();
       if (redirectsLeft <= 0 || next == null) {
-        throw const ForumRequestException(
-          ForumRequestKind.network,
+        throw ForumRequestException(
+          guardedRead
+              ? ForumRequestKind.invalidInput
+              : ForumRequestKind.network,
           '重定向次数过多',
         );
       }

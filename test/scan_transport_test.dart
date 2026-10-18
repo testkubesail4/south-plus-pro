@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
+import 'package:south_plus_rewrite/services/full_scan.dart';
 
 class _RealHttp extends HttpOverrides {}
 
@@ -39,6 +40,11 @@ void main() {
         request.response.statusCode = 404;
       } else if (request.uri.path == '/limited') {
         request.response.statusCode = 429;
+      } else if (request.uri.path == '/no-location') {
+        request.response.statusCode = 302;
+      } else if (request.uri.path == '/loop') {
+        request.response.statusCode = 302;
+        request.response.headers.set(HttpHeaders.locationHeader, '/loop');
       } else if (request.uri.path == '/redirect') {
         request.response.statusCode = 302;
         request.response.headers.set(HttpHeaders.locationHeader,
@@ -95,5 +101,29 @@ void main() {
     }
     expect(hits, ['/prime', '/missing', '/limited', '/redirect']);
     expect(foreignHits, 0);
+
+    for (final (path, expectedRequests) in [('no-location', 1), ('loop', 6)]) {
+      final finished = Completer<void>();
+      final job = PageFullScan<int>(
+        client: client,
+        isCurrentSession: () => true,
+        readPage: (page, request) async {
+          await request.getOnce(path);
+          return ScanPage(page: page, hasMore: false);
+        },
+      );
+      job.addListener(() {
+        if (job.progress.state == ScanState.failed && !finished.isCompleted) {
+          finished.complete();
+        }
+      });
+      addTearDown(job.dispose);
+      job.start();
+      await finished.future.timeout(const Duration(seconds: 2));
+      expect(job.progress.failure, ForumRequestKind.invalidInput);
+      expect(job.progress.canResume, isFalse);
+      expect(hits.where((hit) => hit == '/$path'), hasLength(expectedRequests),
+          reason: 'invalid redirects must not restart a scan retry round');
+    }
   });
 }
