@@ -73,9 +73,16 @@ class _HomeShellState extends State<HomeShell> {
         final scope = _repository.localPreferenceAccount;
         // A new owner or storage scope rebuilds every tab, so no account's
         // data lingers.
+        // A hidden tab keeps its state, not its tickers: work it runs can
+        // tell it left the screen.
         Widget tab(int index, Widget Function() build) => _opened
                 .contains(index)
-            ? KeyedSubtree(key: ValueKey((index, owner, scope, _repository.sessionEpoch.value)), child: build())
+            ? TickerMode(
+                enabled: index == _index,
+                child: KeyedSubtree(
+                    key: ValueKey(
+                        (index, owner, scope, _repository.sessionEpoch.value)),
+                    child: build()))
             : const SizedBox.shrink();
         return PopScope(
           canPop: _index == 0,

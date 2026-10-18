@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
+import '../../services/favorite_search.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../services/forum_url_resolver.dart';
+import '../../services/full_scan.dart';
+import '../../services/keyword_match.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
+import '../common/leave_watch.dart';
+import '../common/search_scope_bar.dart';
 import '../common/thread_row.dart';
+import '../common/unresolved_group.dart';
 import '../thread/thread_detail_screen.dart';
 import 'favorite_collections_sheets.dart';
 
@@ -35,7 +41,8 @@ class FavoriteThreadsPage extends StatefulWidget {
 /// Why 移动到… is off when every category already holds the rows.
 const _noTarget = '暂无其他分类，请先新建';
 
-class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
+class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
+    with LeaveWatch<FavoriteThreadsPage> {
   FavoriteCollections? _data;
   Object? _error;
   bool _loading = false;
@@ -58,6 +65,17 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
   /// the list has been read again.
   String? _unconfirmed;
 
+  /// 搜索收藏: the keyword filters the page on screen; a scan of every page
+  /// runs only once asked, and its rows only open threads.
+  bool _searchOpen = false;
+  final _query = TextEditingController();
+  FullScan<FavoriteSearchHit>? _scan;
+
+  /// Moves with every keyword, view and scan; a scan confirmed under an
+  /// older value never starts.
+  int _searchGen = 0;
+  bool _unresolvedOpen = false;
+
   @override
   void initState() {
     super.initState();
@@ -79,6 +97,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
   @override
   void dispose() {
     widget.repository.sessionEpoch.removeListener(_onSession);
+    _dropScan();
+    _query.dispose();
     super.dispose();
   }
 
@@ -93,6 +113,76 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
     _selecting = false;
     _busy = false;
     _unconfirmed = null;
+    _dropScan();
+    _searchOpen = false;
+    _query.clear();
+  }
+
+  String get _keyword => _searchOpen ? _query.text.trim() : '';
+
+  void _dropScan() {
+    _searchGen++;
+    _scan
+      ?..removeListener(_onScan)
+      ..dispose();
+    _scan = null;
+    _unresolvedOpen = false;
+  }
+
+  void _onScan() {
+    if (mounted) setState(() {});
+  }
+
+  // Leaving the page (another page, another tab) stops the scan where it
+  // is; its rows and 继续 stay.
+  @override
+  void onLeft() {
+    final state = _scan?.progress.state;
+    if (state == ScanState.running || state == ScanState.waiting) {
+      _scan!.stop();
+    }
+  }
+
+  // Rows chosen under another keyword may be out of sight: choosing ends.
+  void _keywordChanged() => setState(() {
+        _dropScan();
+        _selected.clear();
+        _selecting = false;
+      });
+
+  void _closeSearch() {
+    _query.clear();
+    setState(() {
+      _searchOpen = false;
+      _dropScan();
+      _selected.clear();
+      _selecting = false;
+    });
+  }
+
+  Future<void> _searchAll(FavoriteCollections data) async {
+    final generation = _searchGen;
+    final epoch = _epoch;
+    final count = data.pageCount;
+    final go = await confirmFullScan(context,
+        subject: '收藏', remainingPages: count == null ? null : count - 1);
+    // Asked for this keyword, view and session; any change cancels it.
+    if (!go ||
+        !mounted ||
+        generation != _searchGen ||
+        epoch != _epoch ||
+        !identical(data, _data)) {
+      return;
+    }
+    final scan = widget.repository
+        .scanFavorites(categoryId: _view, keyword: _keyword, loaded: data);
+    setState(() {
+      _dropScan();
+      _selected.clear();
+      _selecting = false;
+      _scan = scan..addListener(_onScan);
+    });
+    scan.start();
   }
 
   void _onSession() {
@@ -118,6 +208,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
       _view = view;
       _selected.clear();
       _selecting = false;
+      _dropScan();
     });
     try {
       final data =
@@ -495,6 +586,60 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
     }
     final data = _data;
     final items = data?.items ?? const <FavoriteCollectionEntry>[];
+    final keyword = _keyword;
+    final scan = _scan;
+    // A truncated title that misses the keyword may still hold it.
+    final shown = keyword.isEmpty
+        ? items
+        : [
+            for (final e in items)
+              if (matchKeyword(keyword, [e.thread.title],
+                      truncated: e.thread.titleTruncated) ==
+                  true)
+                e,
+          ];
+    final undecided = keyword.isEmpty
+        ? const <FavoriteCollectionEntry>[]
+        : [
+            for (final e in items)
+              if (matchKeyword(keyword, [e.thread.title],
+                      truncated: e.thread.titleTruncated) ==
+                  null)
+                e,
+          ];
+    // 全选 takes the rows the search shows; chosen undecided rows are not
+    // what it counts.
+    final shownIds = {for (final e in shown) e.id};
+    final allChosen = shownIds.isNotEmpty && _selected.containsAll(shownIds);
+    Widget rows(List<FavoriteCollectionEntry> entries) => DecoratedBox(
+          decoration: appSurface(context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final (i, entry) in entries.indexed) ...[
+                if (i > 0) const Divider(indent: AppSpace.lg),
+                _FavoriteRow(
+                  key: ValueKey('favorite-row:${entry.id}'),
+                  entry: entry,
+                  categoryLabel: _view == null && data!.categories.length > 1
+                      ? _labelOf(data, entry.categoryId)
+                      : null,
+                  repository: widget.repository,
+                  selecting: _selecting,
+                  selected: _selected.contains(entry.id),
+                  enabled: !_locked,
+                  onToggle: () => _toggle(entry.id),
+                  onSelect: () => _startSelecting(entry.id),
+                  onRemove: () => _remove([entry]),
+                  onMove: () => _move([entry]),
+                  moveHint: _moveHint([entry]),
+                  onMoveCategories:
+                      _knownSources([entry]) ? () => _move([entry]) : null,
+                ),
+              ],
+            ],
+          ),
+        );
     final Widget body;
     if (_error != null) {
       // Whatever view was loaded before is not shown under this one's name.
@@ -505,6 +650,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
       );
     } else if (data == null || _loading) {
       body = const ThreadRowSkeleton(itemCount: 6);
+    } else if (scan != null) {
+      body = _scanBody(scan);
     } else if (items.isEmpty) {
       // Only the whole list being on this page says there is nothing at all.
       final complete = _pageNote(data) == null;
@@ -522,33 +669,30 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
         icon: Icons.star_outline,
       );
     } else {
-      body = DecoratedBox(
-        decoration: appSurface(context),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final (i, entry) in items.indexed) ...[
-              if (i > 0) const Divider(indent: AppSpace.lg),
-              _FavoriteRow(
-                key: ValueKey('favorite-row:${entry.id}'),
-                entry: entry,
-                categoryLabel: _view == null && data.categories.length > 1
-                    ? _labelOf(data, entry.categoryId)
-                    : null,
-                repository: widget.repository,
-                selecting: _selecting,
-                selected: _selected.contains(entry.id),
-                enabled: !_locked,
-                onToggle: () => _toggle(entry.id),
-                onSelect: () => _startSelecting(entry.id),
-                onRemove: () => _remove([entry]),
-                onMove: () => _move([entry]),
-                moveHint: _moveHint([entry]),
-                onMoveCategories: _knownSources([entry]) ? () => _move([entry]) : null,
-              ),
-            ],
+      // Only the whole list on this page, all titles whole, makes a miss final.
+      final complete = _pageNote(data) == null && undecided.isEmpty;
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (shown.isNotEmpty)
+            rows(shown)
+          else
+            EmptyStateView(
+              icon: Icons.manage_search_outlined,
+              title: complete ? '没有符合的收藏' : '本页没有符合的收藏',
+            ),
+          if (undecided.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.md),
+            UnresolvedGroup(
+              title: '标题不完整 (${undecided.length})',
+              description: '这些收藏的标题被截断，可能符合条件；搜索全部页面会补全标题。',
+              expanded: _unresolvedOpen,
+              onToggle: () =>
+                  setState(() => _unresolvedOpen = !_unresolvedOpen),
+              child: rows(undecided),
+            ),
           ],
-        ),
+        ],
       );
     }
     return PopScope(
@@ -572,22 +716,33 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                       padding: EdgeInsets.fromLTRB(side, 8, side, 32),
                       children: [
                         _Header(
-                          count: data == null || _loading || _error != null
+                          // Scan rows are no page's: no count, no 选择.
+                          count: data == null ||
+                                  _loading ||
+                                  _error != null ||
+                                  scan != null
                               ? null
                               : items.length,
                           page: data == null ? null : _pageNote(data),
                           selecting: _selecting,
                           selected: _selected.length,
-                          allSelected: items.isNotEmpty &&
-                              _selected.length == items.length,
-                          canSelect:
-                              data != null && items.isNotEmpty && !_locked,
+                          allSelected: allChosen,
+                          // Scan rows only open threads.
+                          canSelect: data != null &&
+                              shown.isNotEmpty &&
+                              !_locked &&
+                              scan == null,
+                          filtered: keyword.isNotEmpty,
+                          onSearch: data == null || _searchOpen
+                              ? null
+                              : () => setState(() => _searchOpen = true),
                           onStart: _startSelecting,
+                          // Only the rows the search shows.
                           onAll: () => setState(() {
-                            if (_selected.length == items.length) {
+                            if (allChosen) {
                               _selected.clear();
                             } else {
-                              _selected.addAll([for (final e in items) e.id]);
+                              _selected.addAll(shownIds);
                             }
                           }),
                           onExit: _stopSelecting,
@@ -595,6 +750,16 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                         if (_busy) const LinearProgressIndicator(minHeight: 2),
                         if (_unconfirmed case final text?)
                           _Notice(text: text, onRefresh: _refresh),
+                        if (_searchOpen) ...[
+                          const SizedBox(height: AppSpace.sm),
+                          ListSearchField(
+                            controller: _query,
+                            hintText: '搜索收藏标题',
+                            autofocus: true,
+                            onChanged: (_) => _keywordChanged(),
+                            onClose: _closeSearch,
+                          ),
+                        ],
                         if (data != null && !_selecting) ...[
                           const SizedBox(height: 4),
                           _Views(
@@ -604,6 +769,29 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
                             canManage: !_locked,
                             onView: (id) => _load(view: id),
                             onManage: _manage,
+                          ),
+                        ],
+                        if (keyword.isNotEmpty &&
+                            data != null &&
+                            !_loading &&
+                            _error == null) ...[
+                          const SizedBox(height: AppSpace.sm),
+                          SearchScopeBar(
+                            progress: scan?.progress ??
+                                ScanProgress(
+                                  scannedPages: 1,
+                                  totalPages: data.pageCount,
+                                  found: shown.length,
+                                  unresolved: undecided.length,
+                                ),
+                            // One whole page with whole titles is all there is.
+                            onSearchAll: data.pageCount == 1 &&
+                                    !items.any((e) => e.thread.titleTruncated)
+                                ? null
+                                : () => _searchAll(data),
+                            onStop: scan?.stop,
+                            onResume: scan?.resume,
+                            onBackToLoaded: () => setState(_dropScan),
                           ),
                         ],
                         const SizedBox(height: 8),
@@ -626,6 +814,73 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _scanBody(FullScan<FavoriteSearchHit> scan) {
+    final hits = scan.hits;
+    final unresolved = scan.unresolved;
+    Widget rows(List<FavoriteSearchHit> found) => DecoratedBox(
+          decoration: appSurface(context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final (i, hit) in found.indexed) ...[
+                if (i > 0) const Divider(indent: AppSpace.lg),
+                ForumThreadRow(
+                  key: ValueKey('favorite-hit:${hit.page}:${hit.thread.url}'),
+                  title: hit.thread.title,
+                  meta: [
+                    '第 ${hit.page} 页',
+                    if (hit.thread.section case final section?) section,
+                    if (hit.thread.author case final author?) author,
+                  ],
+                  onTap: () =>
+                      _openFavorite(context, widget.repository, hit.thread),
+                ),
+              ],
+            ],
+          ),
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpace.sm),
+          child: Text('全部页面的结果只能打开；移动或取消收藏请在所在页面操作',
+              style: Theme.of(context).textTheme.bodySmall),
+        ),
+        if (hits.isNotEmpty)
+          rows(hits)
+        // Undecided rows may still match: only none at all is final.
+        else if (scan.progress.state == ScanState.done && unresolved.isEmpty)
+          const EmptyStateView(
+            icon: Icons.manage_search_outlined,
+            title: '没有符合的收藏',
+          )
+        else if (scan.progress.state == ScanState.done)
+          const EmptyStateView(
+            icon: Icons.manage_search_outlined,
+            title: '没有确认符合的收藏',
+            message: '下方标题不完整的收藏仍可能符合。',
+          )
+        else
+          const EmptyStateView(
+            icon: Icons.manage_search_outlined,
+            title: '暂未找到',
+            message: '搜索未完成，结果可能不全。',
+          ),
+        if (unresolved.isNotEmpty) ...[
+          const SizedBox(height: AppSpace.md),
+          UnresolvedGroup(
+            title: '标题不完整 (${unresolved.length})',
+            description: '这些收藏的标题被截断且无法补全，可能符合条件。',
+            expanded: _unresolvedOpen,
+            onToggle: () => setState(() => _unresolvedOpen = !_unresolvedOpen),
+            child: rows(unresolved),
+          ),
+        ],
+      ],
     );
   }
 
@@ -655,6 +910,8 @@ class _Header extends StatelessWidget {
     required this.selected,
     required this.allSelected,
     required this.canSelect,
+    required this.filtered,
+    required this.onSearch,
     required this.onStart,
     required this.onAll,
     required this.onExit,
@@ -668,6 +925,12 @@ class _Header extends StatelessWidget {
   final int selected;
   final bool allSelected;
   final bool canSelect;
+
+  /// A keyword narrows the rows: 全选 takes only those.
+  final bool filtered;
+
+  /// Opens 搜索收藏; null while it is open or nothing is loaded.
+  final VoidCallback? onSearch;
   final VoidCallback onStart;
   final VoidCallback onAll;
   final VoidCallback onExit;
@@ -696,7 +959,11 @@ class _Header extends StatelessWidget {
                 TextButton(
                   key: const ValueKey('favorite-select-all'),
                   onPressed: onAll,
-                  child: Text(allSelected ? '取消全选' : '全选已加载'),
+                  child: Text(allSelected
+                      ? '取消全选'
+                      : filtered
+                          ? '全选结果'
+                          : '全选已加载'),
                 ),
               ],
             )
@@ -712,6 +979,13 @@ class _Header extends StatelessWidget {
                         '已加载 $count 个主题${page == null ? '' : ' · $page'}',
                         style: theme.textTheme.bodySmall),
                   ),
+                  if (onSearch != null)
+                    IconButton(
+                      key: const ValueKey('favorite-search'),
+                      tooltip: '搜索收藏',
+                      onPressed: onSearch,
+                      icon: const Icon(Icons.search),
+                    ),
                   if (count! > 0)
                     TextButton(
                       key: const ValueKey('favorite-select-start'),
@@ -976,22 +1250,7 @@ class _FavoriteRowState extends State<_FavoriteRow> {
       ],
       onTap: widget.selecting
           ? widget.onToggle
-          : () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ThreadDetailScreen(
-                    thread: ForumThread(
-                      title: item.title,
-                      url: item.url,
-                      replies: item.replies ?? 0,
-                      section: item.section ?? '收藏',
-                      author: item.author,
-                      authorUrl: item.authorUrl,
-                      lastPost: item.date,
-                    ),
-                    repository: widget.repository,
-                  ),
-                ),
-              ),
+          : () => _openFavorite(context, widget.repository, item),
       onLongPress: !widget.enabled
           ? null
           : widget.selecting
@@ -1070,4 +1329,24 @@ class _FavoriteRowState extends State<_FavoriteRow> {
             ),
     );
   }
+}
+
+void _openFavorite(
+    BuildContext context, ForumRepository repository, UserListItem item) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ThreadDetailScreen(
+        thread: ForumThread(
+          title: item.title,
+          url: item.url,
+          replies: item.replies ?? 0,
+          section: item.section ?? '收藏',
+          author: item.author,
+          authorUrl: item.authorUrl,
+          lastPost: item.date,
+        ),
+        repository: repository,
+      ),
+    ),
+  );
 }
