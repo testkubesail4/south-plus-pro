@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
+import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/user_content_query.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 
@@ -75,13 +76,13 @@ void main() {
 
     expect(
         repository.queries.single.articleType, UserContentArticleType.digest);
-    expect(find.text('已扫描 1/3 页 · 已核对 1 帖 · 待确认 1 条'), findsOneWidget);
+    expect(find.text('在已加载的 1 页中找到 0 条 · 共 3 页 · 待确认 1 条'), findsOneWidget);
     expect(find.text('已扫描 1/3 页，暂未找到匹配'), findsOneWidget);
     expect(find.text('没有符合条件的内容'), findsNothing);
     expect(find.text('第一页主题'), findsNothing);
-    expect(find.text('未确认分类 (1)'), findsOneWidget);
+    expect(find.text('待确认 (1)'), findsOneWidget);
     expect(find.text('无法确认的主题'), findsNothing);
-    await tester.tap(find.text('未确认分类 (1)'));
+    await tester.tap(find.text('待确认 (1)'));
     await tester.pumpAndSettle();
     expect(find.text('无法确认的主题'), findsOneWidget);
 
@@ -93,6 +94,109 @@ void main() {
     expect(find.text('精华主题'), findsOneWidget);
     expect(find.text('已查完，另有 1 条无法确认'), findsOneWidget);
     expect(find.text('继续查找'), findsNothing);
+  });
+
+  testWidgets('a title search narrows the loaded rows and scans nothing',
+      (tester) async {
+    final rows = [
+      listItem('Alpha guide', tid: '1'),
+      listItem('Beta notes', tid: '2'),
+      listItem('Gamma lo..', tid: '3', truncated: true),
+    ];
+    // Scrolling to the end still loads the next page, as without a search.
+    final repository = FakeProfileRepository(
+        topics: rows, onContent: (_) async => contentResult(items: rows));
+    await openTab(tester, repository, '主题');
+    await tester.enterText(find.byType(TextField), 'alpha');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alpha guide'), findsOneWidget);
+    expect(find.text('Beta notes'), findsNothing);
+    // A cut title that misses the keyword is undecided, not a miss.
+    expect(find.text('待确认 (1)'), findsOneWidget);
+    expect(repository.scans, isEmpty);
+    expect(repository.queries.every((query) => query.keyword.isEmpty), isTrue);
+  });
+
+  testWidgets(
+      'every page is read only when asked, from the unfiltered rows, until the keyword changes',
+      (tester) async {
+    final rows = [
+      listItem('Alpha guide', tid: '1'),
+      listItem('Beta', tid: '2')
+    ];
+    final repository = FakeProfileRepository(
+        topics: rows, onContent: (_) async => contentResult(items: rows));
+    await openTab(tester, repository, '主题');
+    await tester.enterText(find.byType(TextField), 'alpha');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('搜索全部页面'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始搜索'));
+    // A running scan's bar keeps animating.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final asked = repository.scans.single;
+    expect(asked.query.keyword, 'alpha');
+    expect(asked.loaded, rows, reason: 'scope rows, before the keyword');
+    expect(asked.loadedPages, 1);
+    asked.scan.finish([
+      const UserListItem(
+          title: 'Alpha later', url: 'read.php?tid-7.html', sourcePage: 2),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('第 2 页'), findsOneWidget);
+    expect(find.text('加载更多'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'alph');
+    await tester.pumpAndSettle();
+    expect(asked.scan.disposed, isTrue);
+    expect(find.text('Alpha guide'), findsOneWidget);
+  });
+
+  for (final leave in ['another tab', 'another page']) {
+    testWidgets('$leave stops the scan, keeping its rows', (tester) async {
+      final rows = [listItem('Alpha guide', tid: '1')];
+      final repository = FakeProfileRepository(
+          topics: rows, onContent: (_) async => contentResult(items: rows));
+      await openTab(tester, repository, '主题');
+      await tester.enterText(find.byType(TextField), 'alpha');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('搜索全部页面'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('开始搜索'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      final scan = repository.scans.single.scan;
+
+      if (leave == 'another tab') {
+        // As a swipe does; the tab bar may have scrolled away with the header.
+        DefaultTabController.of(tester.element(find.byType(TabBarView)))
+            .animateTo(UserProfileTab.posts.index);
+      } else {
+        Navigator.of(tester.element(find.byType(UserProfileScreen))).push(
+          MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('a thread'))),
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(scan.stopped, isTrue);
+      expect(scan.disposed, isFalse);
+    });
+  }
+
+  testWidgets('favourites filter by board and classification, not type',
+      (tester) async {
+    final repository = FakeProfileRepository(
+      favorites: [listItem('Saved', tid: '1')],
+      onContent: (_) async => contentResult(),
+    );
+    await openTab(tester, repository, '收藏');
+    expect(find.text('Saved'), findsOneWidget);
+    expect(find.text('版块：全部'), findsOneWidget);
+    expect(find.text('类型：全部'), findsNothing);
+    expect(find.widgetWithText(TextField, '搜索收藏标题'), findsOneWidget);
   });
 
   testWidgets('complete scan without matches or unresolved rows says empty',
@@ -286,7 +390,7 @@ void main() {
     await tester.tap(find.text('精华'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('未确认分类 (1)'));
+    await tester.tap(find.text('待确认 (1)'));
     await tester.pumpAndSettle();
     expect(find.text('无法确认的主题'), findsOneWidget);
 
@@ -295,10 +399,10 @@ void main() {
     tester.platformDispatcher.textScaleFactorTestValue = 1.3;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('未确认分类 (1)'));
+    await tester.tap(find.text('待确认 (1)'));
     await tester.pumpAndSettle();
     expect(find.text('无法确认的主题'), findsNothing);
-    await tester.tap(find.text('未确认分类 (1)'));
+    await tester.tap(find.text('待确认 (1)'));
     await tester.pumpAndSettle();
     expect(find.text('无法确认的主题'), findsOneWidget);
     expect(tester.takeException(), isNull);

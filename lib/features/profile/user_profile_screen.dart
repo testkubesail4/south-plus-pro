@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../../models/forum_models.dart';
 import '../../models/user_content_query.dart';
 import '../../services/forum_repository.dart';
+import '../../services/full_scan.dart';
+import '../../services/keyword_match.dart';
 import '../../services/user_display_name_store.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
@@ -11,6 +13,8 @@ import '../common/board_picker_sheet.dart';
 import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
+import '../common/leave_watch.dart';
+import '../common/search_scope_bar.dart';
 import '../common/thread_row.dart';
 import '../common/unresolved_group.dart';
 import '../common/user_note.dart';
@@ -50,6 +54,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   // Board ids belong to one session; a new session starts unfiltered.
   var _topicSelection = _ContentSelection();
   var _postSelection = _ContentSelection();
+  var _favoriteSelection = _ContentSelection();
   Future<UserProfile>? _detailsFuture;
 
   // Login name from the explicit lookup; lives only as long as this screen
@@ -106,6 +111,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _sections = null;
       _topicSelection = _ContentSelection();
       _postSelection = _ContentSelection();
+      _favoriteSelection = _ContentSelection();
     });
   }
 
@@ -186,6 +192,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           throw error;
         },
       );
+
+  /// The tab's page count as the profile page states it; null when unsaid.
+  int? _totalPages(UserProfile details, UserProfileTab tab) =>
+      details.contentPagination[tab]?.totalPages;
 
   // Only says which board sits under which; a failed read is not cached.
   Future<List<ForumSection>> _loadSections() =>
@@ -397,6 +407,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                       uid: uid,
                                       tab: UserProfileTab.topics,
                                       defaultItems: details.topics,
+                                      defaultTotalPages: _totalPages(
+                                          details, UserProfileTab.topics),
                                       emptyText: '没有主题',
                                       repository: widget.repository,
                                       loadBoards: _loadBoards,
@@ -420,6 +432,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                       uid: uid,
                                       tab: UserProfileTab.posts,
                                       defaultItems: details.posts,
+                                      defaultTotalPages: _totalPages(
+                                          details, UserProfileTab.posts),
                                       emptyText: '没有回复',
                                       repository: widget.repository,
                                       loadBoards: _loadBoards,
@@ -438,12 +452,26 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
-                              builder: (context, details) => _ItemList(
-                                items: details.favorites,
-                                emptyText: '没有公开收藏',
-                                repository: widget.repository,
-                                showAuthor: true,
-                              ),
+                              builder: (context, details) => hasUid
+                                  ? _ContentTab(
+                                      uid: uid,
+                                      tab: UserProfileTab.favorites,
+                                      defaultItems: details.favorites,
+                                      defaultTotalPages: _totalPages(
+                                          details, UserProfileTab.favorites),
+                                      emptyText: '没有公开收藏',
+                                      repository: widget.repository,
+                                      loadBoards: _loadBoards,
+                                      loadSections: _loadSections,
+                                      selection: _favoriteSelection,
+                                      refreshGeneration: _contentRefresh,
+                                    )
+                                  : _ItemList(
+                                      items: details.favorites,
+                                      emptyText: '没有公开收藏',
+                                      repository: widget.repository,
+                                      showAuthor: true,
+                                    ),
                             ),
                           ),
                         ],

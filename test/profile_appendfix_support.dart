@@ -6,6 +6,7 @@ import 'package:south_plus_rewrite/models/user_content_query.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/full_scan.dart';
 
 const profileFixture = UserProfile(
   uid: '123',
@@ -15,9 +16,11 @@ const profileFixture = UserProfile(
   url: 'u.php?action-show-uid-123.html',
 );
 
-UserListItem listItem(String title, {String? tid, String? pid, String? fid}) =>
+UserListItem listItem(String title,
+        {String? tid, String? pid, String? fid, bool truncated = false}) =>
     UserListItem(
       title: title,
+      titleTruncated: truncated,
       url: 'read.php?tid-${tid ?? title.hashCode.abs()}.html',
       threadId: tid,
       postId: pid,
@@ -50,11 +53,13 @@ class FakeProfileRepository extends ForumRepository {
   FakeProfileRepository({
     this.topics = const [],
     this.posts = const [],
+    this.favorites = const [],
     this.onContent,
   }) : super(client: ForumClient());
 
   final List<UserListItem> topics;
   final List<UserListItem> posts;
+  final List<UserListItem> favorites;
   Future<UserContentResult> Function(UserContentQuery query)? onContent;
   List<ForumSearchBoard> boards = const [
     ForumSearchBoard(id: 'all', name: '全部版块'),
@@ -84,7 +89,8 @@ class FakeProfileRepository extends ForumRepository {
     bool forceReload = false,
   }) async {
     await holdDetails?.future;
-    return overview.copyWith(topics: topics, posts: posts);
+    return overview.copyWith(
+        topics: topics, posts: posts, favorites: favorites);
   }
 
   @override
@@ -124,6 +130,27 @@ class FakeProfileRepository extends ForumRepository {
           String boardId) async =>
       classifications;
 
+  /// Every 搜索全部页面 asked for, with what the tab held.
+  final scans = <({
+    UserContentQuery query,
+    List<UserListItem>? loaded,
+    int? loadedPages,
+    FakeScan scan,
+  })>[];
+
+  @override
+  FullScan<UserListItem> scanUserContent(
+    UserContentQuery query, {
+    List<UserListItem>? loaded,
+    int? loadedPages,
+    int? totalPages,
+  }) {
+    final scan = FakeScan();
+    scans.add(
+        (query: query, loaded: loaded, loadedPages: loadedPages, scan: scan));
+    return scan;
+  }
+
   @override
   Future<UserContentResult> fetchUserContent(
     UserContentQuery query, {
@@ -132,5 +159,54 @@ class FakeProfileRepository extends ForumRepository {
     queries.add(query);
     refreshes.add(refresh);
     return onContent!(query);
+  }
+}
+
+/// A scan the test drives: running once started, done when told.
+class FakeScan extends FullScan<UserListItem> {
+  bool disposed = false;
+  ScanProgress _progress = const ScanProgress();
+  List<UserListItem> _hits = const [];
+
+  @override
+  ScanProgress get progress => _progress;
+  @override
+  List<UserListItem> get hits => _hits;
+  @override
+  List<UserListItem> get unresolved => const [];
+
+  @override
+  void start() {
+    _progress = const ScanProgress(state: ScanState.running, scannedPages: 1);
+    notifyListeners();
+  }
+
+  void finish(List<UserListItem> hits) {
+    _hits = hits;
+    _progress = ScanProgress(
+        state: ScanState.done,
+        scannedPages: 2,
+        totalPages: 2,
+        found: hits.length);
+    notifyListeners();
+  }
+
+  bool stopped = false;
+
+  @override
+  void stop() {
+    stopped = true;
+    _progress = const ScanProgress(
+        state: ScanState.stopped, scannedPages: 1, canResume: true);
+    notifyListeners();
+  }
+
+  @override
+  void resume() {}
+
+  @override
+  void dispose() {
+    disposed = true;
+    super.dispose();
   }
 }

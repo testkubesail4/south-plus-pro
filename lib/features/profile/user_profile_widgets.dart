@@ -952,18 +952,21 @@ String _articleTypeLabel(UserContentArticleType type) => switch (type) {
 /// The selectors of one 主题/回复 tab. Owned by the screen so a pull-to-refresh
 /// that rebuilds the tab keeps what the user picked.
 class _ContentSelection {
+  String keyword = '';
   ForumSearchBoard? board;
   UserContentArticleType type = UserContentArticleType.all;
   UserContentClassification? classification;
 }
 
-/// 主题 / 回复: the first page as loaded, plus board, type and classification
-/// selectors. Every search step is one user action; nothing scans on its own.
+/// 主题 / 回复 / 收藏: the first page as loaded, plus a title search and the
+/// board, type and classification selectors. Every search step is one user
+/// action; nothing scans on its own, and only 搜索全部页面 reads posts.
 class _ContentTab extends StatefulWidget {
   const _ContentTab({
     required this.uid,
     required this.tab,
     required this.defaultItems,
+    required this.defaultTotalPages,
     required this.emptyText,
     required this.repository,
     required this.loadBoards,
@@ -977,6 +980,9 @@ class _ContentTab extends StatefulWidget {
 
   /// The page the profile already loaded; shown while no selector is set.
   final List<UserListItem> defaultItems;
+
+  /// How many pages the list has, when the profile page says.
+  final int? defaultTotalPages;
   final String emptyText;
   final ForumRepository repository;
   final Future<List<ForumSearchBoard>> Function() loadBoards;
@@ -994,7 +1000,7 @@ class _ContentTab extends StatefulWidget {
 }
 
 class _ContentTabState extends State<_ContentTab>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, LeaveWatch<_ContentTab> {
   ForumSearchBoard? get _board => widget.selection.board;
   set _board(ForumSearchBoard? value) => widget.selection.board = value;
   UserContentArticleType get _type => widget.selection.type;
@@ -1011,8 +1017,111 @@ class _ContentTabState extends State<_ContentTab>
   Object? _error;
   bool _unresolvedOpen = false;
   late bool _restart = widget.refreshGeneration > 0;
-  // Bumped on every selector change; results of older queries are dropped.
+  // Bumped on every selector or keyword change; results of older queries are
+  // dropped and a scan confirmed under an older value never starts.
   int _epoch = 0;
+  late final _keyword = TextEditingController(text: widget.selection.keyword);
+
+  /// 搜索全部页面: read-only rows from every page, until the scope changes.
+  FullScan<UserListItem>? _scan;
+
+  String get _kw => _keyword.text.trim();
+
+  @override
+  void dispose() {
+    _tabs?.removeListener(_onTab);
+    _dropScan();
+    _keyword.dispose();
+    super.dispose();
+  }
+
+  // The profile's tabs stay built side by side: another tab is leaving too.
+  TabController? _tabs;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final tabs = DefaultTabController.maybeOf(context);
+    if (identical(tabs, _tabs)) return;
+    _tabs?.removeListener(_onTab);
+    _tabs = tabs?..addListener(_onTab);
+  }
+
+  void _onTab() {
+    if (_tabs!.index != widget.tab.index) onLeft();
+  }
+
+  // Leaving (another page, another tab) stops the scan where it is; its rows
+  // and 继续 stay.
+  @override
+  void onLeft() {
+    final state = _scan?.progress.state;
+    if (state == ScanState.running || state == ScanState.waiting) {
+      _scan!.stop();
+    }
+  }
+
+  void _dropScan() {
+    _scan
+      ?..removeListener(_onScan)
+      ..dispose();
+    _scan = null;
+  }
+
+  void _onScan() {
+    if (mounted) setState(() {});
+  }
+
+  void _keywordChanged(String value) {
+    widget.selection.keyword = value;
+    setState(() {
+      _epoch++;
+      _dropScan();
+    });
+  }
+
+  String get _subject => switch (widget.tab) {
+        UserProfileTab.posts => '回复列表',
+        UserProfileTab.favorites => '收藏列表',
+        _ => '主题列表',
+      };
+
+  Future<void> _searchAll({
+    required List<UserListItem> loaded,
+    required int loadedPages,
+    required int? totalPages,
+  }) async {
+    final epoch = _epoch;
+    final session = widget.repository.sessionEpoch.value;
+    final go = await confirmFullScan(context,
+        subject: _subject,
+        remainingPages: totalPages == null ? null : totalPages - loadedPages);
+    // Asked for this keyword, scope and session; any change cancels it.
+    if (!go ||
+        !mounted ||
+        epoch != _epoch ||
+        session != widget.repository.sessionEpoch.value) {
+      return;
+    }
+    final scan = widget.repository.scanUserContent(
+      UserContentQuery(
+        uid: widget.uid,
+        tab: widget.tab,
+        boardId: _board?.id,
+        articleType: _type,
+        classificationId: _classification?.id,
+        keyword: _kw,
+      ),
+      loaded: loaded,
+      loadedPages: loadedPages,
+      totalPages: totalPages,
+    );
+    setState(() {
+      _dropScan();
+      _scan = scan..addListener(_onScan);
+    });
+    scan.start();
+  }
 
   @override
   void initState() {
@@ -1028,6 +1137,7 @@ class _ContentTabState extends State<_ContentTab>
     // Refreshed: whatever the old query accumulated is stale. Drop it (and any
     // reply still in flight), keep the selectors, restart from page one.
     _epoch++;
+    _dropScan();
     _result = null;
     _error = null;
     _loading = false;
@@ -1086,6 +1196,7 @@ class _ContentTabState extends State<_ContentTab>
         _classification = classification;
       }
       _epoch++;
+      _dropScan();
       _result = null;
       _error = null;
       _loading = false;
@@ -1216,33 +1327,55 @@ class _ContentTabState extends State<_ContentTab>
       ? '已扫描 ${result.scannedPages}/${result.totalPages} 页'
       : '已扫描 ${result.scannedPages} 页';
 
-  String _statusText(UserContentResult result) {
-    return [
-      _scanned(result),
-      if (result.checkedThreads > 0) '已核对 ${result.checkedThreads} 帖',
-      if (result.lookupPagesTotal > 0)
-        '分类列表已查 ${result.lookupPagesScanned}/${result.lookupPagesTotal} 页',
-      if (result.pendingMetadataCount > 0)
-        '未核对 ${result.pendingMetadataCount} 条',
-      if (result.unresolvedItems.isNotEmpty)
-        '待确认 ${result.unresolvedItems.length} 条',
-    ].join(' · ');
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final theme = Theme.of(context);
     final result = _result;
-    final items = _items;
-    final unresolved = result?.unresolvedItems ?? const <UserListItem>[];
+    final scan = _scan;
+    final keyword = _kw;
+    // The rows in scope (selectors applied), before the keyword.
+    final scope = _items;
+    final scopeUnresolved = result?.unresolvedItems ?? const <UserListItem>[];
+    bool? matches(UserListItem item) =>
+        matchKeyword(keyword, [item.title], truncated: item.titleTruncated);
+    final items = scan?.hits ??
+        (keyword.isEmpty
+            ? scope
+            : [
+                for (final item in scope)
+                  if (matches(item) == true) item,
+              ]);
+    // Undecided rows: unverified metadata, or a cut title the keyword misses.
+    final unresolved = scan?.unresolved ??
+        (keyword.isEmpty
+            ? scopeUnresolved
+            : [
+                for (final item in scopeUnresolved)
+                  if (matches(item) != false) item,
+                for (final item in scope)
+                  if (matches(item) == null) item,
+              ]);
     final gutter = _gutter(context);
     final filtered = !_isDefault;
+    final searching = filtered || keyword.isNotEmpty;
+    final loadedPages =
+        result?.scannedPages ?? (widget.defaultItems.isEmpty ? 0 : 1);
+    final totalPages = result == null
+        ? widget.defaultTotalPages
+        : result.totalPages > 0
+            ? result.totalPages
+            : null;
+    final allRead = totalPages != null &&
+        loadedPages >= totalPages &&
+        !(result?.hasMore ?? false);
+    // Before the first answer of a filter there is nothing to search in.
+    final ready = !filtered || result != null;
     return NotificationListener<ScrollEndNotification>(
       onNotification: (notification) {
         if (notification.depth == 0 &&
             notification.metrics.extentAfter < 240 &&
             items.isNotEmpty &&
+            scan == null &&
             _canContinue) {
           _advance();
         }
@@ -1250,8 +1383,19 @@ class _ContentTabState extends State<_ContentTab>
       },
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: EdgeInsets.fromLTRB(gutter, AppSpace.sm, gutter, 28),
         children: [
+          ListSearchField(
+            controller: _keyword,
+            hintText: switch (widget.tab) {
+              UserProfileTab.posts => '搜索参与的主题标题',
+              UserProfileTab.favorites => '搜索收藏标题',
+              _ => '搜索主题标题',
+            },
+            onChanged: _keywordChanged,
+          ),
+          const SizedBox(height: AppSpace.xs),
           Wrap(
             spacing: AppSpace.sm,
             crossAxisAlignment: WrapCrossAlignment.center,
@@ -1262,12 +1406,14 @@ class _ContentTabState extends State<_ContentTab>
                 active: _board != null,
                 onTap: _pickBoard,
               ),
-              _FilterChipButton(
-                label: '类型',
-                value: _articleTypeLabel(_type),
-                active: _type != UserContentArticleType.all,
-                onTap: _pickType,
-              ),
+              // Favourites carry no article type.
+              if (widget.tab != UserProfileTab.favorites)
+                _FilterChipButton(
+                  label: '类型',
+                  value: _articleTypeLabel(_type),
+                  active: _type != UserContentArticleType.all,
+                  onTap: _pickType,
+                ),
               _FilterChipButton(
                 label: '分类',
                 value: _classification?.label ?? '全部',
@@ -1278,49 +1424,75 @@ class _ContentTabState extends State<_ContentTab>
               ),
             ],
           ),
-          // Before the first answer the footer carries the loading/error state.
-          if (filtered && result != null) ...[
+          if (searching && ready) ...[
             const SizedBox(height: AppSpace.xs),
-            Semantics(
-              liveRegion: true,
-              child:
-                  Text(_statusText(result), style: theme.textTheme.bodySmall),
+            SearchScopeBar(
+              progress: scan?.progress ??
+                  ScanProgress(
+                    scannedPages: loadedPages,
+                    totalPages: totalPages,
+                    found: items.length,
+                    unresolved: unresolved.length,
+                  ),
+              onSearchAll: allRead && unresolved.isEmpty
+                  ? null
+                  : () => _searchAll(
+                        loaded: [...scope, ...scopeUnresolved],
+                        loadedPages: loadedPages,
+                        totalPages: totalPages,
+                      ),
+              onStop: scan?.stop,
+              onResume: scan?.resume,
+              onBackToLoaded: () => setState(_dropScan),
             ),
           ],
           const SizedBox(height: AppSpace.sm),
           if (items.isNotEmpty)
-            _threadGroup(context, items, widget.repository, showAuthor: false)
+            _threadGroup(context, items, widget.repository,
+                showAuthor: widget.tab == UserProfileTab.favorites,
+                showPage: scan != null)
+          else if (scan != null)
+            _InlineEmpty(
+              text: scan.progress.state == ScanState.done && unresolved.isEmpty
+                  ? '没有符合条件的内容'
+                  : '暂未找到匹配',
+            )
           else if (_loading && result == null)
             const _SkeletonPanel()
           else if (result != null || (!filtered && _error == null))
             _InlineEmpty(
-              text: !filtered
+              text: !searching
                   ? widget.emptyText
-                  : result!.hasMore || unresolved.isNotEmpty
-                      ? '${_scanned(result)}，暂未找到匹配'
-                      : '没有符合条件的内容',
+                  : allRead && unresolved.isEmpty
+                      ? '没有符合条件的内容'
+                      : result == null
+                          ? '已加载的 $loadedPages 页中暂未找到匹配'
+                          : '${_scanned(result)}，暂未找到匹配',
             ),
           if (unresolved.isNotEmpty) ...[
             const SizedBox(height: AppSpace.md),
             UnresolvedGroup(
-              title: '未确认分类 (${unresolved.length})',
-              description: '这些内容的版块、分类或类型暂时无法核实，可能符合条件。',
+              title: '待确认 (${unresolved.length})',
+              description: '这些内容的标题、版块、分类或类型暂时无法核实，可能符合条件。',
               expanded: _unresolvedOpen,
               onToggle: () =>
                   setState(() => _unresolvedOpen = !_unresolvedOpen),
               child: _threadGroup(context, unresolved, widget.repository,
-                  showAuthor: false),
+                  showAuthor: widget.tab == UserProfileTab.favorites,
+                  showPage: scan != null),
             ),
           ],
-          _ContentFooter(
-            loading: _loading,
-            error: _error,
-            canContinue: _canContinue,
-            filtered: filtered,
-            finished: result != null && !result.hasMore,
-            unresolvedCount: unresolved.length,
-            onContinue: _advance,
-          ),
+          // Every page is the scan's to read: no page-by-page footer.
+          if (scan == null)
+            _ContentFooter(
+              loading: _loading,
+              error: _error,
+              canContinue: _canContinue,
+              filtered: filtered,
+              finished: result != null && !result.hasMore,
+              unresolvedCount: unresolved.length,
+              onContinue: _advance,
+            ),
         ],
       ),
     );
@@ -1536,6 +1708,7 @@ Widget _threadGroup(
   List<UserListItem> items,
   ForumRepository repository, {
   required bool showAuthor,
+  bool showPage = false,
 }) {
   return AppGroup(
     dividerIndent: AppSpace.lg,
@@ -1545,6 +1718,7 @@ Widget _threadGroup(
           key: ValueKey(item.postId ?? item.url),
           title: item.title,
           meta: [
+            if (showPage && item.sourcePage != null) '第 ${item.sourcePage} 页',
             if (item.section case final section?) section,
             if (showAuthor && item.author != null) item.author!,
             if (item.date case final date?) date,
