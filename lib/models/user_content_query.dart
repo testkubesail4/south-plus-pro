@@ -9,6 +9,7 @@ class UserContentQuery {
     this.boardId,
     this.articleType = UserContentArticleType.all,
     this.classificationId,
+    this.keyword = '',
   });
 
   final String uid;
@@ -16,9 +17,10 @@ class UserContentQuery {
   final String? boardId;
   final UserContentArticleType articleType;
   final String? classificationId;
+  final String keyword;
 
   String get cacheKey =>
-      '$uid/${tab.name}/${boardId ?? ''}/${articleType.name}/${classificationId ?? ''}';
+      '$uid/${tab.name}/${boardId ?? ''}/${articleType.name}/${classificationId ?? ''}/${Uri.encodeComponent(keyword)}';
 }
 
 class UserContentClassification {
@@ -57,14 +59,20 @@ class UserContentResult {
 }
 
 class UserContentPage {
-  const UserContentPage({required this.items, required this.totalPages});
+  const UserContentPage(
+      {required this.items,
+      required this.totalPages,
+      this.paginationKnown = true});
 
   final List<UserListItem> items;
   final int totalPages;
+  final bool paginationKnown;
 }
 
 class UserContentThreadMetadata {
   const UserContentThreadMetadata({
+    this.title,
+    this.boardName,
     this.authorUid,
     this.boardId,
     this.classificationId,
@@ -74,6 +82,8 @@ class UserContentThreadMetadata {
     this.sale,
   });
 
+  final String? title;
+  final String? boardName;
   final String? authorUid;
   final String? boardId;
   final String? classificationId;

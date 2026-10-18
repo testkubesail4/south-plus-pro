@@ -100,12 +100,31 @@ class UserProfileParser {
     required dom.Document postsDocument,
     required dom.Document favoritesDocument,
   }) {
+    UserContentPage read(dom.Document document, UserProfileTab tab) =>
+        document.querySelector('.u-table') == null
+            ? const UserContentPage(
+                items: [], totalPages: 1, paginationKnown: false)
+            : parseContentPage(document, uid: overview.uid, tab: tab, page: 1);
+    final topics = read(topicsDocument, UserProfileTab.topics);
+    final posts = read(postsDocument, UserProfileTab.posts);
+    final favorites = read(favoritesDocument, UserProfileTab.favorites);
     return overview.copyWith(
+      contentPagination: Map.unmodifiable({
+        if (topics.paginationKnown)
+          UserProfileTab.topics:
+              ThreadPagination(currentPage: 1, totalPages: topics.totalPages),
+        if (posts.paginationKnown)
+          UserProfileTab.posts:
+              ThreadPagination(currentPage: 1, totalPages: posts.totalPages),
+        if (favorites.paginationKnown)
+          UserProfileTab.favorites: ThreadPagination(
+              currentPage: 1, totalPages: favorites.totalPages),
+      }),
       homeActivities: _parseHomeActivities(homeDocument),
       homeReplies: _parseHomeReplies(homeDocument),
-      topics: _parseThreadRows(topicsDocument, includeMetrics: true),
-      posts: _parseThreadRows(postsDocument, includeAuthor: true),
-      favorites: _parseFavorites(favoritesDocument),
+      topics: topics.items,
+      posts: posts.items,
+      favorites: favorites.items,
     );
   }
 
@@ -248,31 +267,70 @@ class UserProfileParser {
     UserContentArticleType articleType = UserContentArticleType.all,
   }) {
     if (document.querySelector('.u-table') == null) {
-      throw const ForumRequestException(ForumRequestKind.server, '无法识别用户文章列表');
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '无法识别用户文章列表');
     }
-    var totalPages = page;
+    final pagination =
+        _contentPagination(document, uid: uid, tab: tab, page: page);
+    final items = tab == UserProfileTab.favorites
+        ? _parseFavorites(document, sourcePage: pagination.current)
+        : _parseThreadRows(document,
+            includeMetrics: tab == UserProfileTab.topics,
+            includeAuthor: tab == UserProfileTab.posts,
+            sourcePage: pagination.current);
+    return UserContentPage(
+      items: items,
+      totalPages: pagination.total,
+      paginationKnown: pagination.known &&
+          (items.isNotEmpty || pagination.current == pagination.total),
+    );
+  }
+
+  ({int current, int total, bool known}) _contentPagination(
+      dom.Document document,
+      {required String uid,
+      required UserProfileTab tab,
+      int page = 1}) {
+    final action = switch (tab) {
+      UserProfileTab.topics => 'topic',
+      UserProfileTab.posts => 'post',
+      UserProfileTab.favorites => 'favor',
+      _ => throw ArgumentError('Unsupported content tab'),
+    };
+    var totalFromLinks = page;
+    var hasLast = false;
     for (final link in document.querySelectorAll('.pages a[href]')) {
       final href = link.attributes['href'] ?? '';
       if (!urls.isForumUrl(href) || urls.uidFromUrl(href) != uid) continue;
       final uri = Uri.parse(urls.absoluteUrl(href));
-      if (uri.path != '/u.php') continue;
-      final action = tab == UserProfileTab.topics ? 'topic' : 'post';
-      if (!RegExp('(?:[?&]|^)action[-=]$action(?:[-&]|\$)').hasMatch(href))
+      if (uri.path != '/u.php' ||
+          !RegExp('(?:[?&]|^)action[-=]$action(?:[-&]|\$)').hasMatch(href))
         continue;
       final target = int.tryParse(
           RegExp(r'(?:[-?&])page[-=]([1-9]\d*)').firstMatch(href)?.group(1) ??
               '');
-      if (target != null && target > totalPages) totalPages = target;
+      if (target == null) continue;
+      if (target > totalFromLinks) totalFromLinks = target;
+      if ({'»', '>>', 'last', '末页', '尾页'}
+          .contains(link.text.trim().toLowerCase())) {
+        hasLast = true;
+      }
     }
-    final count = RegExp(r'Pages:\s*\d+\s*/\s*(\d+)', caseSensitive: false)
-        .firstMatch(document.querySelector('.pages')?.text ?? '');
-    final total = int.tryParse(count?.group(1) ?? '');
-    if (total != null && total > totalPages) totalPages = total;
-    return UserContentPage(
-      items: _parseThreadRows(document,
-          includeMetrics: tab == UserProfileTab.topics,
-          includeAuthor: tab == UserProfileTab.posts),
-      totalPages: totalPages,
+    final pager = document.querySelector('.pages');
+    final counter = RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)', caseSensitive: false)
+        .firstMatch(pager?.text ?? '');
+    final current = int.tryParse(counter?.group(1) ?? '') ?? page;
+    final declared = int.tryParse(counter?.group(2) ?? '');
+    final total = declared ?? totalFromLinks;
+    final known = current == page &&
+        current >= 1 &&
+        total >= current &&
+        (declared == null || totalFromLinks <= total) &&
+        (counter != null || hasLast || (pager == null && page == 1));
+    return (
+      current: current < 1 ? page : current,
+      total: total < page ? page : total,
+      known: known
     );
   }
 
@@ -346,11 +404,14 @@ class UserProfileParser {
     final subject = document.querySelector('#subject_tpc');
     if (subject == null) return const UserContentThreadMetadata();
     String? boardId;
+    String? boardName;
     for (final link in document.querySelectorAll(
         '#breadcrumbs a[href], #breadCrumb a[href], .breadcrumb a[href], .crumb a[href]')) {
       final href = link.attributes['href'] ?? '';
       if (urls.forumLinkTarget(href) is ForumBoardLinkTarget) {
         boardId = urls.fidFromUrl(href) ?? boardId;
+        final name = _cleanText(link.text);
+        boardName = name.isEmpty ? null : name;
       }
     }
     final title = _cleanText(subject.text);
@@ -383,6 +444,8 @@ class UserProfileParser {
                   threadId);
     });
     return UserContentThreadMetadata(
+      title: title,
+      boardName: boardName,
       authorUid: authorUid,
       boardId: boardId,
       classificationId: classification?.id,
@@ -395,8 +458,10 @@ class UserProfileParser {
     dom.Document document, {
     bool includeMetrics = false,
     bool includeAuthor = false,
+    int sourcePage = 1,
   }) {
-    final table = document.querySelector('.u-table');
+    final table = document.querySelector('#u-contentmain .u-table') ??
+        document.querySelector('.u-table');
     if (table == null) return const [];
     final items = <UserListItem>[];
     for (final row in table.querySelectorAll('tr')) {
@@ -428,6 +493,8 @@ class UserProfileParser {
       items.add(
         UserListItem(
           title: title,
+          titleTruncated: title.endsWith('..'),
+          sourcePage: sourcePage,
           url: urls.absoluteUrl(href),
           section: section.isEmpty ? null : section,
           boardId: boardId,
@@ -445,10 +512,11 @@ class UserProfileParser {
     return items;
   }
 
-  List<UserListItem> _parseFavorites(dom.Document document) {
-    final table =
+  List<UserListItem> _parseFavorites(dom.Document document,
+      {int sourcePage = 1}) {
+    final table = document.querySelector('#u-contentmain .u-table') ??
         document.querySelector('form[action*="action=favor"] .u-table') ??
-            document.querySelector('.u-table');
+        document.querySelector('.u-table');
     if (table == null) return const [];
     final items = <UserListItem>[];
     for (final row in table.querySelectorAll('tr')) {
@@ -456,13 +524,17 @@ class UserProfileParser {
       if (link == null) continue;
       final href = link.attributes['href'] ?? '';
       final title = _cleanText(link.text);
-      if (href.isEmpty || title.isEmpty) continue;
+      final tid = urls.tidFromUrl(href);
+      if (href.isEmpty || title.isEmpty || tid == null) continue;
       final authorLinks = row.querySelectorAll('a[href*="uid"]');
       final authorLink = authorLinks.isEmpty ? null : authorLinks.first;
       final authorHref = authorLink?.attributes['href'] ?? '';
       items.add(
         UserListItem(
           title: title,
+          titleTruncated: title.endsWith('..'),
+          sourcePage: sourcePage,
+          threadId: tid,
           url: urls.absoluteUrl(href),
           author: authorLink == null ? null : _cleanText(authorLink.text),
           authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),

@@ -13,7 +13,7 @@ void main() {
       () {
     final page = parser.parseContentPage(html.parse('''
       <table class="u-table"><tr><td>
-      <a href="job.php?action=topost&amp;tid=12&amp;pid=101">reply one</a>
+      <a href="job.php?action=topost&amp;tid=12&amp;pid=101">reply one..</a>
       <a href="thread.php?fid-48.html">board</a></td></tr><tr><td>
       <a href="job.php?action-topost-tid-12-pid-102.html">reply two</a>
       <a href="https://example.invalid/thread.php?fid-9.html">foreign</a>
@@ -27,9 +27,61 @@ void main() {
     expect(page.items.map((item) => item.postId), ['101', '102']);
     expect(page.items.map((item) => item.threadId), ['12', '12']);
     expect(page.items.first.boardId, '48');
+    expect(page.items.first.titleTruncated, isTrue);
+    expect(page.items.last.titleTruncated, isFalse);
+    expect(page.items.every((item) => item.sourcePage == 1), isTrue);
     expect(page.items.first.boardUrl,
         'https://south-plus.net/thread.php?fid-48.html');
     expect(page.items.last.boardId, isNull);
+  });
+
+  test(
+      'favorite content uses the main table, keeps truncation and real source pages',
+      () {
+    final page = parser.parseContentPage(html.parse('''
+      <table class="u-table"><tr><td><a href="read.php?tid-999.html">sidebar</a></td></tr></table>
+      <div id="u-contentmain"><table class="u-table"><tr><td>
+      <a href="read.php?tid-12.html">cut..</a><a href="u.php?uid-88.html">author</a>
+      </td></tr><tr><td><a href="https://external.invalid/read.php?tid-99.html">foreign</a></td></tr></table>
+      <div class="pages">Pages: 2/3<a href="u.php?action-favor-uid-7-page-3.html">»</a></div></div>
+      '''), uid: '7', tab: UserProfileTab.favorites, page: 2);
+    expect(page.paginationKnown, isTrue);
+    expect(page.totalPages, 3);
+    expect(page.items.single.threadId, '12');
+    expect(page.items.single.sourcePage, 2);
+    expect(page.items.single.titleTruncated, isTrue);
+  });
+
+  test(
+      'unconfirmed or contradictory pagination is not published as a complete tab',
+      () {
+    final uncertain = html.parse('''<div id="u-contentmain">
+      <table class="u-table"><tr><td><a href="read.php?tid-12.html">title</a></td></tr></table>
+      <div class="pages">unreadable</div></div>''');
+    final bad = parser.parseContentPage(uncertain,
+        uid: '7', tab: UserProfileTab.topics, page: 1);
+    expect(bad.items, hasLength(1));
+    expect(bad.paginationKnown, isFalse);
+    final single = html.parse('<table class="u-table"></table>');
+    final details = parser.appendDetails(
+        overview:
+            const UserProfile(uid: '7', name: 'user', url: 'u.php?uid-7.html'),
+        homeDocument: html.parse(''),
+        topicsDocument: uncertain,
+        postsDocument: single,
+        favoritesDocument: single);
+    expect(
+        details.contentPagination.containsKey(UserProfileTab.topics), isFalse);
+    expect(details.contentPagination[UserProfileTab.posts]?.totalPages, 1);
+    final wrongPage = parser.parseContentPage(
+        html.parse('''<div id="u-contentmain">
+      <table class="u-table"><tr><td><a href="read.php?tid-12.html">title</a></td></tr></table>
+      <div class="pages">Pages: 1/3</div></div>'''),
+        uid: '7',
+        tab: UserProfileTab.topics,
+        page: 2);
+    expect(wrongPage.paginationKnown, isFalse);
+    expect(wrongPage.items.single.sourcePage, 1);
   });
 
   test('taxonomy admits only native classifications of the selected board', () {
@@ -109,6 +161,8 @@ void main() {
     final known = parser.parseContentThreadMetadata(document,
         classifications: taxonomy, profileTitle: '求助黄油');
     expect(known.boardId, '48');
+    expect(known.boardName, 'board');
+    expect(known.title, '[二次元R18相关]求助黄油');
     expect(known.classificationId, '1');
     expect(known.classificationKnown, isTrue);
     final unknown = parser.parseContentThreadMetadata(document,

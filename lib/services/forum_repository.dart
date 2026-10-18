@@ -46,6 +46,7 @@ typedef _ProfileDetailsData = ({
   List<UserListItem> topics,
   List<UserListItem> posts,
   List<UserListItem> favorites,
+  Map<UserProfileTab, ThreadPagination> contentPagination,
 });
 
 class ForumRepository {
@@ -456,6 +457,23 @@ class ForumRepository {
     bool refresh = false,
   }) =>
       _userContentQueries.fetch(query, refresh: refresh);
+
+  FullScan<UserListItem> scanUserContent(
+    UserContentQuery query, {
+    List<UserListItem>? loaded,
+    int? loadedPages,
+    int? totalPages,
+  }) {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    return _userContentQueries.scan(query,
+        client: client,
+        isCurrentSession: () =>
+            identical(client, _client) && epoch == _sessionEpoch.value,
+        loaded: loaded,
+        loadedPages: loadedPages,
+        totalPages: totalPages);
+  }
 
   Future<List<UserContentClassification>> fetchUserContentBoardFilters(
     String boardId,
@@ -2388,6 +2406,7 @@ class ForumRepository {
         topics: details.topics,
         posts: details.posts,
         favorites: details.favorites,
+        contentPagination: details.contentPagination,
       );
 
   Future<UserProfile> fetchUserProfileDetails(
@@ -2468,6 +2487,7 @@ class ForumRepository {
       topics: profile.topics,
       posts: profile.posts,
       favorites: profile.favorites,
+      contentPagination: profile.contentPagination,
     );
   }
 

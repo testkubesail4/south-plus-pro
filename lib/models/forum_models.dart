@@ -937,6 +937,7 @@ class UserProfile {
     this.topics = const [],
     this.posts = const [],
     this.favorites = const [],
+    this.contentPagination = const {},
   });
 
   final String uid;
@@ -958,6 +959,7 @@ class UserProfile {
   final List<UserListItem> topics;
   final List<UserListItem> posts;
   final List<UserListItem> favorites;
+  final Map<UserProfileTab, ThreadPagination> contentPagination;
 
   String? get nickname {
     final value = info
@@ -990,6 +992,7 @@ class UserProfile {
     List<UserListItem>? topics,
     List<UserListItem>? posts,
     List<UserListItem>? favorites,
+    Map<UserProfileTab, ThreadPagination>? contentPagination,
   }) {
     return UserProfile(
       uid: uid ?? this.uid,
@@ -1010,6 +1013,7 @@ class UserProfile {
       topics: topics ?? this.topics,
       posts: posts ?? this.posts,
       favorites: favorites ?? this.favorites,
+      contentPagination: contentPagination ?? this.contentPagination,
     );
   }
 }
@@ -1052,10 +1056,12 @@ class UserListItem {
     this.threadId,
     this.postId,
     this.titleTruncated = false,
+    this.sourcePage,
   });
 
   final String title;
   final bool titleTruncated;
+  final int? sourcePage;
   final String url;
   final String? section;
   final String? date;
@@ -1068,18 +1074,26 @@ class UserListItem {
   final String? threadId;
   final String? postId;
 
-  UserListItem copyWith({String? title, bool? titleTruncated}) => UserListItem(
+  UserListItem copyWith(
+          {String? title,
+          bool? titleTruncated,
+          int? sourcePage,
+          String? section,
+          String? boardId,
+          String? boardUrl}) =>
+      UserListItem(
         title: title ?? this.title,
         titleTruncated: titleTruncated ?? this.titleTruncated,
+        sourcePage: sourcePage ?? this.sourcePage,
         url: url,
-        section: section,
+        section: section ?? this.section,
         date: date,
         author: author,
         authorUrl: authorUrl,
         replies: replies,
         views: views,
-        boardId: boardId,
-        boardUrl: boardUrl,
+        boardId: boardId ?? this.boardId,
+        boardUrl: boardUrl ?? this.boardUrl,
         threadId: threadId,
         postId: postId,
       );
