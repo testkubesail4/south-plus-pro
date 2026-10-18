@@ -42,11 +42,16 @@ void main() {
     await fixture.close();
   });
 
-  Future<void> settle(WidgetTester tester) async {
-    for (var i = 0; i < 30; i++) {
+  Future<void> settle(WidgetTester tester, {bool Function()? ready}) async {
+    // Wait for real I/O only when needed; advance UI animation time virtually.
+    for (var i = 0; ready != null && !ready() && i < 200; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 10));
       await tester.pump(const Duration(milliseconds: 50));
     }
+    if (ready != null) expect(ready(), isTrue, reason: 'viewer I/O completed');
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
   }
 
   // Real timers run inside runAsync; a second tap needs kDoubleTapMinTime.
@@ -90,9 +95,20 @@ void main() {
         ),
       ),
     ));
-    await settle(tester);
-    await tester.tap(find.byType(ThreadInlineImage).at(1));
-    await settle(tester);
+    final decoded = find.byWidgetPredicate(
+        (widget) => widget is RawImage && widget.image != null);
+    final image = find.byType(ThreadInlineImage).at(1);
+    await settle(tester,
+        ready: () => find
+            .descendant(of: image, matching: decoded)
+            .evaluate()
+            .isNotEmpty);
+    await tester.tap(image);
+    await settle(tester,
+        ready: () => find
+            .descendant(of: find.byType(Dialog), matching: decoded)
+            .evaluate()
+            .isNotEmpty);
   }
 
   testWidgets('pages through every image of the post, quotes included',
@@ -149,7 +165,8 @@ void main() {
       });
       await openViewer(tester);
       await tester.tap(find.text('保存图片'));
-      await settle(tester);
+      await settle(tester,
+          ready: () => find.text('保存图片失败：disk full').evaluate().isNotEmpty);
       expect(
         find.descendant(
           of: find.byType(Dialog),
@@ -173,7 +190,7 @@ void main() {
         return 'saved';
       });
       await tester.tap(find.text('保存图片'));
-      await settle(tester);
+      await settle(tester, ready: () => calls == 1);
       await tester.tap(find.text('保存图片'));
       await settle(tester);
       await tester.tap(find.byTooltip('关闭'));
@@ -322,7 +339,7 @@ void main() {
         await press2.up();
         await settle(tester);
         await tester.tap(find.text(private ? '分享图片链接' : '分享图片'));
-        await settle(tester);
+        await settle(tester, ready: () => shared.isNotEmpty);
         expect(shared.single.method, private ? 'shareText' : 'shareImage');
         final args = shared.single.arguments as Map;
         if (private) {

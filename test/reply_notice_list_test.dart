@@ -83,9 +83,15 @@ void main() {
       () async {
     final client = _NoticeClient()..removeOnDelete = false;
     final repository = ForumRepository(client: client);
-    final notices = await repository.fetchReplyNotices();
-    await expectLater(repository.deleteReplyNotice(notices.single),
+    final notice = ForumReplyNoticeParser(urls: ForumUrlResolver())
+        .parse(html.parse(_list))
+        .single;
+    await expectLater(repository.deleteReplyNotice(notice),
         throwsA(isA<ForumRequestException>()));
+    expect(client.forms, [
+      {'action': 'delnewrp', 'tid': '123'},
+      {'action': 'newrp'},
+    ]);
   });
 
   test(
@@ -93,22 +99,19 @@ void main() {
       () async {
     final client = _NoticeClient();
     final repository = ForumRepository(client: client);
-    await repository.fetchReplyNotices();
+    await repository.fetchHome();
     await repository.clearSession();
     expect(repository.noticeFlags.value.replyNotice, isFalse);
     expect(repository.noticeFlags.value.unreadPm, isFalse);
     client.index = '<html>Fixture missing token</html>';
     await expectLater(
         repository.fetchReplyNotices(), throwsA(isA<ForumRequestException>()));
-    expect(client.posts, hasLength(1));
-    expect(client.gets, ['index.php', 'index.php']);
+    expect(client.posts, isEmpty);
+    expect(client.gets, ['simple/index.php', 'index.php', 'index.php']);
   });
 
   test('login and malformed HTML are not interpreted as empty notices',
       () async {
-    final client = _NoticeClient();
-    final repository = ForumRepository(client: client);
-    await repository.fetchReplyNotices();
     for (final response in [
       '请先登录',
       '验证码错误',
@@ -116,7 +119,12 @@ void main() {
       '',
       '<html>Unexpected response</html>'
     ]) {
-      client.list = response;
+      final client = _NoticeClient()
+        ..list = response
+        ..index += '<a id="newrp">您的文章有人回复</a>';
+      final repository = ForumRepository(client: client);
+      await repository.fetchHome();
+      expect(repository.noticeFlags.value.replyNotice, isTrue);
       await expectLater(repository.fetchReplyNotices(),
           throwsA(isA<ForumRequestException>()));
       expect(repository.noticeFlags.value.replyNotice, isTrue);

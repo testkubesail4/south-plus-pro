@@ -79,7 +79,8 @@ void main() {
     (_stripUrl, const Size(336 * 200 / 20000, 336)),
   ];
   for (final (url, want) in thumbnails) {
-    testWidgets('a list thumbnail decodes ${url.split('/').last} within '
+    testWidgets(
+        'a list thumbnail decodes ${url.split('/').last} within '
         'its bounds', (tester) async {
       SharedPreferences.setMockInitialValues({});
       tester.view.physicalSize = const Size(800, 1600);
@@ -101,6 +102,7 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 10));
           await tester.pump(const Duration(milliseconds: 16));
         }
+        expect(decoded, findsOneWidget, reason: 'resized thumbnail decodes');
         expect(tester.getSize(decoded), const Size(56, 56));
         final image = tester.widget<RawImage>(decoded).image!;
         expect(
@@ -148,6 +150,7 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 10));
           await tester.pump(const Duration(milliseconds: 16));
         }
+        expect(decoded, findsOneWidget, reason: 'resized wall image decodes');
         final image = tester.widget<RawImage>(decoded).image!;
         final card = tester.getSize(decoded);
         final want = expected(card);
