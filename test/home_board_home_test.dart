@@ -6,6 +6,7 @@ import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/services/forum_search_preferences.dart';
 import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
 
@@ -73,6 +74,33 @@ class _Repo extends ForumRepository {
   @override
   Future<ForumTaskQuickClaimResult?> autoClaimForumTaskRewardsIfDue() async =>
       null;
+}
+
+/// Lists follow the saved sources, as the real home does; a chosen board
+/// is gone.
+class _SourceRepo extends _Repo {
+  var homeFetches = 0;
+
+  @override
+  Future<ForumHomeSnapshot> fetchHome() async {
+    homeFetches++;
+    final source = (await HomeReadingPreferences.load(account: _account))
+        .quickSources
+        .first;
+    final home = await super.fetchHome();
+    return ForumHomeSnapshot(
+      latest: home.latest,
+      hot: home.hot,
+      sections: home.sections,
+      quickLists: source.kind == HomeQuickSourceKind.board
+          ? [ForumQuickList(title: '', source: source), ...home.quickLists]
+          : home.quickLists,
+    );
+  }
+
+  @override
+  Future<List<ForumThread>> fetchQuickList(ForumQuickList list) async =>
+      throw const ForumRequestException(ForumRequestKind.invalidInput, 'gone');
 }
 
 class _EpochRepo extends _Repo {
@@ -209,6 +237,33 @@ void main() {
           .first)
       .height;
 
+  testWidgets('new 速览 sources reload the home; a gone board offers another',
+      (tester) async {
+    final repo = await pump(tester, repo: _SourceRepo()) as _SourceRepo;
+    expect(repo.homeFetches, 1);
+
+    await HomeReadingPreferences.saveQuickSources(const [
+      HomeQuickSource(
+          kind: HomeQuickSourceKind.board,
+          fid: '12',
+          boardPath: 'Parent / Gone board'),
+      HomeQuickSource(),
+      HomeQuickSource(),
+    ], account: _account);
+    await tester.pumpAndSettle();
+    expect(repo.homeFetches, 2);
+    expect(find.text('Gone board 新帖'), findsOneWidget);
+    expect(find.text('来源版块不存在'), findsOneWidget);
+    await tester.tap(find.text('更换来源'));
+    await tester.pumpAndSettle();
+    expect(find.text('栏目 1'), findsOneWidget);
+
+    // Rows alone keep the snapshot.
+    await HomeReadingPreferences.saveQuickRowCount(5, account: _account);
+    await tester.pumpAndSettle();
+    expect(repo.homeFetches, 2);
+  });
+
   group('速览 row count', () {
     testWidgets('a saved count sets how many rows show and the list height',
         (tester) async {
@@ -219,15 +274,18 @@ void main() {
       expect(listHeight(tester), rowsHeight(3));
     });
 
-    testWidgets('the 显示行数 sheet changes it at once and keeps it',
-        (tester) async {
+    testWidgets('速览设置 changes it and the home follows', (tester) async {
       await pump(tester);
       expect(find.text('Latest 8'), findsOneWidget, reason: 'default is 8');
       expect(listHeight(tester), rowsHeight(8));
 
-      await tester.tap(find.byTooltip('显示行数'));
+      await tester.tap(find.byTooltip('速览设置'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ChoiceChip, '5'));
+      await tester.tap(find.text('显示行数'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('5 行'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
       await tester.pumpAndSettle();
       expect(find.text('Latest 5'), findsOneWidget);
       expect(find.text('Latest 6'), findsNothing);

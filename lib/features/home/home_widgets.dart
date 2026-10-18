@@ -289,6 +289,7 @@ class _QuickLists extends StatefulWidget {
     required this.columns,
     required this.rows,
     required this.repository,
+    required this.onChangeSource,
   });
 
   final List<ForumQuickList>? lists;
@@ -299,6 +300,9 @@ class _QuickLists extends StatefulWidget {
   final int rows;
   final ForumRepository repository;
 
+  /// Opens the 速览 settings, for a list whose board is gone or closed.
+  final VoidCallback onChangeSource;
+
   @override
   State<_QuickLists> createState() => _QuickListsState();
 }
@@ -308,6 +312,20 @@ const _quickListIcons = {
   '最新回复': Icons.mode_comment_outlined,
   '提问求物': Icons.help_outline,
 };
+
+bool _boardSource(ForumQuickList list) =>
+    list.source.kind == HomeQuickSourceKind.board;
+
+/// A board list is named by its board and order; a site list keeps the
+/// site's title.
+String _quickTitle(ForumQuickList list) => _boardSource(list)
+    ? '${list.source.boardPath?.split(' / ').last ?? '版块 ${list.source.fid}'} '
+        '${list.source.order == QuickOrder.posted ? '新帖' : '回复'}'
+    : list.title;
+
+IconData _quickIcon(ForumQuickList list) => _boardSource(list)
+    ? Icons.dashboard_outlined
+    : _quickListIcons[list.title] ?? Icons.subject_outlined;
 
 /// The row title's style, as [ForumThreadRow] draws it.
 TextStyle _quickTitleStyle(BuildContext context) =>
@@ -396,6 +414,8 @@ class _QuickListsState extends State<_QuickLists>
         height: _quickListHeight(context, widget.rows),
         child: _QuickListBody(
           future: _loaded(index),
+          board: _boardSource(_lists[index]),
+          onChangeSource: widget.onChangeSource,
           onRetry: () => _retry(index),
           repository: widget.repository,
           rows: widget.rows,
@@ -434,7 +454,7 @@ class _QuickListsState extends State<_QuickLists>
             // Placeholder tabs are as wide as the site's four-character titles.
             child: placeholder
                 ? _Bone(style, text: '\u3000' * 4)
-                : Text(list.title),
+                : Text(_quickTitle(list)),
           ),
       ],
     );
@@ -502,8 +522,7 @@ class _QuickListsState extends State<_QuickLists>
                           const SizedBox(width: 16, height: 16)
                         else
                           Icon(
-                            _quickListIcons[_lists[i].title] ??
-                                Icons.subject_outlined,
+                            _quickIcon(_lists[i]),
                             size: 16,
                             color: AppColors.textMuted,
                           ),
@@ -515,7 +534,7 @@ class _QuickListsState extends State<_QuickLists>
                                   child: _Bone(labelStyle, text: '\u3000' * 4),
                                 )
                               : Text(
-                                  _lists[i].title,
+                                  _quickTitle(_lists[i]),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: labelStyle,
@@ -538,12 +557,18 @@ class _QuickListsState extends State<_QuickLists>
 class _QuickListBody extends StatelessWidget {
   const _QuickListBody({
     required this.future,
+    required this.board,
+    required this.onChangeSource,
     required this.onRetry,
     required this.repository,
     required this.rows,
   });
 
   final Future<List<ForumThread>>? future;
+
+  /// The list reads one chosen board, not the site's own list.
+  final bool board;
+  final VoidCallback onChangeSource;
   final VoidCallback onRetry;
   final ForumRepository repository;
   final int rows;
@@ -555,6 +580,30 @@ class _QuickListBody extends StatelessWidget {
     return FutureBuilder<List<ForumThread>>(
       future: pending,
       builder: (context, snapshot) {
+        // A chosen board that is gone or closed is not fixed by retrying.
+        final gone = switch (snapshot.error) {
+          ForumRequestException(kind: ForumRequestKind.invalidInput) =>
+            '来源版块不存在',
+          ForumRequestException(kind: ForumRequestKind.forbidden) =>
+            '没有权限查看此版块',
+          _ => null,
+        };
+        if (board && gone != null) {
+          return Padding(
+            padding: const EdgeInsets.all(12),
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: AppSpace.sm,
+              children: [
+                Text(gone, style: TextStyle(color: AppColors.textMuted)),
+                TextButton(
+                  onPressed: onChangeSource,
+                  child: const Text('更换来源'),
+                ),
+              ],
+            ),
+          );
+        }
         if (snapshot.hasError) {
           return Align(
             alignment: Alignment.topLeft,
@@ -576,8 +625,8 @@ class _QuickListBody extends StatelessWidget {
             if (shown.isEmpty) {
               return Padding(
                 padding: const EdgeInsets.all(12),
-                child:
-                    Text('暂无内容', style: TextStyle(color: AppColors.textMuted)),
+                child: Text(board ? '此版块暂无主题' : '暂无内容',
+                    style: TextStyle(color: AppColors.textMuted)),
               );
             }
             return _quickRows(context, [

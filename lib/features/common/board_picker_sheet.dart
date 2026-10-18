@@ -14,6 +14,13 @@ String boardDisplayName(String name) =>
 
 String _ownBoard(String name) => '仅 $name';
 
+bool _selectable(ForumSearchBoard board) => board.selectable;
+
+/// A search-form category (`>> 综合交流`): its value is a category id, not a
+/// board's fid, so only searching takes it.
+bool isSearchCategory(ForumSearchBoard board) =>
+    board.name.trimLeft().startsWith('>>');
+
 /// Picks one board from the search form's options, nested under the
 /// homepage's parents. Pops the chosen [ForumSearchBoard], named by its path.
 class BoardPickerSheet extends StatefulWidget {
@@ -27,7 +34,11 @@ class BoardPickerSheet extends StatefulWidget {
     required this.generation,
     this.allOption,
     this.ownRowLabel = _ownBoard,
+    this.canPick = _selectable,
   });
+
+  /// Which options may be chosen; the rest only fold or head their group.
+  final bool Function(ForumSearchBoard board) canPick;
 
   /// A first row choosing every board (e.g. 全部版块); none when null.
   final ForumSearchBoard? allOption;
@@ -194,7 +205,7 @@ class _BoardPickerSheetState extends State<BoardPickerSheet> {
   List<Widget> _rows(List<BoardNode> nodes) => [
         for (final node in nodes)
           if (node.children.isEmpty)
-            node.board.selectable
+            widget.canPick(node.board)
                 ? _tile(node, level: node.level)
                 : Padding(
                     padding: EdgeInsetsDirectional.fromSTEB(_indent(node.level),
@@ -211,7 +222,7 @@ class _BoardPickerSheetState extends State<BoardPickerSheet> {
           else ...[
             _group(node),
             if (_open.contains(node.key)) ...[
-              if (node.board.selectable)
+              if (widget.canPick(node.board))
                 _tile(node,
                     level: node.level + 1,
                     label: widget.ownRowLabel(node.name),
@@ -306,7 +317,7 @@ class _BoardPickerSheetState extends State<BoardPickerSheet> {
                     // same-named children stay apart.
                     final hits = [
                       for (final node in BoardNode.flatten(roots))
-                        if (node.board.selectable &&
+                        if (widget.canPick(node.board) &&
                             node.name.toLowerCase().contains(needle))
                           node,
                     ];

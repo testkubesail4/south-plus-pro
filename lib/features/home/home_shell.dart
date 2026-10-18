@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/forum_request_exception.dart';
 import '../../services/forum_search_preferences.dart';
 import '../../services/forum_trace_logger.dart';
 import '../../services/home_reading_preferences.dart';
@@ -25,6 +27,7 @@ import '../profile/home_boards_settings_screen.dart';
 import '../profile/forum_tasks_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
+import 'quick_list_settings_screen.dart';
 
 part 'home_board_shortcuts.dart';
 part 'home_widgets.dart';
@@ -315,7 +318,12 @@ class _ForumHomePageState extends State<ForumHomePage> {
     final run = ++_prefsRun;
     try {
       final prefs = await HomeReadingPreferences.load(account: _account);
-      if (_current && run == _prefsRun) setState(() { _prefs = prefs; _prefsReady = true; _prefsError = null; });
+      if (!_current || run != _prefsRun) return;
+      // New sources need a new snapshot; rows, folds and visits do not.
+      final sourcesChanged =
+          _prefsReady && !listEquals(prefs.quickSources, _prefs.quickSources);
+      setState(() { _prefs = prefs; _prefsReady = true; _prefsError = null; });
+      if (sourcesChanged) _refresh();
     } catch (error) {
       if (_current && run == _prefsRun) setState(() => _prefsError = error);
     }
@@ -355,32 +363,10 @@ class _ForumHomePageState extends State<ForumHomePage> {
     }
   }
 
-  Future<void> _pickQuickRows() async {
-    if (!_current || _layoutLocked) return;
-    final rows = await showModalBottomSheet<int>(
-      context: context,
-      showDragHandle: true,
-      constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
-      builder: (_) => _QuickRowsSheet(current: _prefs.quickRowCount),
-    );
-    if (rows == null || rows == _prefs.quickRowCount) return;
-    if (!_current || _layoutLocked) return;
-    final before = _prefs;
-    setState(() {
-      _layoutBusy = true;
-      _prefs = _prefs.copyWith(quickRowCount: rows);
-    });
-    try {
-      await HomeReadingPreferences.saveQuickRowCount(rows, account: _account);
-    } catch (_) {
-      if (_current) {
-        setState(() => _prefs = before);
-      }
-      _showMessage('无法保存显示行数');
-      await _loadPrefs();
-    } finally {
-      if (_current) setState(() => _layoutBusy = false);
-    }
+  void _openQuickSettings() {
+    if (!_current) return;
+    final page = QuickListSettingsScreen(repository: widget.repository);
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
 
   Future<ForumHomeSnapshot> _fetchHome() {
@@ -579,10 +565,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                tooltip: '显示行数',
-                                onPressed: data == null || _layoutLocked
-                                    ? null
-                                    : _pickQuickRows,
+                                tooltip: '速览设置',
+                                onPressed:
+                                    data == null ? null : _openQuickSettings,
                                 icon: const Icon(Icons.tune, size: 20),
                               ),
                               data == null
@@ -602,6 +587,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
                               MediaQuery.textScalerOf(context).scale(1) <= 1.3,
                           rows: _prefs.quickRowCount,
                           repository: widget.repository,
+                          onChangeSource: _openQuickSettings,
                         ),
                         _HotBoards(
                           hotBoards: data?.hot,

@@ -16,6 +16,7 @@ import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
+import '../home/quick_list_settings_screen.dart';
 import 'forum_preferences_screen.dart';
 import 'home_boards_settings_screen.dart';
 import 'local_user_annotations_screen.dart';
@@ -99,42 +100,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<HomeReadingPreferences> _loadHomeReading() =>
       HomeReadingPreferences.load(
           account: widget.repository.localPreferenceAccount);
-
-  Future<void> _chooseQuickRows(int current) async {
-    final account = widget.repository.localPreferenceAccount;
-    final chosen = await showModalBottomSheet<int>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                    AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
-                child: Text('速览显示行数',
-                    style: Theme.of(context).textTheme.titleMedium),
-              ),
-              for (var rows = 3; rows <= 8; rows++)
-                AppRow(
-                  title: Text('$rows 行'),
-                  selected: rows == current,
-                  onTap: () => Navigator.of(context).pop(rows),
-                ),
-              const SizedBox(height: AppSpace.sm),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (chosen == null || chosen == current) return;
-    await HomeReadingPreferences.saveQuickRowCount(chosen, account: account);
-    if (!mounted) return;
-    setState(() => _homeReading = _loadHomeReading());
-  }
 
   Future<void> _setImageMode(ImageLoadMode mode) async {
     await ImageLoadingSettings.saveMode(mode);
@@ -395,11 +360,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         final rows = snapshot.data?.quickRowCount ?? 8;
                         return AppRow(
                           icon: Icons.view_list_outlined,
-                          title: const Text('速览显示行数'),
+                          title: const Text('速览'),
+                          subtitle: const Text('显示行数与栏目来源'),
                           value: '$rows 行',
-                          onTap: snapshot.hasData
-                              ? () => _chooseQuickRows(rows)
-                              : null,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => QuickListSettingsScreen(
+                                  repository: widget.repository),
+                            ),
+                          ),
                         );
                       },
                     ),
