@@ -92,6 +92,18 @@ class ForumClient {
 
   Future<String> getOnce(String path) => _readText('GET', path);
 
+  Future<String> getOnceGuarded(String path,
+      {required void Function() requireCurrentSession}) {
+    if (!_sameOrigin(baseUri.resolve(path))) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '不能读取其他站点的页面');
+    }
+    return _readText('GET', path,
+        requireCurrentSession: requireCurrentSession,
+        requireOk: true,
+        invalidPageStatus: true);
+  }
+
   Future<String> getForm(String path,
           {void Function()? requireCurrentSession,
           bool followRedirects = true}) =>
@@ -339,6 +351,7 @@ class ForumClient {
     bool retryCooldown = false,
     void Function()? requireCurrentSession,
     bool requireOk = false,
+    bool invalidPageStatus = false,
     bool sensitiveAccount = false,
     bool followRedirects = true,
   }) async {
@@ -348,6 +361,7 @@ class ForumClient {
           form: form,
           requireCurrentSession: requireCurrentSession,
           sensitiveAccount: sensitiveAccount,
+          guardedRead: invalidPageStatus,
           followRedirects: followRedirects);
       if (result.status >= 500) {
         throw const ForumRequestException(
@@ -373,8 +387,11 @@ class ForumClient {
       }
       _throwForHttpStatus(result.status);
       if (requireOk && result.status != HttpStatus.ok) {
-        throw const ForumRequestException(
-            ForumRequestKind.server, '表单请求返回了非预期状态');
+        throw ForumRequestException(
+            invalidPageStatus
+                ? ForumRequestKind.invalidInput
+                : ForumRequestKind.server,
+            invalidPageStatus ? '页面请求返回了非预期状态' : '表单请求返回了非预期状态');
       }
       if ((uri.path == '/message.php' || uri.path == '/sendemail.php') &&
           result.status != HttpStatus.ok) {
@@ -449,6 +466,7 @@ class ForumClient {
     bool identityLookup = false,
     bool sensitiveBlocking = false,
     bool sensitiveAccount = false,
+    bool guardedRead = false,
     bool followRedirects = true,
     Uint8List? body,
     ContentType? contentType,
@@ -553,11 +571,15 @@ class ForumClient {
           '重定向次数过多',
         );
       }
-      if ((isAccount || identityLookup || sensitiveBlocking) &&
+      if ((isAccount || identityLookup || sensitiveBlocking || guardedRead) &&
           !_sameOrigin(next)) {
         throw ForumRequestException(
-          ForumRequestKind.server,
-          sensitiveBlocking ? '屏蔽配置不能跳转到其他站点' : '登录名称查询跳转到不安全的地址',
+          guardedRead ? ForumRequestKind.invalidInput : ForumRequestKind.server,
+          guardedRead
+              ? '扫描页面跳转到不安全的地址'
+              : sensitiveBlocking
+                  ? '屏蔽配置不能跳转到其他站点'
+                  : '登录名称查询跳转到不安全的地址',
         );
       }
       if (method == 'POST' &&
@@ -579,6 +601,7 @@ class ForumClient {
         identityLookup: identityLookup,
         sensitiveBlocking: sensitiveBlocking,
         sensitiveAccount: sensitiveAccount,
+        guardedRead: guardedRead,
         followRedirects: followRedirects,
         requireCurrentSession: requireCurrentSession,
       );
