@@ -156,8 +156,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   Future<void> _editNote(UserProfile profile) async {
-    if (_notes.isLoading || _notes.noteLoadError != null || _notes.tagLoadError != null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('标记加载失败，请重试')));
+    if (_notes.isLoading ||
+        _notes.noteLoadError != null ||
+        _notes.tagLoadError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('标记加载失败，请重试')));
       _notes.reload();
       return;
     }
@@ -216,8 +219,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   // The overview this screen fetched from the forum (not the cache).
   UserProfile? _fresh;
 
-  (String?, int) _scope() => (widget.repository.localPreferenceAccount,
-      widget.repository.sessionEpoch.value);
+  (String?, int) _scope() => (
+        widget.repository.localPreferenceAccount,
+        widget.repository.sessionEpoch.value
+      );
 
   /// Remembers the forum's names for an annotated user once a fetched profile
   /// is on screen, in the scope the fetch started in. Unannotated users and

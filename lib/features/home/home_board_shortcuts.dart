@@ -223,7 +223,8 @@ class _MyBoardsState extends State<_MyBoards> {
     final parent = node?.parent;
     if (node == null || parent == null) return pin.label;
     return pin.label.trim() == node.label || pin.label.contains(' / ')
-        ? node.pinLabel : pin.label;
+        ? node.pinLabel
+        : pin.label;
   }
 
   /// Recent and hot boards that no home section lists.
@@ -280,8 +281,8 @@ class _MyBoardsState extends State<_MyBoards> {
     if (boards.isNotEmpty) {
       content = _ChipRow(chips: [
         for (final board in boards)
-          _boardChip(context,
-              _pinLabel(board, preferTree: tab == _MyBoardsTab.recent),
+          _boardChip(
+              context, _pinLabel(board, preferTree: tab == _MyBoardsTab.recent),
               onTap: () => widget.onOpen(_category(board))),
       ]);
     } else if (tab == _MyBoardsTab.pinned) {

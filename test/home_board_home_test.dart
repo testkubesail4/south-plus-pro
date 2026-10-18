@@ -178,37 +178,60 @@ void main() {
     return repo;
   }
 
-  testWidgets('same-scope epoch change leaves the new home fold actions usable', (tester) async {
+  testWidgets('same-scope epoch change leaves the new home fold actions usable',
+      (tester) async {
     final repo = _EpochRepo();
     await pump(tester, repo: repo);
     repo.epoch.value++;
     await tester.pumpAndSettle();
     await tester.tap(find.text(_firstSection));
     await tester.pumpAndSettle();
-    expect((await HomeReadingPreferences.load(account: _account)).collapsedIds, {'section:$_firstSection'});
+    expect((await HomeReadingPreferences.load(account: _account)).collapsedIds,
+        {'section:$_firstSection'});
   });
 
-  testWidgets('recent qualifies duplicate child names from the unfiltered tree and keeps unknown labels', (tester) async {
-    await HomeReadingPreferences.recordBoardVisit(const ForumCategory(name: '同人志&CG', slug: 'f1081'), account: _account, label: '旧父版 / 旧版名');
-    await HomeReadingPreferences.recordBoardVisit(const ForumCategory(name: '同人志&CG', slug: 'f1071'), account: _account);
-    await HomeReadingPreferences.recordBoardVisit(const ForumCategory(name: '离线名称', slug: 'f999'), account: _account);
-    await HomeReadingPreferences.setSectionHidden('section:Events', true, account: _account);
+  testWidgets(
+      'recent qualifies duplicate child names from the unfiltered tree and keeps unknown labels',
+      (tester) async {
+    await HomeReadingPreferences.recordBoardVisit(
+        const ForumCategory(name: '同人志&CG', slug: 'f1081'),
+        account: _account,
+        label: '旧父版 / 旧版名');
+    await HomeReadingPreferences.recordBoardVisit(
+        const ForumCategory(name: '同人志&CG', slug: 'f1071'),
+        account: _account);
+    await HomeReadingPreferences.recordBoardVisit(
+        const ForumCategory(name: '离线名称', slug: 'f999'),
+        account: _account);
+    await HomeReadingPreferences.setSectionHidden('section:Events', true,
+        account: _account);
     await pump(tester, repo: _TreeRepo());
-    expect(find.widgetWithText(ActionChip, 'Comic Market 108 / 同人志&CG'), findsOneWidget);
-    expect(find.widgetWithText(ActionChip, 'Comic Market 107 / 同人志&CG'), findsOneWidget);
+    expect(find.widgetWithText(ActionChip, 'Comic Market 108 / 同人志&CG'),
+        findsOneWidget);
+    expect(find.widgetWithText(ActionChip, 'Comic Market 107 / 同人志&CG'),
+        findsOneWidget);
     expect(find.widgetWithText(ActionChip, '离线名称'), findsOneWidget);
     expect(find.text('旧父版 / 旧版名'), findsNothing,
-        reason: 'current complete hierarchy repairs a stale stored qualifier by FID');
-    expect((await HomeReadingPreferences.load(account: _account)).recentBoards.map((b) => b.id), ['999', '1071', '1081']);
+        reason:
+            'current complete hierarchy repairs a stale stored qualifier by FID');
+    expect(
+        (await HomeReadingPreferences.load(account: _account))
+            .recentBoards
+            .map((b) => b.id),
+        ['999', '1071', '1081']);
   });
 
-  testWidgets('home-only hiding leaves recent and pinned boards reachable and keeps restore footer', (tester) async {
+  testWidgets(
+      'home-only hiding leaves recent and pinned boards reachable and keeps restore footer',
+      (tester) async {
     await ForumSearchPreferences.savePinnedBoards(const [
       ForumSearchPinnedBoard(id: '1081', label: '同人志&CG'),
     ], account: _account);
     await HomeReadingPreferences.recordBoardVisit(
-      const ForumCategory(name: 'Comic Market 108', slug: 'fid-108'), account: _account);
-    await HomeReadingPreferences.setParentHidden('108', true, account: _account);
+        const ForumCategory(name: 'Comic Market 108', slug: 'fid-108'),
+        account: _account);
+    await HomeReadingPreferences.setParentHidden('108', true,
+        account: _account);
     await pump(tester, repo: _TreeRepo());
     expect(find.text('Comic Market 108'), findsNothing);
     expect(find.text('Comic Market 108 / 同人志&CG'), findsOneWidget,
@@ -224,7 +247,12 @@ void main() {
     expect(find.text('Events'), findsNothing);
     expect(find.text('首页已隐藏 1 个分区、1 个版块'), findsOneWidget);
     expect(find.text('管理'), findsOneWidget);
-    expect((await HomeReadingPreferences.load(account: _account)).recentBoards.single.id, '108');
+    expect(
+        (await HomeReadingPreferences.load(account: _account))
+            .recentBoards
+            .single
+            .id,
+        '108');
   });
 
   // 速览 rows are 48 high at 1x, split by 1px hairlines.

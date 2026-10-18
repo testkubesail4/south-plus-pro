@@ -15,9 +15,9 @@ class _Repo extends ForumRepository {
   String? get localPreferenceAccount => 'fixture';
   @override
   Future<List<ForumSection>> fetchForumSections() async => const [
-    ForumSection(nativeId: '7', title: '交流', items: []),
-    ForumSection(nativeId: '39', title: '漫区', items: []),
-  ];
+        ForumSection(nativeId: '7', title: '交流', items: []),
+        ForumSection(nativeId: '39', title: '漫区', items: []),
+      ];
 }
 
 void main() {
@@ -26,13 +26,17 @@ void main() {
     tester.view.physicalSize = const Size(480, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(home: HomeBoardsSettingsScreen(repository: _Repo())));
+    await tester.pumpWidget(
+        MaterialApp(home: HomeBoardsSettingsScreen(repository: _Repo())));
     await tester.pumpAndSettle();
   }
 
-  testWidgets('rejected reorder rolls back and stays locked when recovery reads fail', (tester) async {
+  testWidgets(
+      'rejected reorder rolls back and stays locked when recovery reads fail',
+      (tester) async {
     const channel = MethodChannel('plugins.flutter.io/shared_preferences');
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final persisted = <String, Object>{};
     var rejectWrite = false;
     var rejectReads = false;
@@ -44,7 +48,10 @@ void main() {
         return Map<String, Object>.of(persisted);
       }
       writes++;
-      if (rejectWrite) { rejectReads = true; return false; }
+      if (rejectWrite) {
+        rejectReads = true;
+        return false;
+      }
       final args = call.arguments as Map;
       if (call.method == 'remove') {
         persisted.remove(args['key']);
@@ -57,21 +64,36 @@ void main() {
       SharedPreferences.resetStatic();
       messenger.setMockMethodCallHandler(channel, null);
     });
-    await HomeReadingPreferences.saveSectionOrder(['section-id:7', 'section-id:39'], account: 'fixture');
+    await HomeReadingPreferences.saveSectionOrder(
+        ['section-id:7', 'section-id:39'],
+        account: 'fixture');
     await pump(tester);
     final before = Map<String, Object>.of(persisted);
     rejectWrite = true;
-    await tester.drag(find.byType(ReorderableDragStartListener).first, const Offset(0, 190));
+    await tester.drag(
+        find.byType(ReorderableDragStartListener).first, const Offset(0, 190));
     await tester.pumpAndSettle();
     expect(persisted, before);
     expect(find.text('加载失败'), findsOneWidget);
-    expect(tester.getTopLeft(find.text('交流')).dy, lessThan(tester.getTopLeft(find.text('漫区')).dy));
-    expect(tester.widgetList<ReorderableDragStartListener>(find.byType(ReorderableDragStartListener)).every((w) => !w.enabled), isTrue);
-    expect(tester.widgetList<Switch>(find.byType(Switch)).every((w) => w.onChanged == null), isTrue);
+    expect(tester.getTopLeft(find.text('交流')).dy,
+        lessThan(tester.getTopLeft(find.text('漫区')).dy));
+    expect(
+        tester
+            .widgetList<ReorderableDragStartListener>(
+                find.byType(ReorderableDragStartListener))
+            .every((w) => !w.enabled),
+        isTrue);
+    expect(
+        tester
+            .widgetList<Switch>(find.byType(Switch))
+            .every((w) => w.onChanged == null),
+        isTrue);
     final attempted = writes;
-    await tester.drag(find.byType(ReorderableDragStartListener).first, const Offset(0, 190));
+    await tester.drag(
+        find.byType(ReorderableDragStartListener).first, const Offset(0, 190));
     await tester.pumpAndSettle();
-    expect(writes, attempted, reason: 'no second action can commit a rejected draft');
+    expect(writes, attempted,
+        reason: 'no second action can commit a rejected draft');
     rejectWrite = false;
     rejectReads = false;
     await tester.tap(find.text('重试'));
@@ -83,9 +105,12 @@ void main() {
     expect(prefs.hiddenSectionIds, {'section-id:7'});
   });
 
-  testWidgets('failed home fold rolls back and locks folds until a read succeeds', (tester) async {
+  testWidgets(
+      'failed home fold rolls back and locks folds until a read succeeds',
+      (tester) async {
     const channel = MethodChannel('plugins.flutter.io/shared_preferences');
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final persisted = <String, Object>{};
     var rejectWrite = false;
     var rejectReads = false;
@@ -97,7 +122,10 @@ void main() {
         return Map<String, Object>.of(persisted);
       }
       writes++;
-      if (rejectWrite) { rejectReads = true; return false; }
+      if (rejectWrite) {
+        rejectReads = true;
+        return false;
+      }
       final args = call.arguments as Map;
       if (call.method == 'remove') {
         persisted.remove(args['key']);
@@ -113,7 +141,8 @@ void main() {
     tester.view.physicalSize = const Size(480, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(home: HomeShell(repository: _HomeRepo())));
+    await tester
+        .pumpWidget(MaterialApp(home: HomeShell(repository: _HomeRepo())));
     await tester.pumpAndSettle();
     expect(find.text('First board').hitTestable(), findsOneWidget);
     final before = Map<String, Object>.of(persisted);
@@ -143,9 +172,12 @@ void main() {
         {'section-id:7'});
   });
 
-  testWidgets('failed quick-row save rolls back and locks 速览设置 until a read succeeds', (tester) async {
+  testWidgets(
+      'failed quick-row save rolls back and locks 速览设置 until a read succeeds',
+      (tester) async {
     const channel = MethodChannel('plugins.flutter.io/shared_preferences');
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final persisted = <String, Object>{};
     var rejectWrite = false;
     var rejectReads = false;
@@ -160,7 +192,10 @@ void main() {
         return Map<String, Object>.of(persisted);
       }
       writes++;
-      if (rejectWrite) { rejectReads = true; return false; }
+      if (rejectWrite) {
+        rejectReads = true;
+        return false;
+      }
       final args = call.arguments as Map;
       if (call.method == 'remove') {
         persisted.remove(args['key']);
@@ -176,8 +211,10 @@ void main() {
     tester.view.physicalSize = const Size(480, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final acknowledged = (await HomeReadingPreferences.load(account: 'fixture')).quickRowCount;
-    await tester.pumpWidget(MaterialApp(home: HomeShell(repository: _HomeRepo())));
+    final acknowledged =
+        (await HomeReadingPreferences.load(account: 'fixture')).quickRowCount;
+    await tester
+        .pumpWidget(MaterialApp(home: HomeShell(repository: _HomeRepo())));
     await tester.pumpAndSettle();
     final pick = acknowledged == 3 ? 4 : 3;
     await tester.tap(find.byTooltip('速览设置'));

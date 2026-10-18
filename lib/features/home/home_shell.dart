@@ -299,7 +299,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
   Object? _prefsError;
   late final _epoch = widget.repository.sessionEpoch.value;
 
-  bool get _current => mounted && _account == widget.repository.localPreferenceAccount &&
+  bool get _current =>
+      mounted &&
+      _account == widget.repository.localPreferenceAccount &&
       _epoch == widget.repository.sessionEpoch.value;
 
   @override
@@ -329,7 +331,11 @@ class _ForumHomePageState extends State<ForumHomePage> {
       // New sources need a new snapshot; rows, folds and visits do not.
       final sourcesChanged =
           _prefsReady && !listEquals(prefs.quickSources, _prefs.quickSources);
-      setState(() { _prefs = prefs; _prefsReady = true; _prefsError = null; });
+      setState(() {
+        _prefs = prefs;
+        _prefsReady = true;
+        _prefsError = null;
+      });
       if (sourcesChanged) _refresh();
     } catch (error) {
       if (_current && run == _prefsRun) setState(() => _prefsError = error);
@@ -433,7 +439,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
   String? _boardFid(ForumBoard board) => widget.repository.searchBoardId(
       ForumCategory(name: board.name, slug: board.slug, url: board.url));
 
-  Future<void> _homeActions({String? sectionId, ForumBoard? board,
+  Future<void> _homeActions(
+      {String? sectionId,
+      ForumBoard? board,
       required List<ForumSection> sections}) async {
     if (!_current || _layoutLocked) return;
     final fid = board == null ? null : _boardFid(board);
@@ -442,7 +450,8 @@ class _ForumHomePageState extends State<ForumHomePage> {
     final account = widget.repository.localPreferenceAccount;
     final sectionTitle = board == null
         ? sections
-            .where((s) => _prefs.reconcile(sections).sectionId(s, sections) == sectionId)
+            .where((s) =>
+                _prefs.reconcile(sections).sectionId(s, sections) == sectionId)
             .firstOrNull
             ?.title
         : sections.where((s) => s.items.contains(board)).firstOrNull?.title;
@@ -454,11 +463,16 @@ class _ForumHomePageState extends State<ForumHomePage> {
             if (board.children.isNotEmpty) '含 ${board.children.length} 个子版块',
           ].join(' · ');
     final action = await showModalBottomSheet<String>(
-      context: context, showDragHandle: true, isScrollControlled: true,
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
       constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
       builder: (sheetContext) => SessionBound(
-        session: widget.repository.sessionEpoch, generation: epoch,
-        child: SafeArea(child: SingleChildScrollView(child: _HomeActionsSheet(
+        session: widget.repository.sessionEpoch,
+        generation: epoch,
+        child: SafeArea(
+            child: SingleChildScrollView(
+                child: _HomeActionsSheet(
           title: board?.name ?? sectionTitle ?? '',
           caption: caption,
           board: board != null,
@@ -466,15 +480,24 @@ class _ForumHomePageState extends State<ForumHomePage> {
         ))),
       ),
     );
-    if (action == null || !_current || account != _account || epoch != _epoch) return;
-    if (action == 'manage') { _openHomeSettings(); return; }
-    if (action == 'open' && board != null) { _openBoard(board); return; }
+    if (action == null || !_current || account != _account || epoch != _epoch)
+      return;
+    if (action == 'manage') {
+      _openHomeSettings();
+      return;
+    }
+    if (action == 'open' && board != null) {
+      _openBoard(board);
+      return;
+    }
     setState(() => _layoutBusy = true);
     try {
       if (sectionId != null) {
-        await HomeReadingPreferences.setSectionHidden(sectionId, true, account: account, sections: sections);
+        await HomeReadingPreferences.setSectionHidden(sectionId, true,
+            account: account, sections: sections);
       } else {
-        await HomeReadingPreferences.setParentHidden(fid!, true, account: account, sections: sections);
+        await HomeReadingPreferences.setParentHidden(fid!, true,
+            account: account, sections: sections);
       }
       await _loadPrefs();
     } catch (_) {
@@ -493,7 +516,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
       int i, double inner, HomeReadingPreferences prefs) {
     final id = prefs.sectionId(section, sections);
     final collapsed = id != null && prefs.collapsedIds.contains(id);
-    final boards = section.items.where((board) => !prefs.hiddenParentFids.contains(_boardFid(board))).toList();
+    final boards = section.items
+        .where((board) => !prefs.hiddenParentFids.contains(_boardFid(board)))
+        .toList();
     return [
       const SizedBox(height: 32),
       _SectionHeader(
@@ -504,7 +529,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
         // Taps while a write is in flight are ignored inside; the header
         // keeps its look.
         onToggle: id == null ? null : () => _toggleCollapsed(id, sections),
-        onLongPress: id == null ? null : () => _homeActions(sectionId: id, sections: sections),
+        onLongPress: id == null
+            ? null
+            : () => _homeActions(sectionId: id, sections: sections),
       ),
       _Collapsible(
         collapsed: collapsed,
@@ -513,7 +540,8 @@ class _ForumHomePageState extends State<ForumHomePage> {
           boards: boards,
           columns: inner >= 960 ? 3 : (inner >= 600 ? 2 : 1),
           onOpen: _openBoard,
-          onLongPress: (board) => _homeActions(board: board, sections: sections),
+          onLongPress: (board) =>
+              _homeActions(board: board, sections: sections),
         ),
       ),
     ];
@@ -544,9 +572,14 @@ class _ForumHomePageState extends State<ForumHomePage> {
                   final data = snapshot.data;
                   final sections = data?.sections ?? const <ForumSection>[];
                   final prefs = _prefs.reconcile(sections);
-                  final hiddenSections = sections.where((s) => prefs.hiddenSectionIds.contains(prefs.sectionId(s, sections))).length;
-                  final hiddenParents = {for (final s in sections) for (final b in s.items) _boardFid(b)}
-                      .where((id) => prefs.hiddenParentFids.contains(id)).length;
+                  final hiddenSections = sections
+                      .where((s) => prefs.hiddenSectionIds
+                          .contains(prefs.sectionId(s, sections)))
+                      .length;
+                  final hiddenParents = {
+                    for (final s in sections)
+                      for (final b in s.items) _boardFid(b)
+                  }.where((id) => prefs.hiddenParentFids.contains(id)).length;
                   return ListView(
                     padding: EdgeInsets.fromLTRB(
                       gutter,
@@ -611,13 +644,20 @@ class _ForumHomePageState extends State<ForumHomePage> {
                           onOpen: _openCategory,
                         ),
                         if (data == null || !_prefsReady)
-                          SizedBox(height: 120, child: Center(child: _prefsError == null
-                              ? const Text('版块加载中…')
-                              : TextButton(onPressed: _loadPrefs, child: const Text('首页设置加载失败，重试'))))
+                          SizedBox(
+                              height: 120,
+                              child: Center(
+                                  child: _prefsError == null
+                                      ? const Text('版块加载中…')
+                                      : TextButton(
+                                          onPressed: _loadPrefs,
+                                          child: const Text('首页设置加载失败，重试'))))
                         else ...[
                           for (final section in prefs.orderedSections(sections))
-                            if (!prefs.hiddenSectionIds.contains(prefs.sectionId(section, sections)))
-                              ..._section(section, sections, sections.indexOf(section), inner, prefs),
+                            if (!prefs.hiddenSectionIds
+                                .contains(prefs.sectionId(section, sections)))
+                              ..._section(section, sections,
+                                  sections.indexOf(section), inner, prefs),
                           if (_prefsError != null)
                             _HomeFootnote(
                               key: const ValueKey('home-layout-retry'),
@@ -628,7 +668,8 @@ class _ForumHomePageState extends State<ForumHomePage> {
                           else if (hiddenSections + hiddenParents > 0)
                             _HomeFootnote(
                               key: const ValueKey('home-hidden-summary'),
-                              text: _hiddenSummary(hiddenSections, hiddenParents),
+                              text:
+                                  _hiddenSummary(hiddenSections, hiddenParents),
                               action: '管理',
                               onAction: _openHomeSettings,
                             ),

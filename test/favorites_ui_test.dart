@@ -71,7 +71,8 @@ class _Repo extends ForumRepository {
         items: [
           for (final e in entries)
             if ((id == null || e.categoryId == id) && !omit.contains(e.id))
-              FavoriteCollectionEntry(id: e.id, categoryId: e.categoryId, thread: e.thread),
+              FavoriteCollectionEntry(
+                  id: e.id, categoryId: e.categoryId, thread: e.thread),
         ],
         categoryId: id,
         canCreate: true,
@@ -153,8 +154,12 @@ class _Repo extends ForumRepository {
     List<FavoriteCollectionEntry> chosen,
     String toCategoryId,
   ) {
-    expect(chosen.every((entry) => snapshot.items.any((current) => identical(current, entry))), isTrue,
-        reason: 'move uses current snapshot objects, never entries retired by category changes');
+    expect(
+        chosen.every((entry) =>
+            snapshot.items.any((current) => identical(current, entry))),
+        isTrue,
+        reason:
+            'move uses current snapshot objects, never entries retired by category changes');
     final moved = mode == _Mode.partial ? chosen.take(1).toList() : chosen;
     return _answer(
       snapshot,
@@ -198,14 +203,18 @@ class _Repo extends ForumRepository {
   ) =>
       _answer(snapshot, 'delete:$categoryId', () {
         final kept = categories.where((c) => c.id != categoryId).toList();
-        final renumbered = {for (final (index, c) in kept.indexed) c.id: '$index'};
+        final renumbered = {
+          for (final (index, c) in kept.indexed) c.id: '$index'
+        };
         entries = [
           for (final e in entries)
-            _entry(e.id, e.thread.title, e.categoryId == categoryId ? '0' : renumbered[e.categoryId]!),
+            _entry(e.id, e.thread.title,
+                e.categoryId == categoryId ? '0' : renumbered[e.categoryId]!),
         ];
         categories = [
           for (final (index, c) in kept.indexed)
-            FavoriteCategory(id: '$index', label: c.label, canDelete: c.canDelete),
+            FavoriteCategory(
+                id: '$index', label: c.label, canDelete: c.canDelete),
         ];
       });
 }
@@ -259,6 +268,7 @@ class _FavScan extends FullScan<FavoriteSearchHit> {
         canResume: true);
     notifyListeners();
   }
+
   @override
   void resume() {}
 
@@ -334,7 +344,10 @@ void main() {
 
   _Repo oneCategory() => _Repo()
     ..categories = [const FavoriteCategory(id: '0', label: '默认分类')]
-    ..entries = [_entry('11', 'Fixture favourite A', '0'), _entry('12', 'Fixture favourite B', '0')];
+    ..entries = [
+      _entry('11', 'Fixture favourite A', '0'),
+      _entry('12', 'Fixture favourite B', '0')
+    ];
 
   Future<void> createInMove(WidgetTester tester, String name) async {
     await tapKey(tester, 'favorite-move-new');
@@ -343,7 +356,9 @@ void main() {
     await tapKey(tester, 'favorite-category-create');
   }
 
-  testWidgets('selected category is enabled at idle and active tap reads nothing', (tester) async {
+  testWidgets(
+      'selected category is enabled at idle and active tap reads nothing',
+      (tester) async {
     final repo = await pump(tester);
     var chip = tester.widget<ChoiceChip>(key('favorite-folder:all'));
     expect(chip.selected, isTrue);
@@ -357,15 +372,20 @@ void main() {
     expect(chip.onSelected, isNotNull);
     await tapKey(tester, 'favorite-folder:1');
     expect(repo.calls, before);
-    expect(tester.widget<ActionChip>(key('favorite-manage')).onPressed, isNotNull);
+    expect(
+        tester.widget<ActionChip>(key('favorite-manage')).onPressed, isNotNull);
   });
 
-  testWidgets('one-category row disables actual move but creates then explicitly chooses a fresh target', (tester) async {
+  testWidgets(
+      'one-category row disables actual move but creates then explicitly chooses a fresh target',
+      (tester) async {
     final repo = oneCategory();
     await pump(tester, repo);
     await tester.tap(find.byTooltip('更多').first);
     await tester.pumpAndSettle();
-    expect(tester.widget<PopupMenuItem<void>>(key('favorite-row-move:11')).enabled, isFalse);
+    expect(
+        tester.widget<PopupMenuItem<void>>(key('favorite-row-move:11')).enabled,
+        isFalse);
     expect(find.text('暂无其他分类，请先新建'), findsOneWidget);
     await tapKey(tester, 'favorite-row-move-manage:11');
     expect(find.text('暂无其他分类，请先新建分类，再选择移入'), findsOneWidget);
@@ -378,11 +398,14 @@ void main() {
     expect(repo.calls.last, 'move:11>1');
   });
 
-  testWidgets('batch companion preserves selection through create and stops on an unknown result', (tester) async {
+  testWidgets(
+      'batch companion preserves selection through create and stops on an unknown result',
+      (tester) async {
     final repo = oneCategory();
     await pump(tester, repo);
     await select(tester, ['11', '12']);
-    expect(tester.widget<OutlinedButton>(key('favorite-move')).onPressed, isNull);
+    expect(
+        tester.widget<OutlinedButton>(key('favorite-move')).onPressed, isNull);
     await tapKey(tester, 'favorite-move-manage-selected');
     await createInMove(tester, '资料');
     expect(find.text('已选 2 个'), findsOneWidget);
@@ -401,11 +424,15 @@ void main() {
     expect(unknown.calls.where((call) => call.startsWith('move:')), isEmpty);
   });
 
-  testWidgets('deleting the selected source rebinds membership and the renamed target number before move', (tester) async {
+  testWidgets(
+      'deleting the selected source rebinds membership and the renamed target number before move',
+      (tester) async {
     final repo = _Repo()
-      ..categories = [const FavoriteCategory(id: '0', label: '默认分类'),
+      ..categories = [
+        const FavoriteCategory(id: '0', label: '默认分类'),
         const FavoriteCategory(id: '1', label: '旧分类', canDelete: true),
-        const FavoriteCategory(id: '2', label: '音声', canDelete: true)]
+        const FavoriteCategory(id: '2', label: '音声', canDelete: true)
+      ]
       ..entries = [_entry('11', 'Fixture favourite A', '1')];
     await pump(tester, repo);
     await select(tester, ['11']);
@@ -417,14 +444,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('已选 1 个'), findsOneWidget);
     expect(tester.widget<ListTile>(key('favorite-move-to:0')).enabled, isFalse);
-    expect(tester.widget<ListTile>(key('favorite-move-to:1')).title, isA<Text>());
+    expect(
+        tester.widget<ListTile>(key('favorite-move-to:1')).title, isA<Text>());
     await tapKey(tester, 'favorite-move-to:1');
     expect(repo.calls, contains('delete:1'));
     expect(repo.calls.last, 'move:11>1');
     expect(repo.categories.singleWhere((c) => c.id == '1').label, '音声');
   });
 
-  testWidgets('closing the move flow after a create returns to the category it started in', (tester) async {
+  testWidgets(
+      'closing the move flow after a create returns to the category it started in',
+      (tester) async {
     final repo = await pump(tester);
     await tapKey(tester, 'favorite-folder:1');
     await select(tester, ['12']);
@@ -436,10 +466,12 @@ void main() {
     expect(find.text('已选 1 个'), findsOneWidget);
     expect(repo.calls.where((call) => call.startsWith('move:')), isEmpty);
     await tapKey(tester, 'favorite-select-exit');
-    expect(tester.widget<ChoiceChip>(key('favorite-folder:1')).selected, isTrue);
+    expect(
+        tester.widget<ChoiceChip>(key('favorite-folder:1')).selected, isTrue);
   });
 
-  testWidgets('a deleted source category leaves the closed move flow in 全部', (tester) async {
+  testWidgets('a deleted source category leaves the closed move flow in 全部',
+      (tester) async {
     final repo = await pump(tester);
     await tapKey(tester, 'favorite-folder:1');
     await select(tester, ['12']);
@@ -453,10 +485,13 @@ void main() {
     expect(repo.calls.last, isNot('fetch:1'));
     expect(find.text('已选 1 个'), findsOneWidget);
     await tapKey(tester, 'favorite-select-exit');
-    expect(tester.widget<ChoiceChip>(key('favorite-folder:all')).selected, isTrue);
+    expect(
+        tester.widget<ChoiceChip>(key('favorite-folder:all')).selected, isTrue);
   });
 
-  testWidgets('deleting one of two same-named categories is refused aloud and sends nothing', (tester) async {
+  testWidgets(
+      'deleting one of two same-named categories is refused aloud and sends nothing',
+      (tester) async {
     final repo = _Repo()
       ..categories = [
         const FavoriteCategory(id: '0', label: '默认分类'),
@@ -476,7 +511,9 @@ void main() {
     expect(find.text('已选 1 个'), findsOneWidget);
   });
 
-  testWidgets('a category change drops an off-page pending row instead of moving a fabricated entry', (tester) async {
+  testWidgets(
+      'a category change drops an off-page pending row instead of moving a fabricated entry',
+      (tester) async {
     final repo = oneCategory();
     await pump(tester, repo);
     await tester.tap(find.byTooltip('更多').first);
@@ -666,7 +703,8 @@ void main() {
     expect(find.text('移动 2 个主题到…'), findsOneWidget);
     expect(tester.widget<ListTile>(key('favorite-move-to:0')).enabled, isTrue);
     expect(tester.widget<ListTile>(key('favorite-move-to:1')).enabled, isTrue);
-    expect(find.text('当前位置'), findsNothing, reason: 'a mixed selection can move into either source');
+    expect(find.text('当前位置'), findsNothing,
+        reason: 'a mixed selection can move into either source');
     await tapKey(tester, 'favorite-move-to:1');
     expect(repo.calls.where((c) => c.startsWith('move')), ['move:11,12>1']);
     expect(find.text('已移动 2 个到「资料」'), findsOneWidget);
@@ -777,8 +815,7 @@ void main() {
       ]);
       await tester.pumpAndSettle();
       expect(find.textContaining('第 2 页'), findsOneWidget);
-      expect(find.text('全部页面的结果只能打开；移动或取消收藏请在所在页面操作'),
-          findsOneWidget);
+      expect(find.text('全部页面的结果只能打开；移动或取消收藏请在所在页面操作'), findsOneWidget);
       expect(find.byTooltip('更多'), findsNothing);
       expect(key('favorite-select-start'), findsNothing);
 

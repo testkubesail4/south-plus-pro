@@ -383,18 +383,26 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     );
   }
 
-  String? _tid(FavoriteCollectionEntry entry) => entry.thread.threadId ??
-      ForumUrlResolver(baseUri: widget.repository.networkConfig.baseUri).tidFromUrl(entry.thread.url);
+  String? _tid(FavoriteCollectionEntry entry) =>
+      entry.thread.threadId ??
+      ForumUrlResolver(baseUri: widget.repository.networkConfig.baseUri)
+          .tidFromUrl(entry.thread.url);
 
-  bool _knownSources(List<FavoriteCollectionEntry> entries) => entries.isNotEmpty && entries.every((entry) =>
-      _tid(entry) != null && entry.categoryId != null &&
-      _data!.categories.where((c) => c.id == entry.categoryId).length == 1);
+  bool _knownSources(List<FavoriteCollectionEntry> entries) =>
+      entries.isNotEmpty &&
+      entries.every((entry) =>
+          _tid(entry) != null &&
+          entry.categoryId != null &&
+          _data!.categories.where((c) => c.id == entry.categoryId).length == 1);
 
   List<FavoriteCategory> _destinations(List<FavoriteCollectionEntry> entries) =>
-      _data == null || !_knownSources(entries) ? [] : [
-        for (final category in _data!.categories)
-          if (!entries.every((entry) => entry.categoryId == category.id)) category,
-      ];
+      _data == null || !_knownSources(entries)
+          ? []
+          : [
+              for (final category in _data!.categories)
+                if (!entries.every((entry) => entry.categoryId == category.id))
+                  category,
+            ];
 
   String? _moveHint(List<FavoriteCollectionEntry> entries) {
     if (entries.isEmpty) return null;
@@ -403,7 +411,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
   }
 
   Future<void> _move(List<FavoriteCollectionEntry> entries) async {
-    if (entries.isEmpty || _data == null || _locked || !_knownSources(entries)) return;
+    if (entries.isEmpty || _data == null || _locked || !_knownSources(entries))
+      return;
     final session = widget.repository.sessionEpoch.value;
     final wasSelecting = _selecting;
     final pending = {for (final entry in entries) entry.id: _tid(entry)!};
@@ -416,7 +425,9 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     final viewLabel = _view == null ? null : _labelOf(_data, _view);
     Future<void> restoreView() async {
       if (!categoryChanged || viewLabel == null || _view != null) return;
-      if (!mounted || session != widget.repository.sessionEpoch.value || _locked) return;
+      if (!mounted ||
+          session != widget.repository.sessionEpoch.value ||
+          _locked) return;
       final named = [
         for (final c in _data!.categories)
           if (c.label == viewLabel) c,
@@ -426,11 +437,17 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
           view: named.single.id,
           keep: wasSelecting ? Set.of(_selected) : const {});
     }
-    while (mounted && session == widget.repository.sessionEpoch.value && !_locked) {
+
+    while (mounted &&
+        session == widget.repository.sessionEpoch.value &&
+        !_locked) {
       final data = _data!;
       final rebound = <FavoriteCollectionEntry>[];
       for (final request in pending.entries) {
-        final matches = data.items.where((entry) => entry.id == request.key && _tid(entry) == request.value).toList();
+        final matches = data.items
+            .where((entry) =>
+                entry.id == request.key && _tid(entry) == request.value)
+            .toList();
         if (matches.length == 1) rebound.add(matches.single);
       }
       if (rebound.length != pending.length) {
@@ -440,33 +457,51 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
           ..showSnackBar(const SnackBar(content: Text('部分所选主题不在当前页，请重新选择')));
         pending.removeWhere((id, _) => !rebound.any((entry) => entry.id == id));
       }
-      if (wasSelecting) setState(() {
-        _selected..clear()..addAll(pending.keys);
-        _selecting = _selected.isNotEmpty;
-      });
+      if (wasSelecting)
+        setState(() {
+          _selected
+            ..clear()
+            ..addAll(pending.keys);
+          _selecting = _selected.isNotEmpty;
+        });
       if (rebound.isEmpty || !_knownSources(rebound)) return;
-      final action = await showMoveSheet(context,
-        session: widget.repository.sessionEpoch, categories: data.categories,
-        count: rebound.length, canCreate: data.canCreate, categoryChanged: categoryChanged,
-        unavailableCategoryIds: {for (final c in data.categories)
-          if (rebound.every((entry) => entry.categoryId == c.id)) c.id},
+      final action = await showMoveSheet(
+        context,
+        session: widget.repository.sessionEpoch,
+        categories: data.categories,
+        count: rebound.length,
+        canCreate: data.canCreate,
+        categoryChanged: categoryChanged,
+        unavailableCategoryIds: {
+          for (final c in data.categories)
+            if (rebound.every((entry) => entry.categoryId == c.id)) c.id
+        },
       );
       if (action == null) {
         await restoreView();
         return;
       }
-      if (!mounted || session != widget.repository.sessionEpoch.value || _locked) return;
+      if (!mounted ||
+          session != widget.repository.sessionEpoch.value ||
+          _locked) return;
       if (action is MoveDestination) {
         final intended = action.category;
-        final targets = _data!.categories.where((c) => intended.isDefault
-            ? c.isDefault : !c.isDefault && c.label.trim() == intended.label.trim()).toList();
+        final targets = _data!.categories
+            .where((c) => intended.isDefault
+                ? c.isDefault
+                : !c.isDefault && c.label.trim() == intended.label.trim())
+            .toList();
         if (targets.length != 1) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('分类已变化，请刷新后重试')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('分类已变化，请刷新后重试')));
           return;
         }
         final target = targets.single;
-        await _write((snapshot) => widget.repository.moveFavorites(snapshot, rebound, target.id),
-          done: (n) => '已移动 $n 个到「${target.label}」', count: rebound.length);
+        await _write(
+            (snapshot) =>
+                widget.repository.moveFavorites(snapshot, rebound, target.id),
+            done: (n) => '已移动 $n 个到「${target.label}」',
+            count: rebound.length);
         return;
       }
       ManageAction? manage;
@@ -474,13 +509,18 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
         manage = const CreateCategory();
       } else {
         manage = await showManageCategoriesSheet(context,
-          session: widget.repository.sessionEpoch, data: _data!);
+            session: widget.repository.sessionEpoch, data: _data!);
       }
-      if (!mounted || session != widget.repository.sessionEpoch.value || _locked) return;
+      if (!mounted ||
+          session != widget.repository.sessionEpoch.value ||
+          _locked) return;
       if (manage != null) {
         final result = await _applyManageAction(manage, keepSelection: true);
-        if (!mounted || session != widget.repository.sessionEpoch.value || _locked) return;
-        categoryChanged = categoryChanged || result == FavoriteMutationStatus.confirmed;
+        if (!mounted ||
+            session != widget.repository.sessionEpoch.value ||
+            _locked) return;
+        categoryChanged =
+            categoryChanged || result == FavoriteMutationStatus.confirmed;
       }
     }
   }
@@ -498,7 +538,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     await _applyManageAction(action);
   }
 
-  Future<FavoriteMutationStatus?> _applyManageAction(ManageAction action, {bool keepSelection = false}) async {
+  Future<FavoriteMutationStatus?> _applyManageAction(ManageAction action,
+      {bool keepSelection = false}) async {
     final data = _data;
     if (data == null || _locked) return null;
     final epoch = _epoch;
@@ -528,15 +569,19 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
           category: category,
         );
         if (!ok || !mounted || epoch != _epoch) return null;
-        final targets = _data!.categories.where((c) => !c.isDefault && c.label.trim() == category.label.trim()).toList();
+        final targets = _data!.categories
+            .where(
+                (c) => !c.isDefault && c.label.trim() == category.label.trim())
+            .toList();
         if (targets.length != 1) {
           // Never fall back to the number: say why nothing was sent.
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('分类名称重复，请在原站整理后重试')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('分类名称重复，请在原站整理后重试')));
           return null;
         }
         return _write(
-          (snapshot) => widget.repository.deleteFavoriteCategory(snapshot, targets.single.id),
+          (snapshot) => widget.repository
+              .deleteFavoriteCategory(snapshot, targets.single.id),
           done: (_) => '已删除分类「${category.label}」，其中的主题已移到默认分类',
           reloadAfter: true,
           keepSelection: keepSelection,
@@ -808,7 +853,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                 busy: _locked,
                 onMove: () => _move(_chosen),
                 moveHint: _moveHint(_chosen),
-                onManageMove: _knownSources(_chosen) ? () => _move(_chosen) : null,
+                onManageMove:
+                    _knownSources(_chosen) ? () => _move(_chosen) : null,
                 onRemove: () => _remove(_chosen),
               ),
           ],
@@ -1036,9 +1082,8 @@ class _Views extends StatelessWidget {
           backgroundColor: AppColors.surface,
           disabledColor: on ? AppColors.brandSoft : AppColors.surface,
           side: BorderSide(
-            color: on
-                ? AppColors.brand.withValues(alpha: 0.35)
-                : AppColors.border,
+            color:
+                on ? AppColors.brand.withValues(alpha: 0.35) : AppColors.border,
           ),
           shape: const StadiumBorder(),
           labelStyle: TextStyle(
@@ -1065,15 +1110,19 @@ class _Views extends StatelessWidget {
             ),
           ],
           const SizedBox(width: AppSpace.sm),
-          const SizedBox(height: 24, child: VerticalDivider(width: AppSpace.md)),
+          const SizedBox(
+              height: 24, child: VerticalDivider(width: AppSpace.md)),
           ActionChip(
             key: const ValueKey('favorite-manage'),
-            avatar: Icon(Icons.tune, size: 18, color: canManage ? AppColors.brand : AppColors.textFaint),
+            avatar: Icon(Icons.tune,
+                size: 18,
+                color: canManage ? AppColors.brand : AppColors.textFaint),
             label: const Text('管理'),
             shape: const StadiumBorder(),
             backgroundColor: AppColors.surface,
             side: BorderSide(color: AppColors.border),
-            labelStyle: TextStyle(color: canManage ? AppColors.text : AppColors.textFaint),
+            labelStyle: TextStyle(
+                color: canManage ? AppColors.text : AppColors.textFaint),
             onPressed: canManage ? onManage : null,
           ),
         ],
@@ -1167,28 +1216,28 @@ class _SelectionBar extends StatelessWidget {
                   ]),
                 ),
               Wrap(
-            alignment: WrapAlignment.end,
-            spacing: AppSpace.sm,
-            runSpacing: AppSpace.sm,
-            children: [
-              OutlinedButton.icon(
-                key: const ValueKey('favorite-move'),
-                onPressed: enabled && moveHint == null ? onMove : null,
-                icon: const Icon(Icons.drive_file_move_outline),
-                label: const Text('移动到…'),
+                alignment: WrapAlignment.end,
+                spacing: AppSpace.sm,
+                runSpacing: AppSpace.sm,
+                children: [
+                  OutlinedButton.icon(
+                    key: const ValueKey('favorite-move'),
+                    onPressed: enabled && moveHint == null ? onMove : null,
+                    icon: const Icon(Icons.drive_file_move_outline),
+                    label: const Text('移动到…'),
+                  ),
+                  FilledButton.icon(
+                    key: const ValueKey('favorite-remove-selected'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.error,
+                      foregroundColor: theme.colorScheme.onError,
+                    ),
+                    onPressed: enabled ? onRemove : null,
+                    icon: const Icon(Icons.star_outline),
+                    label: const Text('取消收藏'),
+                  ),
+                ],
               ),
-              FilledButton.icon(
-                key: const ValueKey('favorite-remove-selected'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: theme.colorScheme.error,
-                  foregroundColor: theme.colorScheme.onError,
-                ),
-                onPressed: enabled ? onRemove : null,
-                icon: const Icon(Icons.star_outline),
-                label: const Text('取消收藏'),
-              ),
-            ],
-          ),
             ],
           ),
         ),
@@ -1290,14 +1339,17 @@ class _FavoriteRowState extends State<_FavoriteRow> {
                   child: Row(children: [
                     const Icon(Icons.drive_file_move_outline, size: 20),
                     const SizedBox(width: AppSpace.md),
-                    Flexible(child: Column(
+                    Flexible(
+                        child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('移动到…'),
                         if (widget.moveHint != null)
                           Text(widget.moveHint!,
-                              style: Theme.of(context).textTheme.bodySmall
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
                                   ?.copyWith(color: AppColors.textFaint)),
                       ],
                     )),
@@ -1306,8 +1358,8 @@ class _FavoriteRowState extends State<_FavoriteRow> {
                 if (widget.moveHint == _noTarget &&
                     widget.onMoveCategories != null)
                   PopupMenuItem(
-                    key: ValueKey(
-                        'favorite-row-move-manage:${widget.entry.id}'),
+                    key:
+                        ValueKey('favorite-row-move-manage:${widget.entry.id}'),
                     onTap: widget.onMoveCategories,
                     child: const Row(children: [
                       Icon(Icons.create_new_folder_outlined, size: 20),

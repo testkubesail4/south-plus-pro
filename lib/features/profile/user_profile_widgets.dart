@@ -116,7 +116,8 @@ class _ProfileHeader extends StatelessWidget {
                         const SizedBox(height: AppSpace.xs),
                         Text('${profile.name} · UID ${profile.uid}',
                             style: Theme.of(context).textTheme.bodySmall,
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
                       ],
                       if (onEditNote != null)
                         _NoteLine(note: note, onEdit: onEditNote!),
@@ -1464,9 +1465,7 @@ class _ContentTabState extends State<_ContentTab>
                     found: items.length,
                     unresolved: unresolved.length,
                   ),
-              onSearchAll: allRead && unresolved.isEmpty
-                  ? null
-                  : _searchAll,
+              onSearchAll: allRead && unresolved.isEmpty ? null : _searchAll,
               onStop: scan?.stop,
               onResume: scan?.resume,
               onBackToLoaded: () => setState(_dropScan),

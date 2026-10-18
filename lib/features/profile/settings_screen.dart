@@ -68,7 +68,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _scopeChanged() {
     if (!mounted) return;
-    setState(() { _scopeGeneration++; _homeReading = _loadHomeReading(); });
+    setState(() {
+      _scopeGeneration++;
+      _homeReading = _loadHomeReading();
+    });
     scheduleMicrotask(_reloadHomeReading);
   }
 
@@ -354,7 +357,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       },
                     ),
                     FutureBuilder<HomeReadingPreferences>(
-                      key: ValueKey((_scopeGeneration, widget.repository.localPreferenceAccount)),
+                      key: ValueKey((
+                        _scopeGeneration,
+                        widget.repository.localPreferenceAccount
+                      )),
                       future: _homeReading,
                       builder: (context, snapshot) {
                         final rows = snapshot.data?.quickRowCount ?? 8;
