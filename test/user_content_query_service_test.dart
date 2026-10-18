@@ -290,6 +290,40 @@ void main() {
   });
 
   testWidgets(
+      'server failures in type lookup use shared retry without losing metadata',
+      (tester) async {
+    var attempts = 0;
+    respond = (path) async {
+      if (path.startsWith('read.php'))
+        return html.parse(_thread(authorUid: '88'));
+      if (path.contains('uid-88')) {
+        if (++attempts == 1) {
+          throw const ForumRequestException(
+              ForumRequestKind.server, 'HTTP 500');
+        }
+        return html
+            .parse(_page(_row(12), action: 'topic', uid: '88', type: 'sale'));
+      }
+      return html.parse(_page(_row(12, pid: 101)));
+    };
+    final job = scan(const UserContentQuery(
+        uid: '7',
+        tab: UserProfileTab.posts,
+        articleType: UserContentArticleType.sale));
+    job.start();
+    await tester.pump();
+    expect(job.progress.state, ScanState.waiting);
+    expect(job.progress.failure, ForumRequestKind.server);
+    expect(attempts, 1);
+    await tester.pump(const Duration(seconds: 2));
+    expect(job.progress.state, ScanState.done);
+    expect(job.hits.single.postId, '101');
+    expect(job.unresolved, isEmpty);
+    expect(attempts, 2);
+    expect(paths.where((path) => path.startsWith('read.php')), hasLength(1));
+  });
+
+  testWidgets(
       'reply type proof advances the native author list and keeps repeated replies',
       (tester) async {
     respond = (path) async {
@@ -318,7 +352,15 @@ void main() {
   testWidgets(
       'only valid native type exhaustion is negative; malformed or repeated pages remain unresolved',
       (tester) async {
-    for (final mode in ['negative', 'missing-root', 'repeat']) {
+    for (final mode in [
+      'negative',
+      'missing-root',
+      'repeat',
+      'wrong-type-hit',
+      'wrong-type-empty',
+      'wrong-uid',
+      'wrong-tab'
+    ]) {
       paths.clear();
       respond = (path) async {
         if (path.startsWith('read.php'))
@@ -326,6 +368,20 @@ void main() {
         if (path.contains('uid-88')) {
           if (mode == 'missing-root')
             return html.parse('<table class="u-table"></table>');
+          if (mode.startsWith('wrong-')) {
+            final href = switch (mode) {
+              'wrong-type-hit' =>
+                'u.php?action-topic-uid-88-type-poll-page-1.html',
+              'wrong-type-empty' =>
+                'u.php?action=topic&amp;uid=88&amp;type=poll&amp;page=1',
+              'wrong-uid' => 'u.php?action-topic-uid-99-type-sale-page-1.html',
+              _ => 'u.php?action-post-uid-88-type-sale-page-1.html',
+            };
+            final rows = mode == 'wrong-type-empty' ? '' : _row(12);
+            return html.parse(
+                '<div id="u-contentmain"><table class="u-table">$rows</table>'
+                '<div class="pages">Pages: 1/1<a href="$href">last</a></div></div>');
+          }
           final n = _number(path);
           return html.parse(_page(mode == 'repeat' ? _row(999) : '',
               pages: mode == 'repeat' ? 2 : 1,

@@ -84,6 +84,41 @@ void main() {
     expect(wrongPage.items.single.sourcePage, 1);
   });
 
+  test(
+      'pager scope rejects explicit UID tab and type contradictions without requiring missing type markers',
+      () {
+    UserContentPage pageFor(List<String> links,
+            {UserContentArticleType type = UserContentArticleType.sale}) =>
+        parser.parseContentPage(
+            html.parse('<div id="u-contentmain">'
+                '<table class="u-table"><tr><td><a href="read.php?tid-12.html">title</a></td></tr></table>'
+                '<div class="pages">Pages: 1/1${links.map((href) => '<a href="$href">last</a>').join()}</div></div>'),
+            uid: '88',
+            tab: UserProfileTab.topics,
+            page: 1,
+            articleType: type);
+    const sale = 'u.php?action-topic-uid-88-type-sale-page-1.html';
+    const missing = 'u.php?action-topic-uid-88-page-1.html';
+    const poll = 'u.php?action-topic-uid-88-type-poll-page-1.html';
+    for (final href in [
+      poll,
+      'u.php?action=topic&amp;uid=88&amp;type=poll&amp;page=1',
+      'u.php?action-topic-uid-99-type-sale-page-1.html',
+      'u.php?action-post-uid-88-type-sale-page-1.html',
+      'https://external.invalid/u.php?action-topic-uid-88-type-sale-page-1.html'
+    ]) {
+      expect(pageFor([href]).paginationKnown, isFalse, reason: href);
+    }
+    expect(pageFor([missing]).paginationKnown, isTrue,
+        reason:
+            'missing type markers remain compatible, not invented evidence');
+    expect(pageFor([sale, poll]).paginationKnown, isTrue);
+    expect(pageFor([missing, poll]).paginationKnown, isFalse,
+        reason: 'an untyped link cannot repair the only explicit type claim');
+    expect(pageFor([sale], type: UserContentArticleType.all).paginationKnown,
+        isFalse);
+  });
+
   test('taxonomy admits only native classifications of the selected board', () {
     final filters = parser.parseContentClassifications(html.parse('''
       <div class="hthread"><div class="threadlist">

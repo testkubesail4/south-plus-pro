@@ -539,7 +539,6 @@ class UserContentQueryService {
       } on ForumRequestException catch (error) {
         _assertScope(generation);
         if (error.kind != ForumRequestKind.forbidden &&
-            error.kind != ForumRequestKind.server &&
             error.kind != ForumRequestKind.invalidInput) rethrow;
         lookup.unavailable = true;
         return (null, null);

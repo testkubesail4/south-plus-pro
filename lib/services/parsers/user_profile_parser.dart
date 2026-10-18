@@ -270,8 +270,8 @@ class UserProfileParser {
       throw const ForumRequestException(
           ForumRequestKind.invalidInput, '无法识别用户文章列表');
     }
-    final pagination =
-        _contentPagination(document, uid: uid, tab: tab, page: page);
+    final pagination = _contentPagination(document,
+        uid: uid, tab: tab, page: page, articleType: articleType);
     final items = tab == UserProfileTab.favorites
         ? _parseFavorites(document, sourcePage: pagination.current)
         : _parseThreadRows(document,
@@ -290,26 +290,48 @@ class UserProfileParser {
       dom.Document document,
       {required String uid,
       required UserProfileTab tab,
-      int page = 1}) {
-    final action = switch (tab) {
-      UserProfileTab.topics => 'topic',
-      UserProfileTab.posts => 'post',
-      UserProfileTab.favorites => 'favor',
-      _ => throw ArgumentError('Unsupported content tab'),
-    };
+      int page = 1,
+      UserContentArticleType articleType = UserContentArticleType.all}) {
+    if (!{UserProfileTab.topics, UserProfileTab.posts, UserProfileTab.favorites}
+        .contains(tab)) throw ArgumentError('Unsupported content tab');
     var totalFromLinks = page;
     var hasLast = false;
+    var hasPagerLinks = false;
+    var compatibleRoute = false;
+    var conflictingType = false;
+    var matchingType = false;
+    final expectedType = tab == UserProfileTab.topics ? articleType.name : null;
     for (final link in document.querySelectorAll('.pages a[href]')) {
       final href = link.attributes['href'] ?? '';
-      if (!urls.isForumUrl(href) || urls.uidFromUrl(href) != uid) continue;
-      final uri = Uri.parse(urls.absoluteUrl(href));
-      if (uri.path != '/u.php' ||
-          !RegExp('(?:[?&]|^)action[-=]$action(?:[-&]|\$)').hasMatch(href))
-        continue;
       final target = int.tryParse(
           RegExp(r'(?:[-?&])page[-=]([1-9]\d*)').firstMatch(href)?.group(1) ??
               '');
       if (target == null) continue;
+      hasPagerLinks = true;
+      final route = urls.forumLinkTarget(href);
+      if (route is! ForumUserLinkTarget ||
+          route.tab != tab ||
+          urls.uidFromUrl(route.userUrl) != uid) continue;
+      final uri = Uri.parse(route.userUrl);
+      final type = uri.query.contains('=')
+          ? uri.queryParameters['type']
+          : RegExp(r'(?:^|-)type-(.*?)(?:-|\.html$)')
+              .firstMatch(uri.query)
+              ?.group(1);
+      final claimed = type == null
+          ? null
+          : uri.query.contains('=')
+              ? type
+              : Uri.decodeComponent(type);
+      if (claimed != null && claimed != expectedType) {
+        conflictingType = true;
+        continue;
+      }
+      compatibleRoute = true;
+      if (claimed == expectedType ||
+          (claimed == null && expectedType == 'all')) {
+        matchingType = true;
+      }
       if (target > totalFromLinks) totalFromLinks = target;
       if ({'»', '>>', 'last', '末页', '尾页'}
           .contains(link.text.trim().toLowerCase())) {
@@ -323,6 +345,8 @@ class UserProfileParser {
     final declared = int.tryParse(counter?.group(2) ?? '');
     final total = declared ?? totalFromLinks;
     final known = current == page &&
+        (!hasPagerLinks || compatibleRoute) &&
+        (!conflictingType || matchingType) &&
         current >= 1 &&
         total >= current &&
         (declared == null || totalFromLinks <= total) &&
