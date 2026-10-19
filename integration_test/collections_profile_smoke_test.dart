@@ -376,7 +376,9 @@ void main() {
     await dismissBoardSheet(tester);
 
     await tap(tester, find.widgetWithText(Tab, '回复'));
-    await waitFor(tester, find.text('版块：全部'));
+    // Replies keep their own selectors: folded and unfiltered here.
+    await waitFor(tester, find.byTooltip('展开筛选'));
+    expect(find.textContaining('版块：'), findsNothing);
     await waitFor(tester, find.text('CM108 子版回复'));
     await openBoardFilter(tester, '版块：全部');
     await tap(tester, section);
