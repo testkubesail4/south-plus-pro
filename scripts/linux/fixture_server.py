@@ -123,7 +123,7 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
                      round=False, edits=[], edit_attempts=[], edit_form_reads=[], edit_feedback='success',
                      thread_pages=[], thread_reads=[], topic_pages=[], list_reads=[], scan_waiting=False,
-                     truncate_list_next=False,
+                     truncate_list_next=False, truncate_favorites=False,
                      post_bodies={'950101': '[b]Opening original[/b] [url=https://example.invalid/reference]source[/url]',
                                   '950102': '[i]Reply original[/i] [s:716]'},
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
@@ -544,6 +544,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 APPENDFIX['truncate_list_next'] = True
             self.send_body(b'{}', 'application/json')
             return
+        if self.appendfix and APPENDFIX['round'] and path.path in (
+                '/round/truncate-favorites', '/round/restore-favorites') and raw == b'fixture-only':
+            with APPENDFIX_LOCK:
+                APPENDFIX['truncate_favorites'] = path.path == '/round/truncate-favorites'
+            self.send_body(b'{}', 'application/json')
+            return
         if APPENDFIX['round'] and path.path == '/round/release-scan' and raw == b'fixture-only':
             ROUND_SCAN_GATE.set()
             self.send_body(b'{}', 'application/json')
@@ -807,13 +813,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     return
                 with APPENDFIX_LOCK:
                     APPENDFIX['list_reads'].append(query)
-                    truncated = APPENDFIX['truncate_list_next']
+                    truncated = APPENDFIX['truncate_list_next'] or (
+                        APPENDFIX['truncate_favorites'] and (action == 'favor' or 'action-favor-' in query))
                     APPENDFIX['truncate_list_next'] = False
                 if truncated:
                     self.send_body(b'<html><body><div id="main">', 'text/html; charset=utf-8')
                     return
                 if action != 'topic' and 'action-topic-' not in query:
-                    self.send_body(round_profile(), 'text/html; charset=utf-8')
+                    self.send_body(b'<html><body><div id="u-contentmain"><table class="u-table"></table></div></body></html>',
+                                   'text/html; charset=utf-8')
                     return
                 match = re.search(r'-page-(\d+)', query)
                 page = int(match[1]) if match else int(params.get('page', ['1'])[0])

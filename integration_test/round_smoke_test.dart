@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/common/async_state_view.dart';
+import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/user_content_query.dart';
@@ -83,13 +85,13 @@ void main() {
     await tester.pump();
   }
 
-  Future<void> mount(WidgetTester tester, ForumThread thread) async {
+  Future<void> mountScreen(WidgetTester tester, Widget screen) async {
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: ThreadDetailScreen(repository: repository, thread: thread),
-    ));
+    await tester.pumpWidget(MaterialApp(theme: AppTheme.light, home: screen));
   }
+
+  Future<void> mount(WidgetTester tester, ForumThread thread) => mountScreen(
+      tester, ThreadDetailScreen(repository: repository, thread: thread));
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -104,6 +106,29 @@ void main() {
     });
     repository = ForumRepository(config: _config);
     expect(await repository.restoreSession(), isTrue);
+  });
+
+  testWidgets(
+      'truncated Favorites keeps valid Topics visible and shows a retriable error, never an empty success',
+      (tester) async {
+    await fixture('round/truncate-favorites', reset: true);
+    await mountScreen(
+        tester,
+        UserProfileScreen(
+          repository: repository,
+          userUrl: 'http://127.0.0.1:8765/u.php?action-show-uid-950002.html',
+          initialTab: UserProfileTab.topics,
+        ));
+    await waitFor(tester, find.text('Known high'));
+    await tap(tester, find.text('收藏'));
+    await waitFor(tester, find.byType(AsyncErrorView));
+    expect(find.text('没有公开收藏'), findsNothing,
+        reason: 'missing table is a failed tab, not an empty collection');
+    await fixture('round/restore-favorites', reset: true);
+    await tap(tester, find.text('重试'));
+    await waitFor(tester, find.text('没有公开收藏'));
+    await tap(tester, find.text('主题'));
+    await waitFor(tester, find.text('Known high'));
   });
 
   testWidgets(

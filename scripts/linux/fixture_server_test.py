@@ -149,6 +149,11 @@ class FixtureServerTest(unittest.TestCase):
             request('/round/truncate-list-next', b'fixture-only')
             self.assertEqual(request(path), truncated)
             self.assertIn(b'class="u-table"', request(path))
+            request('/round/truncate-favorites', b'fixture-only')
+            self.assertIn(b'Known high', request(path))
+            self.assertEqual(request('/u.php?action-favor-uid-950002.html'), truncated)
+            request('/round/restore-favorites', b'fixture-only')
+            self.assertIn(b'class="u-table"', request('/u.php?action-favor-uid-950002.html'))
 
     def test_round_scan_returns_requested_pages_with_mixed_known_unknown_metrics(self):
         from fixture_server import ROUND_SCAN_GATE
