@@ -237,6 +237,9 @@ void main() {
     expect(find.text('热心助人 +1 SP币'), findsOneWidget);
     expect(find.byKey(best), findsNothing);
     expect(find.byKey(const ValueKey('reward-helpful-960102')), findsNothing);
+    await tap(tester, find.text('第 2 / 2 页'));
+    await tap(tester, find.text('首楼'));
+    await waitFor(tester, find.text('悬赏已结束'));
     final stats = await fixture('r8/stats');
     expect(stats['awards'], {'960103': 'helpful', '960102': 'best'});
     final attempts = stats['reward_attempts'] as List;
