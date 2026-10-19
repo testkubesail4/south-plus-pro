@@ -197,68 +197,63 @@ class _ThreadEditScreenState extends State<ThreadEditScreen> {
     );
   }
 
+  // One scroll view: with the keyboard up and large text, the outcome of a
+  // save and its 查看帖子 stay reachable above the fields.
   Widget _form(BuildContext context) {
     final error = _error;
     return LayoutBuilder(
       builder: (context, box) {
         final gutter = appGutter(box.maxWidth, AppWidths.form);
-        return Padding(
+        return ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding:
               EdgeInsets.fromLTRB(gutter, AppSpace.md, gutter, AppSpace.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextField(
-                controller: _title,
-                enabled: !_saving,
-                decoration: const InputDecoration(labelText: '标题'),
-              ),
-              const SizedBox(height: AppSpace.md),
-              Expanded(
-                child: TextField(
-                  controller: _content,
-                  enabled: !_saving,
-                  expands: true,
-                  maxLines: null,
-                  textAlignVertical: TextAlignVertical.top,
-                  keyboardType: TextInputType.multiline,
-                  decoration: const InputDecoration(
-                    labelText: '正文',
-                    alignLabelWithHint: true,
-                  ),
+          children: [
+            if (error != null) ...[
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  _unconfirmed
+                      ? '保存未确认：$error。修改可能已经生效，请先查看帖子确认，再决定是否重新保存。'
+                      : error,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-              if (error != null) ...[
-                const SizedBox(height: AppSpace.sm),
-                Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    _unconfirmed
-                        ? '保存未确认：$error。修改可能已经生效，请先查看帖子确认，再决定是否重新保存。'
-                        : error,
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.error),
+              if (_unconfirmed)
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton(
+                    onPressed:
+                        _saving ? null : () => Navigator.of(context).pop(false),
+                    child: const Text('查看帖子'),
                   ),
                 ),
-                if (_unconfirmed)
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton(
-                      onPressed: _saving
-                          ? null
-                          : () => Navigator.of(context).pop(false),
-                      child: const Text('查看帖子'),
-                    ),
-                  ),
-              ],
               const SizedBox(height: AppSpace.sm),
-              WindCodeToolbar(
-                controller: _content,
-                enabled: !_saving,
-                baseUri: widget.repository.networkConfig.baseUri,
-              ),
             ],
-          ),
+            TextField(
+              controller: _title,
+              enabled: !_saving,
+              decoration: const InputDecoration(labelText: '标题'),
+            ),
+            const SizedBox(height: AppSpace.md),
+            TextField(
+              controller: _content,
+              enabled: !_saving,
+              minLines: 8,
+              maxLines: null,
+              keyboardType: TextInputType.multiline,
+              decoration: const InputDecoration(
+                labelText: '正文',
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: AppSpace.sm),
+            WindCodeToolbar(
+              controller: _content,
+              enabled: !_saving,
+              baseUri: widget.repository.networkConfig.baseUri,
+            ),
+          ],
         );
       },
     );

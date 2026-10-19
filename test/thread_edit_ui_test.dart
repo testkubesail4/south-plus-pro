@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/reply/thread_edit_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
@@ -118,6 +119,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('保存修改'), findsOneWidget);
     expect(repository.submits, isEmpty);
+  });
+
+  testWidgets(
+      'a narrow phone with large text and the keyboard up still reaches 查看帖子',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.reset);
+    final repository = _Repo()
+      ..results.add(const ReplyResult(success: false, message: '提示信息'));
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: const TextScaler.linear(2)),
+        child: child!,
+      ),
+      home: ThreadEditScreen(
+          repository: repository, link: _replyLink, openingPost: false),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, '[b]原文[/b]'), '很长的改动\n' * 20);
+    await tester.tap(find.byKey(const ValueKey('edit-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('查看帖子').hitTestable(), findsOneWidget);
+    expect(find.textContaining('保存未确认'), findsOneWidget);
+    final content = find.textContaining('很长的改动');
+    await tester.dragUntilVisible(
+        content, find.byType(ListView), const Offset(0, -100));
+    expect(tester.widget<EditableText>(content).controller.text,
+        '很长的改动\n' * 20,
+        reason: 'the text is kept');
   });
 
   testWidgets('leaving with changes asks first', (tester) async {
