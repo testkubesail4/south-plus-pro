@@ -330,7 +330,12 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         // loading later above the target can still shift it.
         await WidgetsBinding.instance.endOfFrame;
         final settled = _anchorKey.currentContext;
-        if (mounted && settled != null) await Scrollable.ensureVisible(settled);
+        if (mounted && settled != null) {
+          await Scrollable.ensureVisible(settled);
+          if (mounted && settled.mounted) {
+            _saveTopPost(Scrollable.of(settled).context);
+          }
+        }
         return;
       }
       if (!_scrollController.hasClients) continue;

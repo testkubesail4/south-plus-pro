@@ -113,6 +113,20 @@ void main() {
     final detail = await repository.fetchThreadDetail(thread);
     expect(detail.bodyAnchors, contains('tpc'));
     expect(detail.replies.single.anchors, isNot(contains('tpc')));
+    final saved = await repository.loadThreadReadPosition(thread);
+    expect(saved?.page, 1);
+    expect(saved?.anchor, 'tpc', reason: 'a zero-offset reveal may emit no ScrollEnd');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    final reopened = ForumRepository(client: client, historyStore: _History());
+    await tester.pumpWidget(MaterialApp(
+        home: ThreadDetailScreen(repository: reopened, thread: thread)));
+    await tester.pumpAndSettle();
+    expect(find.text('Opening fixture body', findRichText: true).hitTestable(),
+        findsOneWidget);
+    expect(find.textContaining('已回到上次阅读位置'), findsNothing);
+    expect(find.text(_notFound), findsNothing);
+    expect(client.paths.where((path) => path.contains('page-2')), hasLength(1));
   });
 
   testWidgets('opening post body anchor stays on the opening post', (
