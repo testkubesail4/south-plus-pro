@@ -339,6 +339,7 @@ class ThreadDetail {
     this.bodyReplyTitle,
     this.bodyReplyUrl,
     this.bodyQuoteUrl,
+    this.bodyEditLink,
     this.bodyContentKey,
     this.bodyPostedAt,
     this.personalSignature,
@@ -362,6 +363,7 @@ class ThreadDetail {
   final String? bodyReplyTitle;
   final String? bodyReplyUrl;
   final String? bodyQuoteUrl;
+  final ThreadActionLink? bodyEditLink;
   final String? bodyContentKey;
   final String? bodyPostedAt;
   final String? personalSignature;
@@ -399,6 +401,7 @@ class ThreadReply {
     this.quoteUrl,
     this.replyTitle,
     this.replyUrl,
+    this.editLink,
     this.blockContentKey,
     this.segments = const [],
     this.anchors = const [],
@@ -420,6 +423,7 @@ class ThreadReply {
   final String? quoteUrl;
   final String? replyTitle;
   final String? replyUrl;
+  final ThreadActionLink? editLink;
   final String? blockContentKey;
   String? get authorUid => _profileUid(authorUrl);
   final List<ThreadContentSegment> segments;
@@ -1117,6 +1121,25 @@ class LoginResult {
 
   final bool success;
   final String message;
+}
+
+class ThreadEditDraft {
+  ThreadEditDraft({
+    required this.title,
+    required this.content,
+    required Map<String, String> fields,
+    required List<MapEntry<String, String>> controls,
+    required this.actionPath,
+    this.multipart = false,
+  })  : fields = Map.unmodifiable(fields),
+        controls = List.unmodifiable(controls);
+
+  final String title;
+  final String content;
+  final Map<String, String> fields;
+  final List<MapEntry<String, String>> controls;
+  final String actionPath;
+  final bool multipart;
 }
 
 class ReplyResult {

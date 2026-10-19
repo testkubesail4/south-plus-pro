@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../forum_url_resolver.dart';
 import '../forum_block_content.dart';
 import 'thread_content_parser.dart';
+import 'thread_edit_form_parser.dart';
 
 class ThreadDetailParser {
   ThreadDetailParser({
@@ -88,6 +89,7 @@ class ThreadDetailParser {
           floor: floor.isEmpty ? null : floor,
           quote: quote,
           quoteUrl: quoteHref == null ? null : urls.absoluteUrl(quoteHref),
+          editLink: _editLink(contentCell),
           replyTitle: _replyTitle(replyLink?.attributes['onclick']),
           replyUrl: replyHref == null ||
                   replyHref.isEmpty ||
@@ -447,6 +449,20 @@ class ThreadDetailParser {
       }
       final label = _cleanText(link.text);
       if (label.isEmpty || label.contains('只看')) return href;
+    }
+    return null;
+  }
+
+  ThreadActionLink? _editLink(dom.Element contentCell) {
+    final parser = ThreadEditFormParser(urls);
+    for (final link in contentCell.querySelectorAll('.tiptop a[href]')) {
+      final href = link.attributes['href']!;
+      if (parser.editTarget(href) == null) continue;
+      final label = _cleanText(link.text);
+      return ThreadActionLink(
+        label: label.isEmpty ? '编辑' : label,
+        url: urls.absoluteUrl(href),
+      );
     }
     return null;
   }

@@ -38,6 +38,7 @@ import 'parsers/home_page_parser.dart';
 import 'parsers/search_result_parser.dart';
 import 'parsers/thread_content_parser.dart';
 import 'parsers/thread_detail_parser.dart';
+import 'parsers/thread_edit_form_parser.dart';
 import 'parsers/user_profile_parser.dart';
 
 typedef _ProfileDetailsData = ({
@@ -116,6 +117,7 @@ class ForumRepository {
   late BoardThreadPageParser _boardThreadPageParser =
       BoardThreadPageParser(urls: _urls);
   final ForumFormParser _formParser = const ForumFormParser();
+  final _editDraftSessions = Expando<({ForumClient client, int epoch})>();
   final ForumResponseParser _responseParser = const ForumResponseParser();
   final ForumTasksParser _tasksParser = const ForumTasksParser();
   late HomePageParser _homePageParser = HomePageParser(urls: _urls);
@@ -2575,6 +2577,7 @@ class ForumRepository {
       bodyReplyTitle: first?.replyTitle,
       bodyReplyUrl: first?.replyUrl,
       bodyQuoteUrl: first?.quoteUrl,
+      bodyEditLink: first?.editLink,
       bodyContentKey: first?.blockContentKey,
       personalSignature: first?.personalSignature,
       bodyPostedAt: first?.postedAt,
@@ -2675,6 +2678,77 @@ class ForumRepository {
         document.querySelector('input[name="atc_content"]');
     final value = input?.attributes['value']?.trim();
     return value == null || value.isEmpty ? null : value;
+  }
+
+  Future<ThreadEditDraft> fetchEditDraft(ThreadActionLink link) async {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    void requireCurrent() => _requireEditSession(client, epoch);
+    requireCurrent();
+    final parser = ThreadEditFormParser(_urls);
+    final target = parser.editTarget(link.url);
+    if (target == null) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '编辑链接无效，请刷新帖子');
+    }
+    final response = await client.getForm(target.path,
+        requireCurrentSession: requireCurrent);
+    requireCurrent();
+    ThreadEditDraft draft;
+    try {
+      draft = parser.parse(html_parser.parse(response), link);
+    } on ForumRequestException {
+      _throwIfBlockedPage(response);
+      rethrow;
+    }
+    _editDraftSessions[draft] = (client: client, epoch: epoch);
+    return draft;
+  }
+
+  Future<ReplyResult> submitEdit({
+    required ThreadEditDraft draft,
+    required String title,
+    required String content,
+  }) async {
+    final session = _editDraftSessions[draft];
+    if (session == null) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '请重新打开编辑并确认帖子内容');
+    }
+    void requireCurrent() => _requireEditSession(session.client, session.epoch);
+    requireCurrent();
+    if (content.trim().isEmpty) {
+      return const ReplyResult(success: false, message: '正文不能为空');
+    }
+    final fields = [
+      for (final field in draft.controls)
+        if (!const {'atc_title', 'atc_content', 'Submit'}.contains(field.key))
+          field,
+      MapEntry('atc_title', title),
+      MapEntry('atc_content', content),
+      const MapEntry('Submit', ' 提 交 '),
+    ];
+    // A possibly-sent write consumes the draft; reopen to inspect before another attempt.
+    _editDraftSessions[draft] = null;
+    final response = await session.client.postForm(draft.actionPath, fields,
+        multipart: draft.multipart, requireCurrentSession: requireCurrent);
+    requireCurrent();
+    _throwIfBlockedPage(response);
+    final message = _responseParser.pageMessage(response);
+    if (_responseParser.isEditSuccess(response, message)) {
+      _clearProfileDetails();
+      return const ReplyResult(success: true, message: '编辑已保存');
+    }
+    return ReplyResult(success: false, message: message);
+  }
+
+  void _requireEditSession(ForumClient client, int epoch) {
+    if (!isLoggedIn ||
+        !identical(client, _client) ||
+        epoch != _sessionEpoch.value) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录或网络状态已改变，请重新打开编辑');
+    }
   }
 
   Future<ReplyResult> submitReply({
