@@ -138,7 +138,7 @@ class FixtureServerTest(unittest.TestCase):
             request('/round/reset', b'fixture-only')
             first = request('/u.php?action-topic-uid-950002.html').decode()
             self.assertIn('Unknown metrics', first)
-            self.assertIn('回复 0 浏览 0', first)
+            self.assertIn('回复:0 浏览:0', first)
             self.assertNotIn('Unloaded maximum', first)
             result = []
             pending = threading.Thread(target=lambda: result.append(

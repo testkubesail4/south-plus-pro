@@ -54,6 +54,12 @@ void main() {
     }
   }
 
+  // EditableText also matches textContaining; wait for the actual floor route.
+  Finder floorText(String text) => find.descendant(
+        of: find.byType(ThreadDetailScreen),
+        matching: find.textContaining(text, findRichText: true),
+      );
+
   Future<void> waitFor(WidgetTester tester, Finder finder) async {
     final deadline = DateTime.now().add(const Duration(seconds: 20));
     while (finder.evaluate().isEmpty && DateTime.now().isBefore(deadline)) {
@@ -160,9 +166,7 @@ void main() {
       await waitFor(tester, content);
       await tester.enterText(content, updated);
       await tap(tester, find.text('保存修改'));
-      final rendered = find.textContaining(
-          page == 1 ? 'Opening edited' : 'Reply edited',
-          findRichText: true);
+      final rendered = floorText(page == 1 ? 'Opening edited' : 'Reply edited');
       await waitFor(tester, rendered);
       await tester.pumpAndSettle();
       expect(rendered, findsOneWidget);
@@ -230,8 +234,7 @@ void main() {
       // The fresh form still holds the original body, so resetting local text
       // while reopening would lose the user's edit and fail the readback below.
       await tap(tester, find.byKey(const ValueKey('edit-save-button')));
-      final rendered =
-          find.textContaining('Retained $feedback draft', findRichText: true);
+      final rendered = floorText('Retained $feedback draft');
       await waitFor(tester, rendered);
       await tester.pumpAndSettle();
       expect(rendered, findsOneWidget);
