@@ -205,6 +205,31 @@ void main() {
     expect(paths, hasLength(2));
   });
 
+  for (final tab in [UserProfileTab.topics, UserProfileTab.posts, UserProfileTab.favorites]) {
+    testWidgets('truncated $tab list cannot become an empty loaded or complete eager result',
+        (tester) async {
+      respond = (_) async => html.parse('<html><title>South Plus</title><body><div id="main">');
+      final repository = ForumRepository(client: client);
+      final query = UserContentQuery(uid: '7', tab: tab);
+      await expectLater(repository.fetchUserContent(query),
+          throwsA(isA<ForumRequestException>().having(
+              (error) => error.kind, 'kind', ForumRequestKind.invalidInput)));
+      final job = repository.scanUserContent(query);
+      addTearDown(job.dispose);
+      job.start();
+      await tester.pump();
+      expect(job.progress.state, ScanState.failed);
+      expect(job.progress.failure, ForumRequestKind.invalidInput);
+      expect(job.progress.scannedPages, 0);
+      expect(job.hits, isEmpty);
+      expect(paths, hasLength(2), reason: 'invalid shape is not retried');
+      respond = (_) async => html.parse(_page(''));
+      final empty = await repository.fetchUserContent(query);
+      expect(empty.items, isEmpty);
+      expect(empty.isComplete, isTrue, reason: 'a real empty table is still a valid list');
+    });
+  }
+
   testWidgets(
       'full title search seeds loaded rows, finds page two and never searches reply body',
       (tester) async {
@@ -260,9 +285,10 @@ void main() {
       final gate = Completer<dom.Document>();
       final action = tab == UserProfileTab.topics ? 'topic' : 'post';
       String row(int id, String title, String date, int? views) =>
-          _row(12, pid: tab == UserProfileTab.posts ? id : null, title: title)
-              .replaceFirst('</td>', ' [$date] ${views == null ? '' : '浏览:$views 回复:$views'}</td>')
-              .replaceFirst('tid-12.html', 'tid-$id.html');
+          '<tr><th><a href="${tab == UserProfileTab.posts ? 'job.php?action-topost-tid-12-pid-$id.html' : 'read.php?tid-$id.html'}">'
+          '$title</a><a class="gray" href="thread.php?fid-48.html">Board</a>'
+          '<span class="gray f9">[$date]</span></th><td>'
+          '${views == null ? '' : '浏览:$views 回复:$views'}</td></tr>';
       respond = (path) async {
         if (!path.startsWith('u.php')) fail('sorting must not enrich from $path');
         if (_number(path) == 2) return gate.future;

@@ -512,9 +512,11 @@ class UserProfileParser {
       metadataRow
           .querySelector('a[href*="read.php"], a[href*="job.php"]')
           ?.remove();
-      final text = _cleanText(metadataRow.text);
+      final dateText = metadataRow.querySelector('th span.gray.f9')?.text ?? '';
+      final metricsText = _cleanText(metadataRow.querySelectorAll('td')
+          .map((cell) => cell.text).join(' '));
       final date =
-          RegExp(r'\[(\d{4}-\d{2}-\d{2})\]').firstMatch(text)?.group(1);
+          RegExp(r'\[(\d{4}-\d{2}-\d{2})\]').firstMatch(dateText)?.group(1);
       final authorLink = row.querySelector('a[href*="uid"]');
       final author = includeAuthor ? _cleanText(authorLink?.text ?? '') : null;
       final authorHref = authorLink?.attributes['href'] ?? '';
@@ -532,8 +534,8 @@ class UserProfileParser {
           date: date,
           author: author == null || author.isEmpty ? null : author,
           authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
-          replies: includeMetrics ? _valueAfterLabel(text, '回复') : null,
-          views: includeMetrics ? _valueAfterLabel(text, '浏览') : null,
+          replies: includeMetrics ? _valueAfterLabel(metricsText, '回复') : null,
+          views: includeMetrics ? _valueAfterLabel(metricsText, '浏览') : null,
         ),
       );
     }

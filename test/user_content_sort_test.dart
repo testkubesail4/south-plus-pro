@@ -86,18 +86,30 @@ void main() {
     test(
         '$tab metadata comes from the native row, never from user title tokens',
         () {
-      String row(int id, String title, String metadata) =>
-          '<tr><td><a href="${tab == UserProfileTab.posts ? 'job.php?action-topost-tid-7-pid-$id.html' : 'read.php?tid-$id.html'}">'
-          '$title</a></td><td>$metadata</td></tr>';
+      String row(int id, String title, {String? date, int? views, int? replies}) {
+        final href = tab == UserProfileTab.posts
+            ? 'job.php?action-topost-tid-7-pid-$id.html'
+            : 'read.php?tid-$id.html';
+        final metrics = tab == UserProfileTab.posts
+            ? '作者:<a href="u.php?uid-8.html">Author</a>'
+            : '${replies == null ? '' : '回复:$replies<br>'}'
+                '${views == null ? '' : '浏览:$views'}';
+        return '<tr><th><a href="$href">$title</a>'
+            '<a class="gray" href="thread.php?fid-48.html">Board</a>'
+            'Non-metadata [1900-01-01] 浏览:777 回复:777'
+            '${date == null ? '' : '<span class="gray f9">[$date]</span>'}'
+            '</th><td>$metrics</td></tr>';
+      }
       final document = html.parse(
           '<div id="u-contentmain"><table class="u-table">'
-          '${row(101, '[1999-01-01] 浏览:999 回复:999', '[2024-01-01] 浏览:90 回复:9')}'
-          '${row(102, 'Normal title', '[2024-02-01] 浏览:40 回复:4')}'
-          '${row(103, '[2000-01-01] 浏览:888 回复:888', '')}'
+          '${row(101, '[1999-01-01] 浏览:999 回复:999', date: '2024-01-01', views: 90, replies: 9)}'
+          '${row(102, 'Normal title', date: '2024-02-01', views: 40, replies: 4)}'
+          '${row(103, '[2000-01-01] 浏览:888 回复:888')}'
           '</table></div>');
       final rows = UserProfileParser()
           .parseContentPage(document, uid: '7', tab: tab, page: 1)
           .items;
+      expect(rows.first.title, '[1999-01-01] 浏览:999 回复:999');
       expect(rows.map((row) => row.date), ['2024-01-01', '2024-02-01', null]);
       expect(rows.map((row) => row.views),
           tab == UserProfileTab.topics ? [90, 40, null] : [null, null, null]);
