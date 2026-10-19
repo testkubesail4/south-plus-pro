@@ -123,7 +123,8 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
                      round=False, edits=[], edit_attempts=[], edit_form_reads=[], edit_feedback='success',
                      thread_pages=[], thread_reads=[], topic_pages=[], scan_waiting=False,
-                     post_bodies={'950101': '[b]Opening original[/b]', '950102': '[i]Reply original[/i]'},
+                     post_bodies={'950101': '[b]Opening original[/b] [url=https://example.invalid/reference]source[/url]',
+                                  '950102': '[i]Reply original[/i] [s:716]'},
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
                                       date_f='yyyy-mm-dd', time_f='24', t_num='0',
                                       p_num='0', proreceivemail='1', friendcheck='0',
@@ -216,6 +217,8 @@ def round_thread(page):
                 if edit else '')
         body = escape(APPENDFIX['post_bodies'].get(pid, 'Another author uneditable body'))
         body = re.sub(r'\[(b|i)\](.*?)\[/\1\]', r'<\1>\2</\1>', body)
+        body = re.sub(r'\[url=(https://example\.invalid/[^]]+)\](.*?)\[/url\]', r'<a href="\1">\2</a>', body)
+        body = body.replace('[s:716]', '<span>🙂</span>')
         # Live topology: FORM > A[name] + DIV > TABLE, never A + TABLE.
         return f'''<a name="{anchor}"></a><div class="t5 t2"><table class="js-post"><tr>
 <th class="r_two"><a href="u.php?action-show-uid-{'930001' if edit else '950002'}.html"><strong>{author}</strong></a></th>

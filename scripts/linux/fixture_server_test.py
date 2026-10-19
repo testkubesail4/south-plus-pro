@@ -93,7 +93,9 @@ class FixtureServerTest(unittest.TestCase):
             self.assertIn('<i>Reply original</i>', page2)
             self.assertNotIn('[i]Reply original[/i]', page2)
             edit = '/post.php?action-modify-fid-950-tid-950001-pid-950102-article-2.html'
-            self.assertIn(b'[i]Reply original[/i]', request(edit))
+            form = request(edit)
+            self.assertIn(b'[i]Reply original[/i] [s:716]', form)
+            self.assertNotIn(b'[s:716]', page2.encode())
             fields = dict(round_edit_fields('950102'), atc_title='Synthetic title', atc_content='Edited body')
             for invalid in [dict(fields, action='reply'), dict(fields, atc_money='0')]:
                 with self.assertRaises(HTTPError) as error:
@@ -127,7 +129,7 @@ class FixtureServerTest(unittest.TestCase):
                     state = json.loads(request('/round/stats'))
                     self.assertEqual(len(state['edit_attempts']), 1)
                     self.assertEqual(state['edits'], [])
-                    self.assertEqual(state['post_bodies']['950102'], '[i]Reply original[/i]')
+                    self.assertEqual(state['post_bodies']['950102'], '[i]Reply original[/i] [s:716]')
                     request('/post.php?', urlencode(fields).encode())
                     state = json.loads(request('/round/stats'))
                     self.assertEqual(len(state['edit_attempts']), 2)

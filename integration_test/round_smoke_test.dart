@@ -31,6 +31,10 @@ const _thread = ForumThread(
   section: 'Synthetic board',
 );
 
+const _openingSource =
+    '[b]Opening original[/b] [url=https://example.invalid/reference]source[/url]';
+const _replySource = '[i]Reply original[/i] [s:716]';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   late ForumRepository repository;
@@ -138,8 +142,8 @@ void main() {
   });
 
   for (final (pid, page, floor, original, updated) in [
-    ('950101', 1, '楼主', '[b]Opening original[/b]', '[b]Opening edited[/b]'),
-    ('950102', 2, 'B2F', '[i]Reply original[/i]', '[i]Reply edited[/i]'),
+    ('950101', 1, '楼主', _openingSource, '[b]Opening edited[/b]'),
+    ('950102', 2, 'B2F', _replySource, '[i]Reply edited[/i]'),
   ]) {
     testWidgets(
         '$floor server edit link opens original BBCode and modify refreshes same floor, never appends a reply',
@@ -212,8 +216,7 @@ void main() {
       final content = find.byWidgetPredicate((widget) =>
           widget is TextField && widget.decoration?.labelText == '正文');
       await waitFor(tester, content);
-      expect(tester.widget<TextField>(content).controller?.text,
-          '[i]Reply original[/i]');
+      expect(tester.widget<TextField>(content).controller?.text, _replySource);
       final updated = '[i]Retained $feedback draft[/i]';
       await tester.enterText(content, updated);
       await fixture('round/edit-$feedback-next', reset: true);
@@ -230,7 +233,7 @@ void main() {
           reason: 'an uncertain write is never retried automatically');
       expect(uncertain['edits'], isEmpty);
       expect(uncertain['edit_form_reads'], ['950102']);
-      expect(uncertain['post_bodies']['950102'], '[i]Reply original[/i]');
+      expect(uncertain['post_bodies']['950102'], _replySource);
       // The fresh form still holds the original body, so resetting local text
       // while reopening would lose the user's edit and fail the readback below.
       await tap(tester, find.byKey(const ValueKey('edit-save-button')));
