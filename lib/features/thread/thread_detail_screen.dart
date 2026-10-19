@@ -37,6 +37,7 @@ import '../profile/blocking_settings_screen.dart';
 import '../profile/favorite_collections_sheets.dart' show showNewCategoryDialog;
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
+import '../reply/thread_edit_screen.dart';
 import '../search/search_screen.dart';
 import 'thread_find.dart';
 import 'thread_floor_actions.dart';
@@ -807,6 +808,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         avatarUrl: avatarBlocked ? null : reply.authorAvatarUrl,
       ),
       canShowAuthorPosts: reply.authorPostsUrl != null,
+      canEdit: reply.editLink != null,
       canEditNote: uid != null,
       hasNote: _notes.noteFor(uid) != null,
       block: ThreadFloorBlockState(
@@ -831,6 +833,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     );
     if (action == null || !sameSession()) return;
     switch (action) {
+      case ThreadFloorAction.edit:
+        await _editFloor(reply.editLink!, openingPost);
       case ThreadFloorAction.showAuthorPosts:
         await _showAuthorPosts(reply);
       case ThreadFloorAction.editNote:
@@ -867,6 +871,36 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           sameSession,
         );
     }
+  }
+
+  /// Opens the forum's edit form for one floor; after a save (confirmed or
+  /// not) reloads that floor's page and reveals it, never appending a floor.
+  Future<void> _editFloor(ThreadActionLink link, bool openingPost) async {
+    final page = _loadedPages
+        .where((page) =>
+            identical(page.bodyEditLink, link) ||
+            page.replies.any((reply) => identical(reply.editLink, link)))
+        .firstOrNull;
+    final anchor = openingPost
+        ? page?.bodyAnchors.firstOrNull
+        : page?.replies
+            .firstWhere((reply) => identical(reply.editLink, link))
+            .anchors
+            .firstOrNull;
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => ThreadEditScreen(
+        repository: widget.repository,
+        link: link,
+        openingPost: openingPost,
+      ),
+    ));
+    if (saved == null || !mounted) return;
+    if (saved) {
+      _messenger.showSnackBar(const SnackBar(content: Text('已保存修改')));
+    }
+    _pendingAnchor = anchor;
+    await _loadPage(page?.pagination.currentPage ?? _page,
+        scrollToTop: anchor == null);
   }
 
   /// Applies one rule change, offering to undo it; nothing is written once
@@ -2281,6 +2315,7 @@ class _ThreadDetailContent extends StatelessWidget {
         authorAvatarUrl: detail.thread.authorAvatarUrl,
         authorPostsUrl: detail.thread.authorPostsUrl,
         floor: '楼主',
+        editLink: detail.bodyEditLink,
         quoteUrl: detail.bodyQuoteUrl,
         replyTitle: detail.bodyReplyTitle,
       );

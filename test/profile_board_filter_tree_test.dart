@@ -82,6 +82,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('主题'));
     await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('展开筛选'));
+    await tester.pumpAndSettle();
     return repository;
   }
 
@@ -192,6 +194,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('版块：阅读区'), findsOneWidget);
     await tester.tap(find.text('回复'));
+    await tester.pumpAndSettle();
+    // The reply list starts folded and unfiltered: no chip until opened.
+    expect(find.textContaining('版块：'), findsNothing);
+    await tester.tap(find.byTooltip('展开筛选'));
     await tester.pumpAndSettle();
     expect(find.text('版块：全部'), findsOneWidget);
     expect(repository.queries.map((q) => q.boardId), ['300']);

@@ -591,6 +591,10 @@ void main() {
   testWidgets('profile overview renders before detail tabs finish loading',
       (tester) async {
     final repository = _FakeProfileRepository();
+    // Tall enough for 概览's info and activities together.
+    tester.view.physicalSize = const Size(800, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -603,23 +607,24 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('alice'), findsOneWidget);
+    expect(find.text('alice'), findsNWidgets(2),
+        reason: 'the header leads with it; 概览 lists it');
     expect(find.text('在线'), findsOneWidget);
     expect(find.text('Alice · UID 1'), findsOneWidget);
-    expect(find.text('个人动态'), findsNothing);
-
-    await tester.tap(find.text('资料'));
-    await tester.pumpAndSettle();
-
+    // 概览 shows the basic info at once; activities wait for the details.
+    expect(find.text('概览'), findsOneWidget);
+    expect(find.text('首页'), findsNothing);
+    expect(find.text('资料'), findsNothing);
     expect(find.text('个人信息'), findsOneWidget);
     expect(find.text('论坛资历'), findsOneWidget);
+    expect(find.text('个人动态'), findsNothing);
 
     repository.completeDetails();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 260));
-    await tester.tap(find.text('首页'));
     await tester.pumpAndSettle();
 
+    expect(find.text('个人信息'), findsOneWidget);
     expect(find.text('个人动态'), findsOneWidget);
     expect(find.text('发表了主题'), findsOneWidget);
   });
@@ -966,8 +971,6 @@ void main() {
       home: UserProfileScreen(
           userUrl: 'u.php', repository: _InfoProfileRepository()),
     ));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('资料'));
     await tester.pumpAndSettle();
 
     final label = tester.renderObject<RenderParagraph>(find.text('注册时间'));

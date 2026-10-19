@@ -31,6 +31,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(tab));
     await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('展开筛选'));
+    await tester.pumpAndSettle();
   }
 
   testWidgets('unfiltered tab shows the loaded page and scans nothing',

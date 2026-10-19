@@ -18,12 +18,14 @@ class ListSearchField extends StatelessWidget {
     required this.hintText,
     required this.onChanged,
     this.onClose,
+    this.onSubmitted,
     this.autofocus = false,
   });
 
   final TextEditingController controller;
   final String hintText;
   final ValueChanged<String> onChanged;
+  final ValueChanged<String>? onSubmitted;
   final VoidCallback? onClose;
   final bool autofocus;
 
@@ -35,6 +37,7 @@ class ListSearchField extends StatelessWidget {
       autofocus: autofocus,
       textInputAction: TextInputAction.search,
       onChanged: onChanged,
+      onSubmitted: onSubmitted,
       decoration: InputDecoration(
         isDense: true,
         hintText: hintText,

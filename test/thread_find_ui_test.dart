@@ -82,6 +82,39 @@ void main() {
     expect(find.text('搜索范围：已加载内容'), findsOneWidget);
   });
 
+  testWidgets('the two modes say their cost; 全部页面 asks before any request',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openFind(tester, '');
+    expect(find.text('仅已加载（1 页）'), findsOneWidget);
+    expect(find.text('全部页面（3 页）'), findsOneWidget);
+    expect(find.text('只查已加载的页面，不发送请求'), findsOneWidget);
+
+    // Choosing it without a keyword only says what will happen.
+    await tester.tap(find.text('全部页面（3 页）'));
+    await tester.pumpAndSettle();
+    expect(repository.scans, isEmpty);
+    expect(find.text('逐页请求剩余 2 页，可随时停止，已找到的结果会保留'), findsOneWidget);
+    expect(find.text('输入关键词后按搜索，确认后逐页读取剩余 2 页'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'needle');
+    await tester.pumpAndSettle();
+    expect(repository.scans, isEmpty, reason: 'typing never scans');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(repository.scans, isEmpty, reason: 'not before the confirmation');
+    await tester.tap(find.text('开始搜索'));
+    await tester.pumpAndSettle();
+    final scan = repository.scans.single;
+    expect(find.text('正在搜索全部页面'), findsOneWidget);
+
+    // Back to the loaded pages: the scan stops and its results go.
+    await tester.tap(find.text('仅已加载（1 页）'));
+    await tester.pumpAndSettle();
+    expect(scan.disposed, isTrue);
+    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+  });
+
   testWidgets(
       'a running scan goes on without the sheet and stops with the page',
       (tester) async {

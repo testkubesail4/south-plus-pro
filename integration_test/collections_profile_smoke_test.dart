@@ -253,6 +253,10 @@ void main() {
   }
 
   Future<void> openBoardFilter(WidgetTester tester, String label) async {
+    // The selectors sit folded behind the toolbar until opened once.
+    if (find.text(label).evaluate().isEmpty) {
+      await tap(tester, find.byTooltip('展开筛选'));
+    }
     await tap(tester, find.text(label));
     await waitFor(tester, find.byKey(const ValueKey('board-filter:all')));
     final loading = find.text('正在加载版块层级…');
@@ -372,7 +376,9 @@ void main() {
     await dismissBoardSheet(tester);
 
     await tap(tester, find.widgetWithText(Tab, '回复'));
-    await waitFor(tester, find.text('版块：全部'));
+    // Replies keep their own selectors: folded and unfiltered here.
+    await waitFor(tester, find.byTooltip('展开筛选'));
+    expect(find.textContaining('版块：'), findsNothing);
     await waitFor(tester, find.text('CM108 子版回复'));
     await openBoardFilter(tester, '版块：全部');
     await tap(tester, section);

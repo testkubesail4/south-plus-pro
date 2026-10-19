@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../models/user_content_query.dart';
+import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
@@ -22,8 +23,18 @@ import '../common/user_tags_inline.dart';
 import '../messages/pm_compose_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
+import '../thread/thread_image_viewer.dart';
+import '../thread/thread_render_models.dart';
 
 part 'user_profile_widgets.dart';
+
+/// The visible tab of [tab]: 首页 and 资料 both open 概览.
+int _tabIndex(UserProfileTab tab) => switch (tab) {
+      UserProfileTab.home || UserProfileTab.profile => 0,
+      UserProfileTab.topics => 1,
+      UserProfileTab.posts => 2,
+      UserProfileTab.favorites => 3,
+    };
 
 class UserProfileScreen extends StatefulWidget {
   const UserProfileScreen({
@@ -311,8 +322,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: UserProfileTab.values.length,
-      initialIndex: widget.initialTab.index,
+      length: 4,
+      initialIndex: _tabIndex(widget.initialTab),
       child: Scaffold(
         backgroundColor: AppColors.background,
         body: SafeArea(
@@ -391,17 +402,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         children: [
                           _RefreshTab(
                             onRefresh: _refresh,
-                            child: _DetailsTab(
-                              future: detailsFuture,
-                              builder: (context, details) => _HomeTab(
-                                profile: details,
-                                repository: widget.repository,
-                              ),
+                            child: _OverviewTab(
+                              profile: profile,
+                              details: detailsFuture,
+                              repository: widget.repository,
                             ),
-                          ),
-                          _RefreshTab(
-                            onRefresh: _refresh,
-                            child: _ProfileInfoTab(profile: profile),
                           ),
                           _RefreshTab(
                             onRefresh: _refresh,
