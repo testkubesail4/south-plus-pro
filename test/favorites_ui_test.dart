@@ -1164,30 +1164,40 @@ void main() {
     expect(find.text('已取消收藏'), findsNothing);
     expect(find.text('Other account favourite'), findsOneWidget);
   });
-  testWidgets('the header buttons centre on the title row inside the gutter',
-      (tester) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: Scaffold(body: FavoriteThreadsPage(repository: _Repo())),
-    ));
-    await tester.pumpAndSettle();
-    final title = tester.getRect(find.text('收藏'));
-    final search = tester.getRect(key('favorite-search'));
-    final select = tester.getRect(key('favorite-select-start'));
-    final chip = tester.getRect(key('favorite-folder:all'));
+  // Large text wraps the count, more pages lengthen it: the title and both
+  // buttons still share one centre line.
+  for (final (scale, pages) in [(1.0, 1), (2.0, 1), (2.0, 125)]) {
+    testWidgets(
+        'the header buttons centre on the title inside the gutter '
+        '(text ×$scale, $pages pages)', (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: Scaffold(
+            body: FavoriteThreadsPage(repository: _Repo()..pageCount = pages)),
+      ));
+      await tester.pumpAndSettle();
+      final title = tester.getRect(find.text('收藏'));
+      final search = tester.getRect(key('favorite-search'));
+      final select = tester.getRect(key('favorite-select-start'));
+      final chip = tester.getRect(key('favorite-folder:all'));
 
-    expect(search.height, greaterThanOrEqualTo(kMinInteractiveDimension));
-    expect(search.width, greaterThanOrEqualTo(kMinInteractiveDimension));
-    expect(search.center.dy, moreOrLessEquals(select.center.dy, epsilon: 0.5));
-    expect(title.center.dy,
-        moreOrLessEquals(search.center.dy, epsilon: AppSpace.xs));
-    // One gutter: the title and the chips start on it, 选择 ends on it.
-    expect(chip.left, title.left);
-    expect(390 - select.right, title.left);
-  });
+      expect(search.height, greaterThanOrEqualTo(kMinInteractiveDimension));
+      expect(search.width, greaterThanOrEqualTo(kMinInteractiveDimension));
+      expect(search.center.dy, moreOrLessEquals(title.center.dy, epsilon: 0.5));
+      expect(select.center.dy, moreOrLessEquals(title.center.dy, epsilon: 0.5));
+      // One gutter: the title and the chips start on it, 选择 ends on it.
+      expect(chip.left, title.left);
+      expect(390 - select.right, title.left);
+    });
+  }
 }
 
 extension on List<String> {

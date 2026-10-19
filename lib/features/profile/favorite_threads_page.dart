@@ -984,7 +984,6 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final counted = count != null && (count! > 0 || page != null);
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 48),
       child: selecting
@@ -1014,28 +1013,18 @@ class _Header extends StatelessWidget {
                 ),
               ],
             )
-          // The texts share a baseline; the buttons centre on the row. On one
-          // baseline the search icon's glyph sat on it, above the texts.
+          // Centred, not on one baseline: the search icon's glyph would sit on
+          // it, and a wrapped count would pull the title away from the buttons.
           : Row(
               children: [
-                Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text('收藏', style: theme.textTheme.headlineSmall),
-                      if (counted) ...[
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                              '已加载 $count 个主题${page == null ? '' : ' · $page'}',
-                              style: theme.textTheme.bodySmall),
-                        ),
-                      ],
-                    ],
+                Text('收藏', style: theme.textTheme.headlineSmall),
+                if (count != null && (count! > 0 || page != null)) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                        '已加载 $count 个主题${page == null ? '' : ' · $page'}',
+                        style: theme.textTheme.bodySmall),
                   ),
-                ),
-                if (counted) ...[
                   if (onSearch != null)
                     IconButton(
                       key: const ValueKey('favorite-search'),
