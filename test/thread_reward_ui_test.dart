@@ -311,6 +311,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('reward-best-102')));
     await tester.pumpAndSettle();
     expect(find.text('选 B2F 为最佳答案？'), findsOneWidget);
+    expect(find.textContaining('已提交过评选'), findsNothing,
+        reason: 'nothing is sent while the author decides');
     expect(
       find.descendant(
         of: find.byType(AlertDialog),

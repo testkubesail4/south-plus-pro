@@ -1734,7 +1734,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           onQuoteReply: _quoteReply,
           onBuySaleBox: _handleBuySaleBox,
           onRefreshSaleBox: _refreshSaleBoxPage,
-          rewardLocked: _rewardLocked || _rewarding,
+          // The open dialog is modal; _handleReward ignores taps meanwhile.
+          rewardLocked: _rewardLocked,
           rewardSent: _rewardSent,
           onReward: _handleReward,
           onReplyToFloor: _replyToFloor,
