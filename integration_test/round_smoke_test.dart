@@ -138,6 +138,55 @@ void main() {
     ('950102', 2, 'B2F', '[i]Reply original[/i]', '[i]Reply edited[/i]'),
   ]) {
     testWidgets(
+        '$floor native modify transport preserves draft settings and real widgets render one edited floor',
+        (tester) async {
+      final detail = await repository.fetchThreadDetail(_thread, page: page);
+      final link = page == 1
+          ? detail.bodyEditLink
+          : detail.replies.singleWhere((post) => post.floor == floor).editLink;
+      expect(link, isNotNull);
+      if (page == 2) {
+        expect(
+            detail.replies.singleWhere((post) => post.floor == 'B1F').editLink,
+            isNull,
+            reason: 'availability is server-rendered, not guessed');
+      }
+      final draft = await repository.fetchEditDraft(link!);
+      expect(draft.title, 'Synthetic title');
+      expect(draft.content, original, reason: 'edit source is original BBCode');
+      final result = await repository.submitEdit(
+          draft: draft, title: draft.title, content: updated);
+      expect(result.success, isTrue, reason: result.message);
+      final thread = _thread.copyWith(
+          url: 'http://127.0.0.1:8765/read.php?tid-950001-page-$page.html');
+      await mount(tester, thread);
+      final rendered = find.textContaining(
+          page == 1 ? 'Opening edited' : 'Reply edited',
+          findRichText: true);
+      await waitFor(tester, rendered);
+      expect(rendered, findsOneWidget);
+      expect(find.byKey(ValueKey('floor-actions-Synthetic self-$floor')),
+          findsOneWidget);
+      if (page == 2) {
+        expect(find.byKey(const ValueKey('floor-actions-Synthetic other-B1F')),
+            findsOneWidget);
+      }
+      final stats = await fixture('round/stats');
+      expect(stats['thread_pages'], [page, page]);
+      final edits = stats['edits'] as List;
+      expect(edits, hasLength(1));
+      expect(edits.single['action'], ['modify']);
+      expect(edits.single['pid'], [pid]);
+      expect(edits.single['atc_content'], [updated]);
+      // The fixture rejects missing/changed hidden, sale, hide or checkbox state.
+      expect(edits.single['atc_requiresell'], ['1']);
+      expect(edits.single['atc_money'], ['7']);
+      expect(edits.single['atc_hide'], ['1']);
+      expect(edits.single['keep[attachment]'], ['synthetic-attachment']);
+      expect(edits.single.containsKey('atc_anonymous'), isFalse);
+    });
+
+    testWidgets(
         '$floor server edit link opens original BBCode and modify refreshes same floor, never appends a reply',
         (tester) async {
       final thread = _thread.copyWith(
