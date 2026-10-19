@@ -100,15 +100,22 @@ class UserProfileParser {
     required dom.Document postsDocument,
     required dom.Document favoritesDocument,
   }) {
-    UserContentPage read(dom.Document document, UserProfileTab tab) =>
-        document.querySelector('.u-table') == null
-            ? const UserContentPage(
-                items: [], totalPages: 1, paginationKnown: false)
-            : parseContentPage(document, uid: overview.uid, tab: tab, page: 1);
+    final errors = <UserProfileTab, Object>{};
+    UserContentPage read(dom.Document document, UserProfileTab tab) {
+      try {
+        return parseContentPage(document, uid: overview.uid, tab: tab, page: 1);
+      } on ForumRequestException catch (error) {
+        if (error.kind != ForumRequestKind.invalidInput) rethrow;
+        errors[tab] = error;
+        return const UserContentPage(
+            items: [], totalPages: 1, paginationKnown: false);
+      }
+    }
     final topics = read(topicsDocument, UserProfileTab.topics);
     final posts = read(postsDocument, UserProfileTab.posts);
     final favorites = read(favoritesDocument, UserProfileTab.favorites);
     return overview.copyWith(
+      contentErrors: Map.unmodifiable(errors),
       contentPagination: Map.unmodifiable({
         if (topics.paginationKnown)
           UserProfileTab.topics:

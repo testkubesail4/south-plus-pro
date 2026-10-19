@@ -942,6 +942,7 @@ class UserProfile {
     this.posts = const [],
     this.favorites = const [],
     this.contentPagination = const {},
+    this.contentErrors = const {},
   });
 
   final String uid;
@@ -964,6 +965,7 @@ class UserProfile {
   final List<UserListItem> posts;
   final List<UserListItem> favorites;
   final Map<UserProfileTab, ThreadPagination> contentPagination;
+  final Map<UserProfileTab, Object> contentErrors;
 
   String? get nickname {
     final value = info
@@ -997,6 +999,7 @@ class UserProfile {
     List<UserListItem>? posts,
     List<UserListItem>? favorites,
     Map<UserProfileTab, ThreadPagination>? contentPagination,
+    Map<UserProfileTab, Object>? contentErrors,
   }) {
     return UserProfile(
       uid: uid ?? this.uid,
@@ -1018,6 +1021,7 @@ class UserProfile {
       posts: posts ?? this.posts,
       favorites: favorites ?? this.favorites,
       contentPagination: contentPagination ?? this.contentPagination,
+      contentErrors: contentErrors ?? this.contentErrors,
     );
   }
 }

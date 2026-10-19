@@ -48,6 +48,7 @@ typedef _ProfileDetailsData = ({
   List<UserListItem> posts,
   List<UserListItem> favorites,
   Map<UserProfileTab, ThreadPagination> contentPagination,
+  Map<UserProfileTab, Object> contentErrors,
 });
 
 class ForumRepository {
@@ -2409,6 +2410,7 @@ class ForumRepository {
         posts: details.posts,
         favorites: details.favorites,
         contentPagination: details.contentPagination,
+        contentErrors: details.contentErrors,
       );
 
   Future<UserProfile> fetchUserProfileDetails(
@@ -2444,11 +2446,15 @@ class ForumRepository {
           );
         }
         if (identical(_profileDetailsFuture, next)) {
-          _profileDetailsData = details;
-          // Reuse one UID's details for 60s; refresh, session changes and writes clear it.
-          _profileDetailsTimer = Timer(const Duration(seconds: 60), () {
-            if (identical(_profileDetailsFuture, next)) _evictProfileDetails();
-          });
+          if (details.contentErrors.isNotEmpty) {
+            _evictProfileDetails();
+          } else {
+            _profileDetailsData = details;
+            // Reuse one UID's complete details for 60s; failures remain retriable.
+            _profileDetailsTimer = Timer(const Duration(seconds: 60), () {
+              if (identical(_profileDetailsFuture, next)) _evictProfileDetails();
+            });
+          }
         }
         return details;
       }).catchError((Object error, StackTrace stack) {
@@ -2490,6 +2496,7 @@ class ForumRepository {
       posts: profile.posts,
       favorites: profile.favorites,
       contentPagination: profile.contentPagination,
+      contentErrors: profile.contentErrors,
     );
   }
 

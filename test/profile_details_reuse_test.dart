@@ -200,6 +200,44 @@ void main() {
     expect(client.paths, hasLength(8));
   });
 
+  for (final tab in {
+    'action-topic': UserProfileTab.topics,
+    'action-post': UserProfileTab.posts,
+    'action-favor': UserProfileTab.favorites,
+  }.entries) {
+    test('truncated ${tab.key} keeps healthy sibling tabs and remains retriable', () async {
+      final client = _DetailsClient()
+        ..blockedTab = tab.key
+        ..blockedResponse = '<html><title>South Plus</title><body><div id="main">';
+      final repository = ForumRepository(client: client);
+      addTearDown(repository.clearSession);
+      final partial = await repository.fetchUserProfileDetails(_overview);
+      expect(partial.contentErrors.keys, [tab.value]);
+      expect(partial.contentErrors[tab.value], isA<ForumRequestException>().having(
+          (error) => error.kind, 'kind', ForumRequestKind.invalidInput));
+      expect(partial.contentPagination.containsKey(tab.value), isFalse);
+      final items = {
+        UserProfileTab.topics: partial.topics,
+        UserProfileTab.posts: partial.posts,
+        UserProfileTab.favorites: partial.favorites,
+      };
+      for (final entry in items.entries) {
+        expect(entry.value, entry.key == tab.value ? isEmpty : hasLength(1));
+      }
+      expect(partial.homeActivities.first.title, 'fixture-activity');
+      expect(client.paths, hasLength(4));
+      client.blockedTab = null;
+      final recovered = await repository.fetchUserProfileDetails(_overview);
+      expect(recovered.contentErrors, isEmpty);
+      expect(recovered.topics.single.title, 'fixture-topic');
+      expect(recovered.posts.single.title, 'fixture-post');
+      expect(recovered.favorites.single.title, 'fixture-favorite');
+      expect(client.paths, hasLength(8), reason: 'partial details are not cached as success');
+      await repository.fetchUserProfileDetails(_overview);
+      expect(client.paths, hasLength(8), reason: 'complete recovery can be reused');
+    });
+  }
+
   testWidgets('details expire 60 seconds after success, not request start',
       (tester) async {
     final client = _DetailsClient()..gates['123'] = Completer<void>();

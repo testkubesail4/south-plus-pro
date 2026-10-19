@@ -421,6 +421,9 @@ class _GenerationClient extends _ScopeClient {
       profileRequested.complete();
       return profile.future;
     }
+    if (RegExp(r'^u\.php\?action-(?:topic|post|favor)-').hasMatch(path)) {
+      return Future.value('<div id="u-contentmain"><table class="u-table"></table></div>');
+    }
     return super.get(path);
   }
 
