@@ -81,6 +81,30 @@ class FixtureServerTest(unittest.TestCase):
             worker.join()
             server.server_close()
 
+    def test_round_edit_requires_modify_and_preserves_settings_without_adding_posts(self):
+        from fixture_server import round_edit_fields
+        with appendfix_server() as (request, _):
+            request('/round/reset', b'fixture-only')
+            page = request('/read.php?tid-950001-page-1.html').decode()
+            self.assertIn('<a name="tpc"></a><div class="t5 t2"><table', page)
+            page2 = request('/read.php?tid-950001-page-2.html').decode()
+            self.assertEqual(page2.count('action-modify-'), 1)
+            self.assertEqual(page2.count('class="js-post"'), 2)
+            edit = '/post.php?action-modify-fid-950-tid-950001-pid-950102-article-2.html'
+            self.assertIn(b'[i]Reply original[/i]', request(edit))
+            fields = dict(round_edit_fields('950102'), atc_title='Synthetic title', atc_content='Edited body')
+            for invalid in [dict(fields, action='reply'), dict(fields, atc_money='0')]:
+                with self.assertRaises(HTTPError) as error:
+                    request('/post.php?', urlencode(invalid).encode())
+                self.assertEqual(error.exception.code, 400)
+            self.assertEqual(json.loads(request('/round/stats'))['edits'], [])
+            request('/post.php?', urlencode(fields).encode())
+            refreshed = request('/read.php?tid-950001-page-2.html').decode()
+            self.assertIn('Edited body', refreshed)
+            self.assertNotIn('Reply original', refreshed)
+            self.assertEqual(refreshed.count('class="js-post"'), 2)
+            self.assertEqual(len(json.loads(request('/round/stats'))['edits']), 1)
+
     def test_appendfix_purchase_requires_exact_local_contract_and_cannot_repeat(self):
         with appendfix_server() as (request, _):
             before = request('/read.php?tid-930001.html')

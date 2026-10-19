@@ -24,5 +24,5 @@ else:
     raise SystemExit('fixture server did not start')
 PY
 xvfb-run -a -s '-screen 0 1920x1080x24' \
-    flutter test integration_test/linux_smoke_test.dart -d linux --no-pub \
+    flutter test "${@:-integration_test/linux_smoke_test.dart}" -d linux --no-pub \
     2>&1 | tee /output/smoke.log

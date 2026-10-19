@@ -120,6 +120,8 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      favorites={}, categories=['默认分类', 'SPP-repro-10'],
                      page_size=4 if collections else 50, external_events=[], partial_next=False,
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
+                     round=False, edits=[], thread_pages=[],
+                     post_bodies={'950101': '[b]Opening original[/b]', '950102': '[i]Reply original[/i]'},
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
                                       date_f='yyyy-mm-dd', time_f='24', t_num='0',
                                       p_num='0', proreceivemail='1', friendcheck='0',
@@ -178,6 +180,50 @@ def appendfix_thread(tid):
 <th class="r_one"><div class="tiptop"><span class="fl"><span class="s3">楼主</span></span>
 <span class="gray" title="2026-01-03 09:20">2026-01-03 09:20</span><span class="bianji">（{LONG_SIGNATURE}）</span></div>
 <div class="tpc_content"><div id="read_tpc">{content}</div></div></th></tr></table></body></html>'''.encode()
+
+
+def round_edit_fields(pid):
+    return dict(step='2', action='modify', fid='950', tid='950001', pid=pid,
+                article='0' if pid == '950101' else '2', special='0', verify='fixture-only',
+                atc_iconid='2', atc_autourl='1', atc_usesign='1', atc_convert='1',
+                atc_hide='1', atc_requireenhide='1', atc_requiresell='1',
+                atc_rvrc='3', atc_money='7', atc_enhidetype='rvrc', atc_credittype='money',
+                **{'keep[attachment]': 'synthetic-attachment'})
+
+
+def round_edit_form(pid):
+    fields = ''.join(
+        f'<input type="checkbox" name="{key}" value="{value}" checked>' if key in
+        ('atc_autourl', 'atc_usesign', 'atc_convert', 'atc_hide', 'atc_requireenhide', 'atc_requiresell')
+        else f'<input type="hidden" name="{key}" value="{value}">'
+        for key, value in round_edit_fields(pid).items())
+    return f'''<html><body><form name="FORM" method="post" action="post.php?">
+{fields}<input name="atc_title" value="Synthetic title">
+<input type="checkbox" name="atc_anonymous" value="1">
+<textarea name="atc_content">{escape(APPENDFIX['post_bodies'][pid])}</textarea>
+</form></body></html>'''.encode()
+
+
+def round_thread(page):
+    def post(pid, floor, author, edit=False):
+        op = floor == '楼主'
+        anchor = 'tpc' if op else pid
+        article = '0' if op else '2'
+        link = (f'<a id="modify_{pid}" href="post.php?action-modify-fid-950-tid-950001-pid-{pid}-article-{article}.html">编辑</a>'
+                if edit else '')
+        body = APPENDFIX['post_bodies'].get(pid, 'Another author uneditable body')
+        # Live topology: FORM > A[name] + DIV > TABLE, never A + TABLE.
+        return f'''<a name="{anchor}"></a><div class="t5 t2"><table class="js-post"><tr>
+<th class="r_two"><a href="u.php?action-show-uid-{'930001' if edit else '950002'}.html"><strong>{author}</strong></a></th>
+<th class="r_one" id="td_{anchor}"><div class="tiptop"><span class="fl"><span class="s3">{floor}</span></span>
+<span class="gray" title="2026-01-03 09:20">2026-01-03 09:20</span>{link}</div>
+<div class="tpc_content"><div id="read_{anchor}">{escape(body)}</div></div></th></tr></table></div>'''
+    posts = post('950101', '楼主', 'Synthetic self', True) if page == 1 else (
+        post('950103', 'B1F', 'Synthetic other') + post('950102', 'B2F', 'Synthetic self', True))
+    return f'''<html><body><h1 id="subject_tpc">Synthetic edit thread</h1>
+<div id="breadcrumbs"><a href="thread.php?fid-950.html">Synthetic board</a></div>
+<div class="pages">Pages: {page}/2<a href="read.php?tid-950001-page-1.html">1</a>
+<a href="read.php?tid-950001-page-2.html">2</a></div><form name="read">{posts}</form></body></html>'''.encode()
 
 
 def appendfix_profile(query):
@@ -424,13 +470,14 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         resets = ('/appendfix/reset', '/account-redesign/reset', '/profile-board-tree/reset',
-                  '/favorite-collections/reset', '/favorite-collections/paged-reset')
+                  '/favorite-collections/reset', '/favorite-collections/paged-reset', '/round/reset')
         if path.path in resets and raw == b'fixture-only':
             with APPENDFIX_LOCK:
                 reset_appendfix(redesign=path.path != '/appendfix/reset',
                                 profile_boards=path.path == '/profile-board-tree/reset',
                                 collections=path.path.startswith('/favorite-collections/'),
                                 paged=path.path == '/favorite-collections/paged-reset')
+                APPENDFIX['round'] = path.path == '/round/reset'
             self.send_body(b'{}', 'application/json')
             return
         controls = ('external-delete-first', 'partial-next', 'unknown-ack-next')
@@ -446,6 +493,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 else:
                     APPENDFIX['partial_next' if control == 'partial-next' else 'unknown_ack_next'] = True
             self.send_body(b'{}', 'application/json')
+            return
+        if APPENDFIX['round'] and path.path == '/post.php':
+            self.round_edit_submit(raw)
             return
         action = parse_qs(path.query).get('action', [''])[0]
         attempt = {'method': 'POST', 'path': path.path, 'action': action}
@@ -521,6 +571,28 @@ class FixtureHandler(BaseHTTPRequestHandler):
             APPENDFIX['writes'].append(action)
         # Unknown ACK intentionally forces the real service to confirm by GET readback.
         self.send_body(b'<html><body>Fixture received</body></html>', 'text/html; charset=utf-8')
+
+    def round_edit_submit(self, raw):
+        if not self.appendfix or self.headers.get_content_type() != 'application/x-www-form-urlencoded':
+            self.send_error(403)
+            return
+        fields = parse_qs(raw.decode('utf-8'), keep_blank_values=True)
+        pid = fields.get('pid', [''])[0]
+        if pid not in ('950101', '950102'):
+            self.send_error(400)
+            return
+        expected = round_edit_fields(pid)
+        valid = all(fields.get(key) == [value] for key, value in expected.items())
+        valid = valid and set(fields) == set(expected) | {'atc_title', 'atc_content'}
+        valid = valid and len(fields.get('atc_title', [])) == len(fields.get('atc_content', [])) == 1
+        valid = valid and bool(fields['atc_content'][0].strip())
+        if not valid:
+            self.send_error(400)
+            return
+        with APPENDFIX_LOCK:
+            APPENDFIX['post_bodies'][pid] = fields['atc_content'][0]
+            APPENDFIX['edits'].append(fields)
+        self.send_body('<html><body>编辑成功</body></html>'.encode(), 'text/html; charset=utf-8')
 
     def favorites_submit(self, fields):
         job = fields.get('job', [''])[0]
@@ -638,6 +710,30 @@ class FixtureHandler(BaseHTTPRequestHandler):
                                              'query': parse_qs(query, keep_blank_values=True)})
             if not self.appendfix:
                 self.send_error(403)
+                return
+        if APPENDFIX['round'] and path == '/round/stats':
+            with APPENDFIX_LOCK:
+                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'thread_pages', 'post_bodies')}).encode()
+            self.send_body(body, 'application/json')
+            return
+        if self.appendfix and APPENDFIX['round']:
+            if path == '/read.php' and 'tid-950001' in query:
+                match = re.search(r'-page-(\d+)', query)
+                page = int(match[1]) if match else 1
+                if page not in (1, 2):
+                    self.send_error(404)
+                    return
+                with APPENDFIX_LOCK:
+                    APPENDFIX['thread_pages'].append(page)
+                    body = round_thread(page)
+                self.send_body(body, 'text/html; charset=utf-8')
+                return
+            if path == '/post.php':
+                match = re.fullmatch(r'action-modify-fid-950-tid-950001-pid-(950101|950102)-article-(0|2)\.html', query)
+                if not match or (match[1] == '950101') != (match[2] == '0'):
+                    self.send_error(404)
+                    return
+                self.send_body(round_edit_form(match[1]), 'text/html; charset=utf-8')
                 return
         if path == '/appendfix/stats':
             with APPENDFIX_LOCK:
