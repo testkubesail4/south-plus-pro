@@ -103,6 +103,7 @@ Fixture performance page {page} post {post}<br><img src="/perf/image/{number}.pn
 APPENDFIX_COOKIE = 'appendfix_winduser=synthetic-local-only'
 APPENDFIX_LOCK = threading.Lock()
 APPENDFIX = {}
+ROUND_SCAN_GATE = threading.Event()
 PINNED_TITLE = '置顶阅读指南：本地收藏、用户备注与长标题换行的完整阅读示例'
 LONG_SIGNATURE = '认真阅读每一段文字，记录值得回看的讨论，只在本机保存备注，不向论坛公开个人笔记。'
 IDENTITY = '''<div id="user-login"><a href="u.php">本地读者</a></div>
@@ -120,7 +121,7 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      favorites={}, categories=['默认分类', 'SPP-repro-10'],
                      page_size=4 if collections else 50, external_events=[], partial_next=False,
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
-                     round=False, edits=[], thread_pages=[],
+                     round=False, edits=[], thread_pages=[], topic_pages=[], scan_waiting=False,
                      post_bodies={'950101': '[b]Opening original[/b]', '950102': '[i]Reply original[/i]'},
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
                                       date_f='yyyy-mm-dd', time_f='24', t_num='0',
@@ -224,6 +225,25 @@ def round_thread(page):
 <div id="breadcrumbs"><a href="thread.php?fid-950.html">Synthetic board</a></div>
 <div class="pages">Pages: {page}/2<a href="read.php?tid-950001-page-1.html">1</a>
 <a href="read.php?tid-950001-page-2.html">2</a></div><form name="read">{posts}</form></body></html>'''.encode()
+
+
+def round_profile(page=None):
+    shell = '''<div id="u-top"><h1 class="u-h1">Synthetic other</h1></div>
+<div id="u-portrait"><img src="/fixture.png"></div>
+<table id="u-profile"><tr><td>UID</td><td>950002</td></tr></table>'''
+    if page is None:
+        return f'<html><body>{shell}</body></html>'.encode()
+    data = {1: [('950201', 'Known low', '2025-01-02', '回复 0 浏览 0'),
+                ('950202', 'Unknown metrics', '2025-01-01', ''),
+                ('950203', 'Known high', '2025-01-03', '回复 4 浏览 40')],
+            2: [('950204', 'Unloaded maximum', '2025-02-01', '回复 9 浏览 90')],
+            3: [('950205', 'Unloaded unknown', '2025-02-02', '')]}
+    rows = ''.join(f'''<tr><td><a href="read.php?tid-{tid}.html">{title}</a>
+<a href="thread.php?fid-950.html">Synthetic board</a> [{date}] {metrics}</td></tr>'''
+                   for tid, title, date, metrics in data[page])
+    return f'''<html><body>{shell}<div id="u-contentmain"><table class="u-table">{rows}</table>
+<div class="pages">Pages: {page}/3<a href="u.php?action-topic-uid-950002-page-3.html">末页</a>
+</div></div></body></html>'''.encode()
 
 
 def appendfix_profile(query):
@@ -478,6 +498,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                                 collections=path.path.startswith('/favorite-collections/'),
                                 paged=path.path == '/favorite-collections/paged-reset')
                 APPENDFIX['round'] = path.path == '/round/reset'
+                ROUND_SCAN_GATE.clear()
             self.send_body(b'{}', 'application/json')
             return
         controls = ('external-delete-first', 'partial-next', 'unknown-ack-next')
@@ -492,6 +513,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     APPENDFIX['external_events'].append({'job': 'deltype', 'label': label})
                 else:
                     APPENDFIX['partial_next' if control == 'partial-next' else 'unknown_ack_next'] = True
+            self.send_body(b'{}', 'application/json')
+            return
+        if APPENDFIX['round'] and path.path == '/round/release-scan' and raw == b'fixture-only':
+            ROUND_SCAN_GATE.set()
             self.send_body(b'{}', 'application/json')
             return
         if APPENDFIX['round'] and path.path == '/post.php':
@@ -713,10 +738,29 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 return
         if APPENDFIX['round'] and path == '/round/stats':
             with APPENDFIX_LOCK:
-                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'thread_pages', 'post_bodies')}).encode()
+                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'thread_pages', 'post_bodies', 'topic_pages', 'scan_waiting')}).encode()
             self.send_body(body, 'application/json')
             return
         if self.appendfix and APPENDFIX['round']:
+            if path == '/u.php' and 'uid-950002' in query:
+                if 'action-topic-' not in query:
+                    self.send_body(round_profile(), 'text/html; charset=utf-8')
+                    return
+                match = re.search(r'-page-(\d+)', query)
+                page = int(match[1]) if match else 1
+                if page not in (1, 2, 3):
+                    self.send_error(404)
+                    return
+                with APPENDFIX_LOCK:
+                    APPENDFIX['topic_pages'].append(page)
+                    APPENDFIX['scan_waiting'] = page == 2
+                if page == 2 and not ROUND_SCAN_GATE.wait(timeout=20):
+                    self.send_error(503)
+                    return
+                with APPENDFIX_LOCK:
+                    APPENDFIX['scan_waiting'] = False
+                self.send_body(round_profile(page), 'text/html; charset=utf-8')
+                return
             if path == '/read.php' and 'tid-950001' in query:
                 match = re.search(r'-page-(\d+)', query)
                 page = int(match[1]) if match else 1

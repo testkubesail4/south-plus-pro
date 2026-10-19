@@ -105,6 +105,28 @@ class FixtureServerTest(unittest.TestCase):
             self.assertEqual(refreshed.count('class="js-post"'), 2)
             self.assertEqual(len(json.loads(request('/round/stats'))['edits']), 1)
 
+    def test_round_scan_returns_requested_pages_with_mixed_known_unknown_metrics(self):
+        from fixture_server import ROUND_SCAN_GATE
+        with appendfix_server() as (request, _):
+            request('/round/reset', b'fixture-only')
+            first = request('/u.php?action-topic-uid-950002.html').decode()
+            self.assertIn('Unknown metrics', first)
+            self.assertIn('回复 0 浏览 0', first)
+            self.assertNotIn('Unloaded maximum', first)
+            result = []
+            pending = threading.Thread(target=lambda: result.append(
+                request('/u.php?action-topic-uid-950002-page-2.html')))
+            pending.start()
+            try:
+                request('/round/release-scan', b'fixture-only')
+                pending.join(timeout=5)
+                self.assertFalse(pending.is_alive())
+                self.assertIn(b'Unloaded maximum', result[0])
+                self.assertEqual(json.loads(request('/round/stats'))['topic_pages'], [1, 2])
+            finally:
+                ROUND_SCAN_GATE.set()
+                pending.join(timeout=5)
+
     def test_appendfix_purchase_requires_exact_local_contract_and_cannot_repeat(self):
         with appendfix_server() as (request, _):
             before = request('/read.php?tid-930001.html')
