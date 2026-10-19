@@ -358,14 +358,15 @@ void main() {
     await waitFor(tester, find.text('版块：本地阅读版块'));
     await tap(tester, find.text('分类：全部'));
     await tap(tester, find.text('阅读笔记'));
-    await waitFor(tester, find.text('未确认分类 (1)'));
-    await tap(tester, find.text('未确认分类 (1)'));
+    await waitFor(tester, find.text('待确认 (1)'));
+    await tap(tester, find.text('待确认 (1)'));
     await waitFor(tester, find.text('尚未确认分类的阅读记录'));
     await tester.ensureVisible(find.text('尚未确认分类的阅读记录'));
     await tester.pumpAndSettle();
     expect(find.text('本地阅读笔记'), findsOneWidget);
     expect(find.text('没有符合条件的内容'), findsNothing);
-    expect(find.textContaining('已扫描 1/1 页'), findsOneWidget);
+    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+    expect(find.text('在已加载的 1 页中找到 1 条 · 待确认 1 条'), findsOneWidget);
     await screenshot(tester, 'flow2_phone-light_filtered-unknown-visible');
 
     await darkLarge(tester);
