@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 
 enum ThreadFloorAction {
+  edit,
   showAuthorPosts,
   editNote,
   blockContent,
@@ -116,6 +117,9 @@ Future<ThreadFloorAction?> showThreadFloorActions(
   required Widget avatar,
   required bool canShowAuthorPosts,
 
+  /// The floor carries the forum's own edit link.
+  bool canEdit = false,
+
   /// The local note on the author; editing needs the author's uid.
   bool canEditNote = false,
   bool hasNote = false,
@@ -169,6 +173,13 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                 endIndent: 16,
                 color: AppColors.border.withValues(alpha: 0.6),
               ),
+              if (canEdit)
+                item(
+                  ThreadFloorAction.edit,
+                  Icons.edit_outlined,
+                  '编辑',
+                  '修改这层的标题和正文，保存到论坛',
+                ),
               if (canShowAuthorPosts)
                 item(
                   ThreadFloorAction.showAuthorPosts,
