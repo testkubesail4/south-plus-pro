@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from http.client import HTTPConnection
+from html.parser import HTMLParser
 import json
 import socket
 import struct
@@ -80,6 +81,89 @@ class FixtureServerTest(unittest.TestCase):
             server.shutdown()
             worker.join()
             server.server_close()
+
+    def test_r8_native_fixture_keeps_metadata_separate_and_awards_irreversible(self):
+        with appendfix_server() as (request, _):
+            request('/r8/reset', b'fixture-only')
+            page1 = request('/read.php?tid-960001.html').decode()
+            self.assertIn('Synthetic signature', page1)
+            self.assertIn('<tr class="r_one"><th><div class="tpc_content"><div class="tips">', page1)
+            self.assertIn('SP币:+109', page1)
+            self.assertIn('HP:-10', page1)
+            page2 = request('/read.php?tid-960001-page-2.html').decode()
+            self.assertNotIn('Synthetic OP body', page2)
+            self.assertNotIn('/r8-op.png', page2)
+            self.assertEqual(page2.count('action-reward-'), 4)
+            board = request('/thread_new.php?fid-48.html').decode()
+            self.assertIn('悬赏金额：30', board)
+            self.assertIn('Synthetic no amount', board)
+            self.assertIn('Synthetic ended bounty', board)
+            self.assertIn('images/thread/reward.gif', board)
+            self.assertNotIn('已有答案', board)
+            for pid, kind, label in [('960103', '2', '热心助人奖励'), ('960102', '1', '最佳答案奖励')]:
+                form = request(f'/job.php?action-reward-tid-960001-pid-{pid}-type-{kind}.html').decode()
+                class NativeForm(HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self.radios = []
+                        self.forms = []
+
+                    def handle_starttag(self, tag, attrs):
+                        attrs = dict(attrs)
+                        if tag == 'form':
+                            self.forms.append(attrs)
+                        if tag == 'input' and attrs.get('type') == 'radio':
+                            self.radios.append(attrs)
+
+                parsed = NativeForm()
+                parsed.feed(form)
+                self.assertEqual(parsed.forms, [dict(name='FORM', method='post', action='job.php?action=reward')])
+                self.assertEqual([(r['name'], r['value']) for r in parsed.radios],
+                                 [('type', '1'), ('type', '2'), ('ifmsg', '1'), ('ifmsg', '0')])
+                self.assertEqual({r['name']: r['value'] for r in parsed.radios if 'checked' in r},
+                                 {'type': kind, 'ifmsg': '1'})
+                self.assertIn('value="fixture-only"', form)
+                self.assertIn('直到用完', form)
+                fields = dict(verify='fixture-only', type=kind, ifmsg='1', page='', pid=pid, tid='960001', step='3')
+                invalid = dict(fields, tid='960099')
+                with self.assertRaises(HTTPError) as error:
+                    request('/job.php?action=reward', urlencode(invalid).encode())
+                self.assertEqual(error.exception.code, 400)
+                ack = request('/job.php?action=reward', urlencode(fields).encode()).decode()
+                self.assertEqual(ack, '<html><body>Synthetic received</body></html>')
+                self.assertIn(label, request('/read.php?tid-960001-page-2.html').decode())
+                with self.assertRaises(HTTPError) as error:
+                    request('/job.php?action=reward', urlencode(fields).encode())
+                self.assertEqual(error.exception.code, 400)
+            final = request('/read.php?tid-960001-page-2.html').decode()
+            self.assertNotIn('action-reward-', final)
+            self.assertIn('热心助人奖励', final)
+            self.assertIn('最佳答案奖励', final)
+            self.assertIn('此帖悬赏结束', request('/read.php?tid-960001.html').decode())
+            stats = json.loads(request('/r8/stats'))
+            self.assertEqual(stats['awards'], {'960103': 'helpful', '960102': 'best'})
+            self.assertEqual(len(stats['reward_attempts']), 6)
+            self.assertEqual(stats['compose_attempts'], [])
+
+    def test_r8_compose_retains_explicit_classification_and_bounty_amounts(self):
+        with appendfix_server() as (request, _):
+            request('/r8/reset', b'fixture-only')
+            form = request('/post.php?fid-48.html').decode()
+            self.assertIn('<select name="p_type">', form)
+            self.assertIn('value="20"', form)
+            self.assertIn('value="10"', form)
+            fields = dict(verify='fixture-only', step='2', fid='48', special='3', p_type='3',
+                          atc_title='Synthetic compose', atc_content='Synthetic body',
+                          **{'ctype[best]': 'money', 'ctype[active]': 'money',
+                             'bonus[best]': '25', 'bonus[active]': '12'})
+            for key in ('p_type', 'bonus[best]', 'bonus[active]'):
+                with self.assertRaises(HTTPError) as error:
+                    request('/post.php?', urlencode(dict(fields, **{key: ''})).encode())
+                self.assertEqual(error.exception.code, 400)
+            self.assertIn('发表成功', request('/post.php?', urlencode(fields).encode()).decode())
+            stats = json.loads(request('/r8/stats'))
+            self.assertEqual(stats['compose_attempts'][-1]['bonus[best]'], ['25'])
+            self.assertEqual(stats['awards'], {})
 
     def test_round_edit_requires_modify_and_preserves_settings_without_adding_posts(self):
         from fixture_server import round_edit_fields

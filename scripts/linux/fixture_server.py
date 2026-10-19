@@ -121,6 +121,7 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      favorites={}, categories=['默认分类', 'SPP-repro-10'],
                      page_size=4 if collections else 50, external_events=[], partial_next=False,
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
+                     r8=False, awards={}, reward_attempts=[], compose_attempts=[],
                      round=False, edits=[], edit_attempts=[], edit_form_reads=[], edit_feedback='success',
                      thread_pages=[], thread_reads=[], topic_pages=[], list_reads=[], scan_waiting=False,
                      truncate_list_next=False, truncate_favorites=False,
@@ -184,6 +185,71 @@ def appendfix_thread(tid):
 <th class="r_one"><div class="tiptop"><span class="fl"><span class="s3">楼主</span></span>
 <span class="gray" title="2026-01-03 09:20">2026-01-03 09:20</span><span class="bianji">（{LONG_SIGNATURE}）</span></div>
 <div class="tpc_content"><div id="read_tpc">{content}</div></div></th></tr></table></body></html>'''.encode()
+
+
+def r8_thread(page):
+    awards = APPENDFIX['awards']
+    ended = 'best' in awards.values()
+    status = ('此帖悬赏结束 最佳答案: 20 SP币' if ended else
+              f'此帖悬赏中(剩余时间:720小时)...最佳答案: 20 SP币 热心助人剩余点数: {10 - len(awards)} SP币')
+    posts = []
+    for pid, floor, name in [('tpc', 'GF', 'Synthetic owner')] if page == 1 else [
+            ('960102', 'B1F', 'Synthetic first'), ('960103', 'B2F', 'Synthetic second')]:
+        op = pid == 'tpc'
+        system = f'<div class="tips">{status}</div>' if op else ''
+        if op:
+            system += '<div id="mark_tpc" class="tips tal"><div>本帖最近评分记录：</div><div><li>SP币:+109</li><li>HP:-10</li></div></div>'
+        elif pid in awards:
+            kind = awards[pid]
+            system = f'<div class="tips"><span class="s3">{"最佳答案奖励" if kind == "best" else "热心助人奖励"}</span>: (+{20 if kind == "best" else 1}) SP币</div>'
+        elif not ended:
+            system = '<div class="tips">管理操作: ' + ''.join(
+                f'<a href="job.php?action-reward-tid-960001-pid-{pid}-type-{kind}.html">{label}</a>'
+                for kind, label in [('1', '最佳答案'), ('2', '热心助人')]) + '</div>'
+        body = 'Synthetic OP body <img src="/r8-op.png">' if op else f'Synthetic answer {floor}'
+        posts.append(f'''<a name="{pid}"></a><div><table class="js-post"><tr>
+<th class="r_two" rowspan="2"><a href="u.php?action-show-uid-{'930001' if op else pid}.html"><strong>{name}</strong></a></th>
+<th class="r_one" id="td_{pid}"><div class="tiptop"><span class="fl"><a class="s3">{floor}</a></span>
+<span class="gray" title="2026-01-03 09:20">2026-01-03 09:20</span>
+{'<div class="bianji">（Synthetic signature）</div>' if op else ''}</div>
+<div class="tpc_content"><div id="read_{pid}">{body}</div></div></th></tr>
+<tr class="r_one"><th><div class="tpc_content">{system}</div></th></tr></table></div>''')
+    return f'''<html><body><h1 id="subject_tpc">Synthetic bounty thread</h1>
+<div id="breadcrumbs"><a href="thread.php?fid-48.html">Synthetic requests</a></div>
+<div class="pages">Pages: {page}/2<a href="read.php?tid-960001-page-1.html">1</a>
+<a href="read.php?tid-960001-page-2.html">2</a></div><form name="read">{''.join(posts)}</form></body></html>'''.encode()
+
+
+def r8_board():
+    rows = ''.join(f'''<tr class="tr3"><td id="td_{tid}"><a class="s8" href="thread.php?fid-48-type-3.html">[全年龄正常向]</a>
+<h3>{amount}<a href="read.php?tid-{tid}.html" id="a_ajax_{tid}">{title}</a></h3></td>
+<td><a href="u.php?action-show-uid-930001.html">Synthetic owner</a><span class="f10 gray2">2026-01-03</span></td><td>2 / 30</td></tr>'''
+        for tid, title, amount in [('960001', 'Synthetic bounty thread', '<span class="s1"> — 悬赏金额：30 — </span>'),
+                                   ('960002', 'Synthetic ended bounty', '<img src="images/thread/reward.gif">'),
+                                   ('960003', 'Synthetic no amount', '')])
+    return f'<html><body><table id="ajaxtable">{rows}</table><div class="pages">Pages: 1/1</div></body></html>'.encode()
+
+
+def r8_compose():
+    return '''<html><body><form name="FORM" method="post" action="post.php?">
+<input type="hidden" name="verify" value="fixture-only"><input type="hidden" name="step" value="2">
+<input type="hidden" name="fid" value="48"><input type="hidden" name="special" value="3">
+<input name="atc_title"><textarea name="atc_content"></textarea><select name="p_type">
+<option value="">分类</option><option value="1">二次元R18相关</option><option value="2">三次元R18相关</option><option value="3">全年龄正常向</option></select>
+<select name="ctype[best]"><option value="money">SP币</option></select><input name="bonus[best]" value="20">
+<select name="ctype[active]"><option value="money">SP币</option></select><input name="bonus[active]" value="10">
+</form></body></html>'''.encode()
+
+
+def r8_reward_form(pid, kind):
+    fields = dict(verify='fixture-only', page='', pid=pid, tid='960001', step='3')
+    inputs = ''.join(f'<input type="hidden" name="{key}" value="{value}">' for key, value in fields.items())
+    inputs += ''.join(f'<input type="radio" name="{name}" value="{value}" {"checked" if value == selected else ""}>'
+                      for name, selected, values in [('type', kind, ('1', '2')), ('ifmsg', '1', ('1', '0'))]
+                      for value in values)
+    return f'''<html><body><form name="FORM" method="post" action="job.php?action=reward">{inputs}
+先评热心助人，再评最佳答案。最佳答案代表结束悬赏，尚未评出的热心分按发帖顺序每楼1分分配，直到用完。
+<input type="submit" value="提交"></form></body></html>'''.encode()
 
 
 def round_edit_fields(pid):
@@ -505,7 +571,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         resets = ('/appendfix/reset', '/account-redesign/reset', '/profile-board-tree/reset',
-                  '/favorite-collections/reset', '/favorite-collections/paged-reset', '/round/reset')
+                  '/favorite-collections/reset', '/favorite-collections/paged-reset', '/round/reset', '/r8/reset')
         if path.path in resets and raw == b'fixture-only':
             with APPENDFIX_LOCK:
                 reset_appendfix(redesign=path.path != '/appendfix/reset',
@@ -513,9 +579,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
                                 collections=path.path.startswith('/favorite-collections/'),
                                 paged=path.path == '/favorite-collections/paged-reset')
                 APPENDFIX['round'] = path.path == '/round/reset'
+                APPENDFIX['r8'] = path.path == '/r8/reset'
                 ROUND_SCAN_GATE.clear()
             self.send_body(b'{}', 'application/json')
             return
+        if self.appendfix and APPENDFIX['r8']:
+            if path.path in ('/job.php', '/post.php'):
+                with APPENDFIX_LOCK:
+                    self.r8_submit(path, raw)
+                return
         controls = ('external-delete-first', 'partial-next', 'unknown-ack-next')
         control = path.path.removeprefix('/favorite-collections/')
         if self.appendfix and APPENDFIX['collections'] and raw == b'fixture-only' and control in controls:
@@ -631,6 +703,38 @@ class FixtureHandler(BaseHTTPRequestHandler):
             APPENDFIX['writes'].append(action)
         # Unknown ACK intentionally forces the real service to confirm by GET readback.
         self.send_body(b'<html><body>Fixture received</body></html>', 'text/html; charset=utf-8')
+
+    def r8_submit(self, path, raw):
+        fields = parse_qs(raw.decode('utf-8'), keep_blank_values=True)
+        reward = path.path == '/job.php'
+        attempts = APPENDFIX['reward_attempts' if reward else 'compose_attempts']
+        attempts.append(fields)
+        valid = self.headers.get_content_type() == 'application/x-www-form-urlencoded'
+        valid = valid and fields.get('verify') == ['fixture-only']
+        if reward:
+            pid = fields.get('pid', [''])[0]
+            kind = fields.get('type', [''])[0]
+            valid = valid and parse_qs(path.query) == {'action': ['reward']}
+            valid = valid and set(fields) <= {'verify', 'type', 'ifmsg', 'page', 'pid', 'tid', 'step'}
+            valid = valid and fields.get('step') == ['3'] and fields.get('tid') == ['960001']
+            valid = valid and pid in ('960102', '960103') and kind in ('1', '2')
+            valid = valid and pid not in APPENDFIX['awards'] and 'best' not in APPENDFIX['awards'].values()
+        else:
+            valid = valid and fields.get('step') == ['2'] and fields.get('fid') == ['48']
+            valid = valid and fields.get('special') == ['3'] and fields.get('p_type') == ['3']
+            valid = valid and fields.get('ctype[best]') == fields.get('ctype[active]') == ['money']
+            valid = valid and fields.get('bonus[best]') == ['25'] and fields.get('bonus[active]') == ['12']
+            valid = valid and bool(fields.get('atc_title', [''])[0]) and bool(fields.get('atc_content', [''])[0])
+        if not valid:
+            self.send_error(400)
+            return
+        if reward:
+            APPENDFIX['awards'][pid] = 'best' if kind == '1' else 'helpful'
+            # No raw native reward ACK was captured: only a deliberately unknown response is modelled.
+            body = b'<html><body>Synthetic received</body></html>'
+        else:
+            body = b'<html><body>\xe5\x8f\x91\xe8\xa1\xa8\xe6\x88\x90\xe5\x8a\x9f<a href="read.php?tid-960004.html">Return</a></body></html>'
+        self.send_body(body, 'text/html; charset=utf-8')
 
     def round_edit_submit(self, raw):
         if not self.appendfix or self.headers.get_content_type() != 'application/x-www-form-urlencoded':
@@ -784,6 +888,30 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
         query = urlsplit(self.path).query
+        if self.appendfix and APPENDFIX['r8']:
+            body = None
+            if path == '/r8/stats':
+                body = json.dumps({key: APPENDFIX[key] for key in ('awards', 'reward_attempts', 'compose_attempts', 'thread_pages')}).encode()
+                self.send_body(body, 'application/json')
+                return
+            if path == '/read.php' and re.search(r'tid(?:-|=)960001', query):
+                match = re.search(r'(?:-page-|page=)([12])', query)
+                page = int(match[1]) if match else 1
+                APPENDFIX['thread_pages'].append(page)
+                body = r8_thread(page)
+            elif path in ('/thread.php', '/thread_new.php') and '48' in query:
+                body = r8_board()
+            elif path == '/post.php' and '48' in query:
+                body = r8_compose()
+            elif path == '/job.php':
+                match = re.fullmatch(r'action-reward-tid-960001-pid-(960102|960103)-type-([12])\.html', query)
+                if not match or match[1] in APPENDFIX['awards'] or 'best' in APPENDFIX['awards'].values():
+                    self.send_error(403)
+                    return
+                body = r8_reward_form(match[1], match[2])
+            if body is not None:
+                self.send_body(body, 'text/html; charset=utf-8')
+                return
         if APPENDFIX['redesign'] and path == '/pw_ajax.php' and parse_qs(query).get('action') == ['favor']:
             with APPENDFIX_LOCK:
                 APPENDFIX['attempts'].append({'method': 'GET', 'path': path, 'action': 'favor',
@@ -1003,6 +1131,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                   '/thread_new.php': (BOARD, 'text/html; charset=utf-8'),
                   '/message.php': (COMPOSE, 'text/html; charset=utf-8'),
                   '/fixture.png': (image(), 'image/png'),
+                  '/r8-op.png': (image(), 'image/png'),
                   '/images/face/none.gif': (image(), 'image/png'),
                   '/images/face/1.gif': (image(), 'image/png'),
                   '/portrait.png': (image(240, 480), 'image/png')}
