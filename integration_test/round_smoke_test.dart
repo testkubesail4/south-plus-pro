@@ -130,8 +130,8 @@ void main() {
     expect(find.textContaining('未找到指定楼层'), findsNothing);
     expect(opening.hitTestable(), findsWidgets);
   },
-      skip:
-          'Known defect: page-1 jump at offset zero does not persist; backend follow-up pending');
+      // Known defect: offset-zero page-1 jump does not persist; backend follow-up.
+      skip: true);
 
   for (final (pid, page, floor, original, updated) in [
     ('950101', 1, '楼主', '[b]Opening original[/b]', '[b]Opening edited[/b]'),

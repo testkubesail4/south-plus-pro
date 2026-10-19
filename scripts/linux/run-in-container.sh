@@ -5,7 +5,7 @@ cd /tmp/app
 python3 scripts/linux/fixture_server_test.py
 flutter pub get > /output/pub-get.log 2>&1
 dart format --language-version=3.4 --output=none --set-exit-if-changed integration_test
-flutter analyze --no-pub > /output/analyze.log 2>&1
+flutter analyze --no-pub 2>&1 | tee /output/analyze.log
 python3 scripts/linux/fixture_server.py &
 fixture_pid=$!
 trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
