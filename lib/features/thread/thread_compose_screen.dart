@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +33,8 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   bool _draftLoaded = false;
   bool _replyNotice = true;
   String? _error;
+  // Sent without a clear answer from the forum: this screen never sends again.
+  bool _unconfirmed = false;
   // The board's native form: its categories and bounty rules.
   ThreadComposeDraft? _form;
   Object? _formError;
@@ -65,7 +69,9 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
     setState(() => _draftLoaded = true);
   }
 
-  Future<void> _loadForm() async {
+  /// Reads the board's form. A form is spent by one submit, so a definite
+  /// failure reads a fresh one, keeping what the user already chose.
+  Future<void> _loadForm({bool keepInput = false}) async {
     setState(() => _formError = null);
     try {
       final form =
@@ -73,7 +79,15 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
       if (!mounted) return;
       setState(() {
         _form = form;
-        _category = form.selectedCategory;
+        if (keepInput &&
+            (_category == null ||
+                form.categories.any((c) => c.value == _category))) {
+          return;
+        }
+        // The native placeholder ('') and unknown values read as 不分类.
+        _category = form.categories.any((c) => c.value == form.selectedCategory)
+            ? form.selectedCategory
+            : null;
         // The minimum, shown in full: nothing is charged by a hidden default.
         _bestBounty.text =
             '${form.minBestAmount ?? form.defaultBestAmount ?? ''}';
@@ -85,10 +99,14 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
     }
   }
 
-  Future<void> _saveDraft() async {
+  Future<void> _storeDraft() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_draftTitleKey, _title.text);
     await prefs.setString(_draftContentKey, _content.text);
+  }
+
+  Future<void> _saveDraft() async {
+    await _storeDraft();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('草稿已保存')),
@@ -114,7 +132,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting || _unconfirmed) return;
     final bounty = _bounty;
     if (bounty != null) {
       if (bounty.error case final error?) {
@@ -141,8 +159,15 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
         confirmBounty: bounty != null,
       );
       if (!mounted) return;
+      if (result.unconfirmed) {
+        // It may have posted (and charged): keep the text, never resend.
+        await _storeDraft();
+        if (mounted) setState(() => _unconfirmed = true);
+        return;
+      }
       if (!result.success) {
         setState(() => _error = result.message);
+        unawaited(_loadForm(keepInput: true));
         return;
       }
 
@@ -291,7 +316,9 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
             // While sending, a spinner joins the label, which stays.
             child: FilledButton.icon(
               key: const ValueKey('compose-submit'),
-              onPressed: _submitting || !_draftLoaded ? null : _submit,
+              onPressed: _submitting || _unconfirmed || !_draftLoaded
+                  ? null
+                  : _submit,
               style: FilledButton.styleFrom(
                 minimumSize: const Size(64, 40),
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -332,7 +359,23 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                if (error != null)
+                                if (_unconfirmed)
+                                  MaterialBanner(
+                                    key: const ValueKey('compose-unconfirmed'),
+                                    content: const Text(
+                                      '发布结果未确认：请求已发出，但没有收到论坛的明确答复。'
+                                      '请到版块查看是否已发布，不要重复发布。草稿已保留。',
+                                    ),
+                                    leading: const Icon(Icons.help_outline),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(true),
+                                        child: const Text('返回版块查看'),
+                                      ),
+                                    ],
+                                  )
+                                else if (error != null)
                                   MaterialBanner(
                                     content: Text(error),
                                     leading: Icon(

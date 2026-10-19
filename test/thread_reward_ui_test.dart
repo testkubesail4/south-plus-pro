@@ -26,9 +26,14 @@ ThreadRewardAction _action(ThreadRewardKind kind, String pid) =>
     );
 
 class _Repo extends ForumRepository {
-  _Repo({this.outcome = ThreadRewardOutcome.unknown, this.form});
+  _Repo({
+    this.outcome = ThreadRewardOutcome.unknown,
+    this.form,
+    this.postResult = const ReplyResult(success: true, message: '主题已发布'),
+  });
 
   final ThreadRewardOutcome outcome;
+  final ReplyResult postResult;
   final ThreadComposeDraft? form;
   int detailLoads = 0;
   final drafts = <ThreadRewardAction>[];
@@ -178,7 +183,7 @@ class _Repo extends ForumRepository {
       'helpful': helpfulAmount,
       'confirm': confirmBounty,
     });
-    return const ReplyResult(success: true, message: '主题已发布');
+    return postResult;
   }
 }
 
@@ -187,7 +192,8 @@ const _bountyForm = ThreadComposeDraft(
     ThreadComposeCategory(value: '1', label: '二次元'),
     ThreadComposeCategory(value: '3', label: '全年龄'),
   ],
-  selectedCategory: null,
+  // The parser's shape for the native placeholder <option value="">.
+  selectedCategory: '',
   bountySupported: true,
   controls: [],
   actionPath: 'post.php?',
@@ -363,11 +369,14 @@ void main() {
   });
 
   Future<_Repo> pumpCompose(
-      WidgetTester tester, ThreadComposeDraft? form) async {
+    WidgetTester tester,
+    ThreadComposeDraft? form, {
+    ReplyResult postResult = const ReplyResult(success: true, message: '主题已发布'),
+  }) async {
     tester.view.physicalSize = const Size(400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repo = _Repo(form: form);
+    final repo = _Repo(form: form, postResult: postResult);
     await tester.pumpWidget(MaterialApp(
       home: ThreadComposeScreen(category: _board, repository: repo),
     ));
@@ -421,6 +430,35 @@ void main() {
       'helpful': 12,
       'confirm': true,
     });
+  });
+
+  testWidgets('an unconfirmed post keeps the draft and never sends again',
+      (tester) async {
+    final repo = await pumpCompose(
+      tester,
+      _bountyForm,
+      postResult: const ReplyResult(
+        success: false,
+        unconfirmed: true,
+        message: 'ack missing',
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('compose-submit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认发布并扣除 50 SP币'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('compose-unconfirmed')), findsOneWidget);
+    expect(find.textContaining('不要重复发布'), findsOneWidget);
+    expect(find.text('ack missing'), findsNothing);
+    final submit = find.byKey(const ValueKey('compose-submit'));
+    expect(tester.widget<ButtonStyleButton>(submit).enabled, isFalse);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(repo.posts, hasLength(1));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('draft.thread.f9.title'), '求一个资源');
+    expect(prefs.getString('draft.thread.f9.content'), '描述');
   });
 
   testWidgets('without the board form, a thread posts with no bounty claim',
