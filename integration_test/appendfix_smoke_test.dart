@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
+import 'package:south_plus_rewrite/features/common/board_picker_sheet.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/profile/account_profile_edit_screen.dart';
 import 'package:south_plus_rewrite/features/profile/forum_preferences_screen.dart';
@@ -336,6 +337,23 @@ void main() {
     expect((await stats())['purchases'], 0);
   }, timeout: const Timeout(Duration(minutes: 4)));
 
+  testWidgets('native profile fixture retains date and metric provenance',
+      (tester) async {
+    final overview = await repository.fetchUserProfileOverview(_profileUrl);
+    final profile = await repository.fetchUserProfileDetails(overview);
+    expect(profile.topics.map((row) => row.date), ['2026-01-03', '2026-01-02']);
+    expect(profile.contentErrors, isEmpty);
+    expect(profile.topics.map((row) => row.replies), [2, null]);
+    expect(profile.topics.map((row) => row.views), [37, null]);
+    expect(profile.posts.map((row) => row.date), ['2026-01-03', '2026-01-02']);
+    expect(
+        profile.posts.every((row) => row.replies == null && row.views == null),
+        isTrue);
+    expect(profile.favorites, isEmpty);
+    expect(profile.contentPagination[UserProfileTab.favorites]?.totalPages, 1,
+        reason: 'a genuine empty native table is not a truncated-list error');
+  });
+
   testWidgets(
       'native profile note and bounded filters lead to rich paid reveal',
       (tester) async {
@@ -355,7 +373,10 @@ void main() {
     await waitFor(tester, find.text('本地阅读笔记'));
     await tap(tester, find.byTooltip('展开筛选'));
     await tap(tester, find.text('版块：全部'));
-    await tap(tester, find.text('本地阅读版块'));
+    await tap(
+        tester,
+        find.descendant(
+            of: find.byType(BoardPickerSheet), matching: find.text('本地阅读版块')));
     await waitFor(tester, find.text('版块：本地阅读版块'));
     await tap(tester, find.text('分类：全部'));
     await tap(tester, find.text('阅读笔记'));

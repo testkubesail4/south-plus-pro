@@ -255,15 +255,22 @@ def appendfix_profile(query):
         kind = '主题' if 'action-topic-' in query else '回复'
         boards = [('229', 'CM108', 'CM108 父版'), ('230', '同人志&CG', 'CM108 子版'),
                   ('226', 'CM107', 'CM107 父版'), ('227', '同人志&CG', 'CM107 子版')]
-        rows = ''.join(f'''<tr><td><a href="read.php?tid-{940000 + int(fid)}.html">{context}{kind}</a>
-<a href="thread.php?fid-{fid}.html">{escape(label)}</a> [2026-01-03] 回复 2 浏览 37</td></tr>'''
+        metrics = '回复:2<br>浏览:37' if 'action-topic-' in query else '作者:林间书签'
+        rows = ''.join(f'''<tr><th><a href="read.php?tid-{940000 + int(fid)}.html">{context}{kind}</a>
+<a class="gray" href="thread.php?fid-{fid}.html">{escape(label)}</a>
+<span class="gray f9">[2026-01-03]</span></th><td>{metrics}</td></tr>'''
                        for fid, label, context in boards)
         shell += f'<div id="u-contentmain"><table class="u-table">{rows}</table><div class="pages">Pages: 1/1</div></div>'
     elif 'action-topic-' in query or 'action-post-' in query:
-        shell += '''<div id="u-contentmain"><table class="u-table"><tr><td><a href="read.php?tid-930002.html">本地阅读笔记</a>
-<a href="thread.php?fid-930.html">本地阅读版块</a> [2026-01-03] 回复 2 浏览 37</td></tr>
-<tr><td><a href="read.php?tid-930099.html">尚未确认分类的阅读记录</a>
-<a href="thread.php?fid-930.html">本地阅读版块</a> [2026-01-02]</td></tr></table><div class="pages">Pages: 1/1</div></div>'''
+        first_metrics = '回复:2<br>浏览:37' if 'action-topic-' in query else '作者:林间书签'
+        shell += f'''<div id="u-contentmain"><table class="u-table"><tr><th><a href="read.php?tid-930002.html">本地阅读笔记</a>
+<a class="gray" href="thread.php?fid-930.html">本地阅读版块</a>
+<span class="gray f9">[2026-01-03]</span></th><td>{first_metrics}</td></tr>
+<tr><th><a href="read.php?tid-930099.html">尚未确认分类的阅读记录</a>
+<a class="gray" href="thread.php?fid-930.html">本地阅读版块</a>
+<span class="gray f9">[2026-01-02]</span></th><td></td></tr></table><div class="pages">Pages: 1/1</div></div>'''
+    elif 'action-favor-' in query:
+        shell += '<div id="u-contentmain"><table class="u-table"></table></div>'
     return f'<html><body>{shell}</body></html>'.encode()
 
 
