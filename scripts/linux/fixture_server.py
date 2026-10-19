@@ -225,7 +225,8 @@ def r8_board():
 <h3>{amount}<a href="read.php?tid-{tid}.html" id="a_ajax_{tid}">{title}</a></h3></td>
 <td><a href="u.php?action-show-uid-930001.html">Synthetic owner</a><span class="f10 gray2">2026-01-03</span></td><td>2 / 30</td></tr>'''
         for tid, title, amount in [('960001', 'Synthetic bounty thread', '<span class="s1"> — 悬赏金额：30 — </span>'),
-                                   ('960002', 'Synthetic no amount', '')])
+                                   ('960002', 'Synthetic ended bounty', '<img src="images/thread/reward.gif">'),
+                                   ('960003', 'Synthetic no amount', '')])
     return f'<html><body><table id="ajaxtable">{rows}</table><div class="pages">Pages: 1/1</div></body></html>'.encode()
 
 
@@ -241,10 +242,12 @@ def r8_compose():
 
 
 def r8_reward_form(pid, kind):
-    fields = dict(verify='fixture-only', type=kind, ifmsg='1', page='', pid=pid, tid='960001', step='3')
-    inputs = ''.join(f'<input type="{ "checkbox" if key == "ifmsg" else "hidden"}" name="{key}" value="{value}" {"checked" if key == "ifmsg" else ""}>'
-                     for key, value in fields.items())
-    return f'''<html><body><form method="post" action="job.php?action=reward">{inputs}
+    fields = dict(verify='fixture-only', page='', pid=pid, tid='960001', step='3')
+    inputs = ''.join(f'<input type="hidden" name="{key}" value="{value}">' for key, value in fields.items())
+    inputs += ''.join(f'<input type="radio" name="{name}" value="{value}" {"checked" if value == selected else ""}>'
+                      for name, selected, values in [('type', kind, ('1', '2')), ('ifmsg', '1', ('1', '0'))]
+                      for value in values)
+    return f'''<html><body><form name="FORM" method="post" action="job.php?action=reward">{inputs}
 先评热心助人，再评最佳答案。最佳答案代表结束悬赏，尚未评出的热心分按发帖顺序每楼1分分配，直到用完。
 <input type="submit" value="提交"></form></body></html>'''.encode()
 
@@ -582,7 +585,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return
         if self.appendfix and APPENDFIX['r8']:
             if path.path in ('/job.php', '/post.php'):
-                self.r8_submit(path, raw)
+                with APPENDFIX_LOCK:
+                    self.r8_submit(path, raw)
                 return
         controls = ('external-delete-first', 'partial-next', 'unknown-ack-next')
         control = path.path.removeprefix('/favorite-collections/')

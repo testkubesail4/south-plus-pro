@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from http.client import HTTPConnection
+from html.parser import HTMLParser
 import json
 import socket
 import struct
@@ -96,9 +97,31 @@ class FixtureServerTest(unittest.TestCase):
             board = request('/thread_new.php?fid-48.html').decode()
             self.assertIn('悬赏金额：30', board)
             self.assertIn('Synthetic no amount', board)
+            self.assertIn('Synthetic ended bounty', board)
+            self.assertIn('images/thread/reward.gif', board)
             self.assertNotIn('已有答案', board)
             for pid, kind, label in [('960103', '2', '热心助人奖励'), ('960102', '1', '最佳答案奖励')]:
                 form = request(f'/job.php?action-reward-tid-960001-pid-{pid}-type-{kind}.html').decode()
+                class NativeForm(HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self.radios = []
+                        self.forms = []
+
+                    def handle_starttag(self, tag, attrs):
+                        attrs = dict(attrs)
+                        if tag == 'form':
+                            self.forms.append(attrs)
+                        if tag == 'input' and attrs.get('type') == 'radio':
+                            self.radios.append(attrs)
+
+                parsed = NativeForm()
+                parsed.feed(form)
+                self.assertEqual(parsed.forms, [dict(name='FORM', method='post', action='job.php?action=reward')])
+                self.assertEqual([(r['name'], r['value']) for r in parsed.radios],
+                                 [('type', '1'), ('type', '2'), ('ifmsg', '1'), ('ifmsg', '0')])
+                self.assertEqual({r['name']: r['value'] for r in parsed.radios if 'checked' in r},
+                                 {'type': kind, 'ifmsg': '1'})
                 self.assertIn('value="fixture-only"', form)
                 self.assertIn('直到用完', form)
                 fields = dict(verify='fixture-only', type=kind, ifmsg='1', page='', pid=pid, tid='960001', step='3')
