@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../models/forum_models.dart';
 import '../../models/user_content_query.dart';
+import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
@@ -22,6 +23,8 @@ import '../common/user_tags_inline.dart';
 import '../messages/pm_compose_screen.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
+import '../thread/thread_image_viewer.dart';
+import '../thread/thread_render_models.dart';
 
 part 'user_profile_widgets.dart';
 

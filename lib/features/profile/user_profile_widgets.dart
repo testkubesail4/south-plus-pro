@@ -61,27 +61,7 @@ class _ProfileHeader extends StatelessWidget {
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    CircleAvatar(
-                      radius: 36,
-                      backgroundColor: AppColors.inkSoft,
-                      child: profile.avatarUrl == null
-                          ? Text(
-                              profile.displayName.characters.firstOrNull ?? '?',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineSmall
-                                  ?.copyWith(color: AppColors.textMuted),
-                            )
-                          : ClipOval(
-                              child: CachedForumImage(
-                                url: profile.avatarUrl!,
-                                width: 72,
-                                height: 72,
-                                fit: BoxFit.cover,
-                                bypassLoadPolicy: true,
-                              ),
-                            ),
-                    ),
+                    _ProfileAvatar(profile: profile),
                     Positioned(
                       right: -1,
                       bottom: 2,
@@ -140,54 +120,67 @@ class _ProfileHeader extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          const SizedBox(height: AppSpace.md),
+          // Facts are plain text; only the row below is tappable.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.xs),
+            child: Wrap(
+              spacing: AppSpace.lg,
+              runSpacing: AppSpace.xs,
+              children: [
+                if (profile.displayName == profile.name)
+                  _Fact(label: 'UID', value: profile.uid),
+                if (profile.level != null && profile.level!.isNotEmpty)
+                  _Fact(label: '等级', value: profile.level!),
+                ...profile.stats.take(3).map(
+                      (field) => _Fact(label: field.label, value: field.value),
+                    ),
+                if (loginName case final name?)
+                  Semantics(
+                    liveRegion: true,
+                    child: _Fact(label: '登录名', value: name),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Row(
             children: [
-              if (onMessage != null)
-                _ActionChip(
-                  icon: Icons.mail_outline,
-                  label: '发短消息',
-                  onTap: onMessage,
-                ),
-              if (onSearchByUser != null)
-                _ActionChip(
-                  icon: Icons.manage_search,
-                  label: '按人查找',
-                  onTap: lookingUp ? null : onSearchByUser,
-                ),
-              if (loginName case final name?)
-                Semantics(
-                  liveRegion: true,
-                  hint: '点按复制',
-                  child: _ActionChip(
-                    icon: Icons.badge_outlined,
-                    label: '登录名 $name',
+              for (final (i, action) in [
+                if (onMessage != null)
+                  _ActionButton(
+                    icon: Icons.mail_outline,
+                    label: '发短消息',
+                    onTap: onMessage,
+                  ),
+                if (onSearchByUser != null)
+                  _ActionButton(
+                    icon: Icons.manage_search,
+                    label: '按人查找',
+                    onTap: lookingUp ? null : onSearchByUser,
+                  ),
+                if (loginName case final name?)
+                  _ActionButton(
+                    icon: Icons.copy_outlined,
+                    label: '复制登录名',
                     onTap: onCopyLoginName == null
                         ? null
                         : () => onCopyLoginName!(name),
+                  )
+                else if (onShowLoginName != null)
+                  Semantics(
+                    label: lookingUp ? '正在查询登录名' : null,
+                    child: _ActionButton(
+                      icon: Icons.badge_outlined,
+                      label: '查看登录名',
+                      busy: lookingUp,
+                      onTap: lookingUp ? null : onShowLoginName,
+                    ),
                   ),
-                )
-              else if (onShowLoginName != null)
-                Semantics(
-                  label: lookingUp ? '正在查询登录名' : null,
-                  child: _ActionChip(
-                    icon: Icons.badge_outlined,
-                    label: '查看登录名',
-                    busy: lookingUp,
-                    onTap: lookingUp ? null : onShowLoginName,
-                  ),
-                ),
-              if (profile.displayName == profile.name)
-                _MetricChip(label: 'UID', value: profile.uid),
-              if (profile.level != null && profile.level!.isNotEmpty)
-                _MetricChip(label: '等级', value: profile.level!),
-              ...profile.stats.take(3).map(
-                    (field) =>
-                        _MetricChip(label: field.label, value: field.value),
-                  ),
+              ].indexed) ...[
+                if (i > 0) const SizedBox(width: AppSpace.sm),
+                Expanded(child: action),
+              ],
             ],
           ),
         ],
@@ -319,8 +312,91 @@ class _OnlinePill extends StatelessWidget {
   }
 }
 
-class _ActionChip extends StatelessWidget {
-  const _ActionChip({
+/// The avatar; tapping opens it in the full-screen viewer, which saves it.
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.profile});
+
+  final UserProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = profile.avatarUrl;
+    final avatar = CircleAvatar(
+      radius: 36,
+      backgroundColor: AppColors.inkSoft,
+      child: url == null
+          ? Text(
+              profile.displayName.characters.firstOrNull ?? '?',
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(color: AppColors.textMuted),
+            )
+          : ClipOval(
+              child: CachedForumImage(
+                url: url,
+                width: 72,
+                height: 72,
+                fit: BoxFit.cover,
+                bypassLoadPolicy: true,
+              ),
+            ),
+    );
+    if (url == null) return avatar;
+    return Semantics(
+      button: true,
+      label: '查看头像',
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: () => showThreadImageViewer(
+          context,
+          images: [ThreadImageRenderBlock(ThreadImage(url: url))],
+          initialIndex: 0,
+          privateMedia: false,
+          onOpen: (context, url) async {
+            try {
+              await ExternalLinkLauncher.open(url);
+            } catch (error) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text('$error')));
+            }
+          },
+          onCopy: (context, url) {
+            Clipboard.setData(ClipboardData(text: url));
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('链接已复制')));
+          },
+        ),
+        child: avatar,
+      ),
+    );
+  }
+}
+
+/// One profile fact as quiet text: muted label, value in body colour.
+class _Fact extends StatelessWidget {
+  const _Fact({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodySmall;
+    return Text.rich(
+      TextSpan(children: [
+        TextSpan(text: '$label '),
+        TextSpan(text: value, style: TextStyle(color: AppColors.text)),
+      ]),
+      style: style,
+    );
+  }
+}
+
+/// One profile operation: icon over label, equal widths in one row.
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
     required this.icon,
     required this.label,
     required this.onTap,
@@ -332,18 +408,36 @@ class _ActionChip extends StatelessWidget {
   final VoidCallback? onTap;
   final bool busy;
 
-  // Secondary actions: small neutral tonal buttons (DESIGN.md §6).
+  // Secondary actions: neutral tonal buttons (DESIGN.md §6).
   @override
   Widget build(BuildContext context) {
-    return FilledButton.tonalIcon(
+    return FilledButton.tonal(
       onPressed: onTap,
-      icon: busy
-          ? const SizedBox.square(
-              dimension: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Icon(icon),
-      label: Text(label, overflow: TextOverflow.ellipsis),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpace.xs, vertical: AppSpace.sm),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.md)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          busy
+              ? const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(icon, size: 20),
+          const SizedBox(height: AppSpace.xs),
+          Text(
+            label,
+            maxLines: 2,
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -810,35 +904,6 @@ class _RefreshTab extends StatelessWidget {
       color: AppColors.brand,
       onRefresh: onRefresh,
       child: child,
-    );
-  }
-}
-
-class _MetricChip extends StatelessWidget {
-  const _MetricChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      // A neutral tag, centred against the buttons it wraps with.
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpace.sm,
-        vertical: AppSpace.xs,
-      ),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-      ),
-      child: Text(
-        '$label $value',
-        style: Theme.of(context)
-            .textTheme
-            .labelMedium
-            ?.copyWith(color: AppColors.textMuted),
-      ),
     );
   }
 }
