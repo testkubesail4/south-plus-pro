@@ -253,6 +253,10 @@ void main() {
   }
 
   Future<void> openBoardFilter(WidgetTester tester, String label) async {
+    // The selectors sit folded behind the toolbar until opened once.
+    if (find.text(label).evaluate().isEmpty) {
+      await tap(tester, find.byTooltip('展开筛选'));
+    }
     await tap(tester, find.text(label));
     await waitFor(tester, find.byKey(const ValueKey('board-filter:all')));
     final loading = find.text('正在加载版块层级…');

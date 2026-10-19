@@ -88,4 +88,31 @@ void main() {
     expect(find.text('个人信息'), findsNothing);
   });
 
+  testWidgets(
+      'filters fold behind the toolbar and an active one stays visible with 清除',
+      (tester) async {
+    final repository = await open(tester, tab: UserProfileTab.topics);
+    repository.onContent = (_) async => contentResult();
+    expect(find.text('版块：全部'), findsNothing);
+    expect(find.text('类型：全部'), findsNothing);
+
+    await tester.tap(find.byTooltip('展开筛选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('类型：全部'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('精华'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('收起筛选'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('类型：精华'), findsOneWidget, reason: 'active stays shown');
+    expect(find.text('版块：全部'), findsNothing);
+    expect(find.text('1'), findsOneWidget, reason: 'badge counts it');
+
+    await tester.tap(find.text('清除筛选'));
+    await tester.pumpAndSettle();
+    expect(find.text('类型：精华'), findsNothing);
+    expect(find.text('清除筛选'), findsNothing);
+    expect(find.text('第一页主题'), findsOneWidget);
+  });
 }

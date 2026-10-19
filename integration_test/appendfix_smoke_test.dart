@@ -353,6 +353,7 @@ void main() {
     await waitFor(tester, find.text('备注：常读作者'));
     await tap(tester, find.text('主题'));
     await waitFor(tester, find.text('本地阅读笔记'));
+    await tap(tester, find.byTooltip('展开筛选'));
     await tap(tester, find.text('版块：全部'));
     await tap(tester, find.text('本地阅读版块'));
     await waitFor(tester, find.text('版块：本地阅读版块'));

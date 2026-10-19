@@ -1031,6 +1031,8 @@ class _ContentSelection {
   ForumSearchBoard? board;
   UserContentArticleType type = UserContentArticleType.all;
   UserContentClassification? classification;
+  // The selectors start folded behind the toolbar's 筛选 button.
+  bool filtersOpen = false;
 }
 
 /// 主题 / 回复 / 收藏: the first page as loaded, plus a title search and the
@@ -1265,6 +1267,12 @@ class _ContentTabState extends State<_ContentTab>
 
   bool get _isDefault => _board == null && _type == UserContentArticleType.all;
 
+  int get _activeFilters => [
+        _board != null,
+        _type != UserContentArticleType.all,
+        _classification != null,
+      ].where((on) => on).length;
+
   UserContentQuery get _query => UserContentQuery(
         uid: widget.uid,
         tab: widget.tab,
@@ -1491,44 +1499,77 @@ class _ContentTabState extends State<_ContentTab>
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: EdgeInsets.fromLTRB(gutter, AppSpace.sm, gutter, 28),
         children: [
-          ListSearchField(
-            controller: _keyword,
-            hintText: switch (widget.tab) {
-              UserProfileTab.posts => '搜索参与的主题标题',
-              UserProfileTab.favorites => '搜索收藏标题',
-              _ => '搜索主题标题',
-            },
-            onChanged: _keywordChanged,
-          ),
-          const SizedBox(height: AppSpace.xs),
-          Wrap(
-            spacing: AppSpace.sm,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          Row(
             children: [
-              _FilterChipButton(
-                label: '版块',
-                value: _board == null ? '全部' : boardDisplayName(_board!.name),
-                active: _board != null,
-                onTap: _pickBoard,
-              ),
-              // Favourites carry no article type.
-              if (widget.tab != UserProfileTab.favorites)
-                _FilterChipButton(
-                  label: '类型',
-                  value: _articleTypeLabel(_type),
-                  active: _type != UserContentArticleType.all,
-                  onTap: _pickType,
+              Expanded(
+                child: ListSearchField(
+                  controller: _keyword,
+                  hintText: switch (widget.tab) {
+                    UserProfileTab.posts => '搜索参与的主题标题',
+                    UserProfileTab.favorites => '搜索收藏标题',
+                    _ => '搜索主题标题',
+                  },
+                  onChanged: _keywordChanged,
                 ),
-              _FilterChipButton(
-                label: '分类',
-                value: _classification?.label ?? '全部',
-                active: _classification != null,
-                busy: _loadingClassifications,
-                // Needs a board: classifications belong to one board.
-                onTap: _board == null ? null : _pickClassification,
+              ),
+              const SizedBox(width: AppSpace.xs),
+              IconButton(
+                tooltip: widget.selection.filtersOpen ? '收起筛选' : '展开筛选',
+                isSelected: widget.selection.filtersOpen,
+                onPressed: () => setState(() => widget.selection.filtersOpen =
+                    !widget.selection.filtersOpen),
+                icon: Badge.count(
+                  count: _activeFilters,
+                  isLabelVisible: _activeFilters > 0,
+                  child: const Icon(Icons.tune),
+                ),
               ),
             ],
           ),
+          // Closed, only the selectors in use show, each still tappable.
+          if (widget.selection.filtersOpen || filtered) ...[
+            const SizedBox(height: AppSpace.xs),
+            Wrap(
+              spacing: AppSpace.sm,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (widget.selection.filtersOpen || _board != null)
+                  _FilterChipButton(
+                    label: '版块',
+                    value: _board == null
+                        ? '全部'
+                        : boardDisplayName(_board!.name),
+                    active: _board != null,
+                    onTap: _pickBoard,
+                  ),
+                // Favourites carry no article type.
+                if (widget.tab != UserProfileTab.favorites &&
+                    (widget.selection.filtersOpen ||
+                        _type != UserContentArticleType.all))
+                  _FilterChipButton(
+                    label: '类型',
+                    value: _articleTypeLabel(_type),
+                    active: _type != UserContentArticleType.all,
+                    onTap: _pickType,
+                  ),
+                if (widget.selection.filtersOpen || _classification != null)
+                  _FilterChipButton(
+                    label: '分类',
+                    value: _classification?.label ?? '全部',
+                    active: _classification != null,
+                    busy: _loadingClassifications,
+                    // Needs a board: classifications belong to one board.
+                    onTap: _board == null ? null : _pickClassification,
+                  ),
+                if (filtered)
+                  TextButton(
+                    onPressed: () => _select(
+                        clearBoard: true, type: UserContentArticleType.all),
+                    child: const Text('清除筛选'),
+                  ),
+              ],
+            ),
+          ],
           if (searching && ready) ...[
             const SizedBox(height: AppSpace.xs),
             SearchScopeBar(
