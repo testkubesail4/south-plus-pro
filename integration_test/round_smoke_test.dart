@@ -385,6 +385,10 @@ void main() {
       await tap(tester, find.text('排序全部页面'));
       await tap(tester, find.text('开始排序'), settle: false);
       await waitForScanRequest(tester);
+      final stop = find.text('停止');
+      await waitFor(tester, stop);
+      await tester.ensureVisible(stop);
+      await waitFor(tester, stop.hitTestable());
       expect(find.byType(LinearProgressIndicator), findsWidgets);
       expect(find.textContaining('结果不完整'), findsWidgets);
       await tap(tester, find.text('停止'), settle: false);
