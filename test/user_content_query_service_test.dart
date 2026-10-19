@@ -205,13 +205,20 @@ void main() {
     expect(paths, hasLength(2));
   });
 
-  for (final tab in [UserProfileTab.topics, UserProfileTab.posts, UserProfileTab.favorites]) {
-    testWidgets('truncated $tab list cannot become an empty loaded or complete eager result',
+  for (final tab in [
+    UserProfileTab.topics,
+    UserProfileTab.posts,
+    UserProfileTab.favorites
+  ]) {
+    testWidgets(
+        'truncated $tab list cannot become an empty loaded or complete eager result',
         (tester) async {
-      respond = (_) async => html.parse('<html><title>South Plus</title><body><div id="main">');
+      respond = (_) async =>
+          html.parse('<html><title>South Plus</title><body><div id="main">');
       final repository = ForumRepository(client: client);
       final query = UserContentQuery(uid: '7', tab: tab);
-      await expectLater(repository.fetchUserContent(query),
+      await expectLater(
+          repository.fetchUserContent(query),
           throwsA(isA<ForumRequestException>().having(
               (error) => error.kind, 'kind', ForumRequestKind.invalidInput)));
       final job = repository.scanUserContent(query);
@@ -226,7 +233,8 @@ void main() {
       respond = (_) async => html.parse(_page(''));
       final empty = await repository.fetchUserContent(query);
       expect(empty.items, isEmpty);
-      expect(empty.isComplete, isTrue, reason: 'a real empty table is still a valid list');
+      expect(empty.isComplete, isTrue,
+          reason: 'a real empty table is still a valid list');
     });
   }
 
@@ -280,7 +288,8 @@ void main() {
   });
 
   for (final tab in [UserProfileTab.topics, UserProfileTab.posts]) {
-    testWidgets('empty-keyword $tab sort scans list pages only and stays partial until done',
+    testWidgets(
+        'empty-keyword $tab sort scans list pages only and stays partial until done',
         (tester) async {
       final gate = Completer<dom.Document>();
       final action = tab == UserProfileTab.topics ? 'topic' : 'post';
@@ -290,11 +299,14 @@ void main() {
           '<span class="gray f9">[$date]</span></th><td>'
           '${views == null ? '' : '浏览:$views 回复:$views'}</td></tr>';
       respond = (path) async {
-        if (!path.startsWith('u.php')) fail('sorting must not enrich from $path');
+        if (!path.startsWith('u.php'))
+          fail('sorting must not enrich from $path');
         if (_number(path) == 2) return gate.future;
         return html.parse(_page(
             row(101, 'unknown..', '2024-02-29', null) +
-            row(102, 'zero', '2024-01-01', 0), pages: 2, action: action));
+                row(102, 'zero', '2024-01-01', 0),
+            pages: 2,
+            action: action));
       };
       final repository = ForumRepository(client: client);
       final query = UserContentQuery(uid: '7', tab: tab);
@@ -302,15 +314,21 @@ void main() {
       expect(loaded.hasMore, isTrue);
       expect(loaded.isComplete, isFalse);
       final sort = UserContentSort(tab == UserProfileTab.topics
-          ? UserContentSortKey.views : UserContentSortKey.time);
+          ? UserContentSortKey.views
+          : UserContentSortKey.time);
       final local = sortUserContent(loaded.items, sort);
-      expect(local.map((row) => tab == UserProfileTab.posts ? row.postId : row.threadId),
+      expect(
+          local.map(
+              (row) => tab == UserProfileTab.posts ? row.postId : row.threadId),
           tab == UserProfileTab.topics ? ['102', '101'] : ['101', '102']);
       expect(paths, hasLength(1), reason: 'loaded sorting adds no requests');
-      final job = repository.scanUserContent(query, loaded: loaded.items,
-          loadedPages: loaded.scannedPages, totalPages: loaded.totalPages);
+      final job = repository.scanUserContent(query,
+          loaded: loaded.items,
+          loadedPages: loaded.scannedPages,
+          totalPages: loaded.totalPages);
       addTearDown(job.dispose);
-      expect(job.hits, hasLength(2), reason: 'truncated title is valid without a keyword');
+      expect(job.hits, hasLength(2),
+          reason: 'truncated title is valid without a keyword');
       expect(job.progress.pending, 0);
       job.start();
       await tester.pump();
@@ -324,9 +342,13 @@ void main() {
       expect(job.progress.scannedPages, 2);
       expect(job.unresolved, isEmpty);
       final all = sortUserContent(job.hits, sort);
-      expect(tab == UserProfileTab.posts ? all.first.postId : all.first.threadId, '103');
-      expect(paths, ['u.php?action-$action-uid-7-page-1.html',
-        'u.php?action-$action-uid-7-page-2.html']);
+      expect(
+          tab == UserProfileTab.posts ? all.first.postId : all.first.threadId,
+          '103');
+      expect(paths, [
+        'u.php?action-$action-uid-7-page-1.html',
+        'u.php?action-$action-uid-7-page-2.html'
+      ]);
     });
   }
 

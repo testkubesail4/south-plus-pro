@@ -9,12 +9,14 @@ import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 
 // Synthetic fixtures only: fictional host, tid, pids, authors and texts.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
-const _thread =
-    ForumThread(title: 'edit', url: _url, replies: 2, section: '', author: 'op');
+const _thread = ForumThread(
+    title: 'edit', url: _url, replies: 2, section: '', author: 'op');
 const _opLink = ThreadActionLink(
-    label: '编辑', url: 'post.php?action-modify-fid-8-tid-7-pid-tpc-article-0.html');
+    label: '编辑',
+    url: 'post.php?action-modify-fid-8-tid-7-pid-tpc-article-0.html');
 const _replyLink = ThreadActionLink(
-    label: '编辑', url: 'post.php?action-modify-fid-8-tid-7-pid-501-article-1.html');
+    label: '编辑',
+    url: 'post.php?action-modify-fid-8-tid-7-pid-501-article-1.html');
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -151,8 +153,7 @@ void main() {
     final content = find.textContaining('很长的改动');
     await tester.dragUntilVisible(
         content, find.byType(ListView), const Offset(0, -100));
-    expect(tester.widget<EditableText>(content).controller.text,
-        '很长的改动\n' * 20,
+    expect(tester.widget<EditableText>(content).controller.text, '很长的改动\n' * 20,
         reason: 'the text is kept');
   });
 

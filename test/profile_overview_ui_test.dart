@@ -28,7 +28,8 @@ class _AvatarProfileRepository extends FakeProfileRepository {
 
 /// Favourites come back truncated once; the other lists are fine.
 class _TruncatedFavoritesRepository extends FakeProfileRepository {
-  _TruncatedFavoritesRepository() : super(topics: [listItem('第一页主题', tid: '1')]);
+  _TruncatedFavoritesRepository()
+      : super(topics: [listItem('第一页主题', tid: '1')]);
 
   int detailLoads = 0;
 
@@ -74,8 +75,7 @@ void main() {
     expect(find.byType(ThreadImageViewer), findsOneWidget);
   });
 
-  testWidgets('facts are plain text apart from the operations',
-      (tester) async {
+  testWidgets('facts are plain text apart from the operations', (tester) async {
     await open(tester);
     expect(find.text('等级 Lv.3'), findsOneWidget);
     expect(find.text('注册时间 2024-03-31'), findsOneWidget);

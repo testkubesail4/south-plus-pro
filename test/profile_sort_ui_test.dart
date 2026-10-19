@@ -59,7 +59,8 @@ void main() {
             _row('多', views: 40),
           ],
           pagination: const {
-            UserProfileTab.topics: ThreadPagination(currentPage: 1, totalPages: 3),
+            UserProfileTab.topics:
+                ThreadPagination(currentPage: 1, totalPages: 3),
           },
         ));
     await tester.tap(find.byTooltip('排序'));
@@ -98,7 +99,8 @@ void main() {
         FakeProfileRepository(
           topics: [_row('一', views: 1), _row('二', views: 2)],
           pagination: const {
-            UserProfileTab.topics: ThreadPagination(currentPage: 1, totalPages: 2),
+            UserProfileTab.topics:
+                ThreadPagination(currentPage: 1, totalPages: 2),
           },
         ));
     await pickSort(tester, '浏览量 多→少');
@@ -118,7 +120,8 @@ void main() {
     expect(find.text('按浏览量 多→少 · 范围：已扫描 1 页，结果不完整'), findsOneWidget);
     expect(find.text('停止'), findsOneWidget);
 
-    scan.scan.finish([_row('一', views: 1), _row('二', views: 2), _row('三', views: 9)]);
+    scan.scan.finish(
+        [_row('一', views: 1), _row('二', views: 2), _row('三', views: 9)]);
     await tester.pumpAndSettle();
     expect(titles(tester), ['三', '二', '一']);
     expect(find.text('按浏览量 多→少 · 范围：全部 2 页'), findsOneWidget);

@@ -86,7 +86,8 @@ void main() {
     test(
         '$tab metadata comes from the native row, never from user title tokens',
         () {
-      String row(int id, String title, {String? date, int? views, int? replies}) {
+      String row(int id, String title,
+          {String? date, int? views, int? replies}) {
         final href = tab == UserProfileTab.posts
             ? 'job.php?action-topost-tid-7-pid-$id.html'
             : 'read.php?tid-$id.html';
@@ -100,6 +101,7 @@ void main() {
             '${date == null ? '' : '<span class="gray f9">[$date]</span>'}'
             '</th><td>$metrics</td></tr>';
       }
+
       final document = html.parse(
           '<div id="u-contentmain"><table class="u-table">'
           '${row(101, '[1999-01-01] 浏览:999 回复:999', date: '2024-01-01', views: 90, replies: 9)}'

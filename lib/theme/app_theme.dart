@@ -241,7 +241,9 @@ abstract final class AppTagColors {
 
   /// The pair for [id] in the current theme; null for none or an unknown id.
   static (Color, Color)? of(String? id) =>
-      (identical(AppColors.current, AppColors.darkPalette) ? _dark : _light)[id];
+      (identical(AppColors.current, AppColors.darkPalette)
+          ? _dark
+          : _light)[id];
 }
 
 /// Durations and curves (DESIGN.md §12).
@@ -382,13 +384,12 @@ class AppTheme {
           fontWeight: FontWeight.w500),
       bodyLarge: TextStyle(color: colors.text, fontSize: 16, height: 1.5),
       bodyMedium: TextStyle(color: colors.text, fontSize: 15, height: 1.55),
-      bodySmall:
-          TextStyle(color: colors.textMuted, fontSize: 13, height: 1.45),
+      bodySmall: TextStyle(color: colors.textMuted, fontSize: 13, height: 1.45),
       labelLarge: label(14),
-      labelMedium: TextStyle(
-          fontSize: 12, height: 1.2, fontWeight: FontWeight.w500),
-      labelSmall: TextStyle(
-          fontSize: 11, height: 1.2, fontWeight: FontWeight.w500),
+      labelMedium:
+          TextStyle(fontSize: 12, height: 1.2, fontWeight: FontWeight.w500),
+      labelSmall:
+          TextStyle(fontSize: 11, height: 1.2, fontWeight: FontWeight.w500),
     );
 
     final fieldBorder = OutlineInputBorder(
@@ -436,7 +437,8 @@ class AppTheme {
       ),
       // Shape and size only: colours come from the scheme, so
       // FilledButton is brand and FilledButton.tonal stays neutral.
-      filledButtonTheme: FilledButtonThemeData(style: sized(const ButtonStyle())),
+      filledButtonTheme:
+          FilledButtonThemeData(style: sized(const ButtonStyle())),
       // Outlined buttons look like the tonal secondary until migrated.
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: tonal.copyWith(
@@ -594,8 +596,8 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colors.surface,
-        contentPadding: const EdgeInsets.symmetric(
-            horizontal: AppSpace.lg, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: AppSpace.lg, vertical: 14),
         border: fieldBorder,
         enabledBorder: fieldBorder,
         focusedBorder: fieldBorder.copyWith(

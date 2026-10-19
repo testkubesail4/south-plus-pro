@@ -14,7 +14,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('profile URL builder validates UID without requests and uses the current forum origin', () async {
+  test(
+      'profile URL builder validates UID without requests and uses the current forum origin',
+      () async {
     final prefs = await SharedPreferences.getInstance();
     final before = {for (final key in prefs.getKeys()) key: prefs.get(key)};
     final client = _CoreClient('');
@@ -23,12 +25,25 @@ void main() {
         'https://south-plus.net/u.php?action-show-uid-2860844.html');
     expect(repository.userProfileUrl('1'),
         'https://south-plus.net/u.php?action-show-uid-1.html');
-    for (final uid in ['', '0', '-1', '+1', '01', ' 42', '42 ', '42\n',
-      '42&action=favor', '４２', 'abc']) {
-      expect(repository.userProfileUrl(uid), isNull, reason: 'invalid UID: $uid');
+    for (final uid in [
+      '',
+      '0',
+      '-1',
+      '+1',
+      '01',
+      ' 42',
+      '42 ',
+      '42\n',
+      '42&action=favor',
+      '４２',
+      'abc'
+    ]) {
+      expect(repository.userProfileUrl(uid), isNull,
+          reason: 'invalid UID: $uid');
     }
     expect(client.gets, isEmpty);
-    final custom = ForumRepository(client: _ScopeClient(const ForumSite('custom.invalid')));
+    final custom = ForumRepository(
+        client: _ScopeClient(const ForumSite('custom.invalid')));
     expect(custom.userProfileUrl('2860844'),
         'https://custom.invalid/u.php?action-show-uid-2860844.html');
     expect({for (final key in prefs.getKeys()) key: prefs.get(key)}, before);
@@ -184,7 +199,9 @@ void main() {
         ['42']);
   });
 
-  test('off-home visits persist the immediate breadcrumb parent without extra reads', () async {
+  test(
+      'off-home visits persist the immediate breadcrumb parent without extra reads',
+      () async {
     final client = _CoreClient('''
       <div id="breadcrumbs"><a href="index.php">首页</a>
         <a href="thread.php?fid-13.html">资源区</a>
@@ -196,7 +213,8 @@ void main() {
       </table>
     ''');
     final repo = ForumRepository(client: client);
-    await repo.fetchBoardThreadPage(const ForumCategory(name: '旧名', slug: 'f42'));
+    await repo
+        .fetchBoardThreadPage(const ForumCategory(name: '旧名', slug: 'f42'));
     final recent = (await HomeReadingPreferences.load()).recentBoards.single;
     expect(recent.id, '42');
     expect(recent.label, '直接父版 / 真实版名');
@@ -422,7 +440,8 @@ class _GenerationClient extends _ScopeClient {
       return profile.future;
     }
     if (RegExp(r'^u\.php\?action-(?:topic|post|favor)-').hasMatch(path)) {
-      return Future.value('<div id="u-contentmain"><table class="u-table"></table></div>');
+      return Future.value(
+          '<div id="u-contentmain"><table class="u-table"></table></div>');
     }
     return super.get(path);
   }

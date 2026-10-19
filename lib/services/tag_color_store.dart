@@ -8,16 +8,26 @@ import 'user_tag_store.dart';
 
 class TagColorStore {
   static const ids = [
-    'red', 'orange', 'amber', 'green', 'teal',
-    'blue', 'indigo', 'purple', 'pink', 'brown',
+    'red',
+    'orange',
+    'amber',
+    'green',
+    'teal',
+    'blue',
+    'indigo',
+    'purple',
+    'pink',
+    'brown',
   ];
   static final revision = ValueNotifier<int>(0);
 
-  static String key(String tag) => UserTagStore.normalize([tag]).single.toLowerCase();
+  static String key(String tag) =>
+      UserTagStore.normalize([tag]).single.toLowerCase();
 
-  static String _storageKey(String? account) => account == null || account.isEmpty
-      ? 'anonymous/user_tag_colors_v1'
-      : 'account/${Uri.encodeComponent(account)}/user_tag_colors_v1';
+  static String _storageKey(String? account) =>
+      account == null || account.isEmpty
+          ? 'anonymous/user_tag_colors_v1'
+          : 'account/${Uri.encodeComponent(account)}/user_tag_colors_v1';
 
   static Map<String, String> _read(SharedPreferences prefs, String storageKey) {
     final raw = prefs.get(storageKey);
@@ -27,7 +37,8 @@ class TagColorStore {
       if (decoded is! Map) return {};
       final colors = <String, String>{};
       for (final entry in decoded.entries) {
-        if (entry.key is! String || entry.value is! String ||
+        if (entry.key is! String ||
+            entry.value is! String ||
             !ids.contains(entry.value)) continue;
         try {
           colors[key(entry.key as String)] = entry.value as String;
@@ -42,8 +53,8 @@ class TagColorStore {
   }
 
   static Future<Map<String, String>> load({String? account}) =>
-      LocalStatePreferences.read((prefs) =>
-          Map.unmodifiable(_read(prefs, _storageKey(account))));
+      LocalStatePreferences.read(
+          (prefs) => Map.unmodifiable(_read(prefs, _storageKey(account))));
 
   static Future<void> save(String tag, String? id, {String? account}) async {
     final label = key(tag);

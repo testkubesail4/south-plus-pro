@@ -373,30 +373,31 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             builder: (context, _) => TagColorScope(
                               colors: _notes.tagColors,
                               child: _ProfileHeader(
-                              profile: profile,
-                              note: hasUid ? _notes.noteFor(uid) : null,
-                              tags: hasUid ? _notes.tagsFor(uid) : const [],
-                              onEditNote:
-                                  hasUid ? () => _editNote(profile) : null,
-                              onMessage: switch (profile.messageUrl) {
-                                final url? => () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => PmComposeScreen(
-                                          repository: widget.repository,
-                                          path: url,
+                                profile: profile,
+                                note: hasUid ? _notes.noteFor(uid) : null,
+                                tags: hasUid ? _notes.tagsFor(uid) : const [],
+                                onEditNote:
+                                    hasUid ? () => _editNote(profile) : null,
+                                onMessage: switch (profile.messageUrl) {
+                                  final url? => () =>
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => PmComposeScreen(
+                                            repository: widget.repository,
+                                            path: url,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                null => null,
-                              },
-                              loginName: _loginName,
-                              lookingUp: _lookingUp,
-                              onShowLoginName:
-                                  hasUid ? () => _lookupLoginName(uid) : null,
-                              onCopyLoginName: _copyLoginName,
-                              onSearchByUser:
-                                  hasUid ? () => _searchByUser(uid) : null,
-                            ),
+                                  null => null,
+                                },
+                                loginName: _loginName,
+                                lookingUp: _lookingUp,
+                                onShowLoginName:
+                                    hasUid ? () => _lookupLoginName(uid) : null,
+                                onCopyLoginName: _copyLoginName,
+                                onSearchByUser:
+                                    hasUid ? () => _searchByUser(uid) : null,
+                              ),
                             ),
                           ),
                         ),

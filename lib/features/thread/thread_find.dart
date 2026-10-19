@@ -300,8 +300,7 @@ class ThreadFindSheet extends StatelessWidget {
         progress.state == ScanState.done || (scan == null && allLoaded);
     final bar = SearchScopeBar(
       progress: progress,
-      onSearchAll:
-          allLoaded ? null : () => _searchAll(context, total - loaded),
+      onSearchAll: allLoaded ? null : () => _searchAll(context, total - loaded),
       onStop: scan?.stop,
       onResume: scan?.resume,
       onBackToLoaded: find.useLoaded,

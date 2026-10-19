@@ -221,8 +221,8 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
                   child: Align(
                     alignment: AlignmentDirectional.centerStart,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpace.lg),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: AppSpace.lg),
                       child: InputChip(
                         label: Text(_dateLabel),
                         avatar: const Icon(Icons.event_outlined, size: 18),
@@ -435,8 +435,14 @@ class _DatePickerSheet extends StatelessWidget {
             .where((d) => d.year == year && d.month == month)
             .map((d) => d.day));
 
-    Widget row(String label, String all, bool allSelected, VoidCallback onAll,
-            List<(int, int)> values, String unit, int? selected,
+    Widget row(
+            String label,
+            String all,
+            bool allSelected,
+            VoidCallback onAll,
+            List<(int, int)> values,
+            String unit,
+            int? selected,
             void Function(int) onPick) =>
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,8 +473,8 @@ class _DatePickerSheet extends StatelessWidget {
 
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(
-            AppSpace.lg, 0, AppSpace.lg, AppSpace.lg),
+        padding:
+            const EdgeInsets.fromLTRB(AppSpace.lg, 0, AppSpace.lg, AppSpace.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

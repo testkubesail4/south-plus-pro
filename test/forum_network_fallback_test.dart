@@ -25,7 +25,9 @@ class _SocketRoutes {
         () => cancels++,
       );
     }
-    final address = name == '203.0.113.2' ? '127.0.0.2' : '127.0.0.1';
+    final address = name == '203.0.113.2' || name == '127.0.0.2'
+        ? '127.0.0.2'
+        : '127.0.0.1';
     final task = await real.socketStartConnect(InternetAddress(address), port,
         sourceAddress: sourceAddress, sourcePort: sourcePort);
     return ConnectionTask.fromSocket(task.socket, () {
@@ -226,7 +228,8 @@ void main() {
     expect(routes.attempts.take(2), ['203.0.113.1', '203.0.113.2']);
 
     await withClient(good.port, _SocketRoutes(), (client) async {
-      await expectLater(client.getUrl(Uri.https('127.0.0.1:${good.port}', '/')),
+      // Reach the TLS server so rejection proves a hostname mismatch, not a reset.
+      await expectLater(client.getUrl(Uri.https('127.0.0.2:${good.port}', '/')),
           throwsA(isA<HandshakeException>()));
     });
   });

@@ -616,8 +616,7 @@ class _OverviewTab extends StatelessWidget {
               return const _SkeletonPanel();
             }
             if (snapshot.hasError) {
-              return _TextPanel(
-                  title: '动态加载失败', text: '${snapshot.error}');
+              return _TextPanel(title: '动态加载失败', text: '${snapshot.error}');
             }
             final loaded = snapshot.data!;
             return Column(
@@ -1608,9 +1607,8 @@ class _ContentTabState extends State<_ContentTab>
                 if (widget.selection.filtersOpen || _board != null)
                   _FilterChipButton(
                     label: '版块',
-                    value: _board == null
-                        ? '全部'
-                        : boardDisplayName(_board!.name),
+                    value:
+                        _board == null ? '全部' : boardDisplayName(_board!.name),
                     active: _board != null,
                     onTap: _pickBoard,
                   ),

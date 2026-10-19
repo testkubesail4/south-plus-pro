@@ -142,7 +142,8 @@ Future<String?> showTagColorPicker(
 /// At most two tags that fit the width, then +N. Tapping opens [onShowAll],
 /// which shows every tag; screen readers hear every tag here.
 class UserTagsInline extends StatelessWidget {
-  const UserTagsInline({super.key, required this.tags, required this.onShowAll});
+  const UserTagsInline(
+      {super.key, required this.tags, required this.onShowAll});
   final List<String> tags;
   final VoidCallback onShowAll;
 
@@ -197,8 +198,7 @@ class UserTagsInline extends StatelessWidget {
             if (rest > 0) ...[
               if (shown > 0) const SizedBox(width: _gap),
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
                 child: Text('+$rest', style: style, maxLines: 1),
               ),
             ],

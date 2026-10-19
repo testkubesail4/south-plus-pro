@@ -250,8 +250,9 @@ class UserContentQueryService {
       total = null;
     String identity(UserListItem item) => _rowIdentity(item, query.tab);
     String? tid(UserListItem item) => urls.tidFromUrl(item.url);
-    bool? titleMatch(UserListItem item) => matchKeyword(
-        query.keyword, [item.title], truncated: item.titleTruncated);
+    bool? titleMatch(UserListItem item) =>
+        matchKeyword(query.keyword, [item.title],
+            truncated: item.titleTruncated);
     bool needsMetadata(UserListItem item) =>
         titleMatch(item) != false &&
         _localMatch(item, query) != false &&

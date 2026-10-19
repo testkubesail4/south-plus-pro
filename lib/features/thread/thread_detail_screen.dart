@@ -1321,9 +1321,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         await _refresh();
       case ThreadRewardOutcome.failed:
         _messenger.showSnackBar(SnackBar(
-          content: Text(result.message.isEmpty
-              ? '评选未成功'
-              : '评选未成功：${result.message}'),
+          content: Text(
+              result.message.isEmpty ? '评选未成功' : '评选未成功：${result.message}'),
         ));
       case ThreadRewardOutcome.unknown:
         final refresh = await showDialog<bool>(
@@ -1758,104 +1757,104 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         return TagColorScope(
           colors: _notes.tagColors,
           child: ScaffoldMessenger(
-          key: _messengerKey,
-          child: Scaffold(
-            appBar: AppBar(
-              title: _BoardTitle(
-                name: detail?.board?.name ??
-                    detail?.thread.section ??
-                    widget.thread.section,
-                onTap: detail?.board == null
-                    ? null
-                    : () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => BoardThreadListScreen(
-                              category: detail!.board!,
-                              repository: widget.repository,
+            key: _messengerKey,
+            child: Scaffold(
+              appBar: AppBar(
+                title: _BoardTitle(
+                  name: detail?.board?.name ??
+                      detail?.thread.section ??
+                      widget.thread.section,
+                  onTap: detail?.board == null
+                      ? null
+                      : () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => BoardThreadListScreen(
+                                category: detail!.board!,
+                                repository: widget.repository,
+                              ),
                             ),
                           ),
-                        ),
-              ),
-              actions: [
-                IconButton(
-                  tooltip: '分享',
-                  onPressed: detail == null ? null : _share,
-                  icon: const Icon(Icons.share_outlined),
                 ),
-                _ThreadMoreMenu(
-                  onFind: detail == null ? null : _openFind,
-                  // Loaded title only; the pre-load title can be a placeholder.
-                  onSearchTitle:
-                      detail == null || detail.thread.title.trim().isEmpty
-                          ? null
-                          : () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => SearchScreen(
-                                    repository: widget.repository,
-                                    initialKeyword: detail.thread.title.trim(),
-                                  ),
+                actions: [
+                  IconButton(
+                    tooltip: '分享',
+                    onPressed: detail == null ? null : _share,
+                    icon: const Icon(Icons.share_outlined),
+                  ),
+                  _ThreadMoreMenu(
+                    onFind: detail == null ? null : _openFind,
+                    // Loaded title only; the pre-load title can be a placeholder.
+                    onSearchTitle: detail == null ||
+                            detail.thread.title.trim().isEmpty
+                        ? null
+                        : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => SearchScreen(
+                                  repository: widget.repository,
+                                  initialKeyword: detail.thread.title.trim(),
                                 ),
                               ),
-                  onRss: detail?.rssFeed == null
-                      ? null
-                      : () => _openExternalLink(detail!.rssFeed!),
-                ),
-              ],
-            ),
-            floatingActionButton: _composerOpen || detail == null
-                ? null
-                : FloatingActionButton.small(
-                    tooltip: '写回复',
-                    onPressed: _openComposer,
-                    child: const Icon(Icons.edit_outlined),
-                  ),
-            // Floor navigation in its own strip, so it never covers a post;
-            // the open composer takes its place.
-            bottomNavigationBar: detail == null || _composerOpen
-                ? null
-                : _ThreadPageBar(
-                    current: _shownPage,
-                    total: _lastLoaded!.pagination.totalPages,
-                    onSelected: _loading ? null : _goToPage,
-                    onJump: _openJumpSheet,
-                  ),
-            body: detail == null
-                ? _InitialThreadState(
-                    error: _loadError,
-                    onRetry: _refresh,
-                  )
-                : PopScope(
-                    // Back folds an open composer before leaving the thread.
-                    canPop: !_composerOpen,
-                    onPopInvokedWithResult: (didPop, _) {
-                      if (!didPop) _closeComposer();
-                    },
-                    // Sized from the body actually left, after the app bar,
-                    // keyboard and any short landscape window.
-                    child: LayoutBuilder(
-                      builder: (context, constraints) => Column(
-                        children: [
-                          Expanded(child: _threadList(detail)),
-                          _ComposerDock(
-                            open: _composerOpen,
-                            // A cramped body (landscape + keyboard) goes
-                            // to the composer whole.
-                            maxHeight: constraints.maxHeight < 240
-                                ? constraints.maxHeight
-                                : constraints.maxHeight * 0.6,
-                            child: ReplyComposer(
-                              key: _replyKey,
-                              thread: detail.thread,
-                              repository: widget.repository,
-                              onSubmitted: _handleReplySubmitted,
-                              onCollapse: _closeComposer,
                             ),
-                          ),
-                        ],
+                    onRss: detail?.rssFeed == null
+                        ? null
+                        : () => _openExternalLink(detail!.rssFeed!),
+                  ),
+                ],
+              ),
+              floatingActionButton: _composerOpen || detail == null
+                  ? null
+                  : FloatingActionButton.small(
+                      tooltip: '写回复',
+                      onPressed: _openComposer,
+                      child: const Icon(Icons.edit_outlined),
+                    ),
+              // Floor navigation in its own strip, so it never covers a post;
+              // the open composer takes its place.
+              bottomNavigationBar: detail == null || _composerOpen
+                  ? null
+                  : _ThreadPageBar(
+                      current: _shownPage,
+                      total: _lastLoaded!.pagination.totalPages,
+                      onSelected: _loading ? null : _goToPage,
+                      onJump: _openJumpSheet,
+                    ),
+              body: detail == null
+                  ? _InitialThreadState(
+                      error: _loadError,
+                      onRetry: _refresh,
+                    )
+                  : PopScope(
+                      // Back folds an open composer before leaving the thread.
+                      canPop: !_composerOpen,
+                      onPopInvokedWithResult: (didPop, _) {
+                        if (!didPop) _closeComposer();
+                      },
+                      // Sized from the body actually left, after the app bar,
+                      // keyboard and any short landscape window.
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => Column(
+                          children: [
+                            Expanded(child: _threadList(detail)),
+                            _ComposerDock(
+                              open: _composerOpen,
+                              // A cramped body (landscape + keyboard) goes
+                              // to the composer whole.
+                              maxHeight: constraints.maxHeight < 240
+                                  ? constraints.maxHeight
+                                  : constraints.maxHeight * 0.6,
+                              child: ReplyComposer(
+                                key: _replyKey,
+                                thread: detail.thread,
+                                repository: widget.repository,
+                                onSubmitted: _handleReplySubmitted,
+                                onCollapse: _closeComposer,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-          ),
+            ),
           ),
         );
       },

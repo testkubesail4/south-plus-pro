@@ -53,10 +53,17 @@ class UserNoteController extends ChangeNotifier {
         : null;
   }
 
-  Map<String, String> get notes => _loadedScope == repository.localPreferenceAccount && _hasLoaded ? _notes : const {};
-  Map<String, List<String>> get tags => _loadedScope == repository.localPreferenceAccount && _hasTagsLoaded ? _tags : const {};
+  Map<String, String> get notes =>
+      _loadedScope == repository.localPreferenceAccount && _hasLoaded
+          ? _notes
+          : const {};
+  Map<String, List<String>> get tags =>
+      _loadedScope == repository.localPreferenceAccount && _hasTagsLoaded
+          ? _tags
+          : const {};
 
-  List<String> tagsFor(String? uid) => uid == null ? const [] : tags[uid] ?? const [];
+  List<String> tagsFor(String? uid) =>
+      uid == null ? const [] : tags[uid] ?? const [];
 
   /// Normalized tag label → colour id, for a [TagColorScope].
   Map<String, String> get tagColors =>
@@ -95,10 +102,14 @@ class UserNoteController extends ChangeNotifier {
     Object? tagError;
     try {
       loadedNotes = await UserNoteStore.load(account: scope);
-    } catch (error) { noteError = error; }
+    } catch (error) {
+      noteError = error;
+    }
     try {
       loadedTags = await UserTagStore.load(account: scope);
-    } catch (error) { tagError = error; }
+    } catch (error) {
+      tagError = error;
+    }
     Map<String, UserDisplayName>? loadedNames;
     try {
       loadedNames = await UserDisplayNameStore.load(account: scope);
@@ -113,8 +124,14 @@ class UserNoteController extends ChangeNotifier {
     }
     if (_disposed || generation != _generation) return;
     if (scope != repository.localPreferenceAccount) return reload();
-    if (loadedNotes != null) { _notes = loadedNotes; _hasLoaded = true; }
-    if (loadedTags != null) { _tags = loadedTags; _hasTagsLoaded = true; }
+    if (loadedNotes != null) {
+      _notes = loadedNotes;
+      _hasLoaded = true;
+    }
+    if (loadedTags != null) {
+      _tags = loadedTags;
+      _hasTagsLoaded = true;
+    }
     _names = loadedNames ?? const {};
     _tagColors = loadedColors ?? const {};
     _loadedScope = scope;
@@ -360,24 +377,28 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
     if (route != null && route.isActive) route.navigator?.removeRoute(route);
   }
 
-  bool get _current => mounted && !_revoked &&
+  bool get _current =>
+      mounted &&
+      !_revoked &&
       widget.account == widget.repository.localPreferenceAccount &&
       widget.epoch == widget.repository.sessionEpoch.value;
 
   // A typed, unadded tag counts too, in its stored spelling when it has one.
   List<String> _draftTags() => UserTagStore.normalize([
-    ..._tags,
-    if (_addingTag && _tagController.text.trim().isNotEmpty)
-      _storedSpelling(_tagController.text) ?? _tagController.text,
-  ]);
+        ..._tags,
+        if (_addingTag && _tagController.text.trim().isNotEmpty)
+          _storedSpelling(_tagController.text) ?? _tagController.text,
+      ]);
 
   String? get _visibleTagError {
     if (_tagError == null) return null;
     try {
       if (listEquals(_draftTags(), _savedTags)) return null;
-    } on ArgumentError { /* Invalid drafts still show their validation error. */ }
-    return _tagError!.startsWith('备注已保存；') && _controller.text.trim() != _savedNote
-        ? '标签未保存，请重试' : _tagError;
+    } on ArgumentError {/* Invalid drafts still show their validation error. */}
+    return _tagError!.startsWith('备注已保存；') &&
+            _controller.text.trim() != _savedNote
+        ? '标签未保存，请重试'
+        : _tagError;
   }
 
   /// Both drafts equal what the store acknowledged: leaving loses nothing.
@@ -474,13 +495,15 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
           style: muted?.copyWith(color: theme.colorScheme.error));
     }
     if (!offerNew && entries.isEmpty) return const SizedBox.shrink();
-    final chipStyle = theme.textTheme.bodySmall?.copyWith(color: AppColors.textMuted);
+    final chipStyle =
+        theme.textTheme.bodySmall?.copyWith(color: AppColors.textMuted);
     return Wrap(spacing: AppSpace.sm, runSpacing: AppSpace.sm, children: [
       if (offerNew)
         ActionChip(
           key: const ValueKey('tag-suggestion-new'),
           label: Text('新建「$query」'),
-          labelStyle: theme.textTheme.bodySmall?.copyWith(color: AppColors.brand),
+          labelStyle:
+              theme.textTheme.bodySmall?.copyWith(color: AppColors.brand),
           backgroundColor: AppColors.surface,
           side: BorderSide(color: AppColors.brand.withValues(alpha: 0.35)),
           shape: const StadiumBorder(),
@@ -511,8 +534,7 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
         widget.epoch != widget.repository.sessionEpoch.value) {
       return;
     }
-    String? clean(String? v) =>
-        v == null || v.trim().isEmpty ? null : v.trim();
+    String? clean(String? v) => v == null || v.trim().isEmpty ? null : v.trim();
     final nickname = clean(widget.learnNickname);
     final hashName = clean(widget.learnHashName);
     if (nickname == null && hashName == null) return;
@@ -550,15 +572,23 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
       return;
     }
     setState(() {
-      _busy = true; _error = null; _tagError = null; _tags = tags;
-      _tagController.clear(); _addingTag = false;
+      _busy = true;
+      _error = null;
+      _tagError = null;
+      _tags = tags;
+      _tagController.clear();
+      _addingTag = false;
     });
     var savingTags = false;
     try {
       if (note != _savedNote) {
         await UserNoteStore.save(widget.uid, note, account: widget.account);
         if (!_current) return;
-        setState(() { _savedNote = note; _noteSaved = true; _hasWritten = true; });
+        setState(() {
+          _savedNote = note;
+          _noteSaved = true;
+          _hasWritten = true;
+        });
       }
       if (!_current) return;
       savingTags = true;
@@ -667,38 +697,46 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
           const SizedBox(height: AppSpace.sm),
           // Tags wear their label's colour, as next to the name; tapping one
           // picks it. Brand colour would read as "selected" and is not offered.
-          Wrap(spacing: AppSpace.sm, runSpacing: AppSpace.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            for (final (index, tag) in _tags.indexed)
-              InputChip(
-                key: ValueKey('user-tag-chip:$tag'),
-                label: Text(tag),
-                labelStyle: theme.textTheme.bodySmall?.copyWith(
-                    color: AppTagColors.of(_colorOf(tag))?.$2 ??
-                        AppColors.textMuted),
-                backgroundColor:
-                    AppTagColors.of(_colorOf(tag))?.$1 ?? AppColors.inkSoft,
-                tooltip: '设置「$tag」的颜色',
-                onPressed: _busy ? null : () => _pickColor(tag),
-                side: BorderSide.none,
-                shape: const StadiumBorder(),
-                visualDensity: VisualDensity.compact,
-                deleteIcon: const Icon(Icons.close, size: 16),
-                deleteIconColor: AppColors.textMuted,
-                deleteButtonTooltipMessage: '移除 $tag',
-                onDeleted: _busy ? null : () => setState(() => _tags = [..._tags]..removeAt(index)),
-              ),
-            if (_tags.length < UserTagStore.maxTags && !_addingTag)
-              ActionChip(
-                label: const Text('+ 添加标签'),
-                labelStyle: theme.textTheme.bodySmall
-                    ?.copyWith(color: AppColors.text),
-                backgroundColor: AppColors.surface,
-                side: BorderSide(color: AppColors.borderStrong),
-                shape: const StadiumBorder(),
-                visualDensity: VisualDensity.compact,
-                onPressed: _busy ? null : () => setState(() => _addingTag = true),
-              ),
-          ]),
+          Wrap(
+              spacing: AppSpace.sm,
+              runSpacing: AppSpace.sm,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                for (final (index, tag) in _tags.indexed)
+                  InputChip(
+                    key: ValueKey('user-tag-chip:$tag'),
+                    label: Text(tag),
+                    labelStyle: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTagColors.of(_colorOf(tag))?.$2 ??
+                            AppColors.textMuted),
+                    backgroundColor:
+                        AppTagColors.of(_colorOf(tag))?.$1 ?? AppColors.inkSoft,
+                    tooltip: '设置「$tag」的颜色',
+                    onPressed: _busy ? null : () => _pickColor(tag),
+                    side: BorderSide.none,
+                    shape: const StadiumBorder(),
+                    visualDensity: VisualDensity.compact,
+                    deleteIcon: const Icon(Icons.close, size: 16),
+                    deleteIconColor: AppColors.textMuted,
+                    deleteButtonTooltipMessage: '移除 $tag',
+                    onDeleted: _busy
+                        ? null
+                        : () =>
+                            setState(() => _tags = [..._tags]..removeAt(index)),
+                  ),
+                if (_tags.length < UserTagStore.maxTags && !_addingTag)
+                  ActionChip(
+                    label: const Text('+ 添加标签'),
+                    labelStyle: theme.textTheme.bodySmall
+                        ?.copyWith(color: AppColors.text),
+                    backgroundColor: AppColors.surface,
+                    side: BorderSide(color: AppColors.borderStrong),
+                    shape: const StadiumBorder(),
+                    visualDensity: VisualDensity.compact,
+                    onPressed:
+                        _busy ? null : () => setState(() => _addingTag = true),
+                  ),
+              ]),
           if (_tags.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: AppSpace.xs),
@@ -732,7 +770,10 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
                 hintText: '搜索或新建标签',
                 counterText: '${_tagController.text.trim().runes.length}/16',
                 helperText: '最多 16 个字符，部分表情占多个字符',
-                suffixIcon: IconButton(tooltip: '添加标签', onPressed: _busy || _resolving ? null : _addTag, icon: const Icon(Icons.check)),
+                suffixIcon: IconButton(
+                    tooltip: '添加标签',
+                    onPressed: _busy || _resolving ? null : _addTag,
+                    icon: const Icon(Icons.check)),
               ),
             ),
             const SizedBox(height: AppSpace.sm),
@@ -761,11 +802,15 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
                 child: const Text('清除备注'),
               ),
             const Spacer(),
-            TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(),
+            TextButton(
+                onPressed: _busy ? null : () => Navigator.of(context).pop(),
                 child: Text(_hasWritten ? '关闭' : '取消')),
             const SizedBox(width: AppSpace.sm),
-            FilledButton(onPressed: _busy ? null : () => _write(_controller.text),
-                child: Text(_visibleTagError != null || _error != null ? '重试保存' : '保存')),
+            FilledButton(
+                onPressed: _busy ? null : () => _write(_controller.text),
+                child: Text(_visibleTagError != null || _error != null
+                    ? '重试保存'
+                    : '保存')),
           ]),
         ],
       ),

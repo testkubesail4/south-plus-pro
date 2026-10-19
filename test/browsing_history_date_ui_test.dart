@@ -10,7 +10,8 @@ BrowsingHistoryEntry _entry(String title, DateTime viewed) =>
     BrowsingHistoryEntry(
       thread: ForumThread(
           title: title,
-          url: 'https://south-plus.net/read.php?tid-${title.hashCode.abs()}.html',
+          url:
+              'https://south-plus.net/read.php?tid-${title.hashCode.abs()}.html',
           replies: 0,
           section: '茶馆'),
       viewedAt: viewed,
@@ -42,12 +43,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('year, month and day narrow the retained records with the search; clearing shows all',
+  testWidgets(
+      'year, month and day narrow the retained records with the search; clearing shows all',
       (tester) async {
     tester.view.physicalSize = const Size(420, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(home: BrowsingHistoryScreen(repository: _Repo())));
+    await tester.pumpWidget(
+        MaterialApp(home: BrowsingHistoryScreen(repository: _Repo())));
     await tester.pumpAndSettle();
     expect(titles(tester), hasLength(5));
 

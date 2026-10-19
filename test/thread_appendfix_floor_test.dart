@@ -137,7 +137,9 @@ void main() {
     expect(tester.getRect(signature).right, lessThanOrEqualTo(360));
   });
 
-  testWidgets('OP and replies show bounded tags live without crowding author or time at text2', (tester) async {
+  testWidgets(
+      'OP and replies show bounded tags live without crowding author or time at text2',
+      (tester) async {
     await UserTagStore.save('3', ['资源佬', '熟人', '第三个']);
     await UserTagStore.save('4', [for (var i = 0; i < 8; i++) '标签$i']);
     final semantics = tester.ensureSemantics();
@@ -147,7 +149,10 @@ void main() {
     expect(find.text('路人乙'), findsOneWidget);
     expect(find.text('2026-10-12 10:20 · B1F'), findsOneWidget);
     expect(find.bySemanticsLabel('标签 资源佬、熟人、第三个'), findsOneWidget);
-    expect(find.bySemanticsLabel('标签 ${[for (var i = 0; i < 8; i++) '标签$i'].join('、')}'), findsOneWidget);
+    expect(
+        find.bySemanticsLabel(
+            '标签 ${[for (var i = 0; i < 8; i++) '标签$i'].join('、')}'),
+        findsOneWidget);
     expect(find.byType(UserTagCapsule).evaluate().length, lessThanOrEqualTo(4));
     expect(tester.takeException(), isNull);
     await UserTagStore.save('3', ['新楼主标签']);
@@ -176,7 +181,8 @@ void main() {
     );
   });
 
-  testWidgets('saving an annotation from a floor remembers that author\'s shown name for that UID only',
+  testWidgets(
+      'saving an annotation from a floor remembers that author\'s shown name for that UID only',
       (tester) async {
     await UserTagStore.save('4', ['熟人']);
     await pumpThread(tester);
@@ -189,7 +195,8 @@ void main() {
     expect((await UserNoteStore.load())['4'], '老乙');
     final names = await UserDisplayNameStore.load();
     expect(names['4']?.nickname, '路人乙');
-    expect(names.containsKey('3'), isFalse, reason: 'unannotated authors are not recorded');
+    expect(names.containsKey('3'), isFalse,
+        reason: 'unannotated authors are not recorded');
   });
 
   testWidgets('an unchanged Save records no name', (tester) async {

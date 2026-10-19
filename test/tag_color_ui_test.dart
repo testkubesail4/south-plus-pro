@@ -52,7 +52,8 @@ void main() {
     AppThemeController.notifier.value = ThemeMode.system;
   });
 
-  testWidgets('a capsule wears its label colour in any letter case; unset stays neutral',
+  testWidgets(
+      'a capsule wears its label colour in any letter case; unset stays neutral',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(
       home: TagColorScope(
@@ -67,7 +68,8 @@ void main() {
     expect(_fill(tester, 'other'), AppColors.inkSoft);
   });
 
-  testWidgets('the editor colours a tag for the account at once', (tester) async {
+  testWidgets('the editor colours a tag for the account at once',
+      (tester) async {
     final repo = _Repo();
     await UserTagStore.save('7', ['test'], account: 'reader');
     await tester.pumpWidget(MaterialApp(
@@ -93,8 +95,8 @@ void main() {
     semantics.dispose();
 
     expect(await TagColorStore.load(account: 'reader'), {'test': 'blue'});
-    final chip = tester.widget<InputChip>(
-        find.byKey(const ValueKey('user-tag-chip:test')));
+    final chip = tester
+        .widget<InputChip>(find.byKey(const ValueKey('user-tag-chip:test')));
     expect(chip.backgroundColor, AppTagColors.of('blue')!.$1);
 
     // 无颜色 returns it to neutral.

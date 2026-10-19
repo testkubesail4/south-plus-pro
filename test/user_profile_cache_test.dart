@@ -172,11 +172,18 @@ void main() {
     await store.recordThread(older.thread,
         viewedAt: DateTime(2026, 2, 3, 10).toUtc());
     final retained = await repository.browsingHistory();
-    expect(retained, hasLength(200), reason: 'a revisit replaces, never adds a visit');
-    expect(filterBrowsingHistory(retained, year: 2026, month: 2, day: 3)
-        .single.thread.title, 'topic 54');
-    expect(filterBrowsingHistory(retained, year: 2026, month: 1, day: 1)
-        .where((entry) => entry.thread.url == older.thread.url), isEmpty,
+    expect(retained, hasLength(200),
+        reason: 'a revisit replaces, never adds a visit');
+    expect(
+        filterBrowsingHistory(retained, year: 2026, month: 2, day: 3)
+            .single
+            .thread
+            .title,
+        'topic 54');
+    expect(
+        filterBrowsingHistory(retained, year: 2026, month: 1, day: 1)
+            .where((entry) => entry.thread.url == older.thread.url),
+        isEmpty,
         reason: 'the earlier visit is not retained as a separate record');
     expect(filterBrowsingHistory(retained), retained);
     expect((await repository.browsingHistory()), hasLength(200),

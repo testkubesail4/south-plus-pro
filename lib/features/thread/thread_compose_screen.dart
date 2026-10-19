@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
+import '../../services/local_state_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../editor/windcode_preview.dart';
@@ -102,16 +103,28 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   }
 
   Future<void> _storeDraft() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_draftTitleKey, _title.text);
-    await prefs.setString(_draftContentKey, _content.text);
+    final title = _title.text;
+    final content = _content.text;
+    await LocalStatePreferences.write((prefs) async {
+      if (!await prefs.setString(_draftTitleKey, title)) return false;
+      return prefs.setString(_draftContentKey, content);
+    });
   }
 
   Future<void> _saveDraft() async {
-    await _storeDraft();
+    var saved = false;
+    try {
+      await _storeDraft();
+      saved = true;
+    } catch (_) {
+      // Keep the editor open so the user can copy the text or retry saving.
+    }
     if (!mounted) return;
+    if (_unconfirmed) setState(() => _draftNotKept = !saved);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('草稿已保存')),
+      SnackBar(
+        content: Text(saved ? '草稿已保存' : '草稿未能保存到本机，请先复制正文后重试'),
+      ),
     );
   }
 
@@ -577,8 +590,7 @@ class _ComposeOptions extends StatelessWidget {
               ],
             ),
           if (bounty != null) ...[
-            if (form.categories.isNotEmpty)
-              const SizedBox(height: AppSpace.md),
+            if (form.categories.isNotEmpty) const SizedBox(height: AppSpace.md),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

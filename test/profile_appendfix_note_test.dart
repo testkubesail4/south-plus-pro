@@ -37,9 +37,16 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  for (final identity in [('1834429', '3f365ae9', '禁止事项'), ('4', '1eb7ddbc', '可可萝')]) {
-    testWidgets('nickname leads profile ${identity.$1} while hash and login actions remain', (tester) async {
-      final repository = _NamedProfileRepository(UserProfile(uid: identity.$1, name: identity.$2,
+  for (final identity in [
+    ('1834429', '3f365ae9', '禁止事项'),
+    ('4', '1eb7ddbc', '可可萝')
+  ]) {
+    testWidgets(
+        'nickname leads profile ${identity.$1} while hash and login actions remain',
+        (tester) async {
+      final repository = _NamedProfileRepository(UserProfile(
+          uid: identity.$1,
+          name: identity.$2,
           url: 'u.php?action-show-uid-${identity.$1}.html',
           info: [UserProfileField(label: '昵称', value: identity.$3)]));
       await openProfile(tester, repository);
@@ -54,13 +61,18 @@ void main() {
     });
   }
 
-  testWidgets('saving from a fetched profile remembers its nickname and native hash', (tester) async {
-    final repository = _NamedProfileRepository(const UserProfile(uid: '1834429', name: '3f365ae9',
+  testWidgets(
+      'saving from a fetched profile remembers its nickname and native hash',
+      (tester) async {
+    final repository = _NamedProfileRepository(const UserProfile(
+        uid: '1834429',
+        name: '3f365ae9',
         nativeHashName: '3f365ae9',
         url: 'u.php?action-show-uid-1834429.html',
         info: [UserProfileField(label: '昵称', value: '禁止事项')]));
     await openProfile(tester, repository);
-    expect(await UserDisplayNameStore.load(), isEmpty, reason: 'unannotated users are not recorded');
+    expect(await UserDisplayNameStore.load(), isEmpty,
+        reason: 'unannotated users are not recorded');
     await tester.tap(find.text('添加备注'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '熟人');
@@ -72,12 +84,13 @@ void main() {
   });
 
   testWidgets('a generated profile name is never remembered', (tester) async {
-    final repository = _NamedProfileRepository(const UserProfile(uid: '77', name: '',
-        url: 'u.php?action-show-uid-77.html'));
+    final repository = _NamedProfileRepository(const UserProfile(
+        uid: '77', name: '', url: 'u.php?action-show-uid-77.html'));
     await openProfile(tester, repository);
     await tester.tap(find.text('添加备注'));
     await tester.pumpAndSettle();
-    expect(find.text('UID 77'), findsOneWidget, reason: 'a generated 用户 77 is no name');
+    expect(find.text('UID 77'), findsOneWidget,
+        reason: 'a generated 用户 77 is no name');
     expect(find.textContaining('原名'), findsNothing);
     await tester.enterText(find.byType(TextField).first, '无名');
     await tester.tap(find.text('保存'));
@@ -113,7 +126,9 @@ void main() {
     await tester.pumpAndSettle();
     // Clearing is a draft edit: nothing is written until 保存.
     expect(find.text('清除备注'), findsNothing);
-    expect(tester.widget<TextField>(find.byType(TextField).first).controller!.text, isEmpty);
+    expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        isEmpty);
     expect(await UserNoteStore.load(), {'123': '老朋友'});
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
@@ -122,7 +137,8 @@ void main() {
     expect(await UserNoteStore.load(), isEmpty);
   });
 
-  testWidgets('clearing the note never commits a pending tag removal', (tester) async {
+  testWidgets('clearing the note never commits a pending tag removal',
+      (tester) async {
     await UserNoteStore.save('123', '老朋友');
     await UserTagStore.save('123', ['Keep me', 'Other']);
     final repository = FakeProfileRepository();
@@ -146,16 +162,20 @@ void main() {
     expect((await UserTagStore.load())['123'], ['Other']);
   });
 
-  testWidgets('editor header names a known user once and an unknown one by UID alone', (tester) async {
+  testWidgets(
+      'editor header names a known user once and an unknown one by UID alone',
+      (tester) async {
     final repository = FakeProfileRepository();
     Future<void> open(String? name) async {
-      await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => Scaffold(
-        body: TextButton(
-          onPressed: () => showUserNoteEditor(context,
-              repository: repository, uid: '123', name: name),
-          child: const Text('open'),
-        ),
-      ))));
+      await tester.pumpWidget(MaterialApp(
+          home: Builder(
+              builder: (context) => Scaffold(
+                    body: TextButton(
+                      onPressed: () => showUserNoteEditor(context,
+                          repository: repository, uid: '123', name: name),
+                      child: const Text('open'),
+                    ),
+                  ))));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
     }
@@ -163,7 +183,8 @@ void main() {
     await open(null);
     expect(find.text('UID 123'), findsOneWidget);
     expect(find.textContaining('原名'), findsNothing);
-    expect(find.byKey(const ValueKey('annotation-editor-profile')), findsNothing,
+    expect(
+        find.byKey(const ValueKey('annotation-editor-profile')), findsNothing,
         reason: 'no profile route unless the caller offers one');
     await tester.pumpWidget(const SizedBox());
 
@@ -180,9 +201,11 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Finder suggestion(String label) => find.byKey(ValueKey('tag-suggestion:$label'));
+  Finder suggestion(String label) =>
+      find.byKey(ValueKey('tag-suggestion:$label'));
 
-  testWidgets('the tag picker offers this account\'s tags with user counts and reuses the stored spelling',
+  testWidgets(
+      'the tag picker offers this account\'s tags with user counts and reuses the stored spelling',
       (tester) async {
     await UserTagStore.save('7', ['Artist', '资源佬']);
     await UserTagStore.save('8', ['资源佬']);
@@ -190,13 +213,15 @@ void main() {
     await openTagPicker(tester);
     expect(find.text('资源佬 · 2'), findsOneWidget);
     expect(find.text('Artist · 1'), findsOneWidget);
-    expect(suggestion('Keep'), findsNothing, reason: 'tags already on this user are not offered');
+    expect(suggestion('Keep'), findsNothing,
+        reason: 'tags already on this user are not offered');
     expect(tester.getTopLeft(suggestion('资源佬')).dx,
         lessThan(tester.getTopLeft(suggestion('Artist')).dx),
         reason: 'more users first');
 
     // A case-only match is the stored word, never a second spelling.
-    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), 'ARTIST');
+    await tester.enterText(
+        find.byKey(const ValueKey('user-tag-input')), 'ARTIST');
     await tester.pump();
     expect(find.byKey(const ValueKey('tag-suggestion-new')), findsNothing);
     await tester.tap(find.byTooltip('添加标签'));
@@ -221,16 +246,20 @@ void main() {
     await tester.pumpAndSettle();
     final stored = await UserTagStore.load();
     expect(stored['123'], ['Keep', 'Artist', '资源佬', '新词']);
-    expect(stored['7'], ['Artist', '资源佬'], reason: 'other users are never written');
+    expect(stored['7'], ['Artist', '资源佬'],
+        reason: 'other users are never written');
     expect(stored['8'], ['资源佬']);
   });
 
-  testWidgets('a word another user gained after the editor opened is resolved before adding', (tester) async {
+  testWidgets(
+      'a word another user gained after the editor opened is resolved before adding',
+      (tester) async {
     await UserTagStore.save('123', ['Keep']);
     await openTagPicker(tester);
     expect(suggestion('Artist'), findsNothing);
     await UserTagStore.save('7', ['Artist']);
-    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), 'ARTIST');
+    await tester.enterText(
+        find.byKey(const ValueKey('user-tag-input')), 'ARTIST');
     await tester.tap(find.byTooltip('添加标签'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(InputChip, 'Artist'), findsOneWidget,
@@ -238,7 +267,9 @@ void main() {
     expect(find.widgetWithText(InputChip, 'ARTIST'), findsNothing);
   });
 
-  testWidgets('an exact match beyond the twelve shown still supplies the stored spelling', (tester) async {
+  testWidgets(
+      'an exact match beyond the twelve shown still supplies the stored spelling',
+      (tester) async {
     for (var i = 1; i <= 13; i++) {
       await UserTagStore.save('${100 + i}', ['ab$i']);
       await UserTagStore.save('${200 + i}', ['ab$i']);
@@ -264,11 +295,13 @@ void main() {
         lessThan(tester.getTopLeft(suggestion('xab')).dx));
   });
 
-  testWidgets('a too long tag says why, and an eighth tag closes adding', (tester) async {
+  testWidgets('a too long tag says why, and an eighth tag closes adding',
+      (tester) async {
     await UserTagStore.save('123', ['1', '2', '3', '4', '5', '6', '7']);
     await UserTagStore.save('9', ['eighth']);
     await openTagPicker(tester);
-    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), '字' * 17);
+    await tester.enterText(
+        find.byKey(const ValueKey('user-tag-input')), '字' * 17);
     await tester.pump();
     expect(find.text('最多 16 个字符，这个标签太长'), findsOneWidget);
     expect(find.byKey(const ValueKey('tag-suggestion-new')), findsNothing);
@@ -278,7 +311,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('已达 8 个标签上限'), findsOneWidget);
     expect(find.byKey(const ValueKey('user-tag-input')), findsNothing);
-    expect(find.text('+ 添加标签'), findsNothing, reason: 'no way to add a ninth tag');
+    expect(find.text('+ 添加标签'), findsNothing,
+        reason: 'no way to add a ninth tag');
   });
 
   testWidgets('note editor limits the note to 40 characters', (tester) async {
@@ -292,7 +326,9 @@ void main() {
     expect((await UserNoteStore.load())['123'], hasLength(userNoteMaxLength));
   });
 
-  testWidgets('invalid tag draft blocks both saves and the rune counter matches validation', (tester) async {
+  testWidgets(
+      'invalid tag draft blocks both saves and the rune counter matches validation',
+      (tester) async {
     final repository = FakeProfileRepository();
     await openProfile(tester, repository);
     await tester.tap(find.text('添加备注'));
@@ -300,7 +336,8 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '新备注');
     await tester.tap(find.text('+ 添加标签'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), '字' * 17);
+    await tester.enterText(
+        find.byKey(const ValueKey('user-tag-input')), '字' * 17);
     await tester.pump();
     expect(find.text('17/16'), findsOneWidget);
     await tester.tap(find.text('保存'));
@@ -308,7 +345,8 @@ void main() {
     expect(await UserNoteStore.load(), isEmpty);
     expect(await UserTagStore.load(), isEmpty);
     expect(find.text('备注与标签'), findsOneWidget);
-    await tester.enterText(find.byKey(const ValueKey('user-tag-input')), '😀' * 16);
+    await tester.enterText(
+        find.byKey(const ValueKey('user-tag-input')), '😀' * 16);
     await tester.pump();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();

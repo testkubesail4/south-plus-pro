@@ -111,6 +111,7 @@ class UserProfileParser {
             items: [], totalPages: 1, paginationKnown: false);
       }
     }
+
     final topics = read(topicsDocument, UserProfileTab.topics);
     final posts = read(postsDocument, UserProfileTab.posts);
     final favorites = read(favoritesDocument, UserProfileTab.favorites);
@@ -520,8 +521,10 @@ class UserProfileParser {
           .querySelector('a[href*="read.php"], a[href*="job.php"]')
           ?.remove();
       final dateText = metadataRow.querySelector('th span.gray.f9')?.text ?? '';
-      final metricsText = _cleanText(metadataRow.querySelectorAll('td')
-          .map((cell) => cell.text).join(' '));
+      final metricsText = _cleanText(metadataRow
+          .querySelectorAll('td')
+          .map((cell) => cell.text)
+          .join(' '));
       final date =
           RegExp(r'\[(\d{4}-\d{2}-\d{2})\]').firstMatch(dateText)?.group(1);
       final authorLink = row.querySelector('a[href*="uid"]');
