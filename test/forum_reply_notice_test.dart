@@ -32,6 +32,7 @@ void main() {
         expect(result.success, isTrue);
         expect(client.forms.last, {
           'verify': 'fixture-token',
+          'fid': '42',
           'atc_title': 'Fixture title',
           'atc_content': 'Fixture content',
           'Submit': '提 交',
@@ -51,10 +52,17 @@ class _PostClient extends ForumClient {
   final postPaths = <String>[];
 
   @override
-  Future<String> get(String path) async {
+  bool get isLoggedIn => true;
+
+  @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
     getPaths.add(path);
     return '''
-      <html><body><form name="FORM" action="post.php?">
+      <html><body><form name="FORM" method="post" action="post.php?">
+        <input type="hidden" name="fid" value="42">
         <input type="hidden" name="verify" value="fixture-token">
         <input name="atc_title"><textarea name="atc_content"></textarea>
         <label><input type="checkbox" name="atc_newrp" value="1"
@@ -64,9 +72,13 @@ class _PostClient extends ForumClient {
   }
 
   @override
-  Future<String> post(String path, Map<String, String> fields) async {
+  Future<String> postForm(String path, List<MapEntry<String, String>> fields,
+      {bool multipart = false,
+      List<ForumFormFile> files = const [],
+      void Function()? requireCurrentSession}) async {
+    requireCurrentSession?.call();
     postPaths.add(path);
-    forms.add(Map.of(fields));
+    forms.add(Map.fromEntries(fields));
     return '<html><title>发帖完毕</title><body>发帖完毕</body></html>';
   }
 }
