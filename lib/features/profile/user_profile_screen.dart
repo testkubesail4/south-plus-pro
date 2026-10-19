@@ -416,6 +416,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
+                              tab: UserProfileTab.topics,
+                              onRetry: _refresh,
                               builder: (context, details) => hasUid
                                   ? _ContentTab(
                                       uid: uid,
@@ -441,6 +443,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
+                              tab: UserProfileTab.posts,
+                              onRetry: _refresh,
                               builder: (context, details) => hasUid
                                   ? _ContentTab(
                                       uid: uid,
@@ -466,6 +470,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
+                              tab: UserProfileTab.favorites,
+                              onRetry: _refresh,
                               builder: (context, details) => hasUid
                                   ? _ContentTab(
                                       uid: uid,

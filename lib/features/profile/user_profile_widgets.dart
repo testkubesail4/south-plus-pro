@@ -643,10 +643,19 @@ class _OverviewTab extends StatelessWidget {
 }
 
 class _DetailsTab extends StatelessWidget {
-  const _DetailsTab({required this.future, required this.builder});
+  const _DetailsTab({
+    required this.future,
+    required this.builder,
+    required this.tab,
+    required this.onRetry,
+  });
 
   final Future<UserProfile>? future;
   final Widget Function(BuildContext context, UserProfile profile) builder;
+
+  /// The list this tab shows; its own read failure stays in this tab.
+  final UserProfileTab tab;
+  final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -666,6 +675,13 @@ class _DetailsTab extends StatelessWidget {
         }
         if (!snapshot.hasData) {
           return const _TabLoadingSkeleton();
+        }
+        if (snapshot.data!.contentErrors[tab] case final error?) {
+          return AsyncErrorView(
+            title: '这一栏没有读完整',
+            message: '论坛返回的列表不完整（${forumErrorText(error)}），其它栏目不受影响。',
+            onRetry: onRetry,
+          );
         }
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 220),
