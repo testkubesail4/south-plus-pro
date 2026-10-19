@@ -121,7 +121,7 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      favorites={}, categories=['默认分类', 'SPP-repro-10'],
                      page_size=4 if collections else 50, external_events=[], partial_next=False,
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
-                     round=False, edits=[], thread_pages=[], topic_pages=[], scan_waiting=False,
+                     round=False, edits=[], thread_pages=[], thread_reads=[], topic_pages=[], scan_waiting=False,
                      post_bodies={'950101': '[b]Opening original[/b]', '950102': '[i]Reply original[/i]'},
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
                                       date_f='yyyy-mm-dd', time_f='24', t_num='0',
@@ -189,13 +189,14 @@ def round_edit_fields(pid):
                 atc_iconid='2', atc_autourl='1', atc_usesign='1', atc_convert='1',
                 atc_hide='1', atc_requireenhide='1', atc_requiresell='1',
                 atc_rvrc='3', atc_money='7', atc_enhidetype='rvrc', atc_credittype='money',
-                **{'keep[attachment]': 'synthetic-attachment'})
+                **{'keep[attachment]': 'synthetic-attachment', 'Submit': ' 提 交 '})
 
 
 def round_edit_form(pid):
     fields = ''.join(
         f'<input type="checkbox" name="{key}" value="{value}" checked>' if key in
         ('atc_autourl', 'atc_usesign', 'atc_convert', 'atc_hide', 'atc_requireenhide', 'atc_requiresell')
+        else f'<input type="submit" name="{key}" value="{value}">' if key == 'Submit'
         else f'<input type="hidden" name="{key}" value="{value}">'
         for key, value in round_edit_fields(pid).items())
     return f'''<html><body><form name="FORM" method="post" action="post.php?">
@@ -738,10 +739,13 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 return
         if APPENDFIX['round'] and path == '/round/stats':
             with APPENDFIX_LOCK:
-                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'thread_pages', 'post_bodies', 'topic_pages', 'scan_waiting')}).encode()
+                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'thread_pages', 'thread_reads', 'post_bodies', 'topic_pages', 'scan_waiting')}).encode()
             self.send_body(body, 'application/json')
             return
         if self.appendfix and APPENDFIX['round']:
+            if path == '/read.php':
+                with APPENDFIX_LOCK:
+                    APPENDFIX['thread_reads'].append(query)
             if path == '/u.php' and 'uid-950002' in query:
                 if 'action-topic-' not in query:
                     self.send_body(round_profile(), 'text/html; charset=utf-8')
@@ -754,7 +758,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 with APPENDFIX_LOCK:
                     APPENDFIX['topic_pages'].append(page)
                     APPENDFIX['scan_waiting'] = page == 2
-                if page == 2 and not ROUND_SCAN_GATE.wait(timeout=20):
+                if page == 2 and not ROUND_SCAN_GATE.wait(timeout=60):
                     self.send_error(503)
                     return
                 with APPENDFIX_LOCK:
