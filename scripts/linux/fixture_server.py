@@ -217,7 +217,8 @@ def r8_thread(page):
     return f'''<html><body><h1 id="subject_tpc">Synthetic bounty thread</h1>
 <div id="breadcrumbs"><a href="thread.php?fid-48.html">Synthetic requests</a>
 <a href="read.php?tid-960001.html">Synthetic bounty thread</a></div>
-<div class="pages">Pages: {page}/2<a href="read.php?tid-960001-page-1.html">1</a>
+<div class="pages">Pages: {page}/2
+<a href="read.php?tid-960001-page-1.html">1</a>
 <a href="read.php?tid-960001-page-2.html">2</a></div><form name="read">{''.join(posts)}</form></body></html>'''.encode()
 
 
@@ -740,7 +741,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             # No raw native reward ACK was captured: only a deliberately unknown response is modelled.
             body = b'<html><body>Synthetic received</body></html>'
         else:
-            body = b'<html><body>\xe5\x8f\x91\xe8\xa1\xa8\xe6\x88\x90\xe5\x8a\x9f<a href="read.php?tid-960004.html">Return</a></body></html>'
+            body = b'<html><body>Synthetic publish received</body></html>'
         self.send_body(body, 'text/html; charset=utf-8')
 
     def round_edit_submit(self, raw):

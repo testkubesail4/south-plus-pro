@@ -93,6 +93,7 @@ class FixtureServerTest(unittest.TestCase):
             self.assertIn('HP:-10', page1)
             page2 = request('/read.php?tid-960001-page-2.html').decode()
             self.assertNotIn('Synthetic OP body', page2)
+            self.assertIn('Pages: 2/2\n<a', page2)
             self.assertNotIn('/r8-op.png', page2)
             self.assertEqual(page2.count('action-reward-'), 4)
             wall = request('/thread_new.php?fid-48.html').decode()
@@ -165,7 +166,8 @@ class FixtureServerTest(unittest.TestCase):
                 with self.assertRaises(HTTPError) as error:
                     request('/post.php?', urlencode(dict(fields, **{key: ''})).encode())
                 self.assertEqual(error.exception.code, 400)
-            self.assertIn('发表成功', request('/post.php?', urlencode(fields).encode()).decode())
+            self.assertEqual(request('/post.php?', urlencode(fields).encode()).decode(),
+                             '<html><body>Synthetic publish received</body></html>')
             stats = json.loads(request('/r8/stats'))
             self.assertEqual(stats['compose_attempts'][-1]['bonus[best]'], ['25'])
             self.assertEqual(stats['awards'], {})

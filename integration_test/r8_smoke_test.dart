@@ -84,6 +84,19 @@ void main() {
     await tester.pump();
   }
 
+  Future<void> screenshot(WidgetTester tester, String name) async {
+    await tester.pumpAndSettle();
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    final search = await Process.run('xdotool',
+        ['search', '--onlyvisible', '--name', r'^south_plus_rewrite$']);
+    expect(search.exitCode, 0, reason: '${search.stderr}');
+    final window = '${search.stdout}'.trim().split('\n').first;
+    final path = '/output/r8-$name.png';
+    final result = await Process.run('import', ['-window', window, path]);
+    expect(result.exitCode, 0, reason: '${result.stderr}');
+    expect(File(path).lengthSync(), greaterThan(1000));
+  }
+
   Future<void> mount(WidgetTester tester, Widget screen) async {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpWidget(MaterialApp(theme: AppTheme.light, home: screen));
@@ -124,6 +137,7 @@ void main() {
         widget is ThreadInlineImage && widget.image.url.endsWith('/r8-op.png'));
     expect(opImage, findsNothing);
     expect((await fixture('r8/stats'))['thread_pages'], [2, 1]);
+    await screenshot(tester, 'compact-p2');
 
     await tap(tester, find.text('第 2 / 2 页'));
     await tap(tester, find.text('首楼'));
@@ -194,6 +208,7 @@ void main() {
     expect(find.textContaining('发布时预先扣除 62 SP币'), findsOneWidget);
     await tap(tester, find.byKey(const ValueKey('compose-submit')));
     await waitFor(tester, find.text('发布悬赏帖？'));
+    await screenshot(tester, 'compose-cost-confirm');
     expect((await fixture('r8/stats'))['compose_attempts'], isEmpty,
         reason:
             'native defaults must not post before explicit cost confirmation');
@@ -201,7 +216,18 @@ void main() {
     expect((await fixture('r8/stats'))['compose_attempts'], isEmpty);
     await tap(tester, find.byKey(const ValueKey('compose-submit')));
     await tap(tester, find.text('确认发布并扣除 62 SP币'));
-    await waitFor(tester, find.text('Open composer'));
+    await waitFor(tester, find.byKey(const ValueKey('compose-unconfirmed')));
+    expect(find.textContaining('不要重复发布'), findsOneWidget);
+    expect(
+        tester
+            .widget<FilledButton>(find.byKey(const ValueKey('compose-submit')))
+            .onPressed,
+        isNull);
+    expect(field('标题'), findsOneWidget);
+    expect(tester.widget<TextField>(field('标题')).controller!.text,
+        'Synthetic compose');
+    expect(tester.widget<TextField>(field('正文')).controller!.text,
+        'Synthetic body');
     final attempts = (await fixture('r8/stats'))['compose_attempts'] as List;
     expect(attempts, hasLength(1));
     expect(attempts.single['p_type'], ['3']);
@@ -217,6 +243,8 @@ void main() {
     const best = ValueKey('reward-best-960102');
     await tap(tester, find.byKey(helpful));
     await waitFor(tester, find.text('给 B2F 热心助人？'));
+    await waitFor(tester, find.text('短消息通知对方'));
+    await screenshot(tester, 'reward-irreversible-confirm');
     expect((await fixture('r8/stats'))['reward_attempts'], isEmpty);
     await tap(tester, find.text('取消'));
     expect((await fixture('r8/stats'))['reward_attempts'], isEmpty);
