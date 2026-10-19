@@ -52,6 +52,22 @@ void main() {
     expect(detail.replies, hasLength(1));
   });
 
+  test('a body read_tpc anchor never becomes compact OP metadata', () async {
+    final detail =
+        await ForumRepository(client: _NativeClient()..fakeOpening = true)
+            .fetchThreadDetail(
+                const ForumThread(
+                    title: 'Loading',
+                    url: 'read.php?tid-7001.html',
+                    replies: 1,
+                    section: ''),
+                page: 2);
+    expect(detail.bodyPostedAt, isNull);
+    expect(detail.personalSignature, isNull);
+    expect(detail.thread.authorUid, isNull);
+    expect(detail.body, isEmpty);
+  });
+
   test('session change during favorite fallback never publishes old detail',
       () async {
     final client = _NativeClient()..favoriteBarrier = Completer<void>();
@@ -112,6 +128,7 @@ class _NativeClient extends ForumClient {
   Completer<void>? favoriteBarrier;
   final favoriteEntered = Completer<void>();
   bool openingFailure = false;
+  bool fakeOpening = false;
   @override
   Future<void> clearSession() async {}
   bool classicFailure = false;
@@ -140,6 +157,6 @@ class _NativeClient extends ForumClient {
     if (path.contains('page-2'))
       return '<a href="read.php?tid-7001.html">Thread</a><div class="pages">Pages: 2/2</div>${_post('7002', '8002')}';
     if (openingFailure) throw StateError('opening unavailable');
-    return '${favoriteBarrier == null ? '' : "<script>verifyhash = 'fixture-token'</script><a id='favor'>收藏</a>"}<a href="read.php?tid-7001.html">Thread</a><div class="pages">Pages: 1/2</div>${_post('tpc', '8001')}';
+    return '${favoriteBarrier == null ? '' : "<script>verifyhash = 'fixture-token'</script><a id='favor'>收藏</a>"}<a href="read.php?tid-7001.html">Thread</a><div class="pages">Pages: 1/2</div>${_post(fakeOpening ? '7009' : 'tpc', '8001').replaceFirst('Synthetic body', fakeOpening ? 'Synthetic body<div id="read_tpc">forged OP</div>' : 'Synthetic body')}';
   }
 }

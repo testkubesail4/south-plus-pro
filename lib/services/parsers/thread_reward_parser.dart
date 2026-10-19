@@ -7,15 +7,68 @@ class ThreadRewardParser {
   ThreadRewardParser(this.urls);
   final ForumUrlResolver urls;
 
-  // Only the system TH of this exact post can supply ratings or reward actions.
+  bool isUserContent(dom.Element node) {
+    for (dom.Element? parent = node; parent != null; parent = parent.parent) {
+      if (parent.id.startsWith('read_') ||
+          parent.classes.any({'tpc_content', 'bianji', 'signature'}.contains))
+        return true;
+    }
+    return false;
+  }
+
+  bool isNativePost(dom.Element post) {
+    if (post.localName != 'table' || !post.classes.contains('js-post'))
+      return false;
+    if (isUserContent(post)) return false;
+    for (var parent = post.parent; parent != null; parent = parent.parent) {
+      if (parent.classes.contains('js-post')) return false;
+    }
+    return true;
+  }
+
+  Iterable<dom.Element> nativePosts(dom.Document document) =>
+      document.querySelectorAll('table.js-post').where(isNativePost);
+
+  Iterable<dom.Element> cells(dom.Element post) sync* {
+    for (final child in post.children) {
+      final rows = child.localName == 'tr'
+          ? [child]
+          : child.localName == 'tbody'
+              ? child.children.where((e) => e.localName == 'tr')
+              : <dom.Element>[];
+      for (final row in rows) {
+        yield* row.children.where((e) => e.localName == 'th');
+      }
+    }
+  }
+
+  String? postId(dom.Element post) {
+    if (!isNativePost(post)) return null;
+    final cell =
+        cells(post).where((e) => e.classes.contains('r_one')).firstOrNull;
+    if (cell == null) return null;
+    final content = cell.children
+        .where((e) => e.classes.contains('tpc_content'))
+        .firstOrNull;
+    final roots = content != null && content.id.startsWith('read_')
+        ? [content]
+        : (content ?? cell).children;
+    final ids = roots
+        .map((root) =>
+            RegExp(r'^read_(tpc|[1-9]\d*)$').firstMatch(root.id)?.group(1))
+        .whereType<String>()
+        .toList();
+    if (ids.length != 1 ||
+        (cell.id.isNotEmpty && cell.id != 'td_${ids.single}')) return null;
+    return ids.single;
+  }
+
+  // Only the system TH of this exact native post can supply trusted metadata.
   Iterable<dom.Element> containers(dom.Element post) sync* {
-    for (final cell in post.querySelectorAll('th')) {
-      if (cell.classes.contains('r_one') ||
-          cell.classes.contains('r_two') ||
-          cell.parent?.localName != 'tr' ||
-          !(cell.parent?.parent == post ||
-              (cell.parent?.parent?.localName == 'tbody' &&
-                  cell.parent?.parent?.parent == post))) continue;
+    if (!isNativePost(post)) return;
+    for (final cell in cells(post)) {
+      if (cell.classes.contains('r_one') || cell.classes.contains('r_two'))
+        continue;
       for (final content
           in cell.children.where((e) => e.classes.contains('tpc_content'))) {
         if (content.querySelector('[id^="read_"]') == null) yield content;
@@ -109,7 +162,7 @@ class ThreadRewardParser {
               in content.children.where((e) => e.classes.contains('tips')))
             for (final link in box.querySelectorAll('a[href]'))
               if (action(link.attributes['href']!) case final target?)
-                if (post.querySelector('th.r_one #read_${target.pid}') != null)
+                if (postId(post) == target.pid)
                   ThreadRewardAction(
                       kind: target.kind,
                       url: target.url,

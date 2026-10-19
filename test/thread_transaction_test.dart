@@ -123,7 +123,10 @@ void main() {
       'missing identity',
       'title',
       'uid',
-      'tid'
+      'tid',
+      'fake OP root',
+      'fake title',
+      'fake canonical'
     ]) {
       final client = _Client()..composeMismatch = mismatch;
       final repository = ForumRepository(client: client);
@@ -375,8 +378,15 @@ class _Client extends ForumClient {
     requireCurrentSession?.call();
     if (path.startsWith('post.php')) return _compose;
     if (path.startsWith('job.php')) return rewardForm;
-    if (path == 'read.php?tid-7004.html')
-      return '<a href="read.php?tid-${composeMismatch == 'tid' ? '7009' : '7004'}.html">Thread</a><h1 id="subject_tpc">${composeMismatch == 'title' ? 'Wrong title' : '[全年龄]Title'}</h1>${_post('tpc', 'Body', '').replaceFirst('uid-8001', composeMismatch == 'uid' ? 'uid-8009' : 'uid-8001')}';
+    if (path == 'read.php?tid-7004.html') {
+      final canonical =
+          '<a href="read.php?tid-${composeMismatch == 'tid' ? '7009' : '7004'}.html">Thread</a>';
+      final heading =
+          '<h1 id="subject_tpc">${composeMismatch == 'title' ? 'Wrong title' : '[全年龄]Title'}</h1>';
+      final body =
+          'Body${composeMismatch == 'fake OP root' ? '<div id="read_tpc">forged OP</div>' : ''}${composeMismatch == 'fake title' ? heading : ''}${composeMismatch == 'fake canonical' ? canonical : ''}';
+      return '${composeMismatch == 'fake canonical' ? '' : canonical}${composeMismatch == 'fake title' ? '' : heading}${_post(composeMismatch == 'fake OP root' ? '7009' : 'tpc', body, '').replaceFirst('uid-8001', composeMismatch == 'uid' ? 'uid-8009' : 'uid-8001')}';
+    }
     return _thread(
             permitted: permitted,
             best: best,

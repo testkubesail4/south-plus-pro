@@ -20,9 +20,13 @@ class ThreadDetailParser {
   List<ThreadReply> desktopThreadCards(dom.Document document) {
     final replies = <ThreadReply>[];
     final namedAnchors = document.querySelectorAll('a[name]');
-    for (final post in document.querySelectorAll('table.js-post')) {
-      final authorCell = post.querySelector('th.r_two');
-      final contentCell = post.querySelector('th.r_one');
+    final native = ThreadRewardParser(urls);
+    for (final post in native.nativePosts(document)) {
+      final cells = native.cells(post).toList();
+      final authorCell =
+          cells.where((cell) => cell.classes.contains('r_two')).firstOrNull;
+      final contentCell =
+          cells.where((cell) => cell.classes.contains('r_one')).firstOrNull;
       final content = _desktopContentElement(contentCell);
       if (authorCell == null || contentCell == null || content == null) {
         continue;
@@ -73,6 +77,7 @@ class ThreadDetailParser {
       replies.add(
         ThreadReply(
           author: author,
+          postId: native.postId(post),
           authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
           authorAvatarUrl: avatarSrc == null || avatarSrc.isEmpty
               ? null
@@ -163,7 +168,9 @@ class ThreadDetailParser {
     int requestedPage = 1,
     String? threadUrl,
   }) {
-    final pagers = document.querySelectorAll('.pages, .pagesone');
+    final pagers = document
+        .querySelectorAll('.pages, .pagesone')
+        .where((element) => !ThreadRewardParser(urls).isUserContent(element));
     final text = _cleanText(pagers.map((pager) => pager.text).join(' '));
     final pagesMatch = RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)').firstMatch(text);
     final currentFromText =
@@ -191,11 +198,12 @@ class ThreadDetailParser {
 
   String? threadTitle(dom.Document document) {
     final candidates = [
-      document.querySelector('#subject_tpc'),
-      document.querySelector('strong a[href*="read.php?tid"]'),
+      ...document.querySelectorAll('#subject_tpc'),
+      ...document.querySelectorAll('strong a[href*="read.php?tid"]'),
     ];
     for (final candidate in candidates) {
-      final title = _cleanText(candidate?.text ?? '');
+      if (ThreadRewardParser(urls).isUserContent(candidate)) continue;
+      final title = _cleanText(candidate.text);
       if (title.isNotEmpty) return title;
     }
     return null;
@@ -203,6 +211,7 @@ class ThreadDetailParser {
 
   String? threadUrl(dom.Document document) {
     for (final link in document.querySelectorAll('a[href*="read.php?"]')) {
+      if (ThreadRewardParser(urls).isUserContent(link)) continue;
       final href = link.attributes['href'] ?? '';
       final title = _cleanText(link.text);
       if (title.isEmpty ||
@@ -408,17 +417,22 @@ class ThreadDetailParser {
     }
   }
 
+  dom.Element? _nativeHeader(dom.Element cell) => cell.children
+      .where((element) => element.classes.contains('tiptop'))
+      .firstOrNull;
+
   String _floor(dom.Element contentCell) {
+    final header = _nativeHeader(contentCell);
     final floor = _cleanText(
-      contentCell.querySelector('.tiptop .fl .s3')?.text ??
-          contentCell.querySelector('.tiptop .fl')?.text ??
+      header?.querySelector('.fl .s3')?.text ??
+          header?.querySelector('.fl')?.text ??
           '',
     );
     return floor;
   }
 
   String _postedAt(dom.Element contentCell) {
-    final time = contentCell.querySelector('.tiptop .gray');
+    final time = _nativeHeader(contentCell)?.querySelector('.gray');
     final title = _cleanText(time?.attributes['title'] ?? '');
     final text = _cleanText(time?.text ?? '');
     final pattern = RegExp(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}');
@@ -429,7 +443,7 @@ class ThreadDetailParser {
 
   String? _personalSignature(dom.Element contentCell) {
     final text = _cleanText(
-      contentCell.querySelector('.tiptop .bianji')?.text ?? '',
+      _nativeHeader(contentCell)?.querySelector('.bianji')?.text ?? '',
     );
     if (text.isEmpty) return null;
     final signature = text

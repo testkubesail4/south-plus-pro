@@ -420,6 +420,7 @@ class ThreadReply {
     this.ratings = const [],
     this.award,
     this.rewardActions = const [],
+    this.postId,
   });
 
   final String author;
@@ -446,6 +447,7 @@ class ThreadReply {
   final List<ThreadRating> ratings;
   final ThreadAward? award;
   final List<ThreadRewardAction> rewardActions;
+  final String? postId;
 }
 
 enum ForumBountyStatus { active, expired, ended, unknown }

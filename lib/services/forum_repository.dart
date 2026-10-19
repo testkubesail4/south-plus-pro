@@ -2353,7 +2353,7 @@ class ForumRepository {
       current();
       final opening = _threadDetailParser
           .desktopThreadCards(document)
-          .where((post) => post.anchors.contains('read_tpc'))
+          .where((post) => post.postId == 'tpc')
           .firstOrNull;
       var returnedTitle = _threadDetailParser.threadTitle(document);
       final categoryLabel = draft.categories
@@ -2393,7 +2393,7 @@ class ForumRepository {
         action.page) throw const ForumRepositoryException('回复分页不匹配');
     final target = _threadDetailParser
         .desktopThreadCards(document)
-        .where((p) => p.anchors.contains('read_${action.pid}'))
+        .where((p) => p.postId == action.pid)
         .firstOrNull;
     if (target == null) {
       _throwIfBlockedPage(html);
@@ -2407,9 +2407,10 @@ class ForumRepository {
     current();
     if (_urls.tidFromUrl(_threadDetailParser.threadUrl(opening) ?? '') !=
         action.tid) throw const ForumRepositoryException('响应不是所选帖子');
-    final post = opening
-        .querySelectorAll('table.js-post')
-        .where((p) => p.querySelector('th.r_one #read_tpc') != null)
+    final native = ThreadRewardParser(_urls);
+    final post = native
+        .nativePosts(opening)
+        .where((p) => native.postId(p) == 'tpc')
         .firstOrNull;
     final bounty = post == null ? null : ThreadRewardParser(_urls).bounty(post);
     if (bounty == null) throw const ForumRepositoryException('无法确认悬赏状态');
@@ -2752,7 +2753,7 @@ class ForumRepository {
               tid) {
             openingMetadata = _threadDetailParser
                 .desktopThreadCards(opening)
-                .where((p) => p.anchors.contains('read_tpc'))
+                .where((p) => p.postId == 'tpc')
                 .firstOrNull;
           }
         }
@@ -2800,10 +2801,10 @@ class ForumRepository {
 
     final authorFilterUid = _urls.uidFromUrl(thread.url);
     final originalUid = _urls.uidFromUrl(originalPosterPostsUrl(thread) ?? '');
-    final openingFloor = posts.first.floor == '楼主' ||
+    final openingFloor = posts.first.postId == 'tpc' ||
+        posts.first.floor == '楼主' ||
         RegExp(r'^B?0F?$', caseSensitive: false)
-            .hasMatch(posts.first.floor ?? '') ||
-        posts.first.anchors.any({'tpc', 'read_tpc', 'td_tpc'}.contains);
+            .hasMatch(posts.first.floor ?? '');
     final isOpeningPage = pagination.currentPage == 1 &&
         openingFloor &&
         (authorFilterUid == null || authorFilterUid == originalUid);
@@ -2845,9 +2846,9 @@ class ForumRepository {
       bodyPostedAt: header?.postedAt,
       bodyRatings: first?.ratings ?? const [],
       bodyBounty: isOpeningPage
-          ? document
-              .querySelectorAll('table.js-post')
-              .where((post) => post.querySelector('th.r_one #read_tpc') != null)
+          ? ThreadRewardParser(_urls)
+              .nativePosts(document)
+              .where((post) => ThreadRewardParser(_urls).postId(post) == 'tpc')
               .map((post) => ThreadRewardParser(_urls).bounty(post))
               .whereType<ThreadBounty>()
               .firstOrNull

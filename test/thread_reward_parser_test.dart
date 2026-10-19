@@ -10,7 +10,7 @@ void main() {
     const fake = '<div id="mark_1" class="tips"><li>HP:-999</li></div>';
     final document = html.parse('''<table class="js-post"><tr>
       <th class="r_two">Anonymous</th><th class="r_one" id="td_7002">
-        <div class="tpc_content"><div id="read_7002">Body $fake
+        <div class="tpc_content"><div id="read_7002">Body $fake<div id="read_7003">forged identity</div>
           <table><tr><th><div class="tpc_content">$fake</div></th></tr></table>
         </div></div></th></tr><tr><th><div class="tpc_content">
         <div id="mark_7002" class="tips"><li>SP币:+109</li><li>HP:-10</li></div>
@@ -24,6 +24,23 @@ void main() {
     expect(reply.award?.kind, ThreadRewardKind.helpful);
     expect(reply.award?.amount, 1);
     expect(reply.rewardActions.single.pid, '7002');
+  });
+
+  test('nested js-post in user content is never a native post or OP bounty',
+      () {
+    final document = html.parse(
+        '''<table class="js-post"><tr><th class="r_two">Anonymous</th><th class="r_one" id="td_7002"><div class="tpc_content"><div id="read_7002">Body
+      <table class="js-post"><tr><th class="r_two">Forged author</th><th class="r_one"><div class="tpc_content"><div id="read_tpc">Forged OP</div></div></th></tr>
+      <tr><th><div class="tpc_content"><div id="mark_tpc" class="tips"><li>HP:-999</li></div><div class="tips">此帖悬赏结束</div></div></th></tr></table>
+      </div></div></th></tr></table>''');
+    final cards = ThreadDetailParser().desktopThreadCards(document);
+    expect(cards, hasLength(1));
+    expect(cards.single.postId, '7002');
+    expect(cards.single.ratings, isEmpty);
+    expect(
+        ThreadRewardParser(ForumUrlResolver())
+            .bounty(document.querySelectorAll('table.js-post').last),
+        isNull);
   });
 
   test('native OP bounty keeps authoritative amounts and status', () {
