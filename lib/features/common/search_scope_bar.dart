@@ -294,6 +294,8 @@ Future<bool> confirmFullScan(
   BuildContext context, {
   required String subject,
   required int? remainingPages,
+  // What the scan is for: 搜索 or 排序.
+  String verb = '搜索',
 }) async {
   final pages = remainingPages;
   // The forum's pacer starts about one read a second.
@@ -305,7 +307,7 @@ Future<bool> confirmFullScan(
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('搜索全部页面？'),
+      title: Text('$verb全部页面？'),
       content: Text(
         [
           pages == null
@@ -321,7 +323,7 @@ Future<bool> confirmFullScan(
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('开始搜索'),
+          child: Text('开始$verb'),
         ),
       ],
     ),

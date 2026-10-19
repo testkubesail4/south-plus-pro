@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
+import '../../services/browsing_history_filter.dart';
 import '../../services/forum_repository.dart';
-import '../../services/keyword_match.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
@@ -29,6 +29,43 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
   bool _clearing = false;
   final _query = TextEditingController();
   bool _searchOpen = false;
+  // Year, then month, then day of viewing (local time); null shows all.
+  int? _year;
+  int? _month;
+  int? _day;
+
+  bool get _dated => _year != null;
+
+  String get _dateLabel => [
+        '$_year年',
+        if (_month != null) '$_month月',
+        if (_day != null) '$_day日',
+      ].join();
+
+  void _setDate(int? year, [int? month, int? day]) => setState(() {
+        _year = year;
+        _month = month;
+        _day = day;
+      });
+
+  Future<void> _pickDate() => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (sheetContext, setSheet) => _DatePickerSheet(
+            items: _items,
+            year: _year,
+            month: _month,
+            day: _day,
+            onChanged: (year, month, day) {
+              _setDate(year, month, day);
+              setSheet(() {});
+            },
+          ),
+        ),
+      );
 
   @override
   void dispose() {
@@ -94,6 +131,7 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
     try {
       await widget.repository.clearBrowsingHistory();
       if (!mounted) return;
+      _setDate(null);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('浏览历史已清空')),
       );
@@ -150,27 +188,51 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
           title: _searchOpen ? _searchField() : const Text('浏览历史'),
           // Clearing always clears everything, so it is not offered beside
           // a filtered list.
-          actions: _searchOpen
+          actions: [
+            IconButton(
+              tooltip: '按日期筛选',
+              isSelected: _dated,
+              onPressed: _items.isEmpty ? null : _pickDate,
+              icon: const Icon(Icons.calendar_month_outlined),
+            ),
+            if (!_searchOpen)
+              IconButton(
+                tooltip: '搜索浏览历史',
+                onPressed: _items.isEmpty ? null : _openSearch,
+                icon: const Icon(Icons.search),
+              ),
+            if (!_searchOpen && !_dated)
+              IconButton(
+                tooltip: '清空浏览历史',
+                onPressed: _items.isEmpty || _clearing ? null : _clearHistory,
+                icon: _clearing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.delete_outline),
+              ),
+          ],
+          bottom: !_dated
               ? null
-              : [
-                  IconButton(
-                    tooltip: '搜索浏览历史',
-                    onPressed: _items.isEmpty ? null : _openSearch,
-                    icon: const Icon(Icons.search),
+              : PreferredSize(
+                  preferredSize: const Size.fromHeight(48),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpace.lg),
+                      child: InputChip(
+                        label: Text(_dateLabel),
+                        avatar: const Icon(Icons.event_outlined, size: 18),
+                        onPressed: _pickDate,
+                        onDeleted: () => _setDate(null),
+                        deleteButtonTooltipMessage: '清除日期筛选',
+                      ),
+                    ),
                   ),
-                  IconButton(
-                    tooltip: '清空浏览历史',
-                    onPressed:
-                        _items.isEmpty || _clearing ? null : _clearHistory,
-                    icon: _clearing
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.delete_outline),
-                  ),
-                ],
+                ),
         ),
         body: FutureBuilder<List<BrowsingHistoryEntry>>(
           future: _future,
@@ -189,18 +251,10 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
             }
             _items = items;
             final query = _searchOpen ? _query.text.trim() : '';
-            final shown = query.isEmpty
+            final shown = query.isEmpty && !_dated
                 ? items
-                : [
-                    for (final entry in items)
-                      if (matchKeyword(query, [
-                            entry.thread.title,
-                            entry.thread.author,
-                            entry.thread.section,
-                          ]) ==
-                          true)
-                        entry,
-                  ];
+                : filterBrowsingHistory(items,
+                    keyword: query, year: _year, month: _month, day: _day);
 
             return RefreshIndicator(
               color: AppColors.brand,
@@ -216,12 +270,14 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
                             EmptyStateView(
                               icon: Icons.manage_search_outlined,
                               title: '没有符合的浏览记录',
-                              message:
-                                  '已在全部 ${items.length} 条本机记录的标题、作者和版块中查找。',
+                              message: _dated
+                                  ? '$_dateLabel没有符合的本机记录，清除日期可查看全部 ${items.length} 条。'
+                                  : '已在全部 ${items.length} 条本机记录的标题、作者和版块中查找。',
                             ),
                           ],
                         )
-                      : _historyList(shown, counted: query.isNotEmpty),
+                      : _historyList(shown,
+                          counted: query.isNotEmpty || _dated),
             );
           },
         ),
@@ -336,6 +392,111 @@ List<(String, List<BrowsingHistoryEntry>)> _byDay(
     groups.last.$2.add(entry);
   }
   return groups;
+}
+
+/// Year, month and day chips for the days the retained records were viewed,
+/// each with its count; a change filters the list at once.
+class _DatePickerSheet extends StatelessWidget {
+  const _DatePickerSheet({
+    required this.items,
+    required this.year,
+    required this.month,
+    required this.day,
+    required this.onChanged,
+  });
+
+  final List<BrowsingHistoryEntry> items;
+  final int? year;
+  final int? month;
+  final int? day;
+  final void Function(int? year, int? month, int? day) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dates = [for (final entry in items) entry.viewedAt.toLocal()];
+    // Value → count, newest first.
+    List<(int, int)> counts(Iterable<int> values) {
+      final byValue = <int, int>{};
+      for (final value in values) {
+        byValue[value] = (byValue[value] ?? 0) + 1;
+      }
+      return [for (final e in byValue.entries) (e.key, e.value)]
+        ..sort((a, b) => b.$1.compareTo(a.$1));
+    }
+
+    final years = counts(dates.map((d) => d.year));
+    final months = year == null
+        ? const <(int, int)>[]
+        : counts(dates.where((d) => d.year == year).map((d) => d.month));
+    final days = month == null
+        ? const <(int, int)>[]
+        : counts(dates
+            .where((d) => d.year == year && d.month == month)
+            .map((d) => d.day));
+
+    Widget row(String label, String all, bool allSelected, VoidCallback onAll,
+            List<(int, int)> values, String unit, int? selected,
+            void Function(int) onPick) =>
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: AppSpace.md),
+            Text(label, style: theme.textTheme.titleSmall),
+            const SizedBox(height: AppSpace.sm),
+            Wrap(
+              spacing: AppSpace.sm,
+              runSpacing: AppSpace.sm,
+              children: [
+                ChoiceChip(
+                  label: Text(all),
+                  selected: allSelected,
+                  onSelected: (_) => onAll(),
+                ),
+                for (final (value, count) in values)
+                  ChoiceChip(
+                    key: ValueKey('history-date:$unit$value'),
+                    label: Text('$value$unit · $count'),
+                    selected: selected == value,
+                    onSelected: (_) => onPick(value),
+                  ),
+              ],
+            ),
+          ],
+        );
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(
+            AppSpace.lg, 0, AppSpace.lg, AppSpace.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('按日期筛选', style: theme.textTheme.titleMedium),
+            const SizedBox(height: AppSpace.xs),
+            Text('只列出本机 ${items.length} 条记录浏览过的日子，可与搜索同时使用',
+                style: theme.textTheme.bodySmall),
+            row('年', '全部日期', year == null, () => onChanged(null, null, null),
+                years, '年', year, (value) => onChanged(value, null, null)),
+            if (year != null)
+              row('月', '全年', month == null, () => onChanged(year, null, null),
+                  months, '月', month, (value) => onChanged(year, value, null)),
+            if (month != null)
+              row('日', '全月', day == null, () => onChanged(year, month, null),
+                  days, '日', day, (value) => onChanged(year, month, value)),
+            const SizedBox(height: AppSpace.lg),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('完成'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _EmptyHistory extends StatelessWidget {

@@ -7,6 +7,7 @@ import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
+import '../../services/user_content_sort.dart';
 import '../../services/user_display_name_store.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
@@ -369,7 +370,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         SliverToBoxAdapter(
                           child: ListenableBuilder(
                             listenable: _notes,
-                            builder: (context, _) => _ProfileHeader(
+                            builder: (context, _) => TagColorScope(
+                              colors: _notes.tagColors,
+                              child: _ProfileHeader(
                               profile: profile,
                               note: hasUid ? _notes.noteFor(uid) : null,
                               tags: hasUid ? _notes.tagsFor(uid) : const [],
@@ -394,6 +397,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               onSearchByUser:
                                   hasUid ? () => _searchByUser(uid) : null,
                             ),
+                            ),
                           ),
                         ),
                         const SliverToBoxAdapter(child: _ProfileTabs()),
@@ -412,6 +416,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
+                              tab: UserProfileTab.topics,
+                              onRetry: _refresh,
                               builder: (context, details) => hasUid
                                   ? _ContentTab(
                                       uid: uid,
@@ -437,6 +443,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
+                              tab: UserProfileTab.posts,
+                              onRetry: _refresh,
                               builder: (context, details) => hasUid
                                   ? _ContentTab(
                                       uid: uid,
@@ -462,6 +470,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _DetailsTab(
                               future: detailsFuture,
+                              tab: UserProfileTab.favorites,
+                              onRetry: _refresh,
                               builder: (context, details) => hasUid
                                   ? _ContentTab(
                                       uid: uid,

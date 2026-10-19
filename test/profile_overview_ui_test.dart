@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_image_viewer.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 
 import 'profile_appendfix_support.dart';
 
@@ -23,6 +24,25 @@ class _AvatarProfileRepository extends FakeProfileRepository {
 
   @override
   Future<UserProfile> fetchUserProfileOverview(String url) async => profile;
+}
+
+/// Favourites come back truncated once; the other lists are fine.
+class _TruncatedFavoritesRepository extends FakeProfileRepository {
+  _TruncatedFavoritesRepository() : super(topics: [listItem('第一页主题', tid: '1')]);
+
+  int detailLoads = 0;
+
+  @override
+  Future<UserProfile> fetchUserProfileDetails(UserProfile overview,
+      {bool forceReload = false}) async {
+    final details = await super.fetchUserProfileDetails(overview);
+    return ++detailLoads > 1
+        ? details
+        : details.copyWith(contentErrors: {
+            UserProfileTab.favorites: const ForumRequestException(
+                ForumRequestKind.invalidInput, 'truncated'),
+          });
+  }
 }
 
 void main() {
@@ -86,6 +106,35 @@ void main() {
     await open(tester, tab: UserProfileTab.topics);
     expect(find.text('第一页主题'), findsOneWidget);
     expect(find.text('个人信息'), findsNothing);
+  });
+
+  testWidgets('a truncated favourites list stays in its tab; topics still show',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repository = _TruncatedFavoritesRepository();
+    await tester.pumpWidget(MaterialApp(
+      home: UserProfileScreen(
+          userUrl: profileFixture.url,
+          repository: repository,
+          initialTab: UserProfileTab.topics),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('第一页主题'), findsOneWidget);
+    expect(find.text('这一栏没有读完整'), findsNothing);
+
+    await tester.tap(find.text('收藏'));
+    await tester.pumpAndSettle();
+    expect(find.text('这一栏没有读完整'), findsOneWidget);
+    expect(find.text('没有公开收藏'), findsNothing,
+        reason: 'a failed read is not an empty list');
+
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(repository.detailLoads, 2);
+    expect(find.text('这一栏没有读完整'), findsNothing);
+    expect(find.text('没有公开收藏'), findsOneWidget);
   });
 
   testWidgets(
