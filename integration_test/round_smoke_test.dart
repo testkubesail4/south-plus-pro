@@ -215,7 +215,8 @@ void main() {
     await waitFor(tester, find.text('从头看'));
     expect(find.textContaining('Reply original', findRichText: true),
         findsWidgets);
-    expect((await fixture('round/stats'))['thread_pages'], [2]);
+    expect((await fixture('round/stats'))['thread_pages'], [2, 1],
+        reason: 'page 2 loads the OP metadata once');
     await tap(tester, find.text('从头看'));
     final opening = find.textContaining('Opening original', findRichText: true);
     await waitFor(tester, opening);
@@ -223,7 +224,7 @@ void main() {
     // Old parser recognises numeric detached anchors but loses tpc at DIV.
     expect(find.textContaining('未找到指定楼层'), findsNothing);
     expect(opening.hitTestable(), findsWidgets);
-    expect((await fixture('round/stats'))['thread_pages'], [2, 1]);
+    expect((await fixture('round/stats'))['thread_pages'], [2, 1, 1]);
   });
 
   testWidgets('从头看 persists the OP so reopening does not resume the old page',
@@ -293,9 +294,9 @@ void main() {
       expect(edits.single['atc_hide'], ['1']);
       expect(edits.single['keep[attachment]'], ['synthetic-attachment']);
       expect(edits.single.containsKey('atc_anonymous'), isFalse);
-      expect(stats['thread_pages'], [page, page],
+      expect(stats['thread_pages'], page == 2 ? [2, 1, 2, 1] : [1, 1],
           reason:
-              'success refetches the edited page instead of adding a reply');
+              'success refetches the edited page and its bounded OP metadata instead of adding a reply');
       expect(tester.takeException(), isNull);
     });
   }
@@ -349,7 +350,8 @@ void main() {
       expect(confirmed['edit_attempts'], hasLength(2));
       expect(confirmed['edits'], hasLength(1));
       expect(confirmed['post_bodies']['950102'], updated);
-      expect(confirmed['thread_pages'], [2, 2]);
+      expect(confirmed['thread_pages'], [2, 1, 2, 1],
+          reason: 'each page-2 read loads the OP metadata once');
       expect(find.byKey(const ValueKey('floor-actions-Synthetic self-B2F')),
           findsOneWidget);
       expect(find.byKey(const ValueKey('floor-actions-Synthetic other-B1F')),
