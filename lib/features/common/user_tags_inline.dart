@@ -72,15 +72,18 @@ Future<String?> showTagColorPicker(
       final theme = Theme.of(context);
       Widget swatch(String id, String name, Color? fill) {
         final selected = (current ?? '') == id;
+        void pick() => Navigator.of(context).pop(id);
+        // The label replaces the swatch's own node, so it carries the tap.
         return Semantics(
           button: true,
           selected: selected,
           label: '$name，标签颜色',
+          onTap: pick,
           excludeSemantics: true,
           child: InkWell(
             key: ValueKey('tag-color:${id.isEmpty ? 'none' : id}'),
             customBorder: const CircleBorder(),
-            onTap: () => Navigator.of(context).pop(id),
+            onTap: pick,
             child: SizedBox.square(
               dimension: 48,
               child: Center(

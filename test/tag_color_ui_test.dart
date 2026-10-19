@@ -86,8 +86,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('user-tag-chip:test')));
     await tester.pumpAndSettle();
     expect(find.text('「test」的颜色'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('蓝，标签颜色'));
+    // Chosen the way a screen reader does: the swatch's own tap action.
+    final semantics = tester.ensureSemantics();
+    tester.semantics.tap(find.semantics.byLabel('蓝，标签颜色'));
     await tester.pumpAndSettle();
+    semantics.dispose();
 
     expect(await TagColorStore.load(account: 'reader'), {'test': 'blue'});
     final chip = tester.widget<InputChip>(
