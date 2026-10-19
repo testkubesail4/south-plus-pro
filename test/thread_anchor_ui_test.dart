@@ -5,6 +5,8 @@ import 'package:south_plus_rewrite/features/common/forum_link_opener.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/forum_client.dart';
+import 'package:south_plus_rewrite/services/browsing_history_store.dart';
 
 // Synthetic fixtures only: fictional host, tids, pids and authors.
 const _base = 'https://south-plus.net/read.php';
@@ -84,6 +86,33 @@ void main() {
     expectOnScreen(floor('B90F'));
     // The page bar under the list shows the page.
     expect(find.textContaining('第 3 /'), findsWidgets);
+  });
+
+  testWidgets('resume then 从头看 reveals a detached tpc anchor parsed from HTML',
+      (tester) async {
+    tester.view.physicalSize = _viewport;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final client = _MarkupClient();
+    final repository = ForumRepository(client: client, historyStore: _History());
+    const thread = ForumThread(
+        title: 'fixture', url: '$_base?tid-7.html', replies: 40, section: '');
+    await repository.saveThreadReadPosition(
+        thread, const ThreadReadPosition(page: 2, anchor: '1040'));
+    await tester.pumpWidget(MaterialApp(
+        home: ThreadDetailScreen(repository: repository, thread: thread)));
+    await tester.pumpAndSettle();
+    expectOnScreen(floor('B40F'));
+    expect(find.text('从头看'), findsOneWidget);
+    await tester.tap(find.text('从头看'));
+    await tester.pumpAndSettle();
+    expect(client.paths, hasLength(2));
+    expect(find.text(_notFound), findsNothing);
+    expect(find.text('Opening fixture body', findRichText: true).hitTestable(),
+        findsOneWidget);
+    final detail = await repository.fetchThreadDetail(thread);
+    expect(detail.bodyAnchors, contains('tpc'));
+    expect(detail.replies.single.anchors, isNot(contains('tpc')));
   });
 
   testWidgets('opening post body anchor stays on the opening post', (
@@ -208,6 +237,32 @@ class _FakeRepository extends ForumRepository {
           ),
       ],
     );
+  }
+}
+
+class _History extends BrowsingHistoryStore {
+  @override
+  Future<void> recordThread(ForumThread thread, {DateTime? viewedAt}) async {}
+}
+
+class _MarkupClient extends ForumClient {
+  final paths = <String>[];
+
+  @override
+  Future<String> get(String path) async {
+    paths.add(path);
+    final second = path.contains('page-2');
+    String post(String id, String floor, String body) =>
+        '<a name="$id"></a><div class="t5 t2"><table class="js-post">'
+        '<tr><th class="r_two"><a href="u.php?action-show-uid-42.html">'
+        '<strong>Fixture author</strong></a></th><th class="r_one" id="td_$id">'
+        '<div class="tiptop"><span class="fl"><a class="s3">$floor</a></span>'
+        '</div><div class="tpc_content"><div id="read_$id">$body</div></div>'
+        '</th></tr></table></div>';
+    return '<div class="pages">Pages: ${second ? 2 : 1}/2</div><form>'
+        '${second ? '' : post('tpc', '楼主', 'Opening fixture body')}'
+        '${post('1040', 'B40F', 'Reply fixture body')}</form>'
+        '<form><a name="foreign"></a></form>';
   }
 }
 

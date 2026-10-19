@@ -125,7 +125,9 @@ class ThreadDetailParser {
     }
     final pids = anchors
         .map((anchor) =>
-            RegExp(r'^(?:td_|read_)([1-9]\d*)$').firstMatch(anchor)?.group(1))
+            RegExp(r'^(?:td_|read_)(tpc|[1-9]\d*)$')
+                .firstMatch(anchor)
+                ?.group(1))
         .whereType<String>()
         .toSet();
     final form = _enclosingForm(post);
