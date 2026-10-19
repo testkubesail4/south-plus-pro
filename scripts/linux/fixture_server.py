@@ -217,7 +217,8 @@ def r8_thread(page):
     return f'''<html><body><h1 id="subject_tpc">Synthetic bounty thread</h1>
 <div id="breadcrumbs"><a href="thread.php?fid-48.html">Synthetic requests</a>
 <a href="read.php?tid-960001.html">Synthetic bounty thread</a></div>
-<div class="pages">Pages: {page}/2<a href="read.php?tid-960001-page-1.html">1</a>
+<div class="pages">Pages: {page}/2
+<a href="read.php?tid-960001-page-1.html">1</a>
 <a href="read.php?tid-960001-page-2.html">2</a></div><form name="read">{''.join(posts)}</form></body></html>'''.encode()
 
 

@@ -93,6 +93,7 @@ class FixtureServerTest(unittest.TestCase):
             self.assertIn('HP:-10', page1)
             page2 = request('/read.php?tid-960001-page-2.html').decode()
             self.assertNotIn('Synthetic OP body', page2)
+            self.assertIn('Pages: 2/2\n<a', page2)
             self.assertNotIn('/r8-op.png', page2)
             self.assertEqual(page2.count('action-reward-'), 4)
             wall = request('/thread_new.php?fid-48.html').decode()
