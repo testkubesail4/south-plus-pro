@@ -42,6 +42,22 @@ class ThreadFind extends ChangeNotifier {
 
   FullScan<ThreadSearchHit>? get scan => _scan;
 
+  /// 全部页面 is chosen: a keyword reads every page once the reader
+  /// confirms. Otherwise only the loaded pages are searched, with no request.
+  bool get eager => _eager || _scan != null;
+  bool _eager = false;
+
+  void chooseEager() {
+    _eager = true;
+    notifyListeners();
+  }
+
+  /// 仅已加载: any scan stops and its results go.
+  void useLoaded() {
+    _eager = false;
+    stop();
+  }
+
   String get keyword => query.text.trim();
 
   void keywordChanged() {
@@ -80,6 +96,7 @@ class ThreadFind extends ChangeNotifier {
 
   /// Forgets the keyword too, for another thread or scope.
   void reset() {
+    _eager = false;
     _drop();
     query.clear();
     notifyListeners();
@@ -152,6 +169,8 @@ class ThreadFindSheet extends StatelessWidget {
             final loaded = {
               for (final page in pages) page.pagination.currentPage,
             }.length;
+            final remaining = total - loaded;
+            final eager = find.eager && remaining > 0;
             // One scroll view, field included: a short window with the
             // keyboard up and large text still reaches every part.
             return CustomScrollView(
@@ -166,6 +185,11 @@ class ThreadFindSheet extends StatelessWidget {
                       hintText: '查找本帖内容',
                       autofocus: keyword.isEmpty,
                       onChanged: (_) => find.keywordChanged(),
+                      onSubmitted: (_) {
+                        if (eager && scan == null && find.keyword.isNotEmpty) {
+                          _searchAll(context, remaining);
+                        }
+                      },
                     ),
                   ),
                 ),
@@ -178,16 +202,62 @@ class ThreadFindSheet extends StatelessWidget {
                           style: theme.textTheme.bodySmall),
                     ),
                   ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
+                  sliver: SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SegmentedButton<bool>(
+                          showSelectedIcon: false,
+                          segments: [
+                            ButtonSegment(
+                              value: false,
+                              label: Text('仅已加载（$loaded 页）'),
+                            ),
+                            ButtonSegment(
+                              value: true,
+                              enabled: remaining > 0,
+                              label: Text('全部页面（$total 页）'),
+                            ),
+                          ],
+                          selected: {eager},
+                          onSelectionChanged: (picked) {
+                            if (!picked.single) {
+                              find.useLoaded();
+                            } else if (keyword.isEmpty) {
+                              find.chooseEager();
+                            } else {
+                              _searchAll(context, remaining);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: AppSpace.xs),
+                        Text(
+                          remaining <= 0
+                              ? '本帖共 $total 页，已全部加载，查找不发送请求'
+                              : eager
+                                  ? '逐页请求剩余 $remaining 页，可随时停止，已找到的结果会保留'
+                                  : '只查已加载的页面，不发送请求',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 if (keyword.isEmpty)
                   SliverFillRemaining(
                     hasScrollBody: false,
                     child: EmptyStateView(
                       icon: Icons.find_in_page_outlined,
                       title: '查找本帖内容',
-                      message: [
-                        '输入关键词，查找已加载的 $loaded 页内容',
-                        if (total > loaded) '（本帖共 $total 页）',
-                      ].join(),
+                      message: eager
+                          ? '输入关键词后按搜索，确认后逐页读取剩余 $remaining 页'
+                          : [
+                              '输入关键词，查找已加载的 $loaded 页内容',
+                              if (total > loaded) '（本帖共 $total 页）',
+                            ].join(),
                     ),
                   )
                 else
@@ -199,6 +269,18 @@ class ThreadFindSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Asks for this keyword and scope, then reads every page; any change
+  /// while asking cancels it.
+  Future<void> _searchAll(BuildContext context, int remaining) async {
+    final generation = find.generation;
+    final go = await confirmFullScan(context,
+        subject: '本帖', remainingPages: remaining);
+    if (go && context.mounted) {
+      find.chooseEager();
+      find.startIfCurrent(generation, createScan);
+    }
   }
 
   List<Widget> _results(
@@ -218,21 +300,11 @@ class ThreadFindSheet extends StatelessWidget {
         progress.state == ScanState.done || (scan == null && allLoaded);
     final bar = SearchScopeBar(
       progress: progress,
-      onSearchAll: allLoaded
-          ? null
-          : () async {
-              // Asked for this keyword and scope; any change while asking
-              // cancels it.
-              final generation = find.generation;
-              final go = await confirmFullScan(context,
-                  subject: '本帖', remainingPages: total - loaded);
-              if (go && context.mounted) {
-                find.startIfCurrent(generation, createScan);
-              }
-            },
+      onSearchAll:
+          allLoaded ? null : () => _searchAll(context, total - loaded),
       onStop: scan?.stop,
       onResume: scan?.resume,
-      onBackToLoaded: find.stop,
+      onBackToLoaded: find.useLoaded,
     );
     final Widget empty = complete
         ? EmptyStateView(
