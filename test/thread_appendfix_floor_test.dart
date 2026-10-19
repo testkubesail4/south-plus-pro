@@ -17,6 +17,11 @@ String _profile(int uid) =>
     'https://south-plus.net/u.php?action-show-uid-$uid.html';
 
 class _Repo extends ForumRepository {
+  _Repo({this.laterPage = false});
+
+  /// A page 2+ shape: the opening post's metadata without its body.
+  final bool laterPage;
+
   @override
   Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread t) async =>
       null;
@@ -40,7 +45,9 @@ class _Repo extends ForumRepository {
           // The list's last-reply time, which is not the opening post's.
           lastPost: '2099-01-01 00:00',
         ),
-        body: 'opening body',
+        body: laterPage ? '' : 'opening body',
+        pagination: ThreadPagination(
+            currentPage: laterPage ? 2 : 1, totalPages: laterPage ? 2 : 1),
         bodyPostedAt: '2026-10-01 08:00',
         personalSignature: '楼主签名',
         replies: [
@@ -61,7 +68,11 @@ class _Repo extends ForumRepository {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  Future<void> pumpThread(WidgetTester tester, {double scale = 1}) async {
+  Future<void> pumpThread(
+    WidgetTester tester, {
+    double scale = 1,
+    bool laterPage = false,
+  }) async {
     tester.view.physicalSize = const Size(360, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -72,7 +83,7 @@ void main() {
         child: child!,
       ),
       home: ThreadDetailScreen(
-        repository: _Repo(),
+        repository: _Repo(laterPage: laterPage),
         thread:
             const ForumThread(title: '', url: _url, replies: 0, section: ''),
       ),
@@ -87,6 +98,23 @@ void main() {
     expect(find.text('2026-10-01 08:00'), findsOneWidget);
     expect(find.text('2099-01-01 00:00'), findsNothing);
     expect(find.text('楼主签名'), findsOneWidget);
+  });
+
+  testWidgets(
+      'page 2 keeps a compact opening header: time, signature, tags, note',
+      (tester) async {
+    await UserTagStore.save('3', ['资源佬']);
+    await UserNoteStore.save('3', '老甲');
+    await pumpThread(tester, laterPage: true, scale: 2);
+
+    expect(find.text('opening body'), findsNothing);
+    expect(find.text('2026-10-01 08:00'), findsOneWidget);
+    expect(find.text('2099-01-01 00:00'), findsNothing);
+    expect(find.text('楼主签名'), findsOneWidget);
+    expect(find.textContaining('老甲'), findsOneWidget);
+    expect(find.bySemanticsLabel('标签 资源佬'), findsOneWidget);
+    expect(find.text('只看楼主'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('at 2.0x the time stays whole and the signature drops below it',

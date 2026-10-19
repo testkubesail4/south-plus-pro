@@ -2063,6 +2063,9 @@ class _ThreadDetailContent extends StatelessWidget {
             child: _ThreadHeaderCard(
               title: detail.thread.title,
               author: detail.thread.author,
+              // Page 2+: the opening post's own time and signature, no body.
+              postedAt: detail.bodyPostedAt,
+              personalSignature: detail.personalSignature,
               note: noteFor(detail.thread.authorUid),
               tags: tagsFor(detail.thread.authorUid),
               onTagsMore: detail.thread.authorUid == null
@@ -2388,12 +2391,16 @@ class _ThreadHeaderCard extends StatelessWidget {
     this.author,
     this.avatarUrl,
     this.onAuthorTap,
+    this.postedAt,
+    this.personalSignature,
     this.note,
     this.tags = const [],
     this.onTagsMore,
   });
 
   final String title;
+  final String? postedAt;
+  final String? personalSignature;
   final String? note;
   final List<String> tags;
   final VoidCallback? onTagsMore;
@@ -2405,6 +2412,8 @@ class _ThreadHeaderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authorName = author;
+    final meta = postedAt?.trim() ?? '';
+    final signature = personalSignature?.trim() ?? '';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppSpace.lg),
@@ -2423,18 +2432,34 @@ class _ThreadHeaderCard extends StatelessWidget {
                       avatarUrl: avatarUrl,
                     ),
                     const SizedBox(width: AppSpace.md),
-                    Flexible(
-                        child:
-                            _FloorAuthorName(author: authorName, note: note)),
-                    const SizedBox(width: AppSpace.sm),
-                    const AppTag('楼主', accent: true),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: _FloorAuthorName(
+                                    author: authorName, note: note),
+                              ),
+                              const SizedBox(width: AppSpace.sm),
+                              const AppTag('楼主', accent: true),
+                            ],
+                          ),
+                          if (tags.isNotEmpty && onTagsMore != null) ...[
+                            const SizedBox(height: AppSpace.xs),
+                            UserTagsInline(tags: tags, onShowAll: onTagsMore!),
+                          ],
+                          if (meta.isNotEmpty || signature.isNotEmpty) ...[
+                            const SizedBox(height: AppSpace.xs),
+                            _FloorMeta(meta: meta, signature: signature),
+                          ],
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
-              if (tags.isNotEmpty && onTagsMore != null) ...[
-                const SizedBox(height: AppSpace.xs),
-                UserTagsInline(tags: tags, onShowAll: onTagsMore!),
-              ],
               const SizedBox(height: AppSpace.lg),
             ],
             actions,
