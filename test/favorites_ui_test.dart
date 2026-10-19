@@ -9,6 +9,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/favorite_search.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/full_scan.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic titles and names only.
 FavoriteCollectionEntry _entry(String id, String title, String category) =>
@@ -1162,6 +1163,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('已取消收藏'), findsNothing);
     expect(find.text('Other account favourite'), findsOneWidget);
+  });
+  testWidgets('the header buttons centre on the title row inside the gutter',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light,
+      home: Scaffold(body: FavoriteThreadsPage(repository: _Repo())),
+    ));
+    await tester.pumpAndSettle();
+    final title = tester.getRect(find.text('收藏'));
+    final search = tester.getRect(key('favorite-search'));
+    final select = tester.getRect(key('favorite-select-start'));
+    final chip = tester.getRect(key('favorite-folder:all'));
+
+    expect(search.height, greaterThanOrEqualTo(kMinInteractiveDimension));
+    expect(search.width, greaterThanOrEqualTo(kMinInteractiveDimension));
+    expect(search.center.dy, moreOrLessEquals(select.center.dy, epsilon: 0.5));
+    expect(title.center.dy,
+        moreOrLessEquals(search.center.dy, epsilon: AppSpace.xs));
+    // One gutter: the title and the chips start on it, 选择 ends on it.
+    expect(chip.left, title.left);
+    expect(390 - select.right, title.left);
   });
 }
 
