@@ -90,20 +90,70 @@ class FixtureServerTest(unittest.TestCase):
             page2 = request('/read.php?tid-950001-page-2.html').decode()
             self.assertEqual(page2.count('action-modify-'), 1)
             self.assertEqual(page2.count('class="js-post"'), 2)
+            self.assertIn('<i>Reply original</i>', page2)
+            self.assertNotIn('[i]Reply original[/i]', page2)
             edit = '/post.php?action-modify-fid-950-tid-950001-pid-950102-article-2.html'
-            self.assertIn(b'[i]Reply original[/i]', request(edit))
+            form = request(edit)
+            self.assertIn(b'[i]Reply original[/i] [s:716]', form)
+            self.assertNotIn(b'[s:716]', page2.encode())
             fields = dict(round_edit_fields('950102'), atc_title='Synthetic title', atc_content='Edited body')
             for invalid in [dict(fields, action='reply'), dict(fields, atc_money='0')]:
                 with self.assertRaises(HTTPError) as error:
                     request('/post.php?', urlencode(invalid).encode())
                 self.assertEqual(error.exception.code, 400)
             self.assertEqual(json.loads(request('/round/stats'))['edits'], [])
-            request('/post.php?', urlencode(fields).encode())
+            ack = request('/post.php?', urlencode(fields).encode()).decode()
+            self.assertIn('发帖完毕', ack)
+            self.assertIn('http-equiv="refresh"', ack)
+            self.assertIn('read.php?tid=950001&amp;page=2&amp;toread=1#950102', ack)
+            self.assertNotIn('编辑成功', ack)
             refreshed = request('/read.php?tid-950001-page-2.html').decode()
             self.assertIn('Edited body', refreshed)
             self.assertNotIn('Reply original', refreshed)
             self.assertEqual(refreshed.count('class="js-post"'), 2)
             self.assertEqual(len(json.loads(request('/round/stats'))['edits']), 1)
+
+    def test_round_edit_negative_feedback_keeps_original_body_and_next_submit_is_explicit(self):
+        from fixture_server import round_edit_fields
+        with appendfix_server() as (request, _):
+            for feedback, marker in [('ambiguous', '提示信息'), ('rejected', '修改失败'),
+                                     ('wrong-target', 'tid=950099'), ('external', 'https://example.invalid/')]:
+                with self.subTest(feedback=feedback):
+                    request('/round/reset', b'fixture-only')
+                    request(f'/round/edit-{feedback}-next', b'fixture-only')
+                    fields = dict(round_edit_fields('950102'), atc_title='Synthetic title', atc_content='Unsaved edit')
+                    response = request('/post.php?', urlencode(fields).encode()).decode()
+                    self.assertIn(marker, response)
+                    if feedback in ('ambiguous', 'rejected'):
+                        self.assertNotIn('http-equiv="refresh"', response)
+                    state = json.loads(request('/round/stats'))
+                    self.assertEqual(len(state['edit_attempts']), 1)
+                    self.assertEqual(state['edits'], [])
+                    self.assertEqual(state['post_bodies']['950102'], '[i]Reply original[/i] [s:716]')
+                    request('/post.php?', urlencode(fields).encode())
+                    state = json.loads(request('/round/stats'))
+                    self.assertEqual(len(state['edit_attempts']), 2)
+                    self.assertEqual(len(state['edits']), 1)
+                    self.assertEqual(state['post_bodies']['950102'], 'Unsaved edit')
+
+    def test_round_native_metadata_cells_and_explicit_truncated_list_variant(self):
+        truncated = b'<html><body><div id="main">'
+        with appendfix_server() as (request, _):
+            request('/round/reset', b'fixture-only')
+            for action in ('topic', 'post', 'favor', 'friend'):
+                self.assertEqual(request(f'/u.php?action={action}.html'), truncated)
+            path = '/u.php?action-topic-uid-950002.html'
+            native = request(path).decode()
+            self.assertIn('<span class="gray f9">[2025-01-02]</span></th><td>回复:0<br>浏览:0</td>', native)
+            self.assertIn('Known low [1999-01-01] 浏览:999 回复:999</a>', native)
+            request('/round/truncate-list-next', b'fixture-only')
+            self.assertEqual(request(path), truncated)
+            self.assertIn(b'class="u-table"', request(path))
+            request('/round/truncate-favorites', b'fixture-only')
+            self.assertIn(b'Known high', request(path))
+            self.assertEqual(request('/u.php?action-favor-uid-950002.html'), truncated)
+            request('/round/restore-favorites', b'fixture-only')
+            self.assertIn(b'class="u-table"', request('/u.php?action-favor-uid-950002.html'))
 
     def test_round_scan_returns_requested_pages_with_mixed_known_unknown_metrics(self):
         from fixture_server import ROUND_SCAN_GATE
@@ -111,7 +161,7 @@ class FixtureServerTest(unittest.TestCase):
             request('/round/reset', b'fixture-only')
             first = request('/u.php?action-topic-uid-950002.html').decode()
             self.assertIn('Unknown metrics', first)
-            self.assertIn('回复 0 浏览 0', first)
+            self.assertIn('回复:0<br>浏览:0', first)
             self.assertNotIn('Unloaded maximum', first)
             result = []
             pending = threading.Thread(target=lambda: result.append(

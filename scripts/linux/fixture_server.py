@@ -121,8 +121,11 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      favorites={}, categories=['默认分类', 'SPP-repro-10'],
                      page_size=4 if collections else 50, external_events=[], partial_next=False,
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
-                     round=False, edits=[], thread_pages=[], thread_reads=[], topic_pages=[], scan_waiting=False,
-                     post_bodies={'950101': '[b]Opening original[/b]', '950102': '[i]Reply original[/i]'},
+                     round=False, edits=[], edit_attempts=[], edit_form_reads=[], edit_feedback='success',
+                     thread_pages=[], thread_reads=[], topic_pages=[], list_reads=[], scan_waiting=False,
+                     truncate_list_next=False, truncate_favorites=False,
+                     post_bodies={'950101': '[b]Opening original[/b] [url=https://example.invalid/reference]source[/url]',
+                                  '950102': '[i]Reply original[/i] [s:716]'},
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
                                       date_f='yyyy-mm-dd', time_f='24', t_num='0',
                                       p_num='0', proreceivemail='1', friendcheck='0',
@@ -213,13 +216,16 @@ def round_thread(page):
         article = '0' if op else '2'
         link = (f'<a id="modify_{pid}" href="post.php?action-modify-fid-950-tid-950001-pid-{pid}-article-{article}.html">编辑</a>'
                 if edit else '')
-        body = APPENDFIX['post_bodies'].get(pid, 'Another author uneditable body')
+        body = escape(APPENDFIX['post_bodies'].get(pid, 'Another author uneditable body'))
+        body = re.sub(r'\[(b|i)\](.*?)\[/\1\]', r'<\1>\2</\1>', body)
+        body = re.sub(r'\[url=(https://example\.invalid/[^]]+)\](.*?)\[/url\]', r'<a href="\1">\2</a>', body)
+        body = body.replace('[s:716]', '<span>🙂</span>')
         # Live topology: FORM > A[name] + DIV > TABLE, never A + TABLE.
         return f'''<a name="{anchor}"></a><div class="t5 t2"><table class="js-post"><tr>
 <th class="r_two"><a href="u.php?action-show-uid-{'930001' if edit else '950002'}.html"><strong>{author}</strong></a></th>
 <th class="r_one" id="td_{anchor}"><div class="tiptop"><span class="fl"><span class="s3">{floor}</span></span>
 <span class="gray" title="2026-01-03 09:20">2026-01-03 09:20</span>{link}</div>
-<div class="tpc_content"><div id="read_{anchor}">{escape(body)}</div></div></th></tr></table></div>'''
+<div class="tpc_content"><div id="read_{anchor}">{body}</div></div></th></tr></table></div>'''
     posts = post('950101', '楼主', 'Synthetic self', True) if page == 1 else (
         post('950103', 'B1F', 'Synthetic other') + post('950102', 'B2F', 'Synthetic self', True))
     return f'''<html><body><h1 id="subject_tpc">Synthetic edit thread</h1>
@@ -234,16 +240,17 @@ def round_profile(page=None):
 <table id="u-profile"><tr><td>UID</td><td>950002</td></tr></table>'''
     if page is None:
         return f'<html><body>{shell}</body></html>'.encode()
-    data = {1: [('950201', 'Known low', '2025-01-02', '回复 0 浏览 0'),
-                ('950202', 'Unknown metrics', '2025-01-01', ''),
-                ('950203', 'Known high', '2025-01-03', '回复 4 浏览 40')],
-            2: [('950204', 'Unloaded maximum', '2025-02-01', '回复 9 浏览 90')],
+    data = {1: [('950201', 'Known low [1999-01-01] 浏览:999 回复:999', '2025-01-02', '回复:0 浏览:0'),
+                ('950202', 'Unknown metrics..', '2025-01-01', ''),
+                ('950203', 'Known high', '2025-01-03', '回复:4 浏览:40')],
+            2: [('950204', 'Unloaded maximum', '2025-02-01', '回复:9 浏览:90')],
             3: [('950205', 'Unloaded unknown', '2025-02-02', '')]}
-    rows = ''.join(f'''<tr><td><a href="read.php?tid-{tid}.html">{title}</a>
-<a href="thread.php?fid-950.html">Synthetic board</a> [{date}] {metrics}</td></tr>'''
+    rows = ''.join(f'''<tr><th><a href="read.php?tid-{tid}.html">{escape(title)}</a><br>
+<a class="gray" href="thread.php?fid-950.html">Synthetic board</a>
+<span class="gray f9">[{date}]</span></th><td>{metrics.replace(' ', '<br>')}</td></tr>'''
                    for tid, title, date, metrics in data[page])
     return f'''<html><body>{shell}<div id="u-contentmain"><table class="u-table">{rows}</table>
-<div class="pages">Pages: {page}/3<a href="u.php?action-topic-uid-950002-page-3.html">末页</a>
+<div class="pages">Pages: {page}/3<a href="u.php?action=topic&amp;uid=950002&amp;page=3">末页</a>
 </div></div></body></html>'''.encode()
 
 
@@ -523,6 +530,26 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     APPENDFIX['partial_next' if control == 'partial-next' else 'unknown_ack_next'] = True
             self.send_body(b'{}', 'application/json')
             return
+        edit_feedback = {'/round/edit-ambiguous-next': 'ambiguous',
+                         '/round/edit-rejected-next': 'rejected',
+                         '/round/edit-wrong-target-next': 'wrong-target',
+                         '/round/edit-external-next': 'external'}
+        if self.appendfix and APPENDFIX['round'] and raw == b'fixture-only' and path.path in edit_feedback:
+            with APPENDFIX_LOCK:
+                APPENDFIX['edit_feedback'] = edit_feedback[path.path]
+            self.send_body(b'{}', 'application/json')
+            return
+        if self.appendfix and APPENDFIX['round'] and path.path == '/round/truncate-list-next' and raw == b'fixture-only':
+            with APPENDFIX_LOCK:
+                APPENDFIX['truncate_list_next'] = True
+            self.send_body(b'{}', 'application/json')
+            return
+        if self.appendfix and APPENDFIX['round'] and path.path in (
+                '/round/truncate-favorites', '/round/restore-favorites') and raw == b'fixture-only':
+            with APPENDFIX_LOCK:
+                APPENDFIX['truncate_favorites'] = path.path == '/round/truncate-favorites'
+            self.send_body(b'{}', 'application/json')
+            return
         if APPENDFIX['round'] and path.path == '/round/release-scan' and raw == b'fixture-only':
             ROUND_SCAN_GATE.set()
             self.send_body(b'{}', 'application/json')
@@ -623,9 +650,29 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         with APPENDFIX_LOCK:
-            APPENDFIX['post_bodies'][pid] = fields['atc_content'][0]
-            APPENDFIX['edits'].append(fields)
-        self.send_body('<html><body>编辑成功</body></html>'.encode(), 'text/html; charset=utf-8')
+            feedback = APPENDFIX['edit_feedback']
+            APPENDFIX['edit_feedback'] = 'success'
+            APPENDFIX['edit_attempts'].append(fields)
+            if feedback == 'success':
+                APPENDFIX['post_bodies'][pid] = fields['atc_content'][0]
+                APPENDFIX['edits'].append(fields)
+        if feedback == 'ambiguous':
+            body = '<html><head><title>南+ South Plus</title></head><body>提示信息</body></html>'
+        elif feedback == 'rejected':
+            body = '<html><head><title>修改失败</title></head><body>修改失败：正文长度超过限制</body></html>'
+        else:
+            page = 1 if pid == '950101' else 2
+            target = f'read.php?tid=950001&amp;page={page}&amp;toread=1#{pid}'
+            if feedback == 'wrong-target':
+                target = target.replace('tid=950001', 'tid=950099')
+            elif feedback == 'external':
+                target = 'https://example.invalid/' + target
+            # Leader-observed native ACK has 发帖完毕 + redirect, not 编辑成功.
+            body = f'''<html><head><title>南+ South Plus</title>
+<meta http-equiv="refresh" content="1;url={target}"></head><body>提示信息
+[ 发帖完毕点击进入主题列表 ] <a href="{target}">如果您的浏览器没有自动跳转,请点击这里</a>
+</body></html>'''
+        self.send_body(body.encode(), 'text/html; charset=utf-8')
 
     def favorites_submit(self, fields):
         job = fields.get('job', [''])[0]
@@ -746,19 +793,38 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 return
         if APPENDFIX['round'] and path == '/round/stats':
             with APPENDFIX_LOCK:
-                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'thread_pages', 'thread_reads', 'post_bodies', 'topic_pages', 'scan_waiting')}).encode()
+                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'edit_attempts', 'edit_form_reads', 'thread_pages', 'thread_reads', 'post_bodies', 'topic_pages', 'list_reads', 'scan_waiting')}).encode()
             self.send_body(body, 'application/json')
             return
         if self.appendfix and APPENDFIX['round']:
             if path == '/read.php':
                 with APPENDFIX_LOCK:
                     APPENDFIX['thread_reads'].append(query)
-            if path == '/u.php' and 'uid-950002' in query:
-                if 'action-topic-' not in query:
+            params = parse_qs(query)
+            if path == '/u.php' and params.get('action', [''])[0] in ('topic.html', 'post.html', 'favor.html', 'friend.html'):
+                self.send_body(b'<html><body><div id="main">', 'text/html; charset=utf-8')
+                return
+            if path == '/u.php' and ('uid-950002' in query or params.get('uid') == ['950002']):
+                action = params.get('action', [''])[0]
+                is_list = action in ('topic', 'post', 'favor', 'friend') or re.search(
+                    r'action-(?:topic|post|favor|friend)(?:-|\.|$)', query)
+                if not is_list:
                     self.send_body(round_profile(), 'text/html; charset=utf-8')
                     return
+                with APPENDFIX_LOCK:
+                    APPENDFIX['list_reads'].append(query)
+                    truncated = APPENDFIX['truncate_list_next'] or (
+                        APPENDFIX['truncate_favorites'] and (action == 'favor' or 'action-favor-' in query))
+                    APPENDFIX['truncate_list_next'] = False
+                if truncated:
+                    self.send_body(b'<html><body><div id="main">', 'text/html; charset=utf-8')
+                    return
+                if action != 'topic' and 'action-topic-' not in query:
+                    self.send_body(b'<html><body><div id="u-contentmain"><table class="u-table"></table></div></body></html>',
+                                   'text/html; charset=utf-8')
+                    return
                 match = re.search(r'-page-(\d+)', query)
-                page = int(match[1]) if match else 1
+                page = int(match[1]) if match else int(params.get('page', ['1'])[0])
                 if page not in (1, 2, 3):
                     self.send_error(404)
                     return
@@ -788,6 +854,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 if not match or (match[1] == '950101') != (match[2] == '0'):
                     self.send_error(404)
                     return
+                with APPENDFIX_LOCK:
+                    APPENDFIX['edit_form_reads'].append(match[1])
                 self.send_body(round_edit_form(match[1]), 'text/html; charset=utf-8')
                 return
         if path == '/appendfix/stats':
