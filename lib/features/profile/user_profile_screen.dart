@@ -369,7 +369,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         SliverToBoxAdapter(
                           child: ListenableBuilder(
                             listenable: _notes,
-                            builder: (context, _) => _ProfileHeader(
+                            builder: (context, _) => TagColorScope(
+                              colors: _notes.tagColors,
+                              child: _ProfileHeader(
                               profile: profile,
                               note: hasUid ? _notes.noteFor(uid) : null,
                               tags: hasUid ? _notes.tagsFor(uid) : const [],
@@ -393,6 +395,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               onCopyLoginName: _copyLoginName,
                               onSearchByUser:
                                   hasUid ? () => _searchByUser(uid) : null,
+                            ),
                             ),
                           ),
                         ),

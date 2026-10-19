@@ -1677,7 +1677,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     return PerfTrace.span(
       'ThreadDetailScreen.build',
       () {
-        return ScaffoldMessenger(
+        return TagColorScope(
+          colors: _notes.tagColors,
+          child: ScaffoldMessenger(
           key: _messengerKey,
           child: Scaffold(
             appBar: AppBar(
@@ -1775,6 +1777,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                       ),
                     ),
                   ),
+          ),
           ),
         );
       },

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../services/forum_repository.dart';
+import '../../services/tag_color_store.dart';
 import '../../services/tag_vocabulary.dart';
 import '../../theme/app_theme.dart';
 import '../common/content_width.dart';
@@ -75,6 +76,23 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
       name: _annotations.namesFor(uid)?.displayName,
       note: _annotations.noteFor(uid), tags: _annotations.tagsFor(uid),
       onOpenProfile: url == null ? null : () => _openProfile(url));
+  }
+
+  /// Colours a label for every user carrying it, in this screen's account.
+  Future<void> _pickColor(String label) async {
+    if (!_current) return;
+    final picked = await showTagColorPicker(context,
+        tag: label,
+        current: _annotations.tagColors[TagColorStore.key(label)]);
+    if (picked == null || !_current) return;
+    try {
+      await TagColorStore.save(label, picked.isEmpty ? null : picked,
+          account: widget.account);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('颜色未保存，请重试')));
+    }
   }
 
   // The forum profile is read only after this tap, never to draw a row.
@@ -186,7 +204,7 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
                   orElse: () => TagVocabularyEntry(label: key, userCount: 0))
               .label;
           final failed = _annotations.noteLoadError != null || _annotations.tagLoadError != null;
-          return ListView(
+          return TagColorScope(colors: _annotations.tagColors, child: ListView(
             padding: EdgeInsets.symmetric(horizontal: appGutter(MediaQuery.sizeOf(context).width, AppWidths.form), vertical: AppSpace.md),
             children: [
               TextField(controller: _search, onChanged: (_) => setState(() {}),
@@ -225,13 +243,19 @@ class _LocalUserAnnotationsScreenState extends State<LocalUserAnnotationsScreen>
                     for (final entry in tagEntries)
                       AppRow(title: Align(alignment: Alignment.centerLeft, child: UserTagCapsule(tag: entry.label)),
                         value: '${entry.userCount} 位用户',
+                        trailing: IconButton(
+                          key: ValueKey('tag-color-button:${entry.label}'),
+                          tooltip: '设置「${entry.label}」的颜色',
+                          onPressed: failed ? null : () => _pickColor(entry.label),
+                          icon: const Icon(Icons.palette_outlined),
+                        ),
                         onTap: () => setState(() { _tab = 0; _tagFilter = entry.label.toLowerCase(); })),
                   ]),
                 const SizedBox(height: AppSpace.md),
-                Text('点开标签查看用户；在用户上编辑可增删标签', style: Theme.of(context).textTheme.bodySmall),
+                Text('点开标签查看用户；调色板设置颜色；在用户上编辑可增删标签', style: Theme.of(context).textTheme.bodySmall),
               ],
             ],
-          );
+          ));
         },
       )),
     );

@@ -197,6 +197,53 @@ abstract final class AppWidths {
   static const double dialog = 400;
 }
 
+/// Tag capsule colours by stored colour id: (background, text), each pair at
+/// least 6.7:1 in its own theme. A tag without one stays neutral.
+abstract final class AppTagColors {
+  static const names = {
+    'red': '红',
+    'orange': '橙',
+    'amber': '黄',
+    'green': '绿',
+    'teal': '青',
+    'blue': '蓝',
+    'indigo': '靛',
+    'purple': '紫',
+    'pink': '粉',
+    'brown': '棕',
+  };
+
+  static const _light = {
+    'red': (Color(0xFFFFEDEE), Color(0xFF9C1F32)),
+    'orange': (Color(0xFFFFF0E5), Color(0xFF8A3E00)),
+    'amber': (Color(0xFFFFF6D9), Color(0xFF6E5200)),
+    'green': (Color(0xFFE9F5E9), Color(0xFF255F2A)),
+    'teal': (Color(0xFFE4F4F1), Color(0xFF0D5E55)),
+    'blue': (Color(0xFFE8F1FF), Color(0xFF194F90)),
+    'indigo': (Color(0xFFEFEDFF), Color(0xFF44359B)),
+    'purple': (Color(0xFFF5EAFE), Color(0xFF71348D)),
+    'pink': (Color(0xFFFCEAF3), Color(0xFF922958)),
+    'brown': (Color(0xFFF3ECE7), Color(0xFF684730)),
+  };
+
+  static const _dark = {
+    'red': (Color(0xFF402128), Color(0xFFFFB3BD)),
+    'orange': (Color(0xFF3E291B), Color(0xFFFFBC8A)),
+    'amber': (Color(0xFF352F19), Color(0xFFE8CF79)),
+    'green': (Color(0xFF203527), Color(0xFFA7D9AA)),
+    'teal': (Color(0xFF193630), Color(0xFF92D9CC)),
+    'blue': (Color(0xFF21324B), Color(0xFFAACBFF)),
+    'indigo': (Color(0xFF2C2845), Color(0xFFC9BFFF)),
+    'purple': (Color(0xFF36263D), Color(0xFFE2B7F5)),
+    'pink': (Color(0xFF402535), Color(0xFFF5B3D1)),
+    'brown': (Color(0xFF352B24), Color(0xFFDCC1AE)),
+  };
+
+  /// The pair for [id] in the current theme; null for none or an unknown id.
+  static (Color, Color)? of(String? id) =>
+      (identical(AppColors.current, AppColors.darkPalette) ? _dark : _light)[id];
+}
+
 /// Durations and curves (DESIGN.md §12).
 abstract final class AppMotion {
   static const short = Duration(milliseconds: 150);

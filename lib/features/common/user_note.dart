@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 
 import '../../services/forum_repository.dart';
 import '../../services/user_note_store.dart';
+import '../../services/tag_color_store.dart';
 import '../../services/tag_vocabulary.dart';
 import '../../services/user_display_name_store.dart';
 import '../../services/user_tag_store.dart';
 import '../../theme/app_theme.dart';
+import 'user_tags_inline.dart';
 
 const userNoteMaxLength = 40;
 
@@ -19,6 +21,7 @@ class UserNoteController extends ChangeNotifier {
   UserNoteController(this.repository) {
     UserNoteStore.revision.addListener(reload);
     UserTagStore.revision.addListener(reload);
+    TagColorStore.revision.addListener(reload);
     UserDisplayNameStore.revision.addListener(reload);
     // The epoch moves before the final user/config is set, the user moves
     // after: observe both, and reload from a microtask so the scope is final.
@@ -32,6 +35,7 @@ class UserNoteController extends ChangeNotifier {
   Map<String, List<String>> _tags = const {};
   // Names learned from the forum; a missing or unreadable one shows the UID.
   Map<String, UserDisplayName> _names = const {};
+  Map<String, String> _tagColors = const {};
   Object? noteLoadError;
   Object? tagLoadError;
   bool isLoading = true;
@@ -54,6 +58,10 @@ class UserNoteController extends ChangeNotifier {
 
   List<String> tagsFor(String? uid) => uid == null ? const [] : tags[uid] ?? const [];
 
+  /// Normalized tag label → colour id, for a [TagColorScope].
+  Map<String, String> get tagColors =>
+      _loadedScope == repository.localPreferenceAccount ? _tagColors : const {};
+
   /// The learned forum names for [uid] in the loaded scope, if any.
   UserDisplayName? namesFor(String? uid) =>
       uid == null || _loadedScope != repository.localPreferenceAccount
@@ -65,6 +73,7 @@ class UserNoteController extends ChangeNotifier {
     _notes = const {};
     _tags = const {};
     _names = const {};
+    _tagColors = const {};
     _hasLoaded = false;
     _hasTagsLoaded = false;
     noteLoadError = null;
@@ -96,11 +105,18 @@ class UserNoteController extends ChangeNotifier {
     } catch (_) {
       // Names only label rows; without them the UID shows.
     }
+    Map<String, String>? loadedColors;
+    try {
+      loadedColors = await TagColorStore.load(account: scope);
+    } catch (_) {
+      // Colours only decorate tags; without them they stay neutral.
+    }
     if (_disposed || generation != _generation) return;
     if (scope != repository.localPreferenceAccount) return reload();
     if (loadedNotes != null) { _notes = loadedNotes; _hasLoaded = true; }
     if (loadedTags != null) { _tags = loadedTags; _hasTagsLoaded = true; }
     _names = loadedNames ?? const {};
+    _tagColors = loadedColors ?? const {};
     _loadedScope = scope;
     noteLoadError = noteError;
     tagLoadError = tagError;
@@ -113,6 +129,7 @@ class UserNoteController extends ChangeNotifier {
     _disposed = true;
     UserNoteStore.revision.removeListener(reload);
     UserTagStore.revision.removeListener(reload);
+    TagColorStore.revision.removeListener(reload);
     UserDisplayNameStore.revision.removeListener(reload);
     repository.sessionEpoch.removeListener(_onScopeChange);
     repository.sessionUser.removeListener(_onScopeChange);
@@ -215,11 +232,16 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
   // stale for resolving new labels.
   int? _vocabularyRevision;
   bool _resolving = false;
+  // Label colours of the captured account; written at once, apart from 保存.
+  Map<String, String> _colors = const {};
+  String? _colorError;
 
   @override
   void initState() {
     super.initState();
     _loadVocabulary();
+    _loadColors();
+    TagColorStore.revision.addListener(_loadColors);
     // The epoch moves before the final user/origin is set and the user moves
     // after it, so any change of either revokes the sheet.
     widget.repository.sessionEpoch.addListener(_revoke);
@@ -240,8 +262,42 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
     _route = ModalRoute.of(context);
   }
 
+  Future<void> _loadColors() async {
+    try {
+      final colors = await TagColorStore.load(account: widget.account);
+      if (_current) setState(() => _colors = colors);
+    } catch (_) {
+      // Without colours the chips stay neutral.
+    }
+  }
+
+  String? _colorOf(String tag) {
+    try {
+      return _colors[TagColorStore.key(tag)];
+    } on ArgumentError {
+      return null;
+    }
+  }
+
+  /// A label's colour is the account's, for every user with that tag, so it
+  /// is saved at once rather than with this user's draft.
+  Future<void> _pickColor(String tag) async {
+    final current = _colorOf(tag);
+    final picked =
+        await showTagColorPicker(context, tag: tag, current: current);
+    if (picked == null || !_current || picked == (current ?? '')) return;
+    try {
+      await TagColorStore.save(tag, picked.isEmpty ? null : picked,
+          account: widget.account);
+      if (_current) setState(() => _colorError = null);
+    } catch (_) {
+      if (_current) setState(() => _colorError = '颜色未保存，请重试');
+    }
+  }
+
   @override
   void dispose() {
+    TagColorStore.revision.removeListener(_loadColors);
     widget.repository.sessionEpoch.removeListener(_revoke);
     widget.repository.sessionUser.removeListener(_revoke);
     _controller.dispose();
@@ -609,15 +665,20 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
                     ?.copyWith(color: AppColors.textFaint)),
           ]),
           const SizedBox(height: AppSpace.sm),
-          // Assigned tags are neutral, as they are next to the name; brand
-          // colour would read as "selected".
+          // Tags wear their label's colour, as next to the name; tapping one
+          // picks it. Brand colour would read as "selected" and is not offered.
           Wrap(spacing: AppSpace.sm, runSpacing: AppSpace.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
             for (final (index, tag) in _tags.indexed)
               InputChip(
+                key: ValueKey('user-tag-chip:$tag'),
                 label: Text(tag),
-                labelStyle: theme.textTheme.bodySmall
-                    ?.copyWith(color: AppColors.textMuted),
-                backgroundColor: AppColors.inkSoft,
+                labelStyle: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTagColors.of(_colorOf(tag))?.$2 ??
+                        AppColors.textMuted),
+                backgroundColor:
+                    AppTagColors.of(_colorOf(tag))?.$1 ?? AppColors.inkSoft,
+                tooltip: '设置「$tag」的颜色',
+                onPressed: _busy ? null : () => _pickColor(tag),
                 side: BorderSide.none,
                 shape: const StadiumBorder(),
                 visualDensity: VisualDensity.compact,
@@ -638,6 +699,18 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
                 onPressed: _busy ? null : () => setState(() => _addingTag = true),
               ),
           ]),
+          if (_tags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpace.xs),
+              child: Text('点按标签可设置颜色',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: AppColors.textFaint)),
+            ),
+          if (_colorError case final error?)
+            _StatusLine(
+                icon: Icons.error_outline,
+                color: theme.colorScheme.error,
+                text: error),
           if (_tags.length >= UserTagStore.maxTags)
             Padding(
               padding: const EdgeInsets.only(top: AppSpace.sm),
