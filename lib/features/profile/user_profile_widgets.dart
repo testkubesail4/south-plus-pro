@@ -457,8 +457,7 @@ class _ProfileTabs extends StatelessWidget {
         unselectedLabelColor: AppColors.textMuted,
         indicatorColor: AppColors.brand,
         tabs: [
-          Tab(text: '首页'),
-          Tab(text: '资料'),
+          Tab(text: '概览'),
           Tab(text: '主题'),
           Tab(text: '回复'),
           Tab(text: '收藏'),
@@ -482,7 +481,6 @@ class _LoadingProfileFrame extends StatelessWidget {
       ],
       body: TabBarView(
         children: [
-          _RefreshTab(onRefresh: onRefresh, child: const _TabLoadingSkeleton()),
           _RefreshTab(
             onRefresh: onRefresh,
             child: const _ProfileInfoLoadingTab(),
@@ -584,10 +582,17 @@ class _ProfileLoadingHeader extends StatelessWidget {
   }
 }
 
-class _HomeTab extends StatelessWidget {
-  const _HomeTab({required this.profile, required this.repository});
+/// 概览: the overview's facts at once, then the activities, which come with
+/// the details request and load on their own.
+class _OverviewTab extends StatelessWidget {
+  const _OverviewTab({
+    required this.profile,
+    required this.details,
+    required this.repository,
+  });
 
   final UserProfile profile;
+  final Future<UserProfile>? details;
   final ForumRepository repository;
 
   @override
@@ -595,16 +600,42 @@ class _HomeTab extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
       children: [
-        _ActivitySection(
-          title: '个人动态',
-          items: profile.homeActivities,
-          repository: repository,
-        ),
+        _FieldSection(title: '个人信息', fields: profile.info),
         const SizedBox(height: 14),
-        _ActivitySection(
-          title: '最新回复',
-          items: profile.homeReplies,
-          repository: repository,
+        _FieldSection(title: '论坛资历', fields: profile.stats),
+        if (profile.signature != null && profile.signature!.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _TextPanel(title: '帖间签名', text: profile.signature!),
+        ],
+        const SizedBox(height: 14),
+        FutureBuilder<UserProfile>(
+          future: details,
+          builder: (context, snapshot) {
+            // A new future keeps the old user's data until it completes.
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const _SkeletonPanel();
+            }
+            if (snapshot.hasError) {
+              return _TextPanel(
+                  title: '动态加载失败', text: '${snapshot.error}');
+            }
+            final loaded = snapshot.data!;
+            return Column(
+              children: [
+                _ActivitySection(
+                  title: '个人动态',
+                  items: loaded.homeActivities,
+                  repository: repository,
+                ),
+                const SizedBox(height: 14),
+                _ActivitySection(
+                  title: '最新回复',
+                  items: loaded.homeReplies,
+                  repository: repository,
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -646,28 +677,6 @@ class _DetailsTab extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _ProfileInfoTab extends StatelessWidget {
-  const _ProfileInfoTab({required this.profile});
-
-  final UserProfile profile;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.fromLTRB(_gutter(context), 14, _gutter(context), 28),
-      children: [
-        _FieldSection(title: '个人信息', fields: profile.info),
-        const SizedBox(height: 14),
-        _FieldSection(title: '论坛资历', fields: profile.stats),
-        if (profile.signature != null && profile.signature!.isNotEmpty) ...[
-          const SizedBox(height: 14),
-          _TextPanel(title: '帖间签名', text: profile.signature!),
-        ],
-      ],
     );
   }
 }
@@ -1114,7 +1123,7 @@ class _ContentTabState extends State<_ContentTab>
   }
 
   void _onTab() {
-    if (_tabs!.index != widget.tab.index) onLeft();
+    if (_tabs!.index != _tabIndex(widget.tab)) onLeft();
   }
 
   // Leaving (another page, another tab) stops the scan where it is; its rows

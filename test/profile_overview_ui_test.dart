@@ -72,6 +72,20 @@ void main() {
         findsNothing);
   });
 
+  for (final tab in [UserProfileTab.home, UserProfileTab.profile]) {
+    testWidgets('$tab opens 概览 with info and activities', (tester) async {
+      await open(tester, tab: tab);
+      expect(find.text('首页'), findsNothing);
+      expect(find.text('资料'), findsNothing);
+      expect(find.text('个人信息'), findsOneWidget);
+      expect(find.text('个人动态'), findsOneWidget);
+    });
+  }
 
+  testWidgets('a 主题 link still opens on the topic list', (tester) async {
+    await open(tester, tab: UserProfileTab.topics);
+    expect(find.text('第一页主题'), findsOneWidget);
+    expect(find.text('个人信息'), findsNothing);
+  });
 
 }

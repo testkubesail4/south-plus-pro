@@ -43,7 +43,8 @@ void main() {
           url: 'u.php?action-show-uid-${identity.$1}.html',
           info: [UserProfileField(label: '昵称', value: identity.$3)]));
       await openProfile(tester, repository);
-      expect(find.text(identity.$3), findsOneWidget);
+      expect(find.text(identity.$3), findsNWidgets(2),
+          reason: 'the header leads with it; 概览 lists it');
       expect(find.text('${identity.$2} · UID ${identity.$1}'), findsOneWidget);
       expect(find.text('查看登录名'), findsOneWidget);
       expect(find.text('按人查找'), findsOneWidget);
