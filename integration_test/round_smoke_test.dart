@@ -172,6 +172,14 @@ void main() {
     expect(after.where((query) => '$query'.contains('favor')).length,
         greaterThan(favoriteReads),
         reason: 'retry must refetch the failed tab');
+    // Revealing the error's retry can scroll the profile's header tabs away.
+    final outer = find
+        .descendant(
+            of: find.byType(NestedScrollView),
+            matching: find.byType(Scrollable))
+        .first;
+    tester.state<ScrollableState>(outer).position.jumpTo(0);
+    await tester.pumpAndSettle();
     await tap(tester, find.text('主题'));
     await waitFor(tester, find.text('Known high'));
     for (final title in [_lowTitle, 'Unknown metrics..', 'Known high']) {
