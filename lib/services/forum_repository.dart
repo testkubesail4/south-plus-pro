@@ -38,6 +38,8 @@ import 'parsers/home_page_parser.dart';
 import 'parsers/search_result_parser.dart';
 import 'parsers/thread_content_parser.dart';
 import 'parsers/thread_detail_parser.dart';
+import 'parsers/thread_reward_parser.dart';
+import 'parsers/thread_transaction_parser.dart';
 import 'parsers/thread_edit_form_parser.dart';
 import 'parsers/user_profile_parser.dart';
 
@@ -91,6 +93,7 @@ class ForumRepository {
     _sessionEpoch.addListener(_clearProfileDetails);
     _sessionEpoch.addListener(() {
       _restoredDesktopHtml = null;
+      _sentRewardTargets.clear();
       _replyNoticeVerify = null;
       _blocking?.reset();
       _blockingLoadedEpoch = null;
@@ -119,6 +122,10 @@ class ForumRepository {
       BoardThreadPageParser(urls: _urls);
   final ForumFormParser _formParser = const ForumFormParser();
   final _editDraftSessions = Expando<({ForumClient client, int epoch})>();
+  final _composeDraftSessions =
+      Expando<({ForumClient client, int epoch, String? uid})>();
+  final _rewardDraftSessions = Expando<({ForumClient client, int epoch})>();
+  final _sentRewardTargets = <String>{};
   final ForumResponseParser _responseParser = const ForumResponseParser();
   final ForumTasksParser _tasksParser = const ForumTasksParser();
   late HomePageParser _homePageParser = HomePageParser(urls: _urls);
@@ -2164,13 +2171,28 @@ class ForumRepository {
     // above it still carries board-level sticky topics and ads. Do not parse the
     // whole table as threads, because it also contains broader sticky levels
     // that simple mode intentionally hides.
-    final threads = _mergeThreadNewThreads(
+    var threads = _mergeThreadNewThreads(
       _boardThreadPageParser.parseDesktopStickyThreads(
         desktopDocument,
         category,
       ),
       _boardThreadPageParser.parseWallThreads(desktopDocument, category),
     );
+    if (_urls.fidFromCategory(category) == '48' && threads.isNotEmpty) {
+      try {
+        final classic = _boardDocument(
+            await client.getOnce(
+                desktopPath.replaceFirst('thread_new.php', 'thread.php')),
+            category);
+        final bounties = _boardThreadPageParser.nativeBounties(classic);
+        threads = [
+          for (final thread in threads)
+            thread.copyWith(bounty: bounties[_urls.tidFromUrl(thread.url)])
+        ];
+      } catch (_) {
+        // Optional native list metadata must not prevent reading the board.
+      }
+    }
     final hasPictureWall = _boardThreadPageParser.hasPictureWall(
       desktopDocument,
       category,
@@ -2241,46 +2263,238 @@ class ForumRepository {
     ];
   }
 
+  Future<ThreadComposeDraft> fetchThreadComposeDraft(
+      ForumCategory category) async {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    void current() => _requireEditSession(client, epoch);
+    current();
+    final fid = _urls.fidFromCategory(category);
+    if (fid == null) throw const ForumRepositoryException('没有找到版块 ID');
+    final html = await client.getForm('post.php?fid=$fid',
+        requireCurrentSession: current);
+    current();
+    _throwIfBlockedPage(html);
+    final draft =
+        ThreadTransactionParser(_urls).compose(html_parser.parse(html), fid);
+    _composeDraftSessions[draft] =
+        (client: client, epoch: epoch, uid: _accountIdentity.value?.uid);
+    return draft;
+  }
+
   Future<ReplyResult> submitThread({
     required ForumCategory category,
     required String title,
     required String content,
     bool enableReplyNotice = false,
+    ThreadComposeDraft? draft,
+    String? categoryValue,
+    int? bestAnswerAmount,
+    int? helpfulAmount,
+    bool confirmBounty = false,
   }) async {
-    final trimmedTitle = title.trim();
-    final trimmedContent = content.trim();
-    if (trimmedTitle.isEmpty) {
-      return const ReplyResult(success: false, message: '标题不能为空');
+    if (title.trim().isEmpty || content.trim().isEmpty)
+      return const ReplyResult(success: false, message: '标题和正文不能为空');
+    draft ??= await fetchThreadComposeDraft(category);
+    final session = _composeDraftSessions[draft];
+    if (session == null || draft.fid != _urls.fidFromCategory(category))
+      return const ReplyResult(success: false, message: '请重新打开发帖表单');
+    void current() => _requireEditSession(session.client, session.epoch);
+    current();
+    if (categoryValue != null &&
+        categoryValue.isNotEmpty &&
+        !draft.categories.any((c) => c.value == categoryValue))
+      return const ReplyResult(success: false, message: '分类无效');
+    if (draft.bountySupported &&
+        (!confirmBounty ||
+            bestAnswerAmount == null ||
+            helpfulAmount == null ||
+            bestAnswerAmount < (draft.minBestAmount ?? 20) ||
+            helpfulAmount < (draft.minHelpfulAmount ?? 10) ||
+            bestAnswerAmount > 0x3fffffff ||
+            helpfulAmount > 0x3fffffff)) {
+      return const ReplyResult(success: false, message: '请确认悬赏金额与扣款后提交');
     }
-    if (trimmedContent.isEmpty) {
-      return const ReplyResult(success: false, message: '正文不能为空');
+    final fields = [
+      for (final entry in draft.controls)
+        if (!const {
+          'atc_title',
+          'atc_content',
+          'atc_newrp',
+          'p_type',
+          'bonus[best]',
+          'bonus[active]',
+          'Submit'
+        }.contains(entry.key))
+          entry,
+      MapEntry('atc_title', title.trim()),
+      MapEntry('atc_content', content.trim()),
+      if (draft.categories.isNotEmpty) MapEntry('p_type', categoryValue ?? ''),
+      if (draft.bountySupported) ...[
+        MapEntry('bonus[best]', '$bestAnswerAmount'),
+        MapEntry('bonus[active]', '$helpfulAmount')
+      ],
+      if (enableReplyNotice) const MapEntry('atc_newrp', '1'),
+      const MapEntry('Submit', '提 交'),
+    ];
+    _composeDraftSessions[draft] = null;
+    _clearProfileDetails();
+    const unknown = ReplyResult(
+        success: false, unconfirmed: true, message: '发布结果未确认，请查看版块核对，勿重复提交');
+    try {
+      final response = await session.client.postForm(draft.actionPath, fields,
+          multipart: draft.multipart, requireCurrentSession: current);
+      current();
+      final tid = ThreadTransactionParser(_urls)
+          .composedThreadId(html_parser.parse(response));
+      if (tid == null || session.uid == null) return unknown;
+      final document = html_parser.parse(await session.client
+          .getForm('read.php?tid-$tid.html', requireCurrentSession: current));
+      current();
+      final opening = _threadDetailParser
+          .desktopThreadCards(document)
+          .where((post) => post.postId == 'tpc')
+          .firstOrNull;
+      var returnedTitle = _threadDetailParser.threadTitle(document);
+      final categoryLabel = draft.categories
+          .where((category) => category.value == categoryValue)
+          .firstOrNull
+          ?.label;
+      if (categoryLabel != null)
+        returnedTitle = returnedTitle?.replaceFirst(
+            RegExp('^\\[${RegExp.escape(categoryLabel)}\\]\\s*'), '');
+      if (_urls.tidFromUrl(_threadDetailParser.threadUrl(document) ?? '') !=
+              tid ||
+          opening?.authorUid != session.uid ||
+          returnedTitle != title.trim()) return unknown;
+      _clearProfileDetails();
+      return const ReplyResult(success: true, message: '主题已发布');
+    } catch (_) {
+      return unknown;
     }
+  }
 
-    final fid = _urls.fidFromCategory(category);
-    if (fid == null) {
-      return const ReplyResult(success: false, message: '没有找到版块 ID');
-    }
-
-    final html = await _client.get('post.php?fid=$fid');
-    _throwIfBlockedPage(html);
+  Future<({dom.Document document, ThreadBounty bounty, ThreadReply target})>
+      _rewardState(ForumClient client, ThreadRewardAction action,
+          void Function() current) async {
+    final html = await client.getForm(
+        _urls.threadDetailPath('read.php?tid-${action.tid}.html',
+            page: action.page),
+        requireCurrentSession: current);
+    current();
     final document = html_parser.parse(html);
-    final form = document.querySelector('form[name="FORM"]');
-    if (form == null) {
-      return ReplyResult(
-          success: false, message: _responseParser.pageMessage(html));
+    if (_urls.tidFromUrl(_threadDetailParser.threadUrl(document) ?? '') !=
+        action.tid) throw const ForumRepositoryException('响应不是所选帖子');
+    if (_threadDetailParser
+            .desktopPagination(document,
+                requestedPage: action.page,
+                threadUrl: 'read.php?tid-${action.tid}.html')
+            .currentPage !=
+        action.page) throw const ForumRepositoryException('回复分页不匹配');
+    final target = _threadDetailParser
+        .desktopThreadCards(document)
+        .where((p) => p.postId == action.pid)
+        .firstOrNull;
+    if (target == null) {
+      _throwIfBlockedPage(html);
+      throw const ForumRepositoryException('没有找到所选回复');
     }
+    final opening = action.page == 1
+        ? document
+        : html_parser.parse(await client.getForm(
+            'read.php?tid-${action.tid}.html',
+            requireCurrentSession: current));
+    current();
+    if (_urls.tidFromUrl(_threadDetailParser.threadUrl(opening) ?? '') !=
+        action.tid) throw const ForumRepositoryException('响应不是所选帖子');
+    final native = ThreadRewardParser(_urls);
+    final post = native
+        .nativePosts(opening)
+        .where((p) => native.postId(p) == 'tpc')
+        .firstOrNull;
+    final bounty = post == null ? null : ThreadRewardParser(_urls).bounty(post);
+    if (bounty == null) throw const ForumRepositoryException('无法确认悬赏状态');
+    return (document: document, bounty: bounty, target: target);
+  }
 
-    final fields = _formParser.defaults(form)
-      ..remove('atc_newrp')
-      ..['atc_title'] = trimmedTitle
-      ..['atc_content'] = trimmedContent
-      ..['Submit'] = '提 交';
-    if (enableReplyNotice) fields['atc_newrp'] = '1';
+  Future<ThreadRewardDraft> fetchRewardDraft(ThreadRewardAction action) async {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    void current() => _requireEditSession(client, epoch);
+    current();
+    final parsed = ThreadRewardParser(_urls).action(action.url);
+    if (parsed == null ||
+        parsed.tid != action.tid ||
+        parsed.pid != action.pid ||
+        parsed.kind != action.kind ||
+        action.page < 1) throw const ForumRepositoryException('奖励操作无效');
+    if (_sentRewardTargets.contains('${action.tid}:${action.pid}'))
+      throw const ForumRepositoryException('奖励已提交，请刷新确认，勿重复操作');
+    final state = await _rewardState(client, action, current);
+    if (state.bounty.status != ForumBountyStatus.active ||
+        state.target.award != null ||
+        !state.target.rewardActions
+            .any((a) => a.url == parsed.url && a.tid == action.tid))
+      throw const ForumRepositoryException('没有奖励权限或奖励已结束');
+    final response = await client.getForm(_urls.relativePath(parsed.url),
+        requireCurrentSession: current);
+    current();
+    _throwIfBlockedPage(response);
+    final draft = ThreadTransactionParser(_urls)
+        .reward(html_parser.parse(response), action);
+    _rewardDraftSessions[draft] = (client: client, epoch: epoch);
+    return draft;
+  }
 
-    final action = form.attributes['action'] ?? 'post.php?';
-    final response = await _client.post(
-        _urls.relativePath(_urls.absoluteUrl(action)), fields);
-    return _replyResult(response, '主题已发布');
+  Future<ThreadRewardResult> submitReward(
+      {required ThreadRewardDraft draft, bool notify = true}) async {
+    const failed = ThreadRewardResult(
+        outcome: ThreadRewardOutcome.failed, message: '操作不可用，请刷新确认，勿重复提交');
+    const unknown = ThreadRewardResult(
+        outcome: ThreadRewardOutcome.unknown, message: '结果未确认，请刷新帖子核对，勿重复提交');
+    final session = _rewardDraftSessions[draft];
+    final key = '${draft.action.tid}:${draft.action.pid}';
+    if (session == null || _sentRewardTargets.contains(key)) return failed;
+    void current() => _requireEditSession(session.client, session.epoch);
+    current();
+    // Consume before the first await, including concurrent confirmation taps.
+    _rewardDraftSessions[draft] = null;
+    final before = await _rewardState(session.client, draft.action, current);
+    if (before.bounty.status != ForumBountyStatus.active ||
+        before.target.award != null ||
+        !before.target.rewardActions.any((a) => a.url == draft.action.url))
+      return failed;
+    current();
+    if (!_sentRewardTargets.add(key)) return failed;
+    final fields = [
+      for (final e in draft.controls)
+        if (e.key != 'ifmsg') e,
+      MapEntry('ifmsg', notify ? '1' : '0')
+    ];
+    try {
+      final response = await session.client
+          .postForm(draft.actionPath, fields, requireCurrentSession: current);
+      current();
+      final acknowledged = ThreadTransactionParser(_urls)
+          .rewardAcknowledged(html_parser.parse(response), draft.action.tid);
+      final after = await _rewardState(session.client, draft.action, current);
+      final expected = after.target.award?.kind == draft.action.kind &&
+          (after.target.award?.amount ?? 0) > 0 &&
+          after.target.rewardActions.isEmpty;
+      final stateConfirmed = draft.action.kind == ThreadRewardKind.bestAnswer
+          ? after.bounty.status == ForumBountyStatus.ended &&
+              after.target.award?.amount == before.bounty.bestAmount
+          : after.bounty.status == ForumBountyStatus.active &&
+              before.bounty.helpfulRemaining != null &&
+              after.bounty.helpfulRemaining ==
+                  before.bounty.helpfulRemaining! - after.target.award!.amount;
+      if (acknowledged && expected && stateConfirmed)
+        return const ThreadRewardResult(
+            outcome: ThreadRewardOutcome.success, message: '奖励已确认');
+      return unknown;
+    } catch (_) {
+      return unknown;
+    }
   }
 
   Future<String> fetchLoginUsername(String numericUid) async {
@@ -2452,7 +2666,8 @@ class ForumRepository {
             _profileDetailsData = details;
             // Reuse one UID's complete details for 60s; failures remain retriable.
             _profileDetailsTimer = Timer(const Duration(seconds: 60), () {
-              if (identical(_profileDetailsFuture, next)) _evictProfileDetails();
+              if (identical(_profileDetailsFuture, next))
+                _evictProfileDetails();
             });
           }
         }
@@ -2518,12 +2733,50 @@ class ForumRepository {
   }) async {
     final normalizedPage = page < 1 ? 1 : page;
     final detailPath = _urls.threadDetailPath(thread.url, page: normalizedPage);
+    final client = _client;
+    final epoch = _sessionEpoch.value;
     final html =
-        await _client.get(Uri.parse(detailPath).removeFragment().toString());
+        await client.get(Uri.parse(detailPath).removeFragment().toString());
+    final document = html_parser.parse(html);
+    final actualPage = _threadDetailParser
+        .desktopPagination(document,
+            requestedPage: normalizedPage, threadUrl: thread.url)
+        .currentPage;
+    ThreadReply? openingMetadata;
+    if (actualPage > 1) {
+      try {
+        final tid = _urls.tidFromUrl(thread.url);
+        if (tid != null) {
+          final opening =
+              html_parser.parse(await client.get('read.php?tid-$tid.html'));
+          if (_urls.tidFromUrl(_threadDetailParser.threadUrl(opening) ?? '') ==
+              tid) {
+            openingMetadata = _threadDetailParser
+                .desktopThreadCards(opening)
+                .where((p) => p.postId == 'tpc')
+                .firstOrNull;
+          }
+        }
+      } catch (_) {
+        // Header enrichment must not prevent reading the requested page.
+      }
+    }
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
     final favorite = await _extractThreadFavorite(thread, html);
-    final detail = _parseThreadPage(thread, html_parser.parse(html), html,
-        page: normalizedPage, detailPath: detailPath, favorite: favorite);
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
+    final detail = _parseThreadPage(thread, document, html,
+        page: normalizedPage,
+        detailPath: detailPath,
+        favorite: favorite,
+        openingMetadata: openingMetadata);
     await _recordThreadView(detail.thread);
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
     return detail;
   }
 
@@ -2531,7 +2784,8 @@ class ForumRepository {
       ForumThread thread, dom.Document document, String html,
       {required int page,
       required String detailPath,
-      ThreadFavorite? favorite}) {
+      ThreadFavorite? favorite,
+      ThreadReply? openingMetadata}) {
     final posts = _threadDetailParser.desktopThreadCards(document);
     final pagination = _threadDetailParser.desktopPagination(
       document,
@@ -2547,15 +2801,17 @@ class ForumRepository {
 
     final authorFilterUid = _urls.uidFromUrl(thread.url);
     final originalUid = _urls.uidFromUrl(originalPosterPostsUrl(thread) ?? '');
-    final openingFloor = posts.first.floor == '楼主' ||
+    final openingFloor = posts.first.postId == 'tpc' ||
+        posts.first.floor == '楼主' ||
         RegExp(r'^B?0F?$', caseSensitive: false)
-            .hasMatch(posts.first.floor ?? '') ||
-        posts.first.anchors.any({'tpc', 'read_tpc', 'td_tpc'}.contains);
+            .hasMatch(posts.first.floor ?? '');
     final isOpeningPage = pagination.currentPage == 1 &&
         openingFloor &&
         (authorFilterUid == null || authorFilterUid == originalUid);
     final first = isOpeningPage ? posts.first : null;
-    final updateOriginalAuthor = authorFilterUid == null;
+    final header = first ?? openingMetadata;
+    final updateOriginalAuthor =
+        authorFilterUid == null || openingMetadata != null;
     final detailThread = thread.copyWith(
       title: _threadDetailParser.threadTitle(document) ?? thread.title,
       url: _canonicalThreadUrl(
@@ -2564,10 +2820,10 @@ class ForumRepository {
         detailPath: detailPath,
       ),
       section: section ?? thread.section,
-      author: updateOriginalAuthor ? first?.author : null,
-      authorUrl: updateOriginalAuthor ? first?.authorUrl : null,
-      authorAvatarUrl: updateOriginalAuthor ? first?.authorAvatarUrl : null,
-      authorPostsUrl: updateOriginalAuthor ? first?.authorPostsUrl : null,
+      author: updateOriginalAuthor ? header?.author : null,
+      authorUrl: updateOriginalAuthor ? header?.authorUrl : null,
+      authorAvatarUrl: updateOriginalAuthor ? header?.authorAvatarUrl : null,
+      authorPostsUrl: updateOriginalAuthor ? header?.authorPostsUrl : null,
       lastPost: first?.postedAt ?? thread.lastPost,
     );
 
@@ -2586,8 +2842,17 @@ class ForumRepository {
       bodyQuoteUrl: first?.quoteUrl,
       bodyEditLink: first?.editLink,
       bodyContentKey: first?.blockContentKey,
-      personalSignature: first?.personalSignature,
-      bodyPostedAt: first?.postedAt,
+      personalSignature: header?.personalSignature,
+      bodyPostedAt: header?.postedAt,
+      bodyRatings: first?.ratings ?? const [],
+      bodyBounty: isOpeningPage
+          ? ThreadRewardParser(_urls)
+              .nativePosts(document)
+              .where((post) => ThreadRewardParser(_urls).postId(post) == 'tpc')
+              .map((post) => ThreadRewardParser(_urls).bounty(post))
+              .whereType<ThreadBounty>()
+              .firstOrNull
+          : null,
       replies: isOpeningPage ? posts.skip(1).toList() : posts,
       pagination: pagination,
       favorite: favorite,

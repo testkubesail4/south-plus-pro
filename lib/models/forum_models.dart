@@ -190,6 +190,7 @@ class ForumThread {
     this.previewImageUrl,
     this.isSticky = false,
     this.titleStyle,
+    this.bounty,
   });
 
   final String title;
@@ -206,6 +207,7 @@ class ForumThread {
   final String? previewImageUrl;
   final bool isSticky;
   final ForumTitleStyle? titleStyle;
+  final ForumBounty? bounty;
 
   ForumThread copyWith({
     String? title,
@@ -221,6 +223,7 @@ class ForumThread {
     String? previewImageUrl,
     bool? isSticky,
     ForumTitleStyle? titleStyle,
+    ForumBounty? bounty,
   }) {
     return ForumThread(
       title: title ?? this.title,
@@ -236,6 +239,7 @@ class ForumThread {
       previewImageUrl: previewImageUrl ?? this.previewImageUrl,
       isSticky: isSticky ?? this.isSticky,
       titleStyle: titleStyle ?? this.titleStyle,
+      bounty: bounty ?? this.bounty,
     );
   }
 }
@@ -342,6 +346,8 @@ class ThreadDetail {
     this.bodyEditLink,
     this.bodyContentKey,
     this.bodyPostedAt,
+    this.bodyRatings = const [],
+    this.bodyBounty,
     this.personalSignature,
     this.favorite,
     this.previousThread,
@@ -366,6 +372,8 @@ class ThreadDetail {
   final ThreadActionLink? bodyEditLink;
   final String? bodyContentKey;
   final String? bodyPostedAt;
+  final List<ThreadRating> bodyRatings;
+  final ThreadBounty? bodyBounty;
   final String? personalSignature;
   final ThreadFavorite? favorite;
   final ThreadActionLink? previousThread;
@@ -409,6 +417,10 @@ class ThreadReply {
     this.links = const [],
     this.saleBoxes = const [],
     this.saleBoxesFirst = false,
+    this.ratings = const [],
+    this.award,
+    this.rewardActions = const [],
+    this.postId,
   });
 
   final String author;
@@ -432,6 +444,129 @@ class ThreadReply {
   final List<ThreadLink> links;
   final List<ThreadSaleBox> saleBoxes;
   final bool saleBoxesFirst;
+  final List<ThreadRating> ratings;
+  final ThreadAward? award;
+  final List<ThreadRewardAction> rewardActions;
+  final String? postId;
+}
+
+enum ForumBountyStatus { active, expired, ended, unknown }
+
+enum ForumBountySource { native, inferred }
+
+enum ThreadRewardKind { bestAnswer, helpful }
+
+class ForumBounty {
+  const ForumBounty({this.amount, required this.status, required this.source});
+  final int? amount;
+  final ForumBountyStatus status;
+  final ForumBountySource source;
+}
+
+class ThreadRating {
+  const ThreadRating(
+      {required this.currency, required this.amount, required this.text});
+  final String currency;
+  final int amount;
+  final String text;
+}
+
+class ThreadBounty {
+  const ThreadBounty(
+      {required this.status,
+      required this.text,
+      this.bestAmount,
+      this.helpfulRemaining,
+      this.remainingHours,
+      this.currency = 'SP币'});
+  final ForumBountyStatus status;
+  final String text;
+  final int? bestAmount;
+  final int? helpfulRemaining;
+  final int? remainingHours;
+  final String currency;
+}
+
+class ThreadAward {
+  const ThreadAward(
+      {required this.kind,
+      required this.amount,
+      required this.text,
+      this.currency = 'SP币'});
+  final ThreadRewardKind kind;
+  final int amount;
+  final String text;
+  final String currency;
+}
+
+class ThreadRewardAction {
+  const ThreadRewardAction(
+      {required this.kind,
+      required this.url,
+      required this.tid,
+      required this.pid,
+      this.page = 1});
+  final ThreadRewardKind kind;
+  final String url;
+  final String tid;
+  final String pid;
+  final int page;
+}
+
+class ThreadComposeCategory {
+  const ThreadComposeCategory({required this.value, required this.label});
+  final String value;
+  final String label;
+}
+
+class ThreadComposeDraft {
+  const ThreadComposeDraft(
+      {required this.categories,
+      required this.selectedCategory,
+      required this.bountySupported,
+      required this.controls,
+      required this.actionPath,
+      required this.fid,
+      this.multipart = false,
+      this.defaultBestAmount,
+      this.defaultHelpfulAmount,
+      this.minBestAmount,
+      this.minHelpfulAmount,
+      this.bountyCurrency});
+  final List<ThreadComposeCategory> categories;
+  final String? selectedCategory;
+  final bool bountySupported;
+  final int? defaultBestAmount;
+  final int? defaultHelpfulAmount;
+  final int? minBestAmount;
+  final int? minHelpfulAmount;
+  final String? bountyCurrency;
+  final List<MapEntry<String, String>> controls;
+  final String actionPath;
+  final String fid;
+  final bool multipart;
+}
+
+class ThreadRewardDraft {
+  const ThreadRewardDraft(
+      {required this.action,
+      required this.controls,
+      required this.actionPath,
+      this.nativeRules,
+      this.notifyDefault = true});
+  final ThreadRewardAction action;
+  final List<MapEntry<String, String>> controls;
+  final String actionPath;
+  final String? nativeRules;
+  final bool notifyDefault;
+}
+
+enum ThreadRewardOutcome { success, failed, unknown }
+
+class ThreadRewardResult {
+  const ThreadRewardResult({required this.outcome, required this.message});
+  final ThreadRewardOutcome outcome;
+  final String message;
 }
 
 enum ThreadContentSegmentType {
@@ -1150,10 +1285,12 @@ class ReplyResult {
   const ReplyResult({
     required this.success,
     required this.message,
+    this.unconfirmed = false,
   });
 
   final bool success;
   final String message;
+  final bool unconfirmed;
 }
 
 enum ForumTaskStatus {

@@ -79,7 +79,8 @@ class BoardThreadPageParser {
     if (selected != null) {
       final key = urls.boardDesktopPath(category, filter: selected);
       for (final filter in filters) {
-        if (urls.boardDesktopPath(category, filter: filter) == key) return filter;
+        if (urls.boardDesktopPath(category, filter: filter) == key)
+          return filter;
       }
       return selected;
     }
@@ -318,6 +319,7 @@ class BoardThreadPageParser {
     return ForumThread(
       title: title,
       titleStyle: parseThreadTitleStyle(threadLink),
+      bounty: _bounty(threadLink.parent, row),
       url: urls.absoluteUrl(href),
       replies: int.tryParse(metrics.group(1)!) ?? 0,
       section: category.name,
@@ -328,6 +330,39 @@ class BoardThreadPageParser {
       lastPost: date?.group(0),
       isSticky: true,
     );
+  }
+
+  Map<String, ForumBounty> nativeBounties(dom.Document document) {
+    final result = <String, ForumBounty>{};
+    for (final row in document.querySelectorAll('#ajaxtable tr.tr3')) {
+      final link = _desktopThreadLink(row);
+      if (link == null) continue;
+      final tid = urls.tidFromUrl(link.attributes['href'] ?? '');
+      final bounty = _bounty(link.parent, row);
+      if (tid != null && bounty != null) result[tid] = bounty;
+    }
+    return result;
+  }
+
+  ForumBounty? _bounty(dom.Element? heading, dom.Element row) {
+    if (heading?.localName != 'h3' &&
+        heading?.classes.contains('section-title') != true) return null;
+    for (final span
+        in heading!.children.where((e) => e.classes.contains('s1'))) {
+      final match = RegExp(r'悬赏金额\s*[:：]\s*(\d+)').firstMatch(span.text);
+      if (match != null)
+        return ForumBounty(
+            amount: int.parse(match.group(1)!),
+            status: ForumBountyStatus.active,
+            source: ForumBountySource.native);
+    }
+    if (row.querySelectorAll('img[src]').any((image) =>
+        RegExp(r'/(?:thread/)?reward\.gif(?:\?|$)')
+            .hasMatch(image.attributes['src'] ?? ''))) {
+      return const ForumBounty(
+          status: ForumBountyStatus.unknown, source: ForumBountySource.native);
+    }
+    return null;
   }
 
   String? _wallPreviewImageUrl(dom.Element item) {

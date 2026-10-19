@@ -153,7 +153,8 @@ void main() {
         url: 'https://blue-plus.net/read.php?tid-701-uid-901-page-e.html#pid42',
         replies: 0,
         section: 'Fixture board'));
-    expect(client.paths.single, 'read.php?tid-701-uid-901-page-e.html');
+    expect(client.paths.first, 'read.php?tid-701-uid-901-page-e.html');
+    expect(client.paths.last, 'read.php?tid-701.html');
     expect(first.pagination.currentPage, 2);
     expect(first.replies.single.anchors,
         containsAll(['pid42', 'read_42', 'fl-11']));
@@ -161,10 +162,12 @@ void main() {
         'https://south-plus.net/read.php?tid-701-uid-901.html');
     await repository.fetchThreadDetail(first.thread, page: 2);
     await repository.fetchThreadDetail(first.thread, page: 2);
-    expect(client.paths.skip(1), [
+    expect(client.paths.where((path) => path.contains('uid-901')).skip(1), [
       'read.php?tid-701-uid-901-fpage-0-toread--page-2.html',
       'read.php?tid-701-uid-901-fpage-0-toread--page-2.html',
     ]);
+    expect(client.paths.where((path) => !path.contains('uid-901')),
+        everyElement('read.php?tid-701.html'));
   });
   final urls = ForumUrlResolver(baseUri: Uri.https('south-plus.net', '/'));
   test(
