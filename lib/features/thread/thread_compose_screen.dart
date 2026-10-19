@@ -35,6 +35,8 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   String? _error;
   // Sent without a clear answer from the forum: this screen never sends again.
   bool _unconfirmed = false;
+  bool _draftNotKept = false;
+  bool _posted = false;
   // The board's native form: its categories and bounty rules.
   ThreadComposeDraft? _form;
   Object? _formError;
@@ -132,7 +134,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   }
 
   Future<void> _submit() async {
-    if (_submitting || _unconfirmed) return;
+    if (_submitting || _unconfirmed || _posted) return;
     final bounty = _bounty;
     if (bounty != null) {
       if (bounty.error case final error?) {
@@ -160,9 +162,13 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
       );
       if (!mounted) return;
       if (result.unconfirmed) {
-        // It may have posted (and charged): keep the text, never resend.
-        await _storeDraft();
-        if (mounted) setState(() => _unconfirmed = true);
+        // It may have posted (and charged): lock first, then keep the text.
+        setState(() => _unconfirmed = true);
+        try {
+          await _storeDraft();
+        } catch (_) {
+          if (mounted) setState(() => _draftNotKept = true);
+        }
         return;
       }
       if (!result.success) {
@@ -171,10 +177,16 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
         return;
       }
 
-      await _clearDraft();
+      // Posted: nothing below may turn this back into a retryable send.
+      _posted = true;
+      try {
+        await _clearDraft();
+      } catch (_) {
+        // A stale local draft is harmless; the post itself is up.
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message)),
+        const SnackBar(content: Text('主题已发布')),
       );
       Navigator.of(context).pop(true);
     } on ForumRequestException catch (error) {
@@ -316,7 +328,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
             // While sending, a spinner joins the label, which stays.
             child: FilledButton.icon(
               key: const ValueKey('compose-submit'),
-              onPressed: _submitting || _unconfirmed || !_draftLoaded
+              onPressed: _submitting || _unconfirmed || _posted || !_draftLoaded
                   ? null
                   : _submit,
               style: FilledButton.styleFrom(
@@ -362,9 +374,10 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                                 if (_unconfirmed)
                                   MaterialBanner(
                                     key: const ValueKey('compose-unconfirmed'),
-                                    content: const Text(
+                                    content: Text(
                                       '发布结果未确认：请求已发出，但没有收到论坛的明确答复。'
-                                      '请到版块查看是否已发布，不要重复发布。草稿已保留。',
+                                      '请到版块查看是否已发布，不要重复发布。'
+                                      '${_draftNotKept ? '草稿未能保存到本机，离开前请先复制正文。' : '草稿已保留。'}',
                                     ),
                                     leading: const Icon(Icons.help_outline),
                                     actions: [
