@@ -165,7 +165,8 @@ class FixtureServerTest(unittest.TestCase):
                 with self.assertRaises(HTTPError) as error:
                     request('/post.php?', urlencode(dict(fields, **{key: ''})).encode())
                 self.assertEqual(error.exception.code, 400)
-            self.assertIn('发表成功', request('/post.php?', urlencode(fields).encode()).decode())
+            self.assertEqual(request('/post.php?', urlencode(fields).encode()).decode(),
+                             '<html><body>Synthetic publish received</body></html>')
             stats = json.loads(request('/r8/stats'))
             self.assertEqual(stats['compose_attempts'][-1]['bonus[best]'], ['25'])
             self.assertEqual(stats['awards'], {})

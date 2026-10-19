@@ -740,7 +740,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             # No raw native reward ACK was captured: only a deliberately unknown response is modelled.
             body = b'<html><body>Synthetic received</body></html>'
         else:
-            body = b'<html><body>\xe5\x8f\x91\xe8\xa1\xa8\xe6\x88\x90\xe5\x8a\x9f<a href="read.php?tid-960004.html">Return</a></body></html>'
+            body = b'<html><body>Synthetic publish received</body></html>'
         self.send_body(body, 'text/html; charset=utf-8')
 
     def round_edit_submit(self, raw):
