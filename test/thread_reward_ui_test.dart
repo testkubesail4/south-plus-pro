@@ -350,7 +350,7 @@ void main() {
     // fresh page governs every other floor.
     final best = find.byKey(const ValueKey('reward-best-102'));
     expect(tester.widget<OutlinedButton>(best).onPressed, isNull);
-    expect(find.textContaining('上次评选结果未确认'), findsOneWidget);
+    expect(find.textContaining('已提交过评选'), findsOneWidget);
     expect(tester.widget<OutlinedButton>(other).onPressed, isNotNull);
   });
 

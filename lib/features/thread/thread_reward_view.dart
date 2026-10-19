@@ -270,7 +270,7 @@ class _RewardButtons extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: AppSpace.xs),
             child: Text(
-              '上次评选结果未确认，请刷新或在网页端核对后再操作',
+              '已提交过评选，请刷新或在网页端核对结果',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),

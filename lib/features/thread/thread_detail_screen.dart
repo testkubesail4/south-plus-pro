@@ -80,7 +80,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   // An award with an unknown outcome locks every award until a fresh page
   // load, and its own floor for the screen's life: it is never sent twice.
   bool _rewardLocked = false;
-  final _rewardUnconfirmed = <String>{};
+  final _rewardSent = <String>{};
   bool _rewarding = false;
   // Moves when the session or the thread changes: an open category sheet
   // closes and a favorite call still in flight is ignored.
@@ -1305,6 +1305,13 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       if (mounted) setState(() => _rewarding = false);
     }
     if (result == null || !mounted) return;
+    if (result.outcome != ThreadRewardOutcome.failed) {
+      // Sent: locked until a fresh page shows the forum's state.
+      setState(() {
+        _rewardLocked = true;
+        _rewardSent.add(action.pid);
+      });
+    }
     if (repository.sessionEpoch.value != epoch) return;
     switch (result.outcome) {
       case ThreadRewardOutcome.success:
@@ -1319,10 +1326,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
               : '评选未成功：${result.message}'),
         ));
       case ThreadRewardOutcome.unknown:
-        setState(() {
-          _rewardLocked = true;
-          _rewardUnconfirmed.add(action.pid);
-        });
         final refresh = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -1732,7 +1735,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           onBuySaleBox: _handleBuySaleBox,
           onRefreshSaleBox: _refreshSaleBoxPage,
           rewardLocked: _rewardLocked || _rewarding,
-          rewardUnconfirmed: _rewardUnconfirmed,
+          rewardSent: _rewardSent,
           onReward: _handleReward,
           onReplyToFloor: _replyToFloor,
           onPageSelected: _goToPage,
@@ -1975,7 +1978,7 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.onBuySaleBox,
     required this.onRefreshSaleBox,
     required this.rewardLocked,
-    required this.rewardUnconfirmed,
+    required this.rewardSent,
     required this.onReward,
     required this.onReplyToFloor,
     required this.onFloorMore,
@@ -2019,7 +2022,7 @@ class _ThreadDetailContent extends StatelessWidget {
   final ValueChanged<ThreadSaleBox> onBuySaleBox;
   final Future<void> Function(String buyPath) onRefreshSaleBox;
   final bool rewardLocked;
-  final Set<String> rewardUnconfirmed;
+  final Set<String> rewardSent;
   final void Function(ThreadReply reply, ThreadRewardAction action) onReward;
   final ValueChanged<String> onReplyToFloor;
   final void Function(ThreadReply post, bool openingPost) onFloorMore;
@@ -2350,7 +2353,7 @@ class _ThreadDetailContent extends StatelessWidget {
                       rewardActions: reply.rewardActions,
                       rewardLocked: rewardLocked ||
                           reply.rewardActions
-                              .any((a) => rewardUnconfirmed.contains(a.pid)),
+                              .any((a) => rewardSent.contains(a.pid)),
                       onReward: (action) => onReward(reply, action),
                     ),
                   ],
