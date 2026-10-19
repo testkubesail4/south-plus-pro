@@ -214,13 +214,14 @@ def round_thread(page):
         article = '0' if op else '2'
         link = (f'<a id="modify_{pid}" href="post.php?action-modify-fid-950-tid-950001-pid-{pid}-article-{article}.html">编辑</a>'
                 if edit else '')
-        body = APPENDFIX['post_bodies'].get(pid, 'Another author uneditable body')
+        body = escape(APPENDFIX['post_bodies'].get(pid, 'Another author uneditable body'))
+        body = re.sub(r'\[(b|i)\](.*?)\[/\1\]', r'<\1>\2</\1>', body)
         # Live topology: FORM > A[name] + DIV > TABLE, never A + TABLE.
         return f'''<a name="{anchor}"></a><div class="t5 t2"><table class="js-post"><tr>
 <th class="r_two"><a href="u.php?action-show-uid-{'930001' if edit else '950002'}.html"><strong>{author}</strong></a></th>
 <th class="r_one" id="td_{anchor}"><div class="tiptop"><span class="fl"><span class="s3">{floor}</span></span>
 <span class="gray" title="2026-01-03 09:20">2026-01-03 09:20</span>{link}</div>
-<div class="tpc_content"><div id="read_{anchor}">{escape(body)}</div></div></th></tr></table></div>'''
+<div class="tpc_content"><div id="read_{anchor}">{body}</div></div></th></tr></table></div>'''
     posts = post('950101', '楼主', 'Synthetic self', True) if page == 1 else (
         post('950103', 'B1F', 'Synthetic other') + post('950102', 'B2F', 'Synthetic self', True))
     return f'''<html><body><h1 id="subject_tpc">Synthetic edit thread</h1>

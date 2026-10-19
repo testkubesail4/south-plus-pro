@@ -90,6 +90,8 @@ class FixtureServerTest(unittest.TestCase):
             page2 = request('/read.php?tid-950001-page-2.html').decode()
             self.assertEqual(page2.count('action-modify-'), 1)
             self.assertEqual(page2.count('class="js-post"'), 2)
+            self.assertIn('<i>Reply original</i>', page2)
+            self.assertNotIn('[i]Reply original[/i]', page2)
             edit = '/post.php?action-modify-fid-950-tid-950001-pid-950102-article-2.html'
             self.assertIn(b'[i]Reply original[/i]', request(edit))
             fields = dict(round_edit_fields('950102'), atc_title='Synthetic title', atc_content='Edited body')
