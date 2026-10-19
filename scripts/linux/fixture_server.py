@@ -235,7 +235,7 @@ def round_profile(page=None):
     if page is None:
         return f'<html><body>{shell}</body></html>'.encode()
     data = {1: [('950201', 'Known low', '2025-01-02', '回复 0 浏览 0'),
-                ('950202', 'Unknown metrics', '2025-01-01', ''),
+                ('950202', 'Unknown metrics..', '2025-01-01', ''),
                 ('950203', 'Known high', '2025-01-03', '回复 4 浏览 40')],
             2: [('950204', 'Unloaded maximum', '2025-02-01', '回复 9 浏览 90')],
             3: [('950205', 'Unloaded unknown', '2025-02-02', '')]}
