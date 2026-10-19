@@ -508,7 +508,11 @@ class UserProfileParser {
       final postId = urls.isForumUrl(href)
           ? RegExp(r'(?:[-?&])pid[-=]([1-9]\d*)').firstMatch(href)?.group(1)
           : null;
-      final text = _cleanText(row.text);
+      final metadataRow = row.clone(true);
+      metadataRow
+          .querySelector('a[href*="read.php"], a[href*="job.php"]')
+          ?.remove();
+      final text = _cleanText(metadataRow.text);
       final date =
           RegExp(r'\[(\d{4}-\d{2}-\d{2})\]').firstMatch(text)?.group(1);
       final authorLink = row.querySelector('a[href*="uid"]');

@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html/parser.dart' as html;
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/user_content_sort.dart';
+import 'package:south_plus_rewrite/services/parsers/user_profile_parser.dart';
 
 UserListItem _row(String id, {int? count, String? date}) => UserListItem(
     title: id,
@@ -77,6 +79,33 @@ void main() {
                   'bad-clock'
                 ]);
       expect(sorted.map((row) => row.threadId).toSet(), {'1'});
+    });
+  }
+
+  for (final tab in [UserProfileTab.topics, UserProfileTab.posts]) {
+    test(
+        '$tab metadata comes from the native row, never from user title tokens',
+        () {
+      String row(int id, String title, String metadata) =>
+          '<tr><td><a href="${tab == UserProfileTab.posts ? 'job.php?action-topost-tid-7-pid-$id.html' : 'read.php?tid-$id.html'}">'
+          '$title</a></td><td>$metadata</td></tr>';
+      final document = html.parse(
+          '<div id="u-contentmain"><table class="u-table">'
+          '${row(101, '[1999-01-01] 浏览:999 回复:999', '[2024-01-01] 浏览:90 回复:9')}'
+          '${row(102, 'Normal title', '[2024-02-01] 浏览:40 回复:4')}'
+          '${row(103, '[2000-01-01] 浏览:888 回复:888', '')}'
+          '</table></div>');
+      final rows = UserProfileParser()
+          .parseContentPage(document, uid: '7', tab: tab, page: 1)
+          .items;
+      expect(rows.map((row) => row.date), ['2024-01-01', '2024-02-01', null]);
+      expect(rows.map((row) => row.views),
+          tab == UserProfileTab.topics ? [90, 40, null] : [null, null, null]);
+      expect(rows.map((row) => row.replies),
+          tab == UserProfileTab.topics ? [9, 4, null] : [null, null, null]);
+      final sorted =
+          sortUserContent(rows, const UserContentSort(UserContentSortKey.time));
+      expect(sorted, [rows[1], rows[0], rows[2]]);
     });
   }
 
