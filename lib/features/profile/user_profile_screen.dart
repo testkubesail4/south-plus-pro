@@ -7,6 +7,7 @@ import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
+import '../../services/user_content_sort.dart';
 import '../../services/user_display_name_store.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';

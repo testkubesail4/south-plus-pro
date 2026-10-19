@@ -1033,6 +1033,27 @@ class _ContentSelection {
   UserContentClassification? classification;
   // The selectors start folded behind the toolbar's 筛选 button.
   bool filtersOpen = false;
+  // Null keeps the forum's order.
+  UserContentSort? sort;
+}
+
+/// The orders a tab offers: 主题 by its own date, views or replies; 回复 by
+/// the reply's own date. 收藏 lists carry no reliable date or counts.
+List<UserContentSortKey> _sortKeys(UserProfileTab tab) => switch (tab) {
+      UserProfileTab.topics => UserContentSortKey.values,
+      UserProfileTab.posts => const [UserContentSortKey.time],
+      _ => const [],
+    };
+
+String _sortLabel(UserProfileTab tab, UserContentSortKey key, bool descending) {
+  final time = key == UserContentSortKey.time;
+  final name = switch (key) {
+    UserContentSortKey.time => tab == UserProfileTab.posts ? '回复时间' : '发帖时间',
+    UserContentSortKey.views => '浏览量',
+    UserContentSortKey.replies => '回复数',
+  };
+  final order = descending ? (time ? '新→旧' : '多→少') : (time ? '旧→新' : '少→多');
+  return '$name $order';
 }
 
 /// 主题 / 回复 / 收藏: the first page as loaded, plus a title search and the
@@ -1192,13 +1213,38 @@ class _ContentTabState extends State<_ContentTab>
     );
   }
 
-  Future<void> _searchAll() async {
+  Future<void> _pickSort() async {
+    final current = widget.selection.sort;
+    String id(UserContentSortKey key, bool descending) =>
+        '${key.name}-$descending';
+    final picked = await _showChoiceSheet<String>(
+      context,
+      title: '排序（缺少数据的始终排在最后）',
+      selected: current == null ? '' : id(current.key, current.descending),
+      options: [
+        ('', '论坛顺序'),
+        for (final key in _sortKeys(widget.tab))
+          for (final descending in [true, false])
+            (id(key, descending), _sortLabel(widget.tab, key, descending)),
+      ],
+    );
+    if (picked == null || !mounted) return;
+    // Only the shown order changes: nothing is read for it.
+    setState(() => widget.selection.sort = picked.isEmpty
+        ? null
+        : UserContentSort(
+            UserContentSortKey.values.byName(picked.split('-').first),
+            descending: picked.endsWith('true')));
+  }
+
+  Future<void> _searchAll({String verb = '搜索'}) async {
     final epoch = _epoch;
     final generation = _scanGen;
     final session = widget.repository.sessionEpoch.value;
     final asked = _readScope;
     final go = await confirmFullScan(context,
         subject: _subject,
+        verb: verb,
         remainingPages: asked.totalPages == null
             ? null
             : asked.totalPages! - asked.loadedPages);
@@ -1455,13 +1501,16 @@ class _ContentTabState extends State<_ContentTab>
     final scopeUnresolved = result?.unresolvedItems ?? const <UserListItem>[];
     bool? matches(UserListItem item) =>
         matchKeyword(keyword, [item.title], truncated: item.titleTruncated);
-    final items = scan?.hits ??
+    final sort = widget.selection.sort;
+    final matched = scan?.hits ??
         (keyword.isEmpty
             ? scope
             : [
                 for (final item in scope)
                   if (matches(item) == true) item,
               ]);
+    // The view only; scans keep reading from the forum's order.
+    final items = sort == null ? matched : sortUserContent(matched, sort);
     // Undecided rows: unverified metadata, or a cut title the keyword misses.
     final unresolved = scan?.unresolved ??
         (keyword.isEmpty
@@ -1513,6 +1562,13 @@ class _ContentTabState extends State<_ContentTab>
                 ),
               ),
               const SizedBox(width: AppSpace.xs),
+              if (_sortKeys(widget.tab).isNotEmpty)
+                IconButton(
+                  tooltip: '排序',
+                  isSelected: sort != null,
+                  onPressed: _pickSort,
+                  icon: const Icon(Icons.sort),
+                ),
               IconButton(
                 tooltip: widget.selection.filtersOpen ? '收起筛选' : '展开筛选',
                 isSelected: widget.selection.filtersOpen,
@@ -1570,7 +1626,29 @@ class _ContentTabState extends State<_ContentTab>
               ],
             ),
           ],
-          if (searching && ready) ...[
+          if (sort != null && ready)
+            _SortScope(
+              label: _sortLabel(widget.tab, sort.key, sort.descending),
+              scope: switch (scan?.progress) {
+                null when allRead => '全部 $totalPages 页',
+                null => [
+                    '已加载的 $loadedPages 页',
+                    if (totalPages != null) '（共 $totalPages 页）',
+                  ].join(),
+                final p when p.state == ScanState.done =>
+                  '全部 ${p.totalPages ?? p.scannedPages} 页',
+                final p => [
+                    '已扫描 ${p.scannedPages}',
+                    if (p.totalPages case final total?) '/$total',
+                    ' 页，结果不完整',
+                  ].join(),
+              },
+              // A full sort is its own confirmed action, never a side effect.
+              onSortAll: scan == null && !allRead
+                  ? () => _searchAll(verb: '排序')
+                  : null,
+            ),
+          if ((searching || scan != null) && ready) ...[
             const SizedBox(height: AppSpace.xs),
             SearchScopeBar(
               progress: scan?.progress ??
@@ -1633,6 +1711,42 @@ class _ContentTabState extends State<_ContentTab>
               unresolvedCount: unresolved.length,
               onContinue: _advance,
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Which rows a sort ordered: the loaded pages, or every page once a
+/// confirmed scan read them; offers that scan while some are unread.
+class _SortScope extends StatelessWidget {
+  const _SortScope({
+    required this.label,
+    required this.scope,
+    required this.onSortAll,
+  });
+
+  final String label;
+  final String scope;
+  final VoidCallback? onSortAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpace.xs),
+      child: Row(
+        children: [
+          Icon(Icons.sort, size: 16, color: AppColors.textMuted),
+          const SizedBox(width: AppSpace.xs),
+          Expanded(
+            child: Semantics(
+              liveRegion: true,
+              child: Text('按$label · 范围：$scope',
+                  style: Theme.of(context).textTheme.bodySmall),
+            ),
+          ),
+          if (onSortAll != null)
+            TextButton(onPressed: onSortAll, child: const Text('排序全部页面')),
         ],
       ),
     );
