@@ -240,4 +240,63 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  for (final feedback in [
+    'ambiguous',
+    'rejected',
+    'wrong-target',
+    'external'
+  ]) {
+    testWidgets(
+        '$feedback modify feedback keeps composer text and reopens a fresh draft only on explicit save',
+        (tester) async {
+      final thread = _thread.copyWith(
+          url: 'http://127.0.0.1:8765/read.php?tid-950001-page-2.html');
+      await mount(tester, thread);
+      await tap(tester,
+          find.byKey(const ValueKey('floor-actions-Synthetic self-B2F')));
+      await tap(tester, find.text('编辑'));
+      final content = find.byWidgetPredicate((widget) =>
+          widget is TextField && widget.decoration?.labelText == '正文');
+      await waitFor(tester, content);
+      expect(tester.widget<TextField>(content).controller?.text,
+          '[i]Reply original[/i]');
+      final updated = '[i]Retained $feedback draft[/i]';
+      await tester.enterText(content, updated);
+      await fixture('round/edit-$feedback-next', reset: true);
+      await tap(tester, find.byKey(const ValueKey('edit-save-button')));
+      await waitFor(tester, find.textContaining('保存未确认：'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(content).controller?.text, updated);
+      expect(find.text('已保存修改'), findsNothing);
+      if (feedback == 'rejected') {
+        expect(find.textContaining('修改失败'), findsWidgets);
+      }
+      final uncertain = await fixture('round/stats');
+      expect(uncertain['edit_attempts'], hasLength(1),
+          reason: 'an uncertain write is never retried automatically');
+      expect(uncertain['edits'], isEmpty);
+      expect(uncertain['edit_form_reads'], ['950102']);
+      expect(uncertain['post_bodies']['950102'], '[i]Reply original[/i]');
+      // The fresh form still holds the original body, so resetting local text
+      // while reopening would lose the user's edit and fail the readback below.
+      await tap(tester, find.byKey(const ValueKey('edit-save-button')));
+      final rendered =
+          find.textContaining('Retained $feedback draft', findRichText: true);
+      await waitFor(tester, rendered);
+      await tester.pumpAndSettle();
+      expect(rendered, findsOneWidget);
+      expect(find.text('已保存修改'), findsOneWidget);
+      final confirmed = await fixture('round/stats');
+      expect(confirmed['edit_form_reads'], ['950102', '950102']);
+      expect(confirmed['edit_attempts'], hasLength(2));
+      expect(confirmed['edits'], hasLength(1));
+      expect(confirmed['post_bodies']['950102'], updated);
+      expect(confirmed['thread_pages'], [2, 2]);
+      expect(find.byKey(const ValueKey('floor-actions-Synthetic self-B2F')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('floor-actions-Synthetic other-B1F')),
+          findsOneWidget);
+    });
+  }
 }

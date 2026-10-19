@@ -121,7 +121,8 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      favorites={}, categories=['默认分类', 'SPP-repro-10'],
                      page_size=4 if collections else 50, external_events=[], partial_next=False,
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
-                     round=False, edits=[], thread_pages=[], thread_reads=[], topic_pages=[], scan_waiting=False,
+                     round=False, edits=[], edit_attempts=[], edit_form_reads=[], edit_feedback='success',
+                     thread_pages=[], thread_reads=[], topic_pages=[], scan_waiting=False,
                      post_bodies={'950101': '[b]Opening original[/b]', '950102': '[i]Reply original[/i]'},
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
                                       date_f='yyyy-mm-dd', time_f='24', t_num='0',
@@ -523,6 +524,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     APPENDFIX['partial_next' if control == 'partial-next' else 'unknown_ack_next'] = True
             self.send_body(b'{}', 'application/json')
             return
+        edit_feedback = {'/round/edit-ambiguous-next': 'ambiguous',
+                         '/round/edit-rejected-next': 'rejected',
+                         '/round/edit-wrong-target-next': 'wrong-target',
+                         '/round/edit-external-next': 'external'}
+        if self.appendfix and APPENDFIX['round'] and raw == b'fixture-only' and path.path in edit_feedback:
+            with APPENDFIX_LOCK:
+                APPENDFIX['edit_feedback'] = edit_feedback[path.path]
+            self.send_body(b'{}', 'application/json')
+            return
         if APPENDFIX['round'] and path.path == '/round/release-scan' and raw == b'fixture-only':
             ROUND_SCAN_GATE.set()
             self.send_body(b'{}', 'application/json')
@@ -623,9 +633,29 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         with APPENDFIX_LOCK:
-            APPENDFIX['post_bodies'][pid] = fields['atc_content'][0]
-            APPENDFIX['edits'].append(fields)
-        self.send_body('<html><body>编辑成功</body></html>'.encode(), 'text/html; charset=utf-8')
+            feedback = APPENDFIX['edit_feedback']
+            APPENDFIX['edit_feedback'] = 'success'
+            APPENDFIX['edit_attempts'].append(fields)
+            if feedback == 'success':
+                APPENDFIX['post_bodies'][pid] = fields['atc_content'][0]
+                APPENDFIX['edits'].append(fields)
+        if feedback == 'ambiguous':
+            body = '<html><head><title>南+ South Plus</title></head><body>提示信息</body></html>'
+        elif feedback == 'rejected':
+            body = '<html><head><title>修改失败</title></head><body>修改失败：正文长度超过限制</body></html>'
+        else:
+            page = 1 if pid == '950101' else 2
+            target = f'read.php?tid=950001&amp;page={page}&amp;toread=1#{pid}'
+            if feedback == 'wrong-target':
+                target = target.replace('tid=950001', 'tid=950099')
+            elif feedback == 'external':
+                target = 'https://example.invalid/' + target
+            # Leader-observed native ACK has 发帖完毕 + redirect, not 编辑成功.
+            body = f'''<html><head><title>南+ South Plus</title>
+<meta http-equiv="refresh" content="1;url={target}"></head><body>提示信息
+[ 发帖完毕点击进入主题列表 ] <a href="{target}">如果您的浏览器没有自动跳转,请点击这里</a>
+</body></html>'''
+        self.send_body(body.encode(), 'text/html; charset=utf-8')
 
     def favorites_submit(self, fields):
         job = fields.get('job', [''])[0]
@@ -746,7 +776,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 return
         if APPENDFIX['round'] and path == '/round/stats':
             with APPENDFIX_LOCK:
-                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'thread_pages', 'thread_reads', 'post_bodies', 'topic_pages', 'scan_waiting')}).encode()
+                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'edit_attempts', 'edit_form_reads', 'thread_pages', 'thread_reads', 'post_bodies', 'topic_pages', 'scan_waiting')}).encode()
             self.send_body(body, 'application/json')
             return
         if self.appendfix and APPENDFIX['round']:
@@ -788,6 +818,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 if not match or (match[1] == '950101') != (match[2] == '0'):
                     self.send_error(404)
                     return
+                with APPENDFIX_LOCK:
+                    APPENDFIX['edit_form_reads'].append(match[1])
                 self.send_body(round_edit_form(match[1]), 'text/html; charset=utf-8')
                 return
         if path == '/appendfix/stats':

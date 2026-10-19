@@ -98,12 +98,39 @@ class FixtureServerTest(unittest.TestCase):
                     request('/post.php?', urlencode(invalid).encode())
                 self.assertEqual(error.exception.code, 400)
             self.assertEqual(json.loads(request('/round/stats'))['edits'], [])
-            request('/post.php?', urlencode(fields).encode())
+            ack = request('/post.php?', urlencode(fields).encode()).decode()
+            self.assertIn('发帖完毕', ack)
+            self.assertIn('http-equiv="refresh"', ack)
+            self.assertIn('read.php?tid=950001&amp;page=2&amp;toread=1#950102', ack)
+            self.assertNotIn('编辑成功', ack)
             refreshed = request('/read.php?tid-950001-page-2.html').decode()
             self.assertIn('Edited body', refreshed)
             self.assertNotIn('Reply original', refreshed)
             self.assertEqual(refreshed.count('class="js-post"'), 2)
             self.assertEqual(len(json.loads(request('/round/stats'))['edits']), 1)
+
+    def test_round_edit_negative_feedback_keeps_original_body_and_next_submit_is_explicit(self):
+        from fixture_server import round_edit_fields
+        with appendfix_server() as (request, _):
+            for feedback, marker in [('ambiguous', '提示信息'), ('rejected', '修改失败'),
+                                     ('wrong-target', 'tid=950099'), ('external', 'https://example.invalid/')]:
+                with self.subTest(feedback=feedback):
+                    request('/round/reset', b'fixture-only')
+                    request(f'/round/edit-{feedback}-next', b'fixture-only')
+                    fields = dict(round_edit_fields('950102'), atc_title='Synthetic title', atc_content='Unsaved edit')
+                    response = request('/post.php?', urlencode(fields).encode()).decode()
+                    self.assertIn(marker, response)
+                    if feedback in ('ambiguous', 'rejected'):
+                        self.assertNotIn('http-equiv="refresh"', response)
+                    state = json.loads(request('/round/stats'))
+                    self.assertEqual(len(state['edit_attempts']), 1)
+                    self.assertEqual(state['edits'], [])
+                    self.assertEqual(state['post_bodies']['950102'], '[i]Reply original[/i]')
+                    request('/post.php?', urlencode(fields).encode())
+                    state = json.loads(request('/round/stats'))
+                    self.assertEqual(len(state['edit_attempts']), 2)
+                    self.assertEqual(len(state['edits']), 1)
+                    self.assertEqual(state['post_bodies']['950102'], 'Unsaved edit')
 
     def test_round_scan_returns_requested_pages_with_mixed_known_unknown_metrics(self):
         from fixture_server import ROUND_SCAN_GATE
