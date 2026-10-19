@@ -220,7 +220,13 @@ def r8_thread(page):
 <a href="read.php?tid-960001-page-2.html">2</a></div><form name="read">{''.join(posts)}</form></body></html>'''.encode()
 
 
-def r8_board():
+def r8_board(picture_wall=False):
+    if picture_wall:
+        rows = ''.join(f'''<li class="dcsns-li"><div class="section-title"><a href="read.php?tid-{tid}.html">{title}</a></div>
+<div class="section-intro">Synthetic owner 2026-01-03</div><p>回复 / 人气: 2 / 30</p></li>'''
+            for tid, title in [('960001', 'Synthetic bounty thread'), ('960002', 'Synthetic ended bounty'),
+                               ('960003', 'Synthetic no amount')])
+        return f'<html><body><ul class="stream">{rows}</ul><div class="pages">Pages: 1/1</div></body></html>'.encode()
     rows = ''.join(f'''<tr class="tr3"><td id="td_{tid}"><a class="s8" href="thread.php?fid-48-type-3.html">[全年龄正常向]</a>
 <h3>{amount}<a href="read.php?tid-{tid}.html" id="a_ajax_{tid}">{title}</a></h3></td>
 <td><a href="u.php?action-show-uid-930001.html">Synthetic owner</a><span class="f10 gray2">2026-01-03</span></td><td>2 / 30</td></tr>'''
@@ -900,7 +906,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 APPENDFIX['thread_pages'].append(page)
                 body = r8_thread(page)
             elif path in ('/thread.php', '/thread_new.php') and '48' in query:
-                body = r8_board()
+                body = r8_board(picture_wall=path == '/thread_new.php')
             elif path == '/post.php' and '48' in query:
                 body = r8_compose()
             elif path == '/job.php':
