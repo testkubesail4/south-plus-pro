@@ -94,7 +94,8 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final client = _MarkupClient();
-    final repository = ForumRepository(client: client, historyStore: _History());
+    final repository =
+        ForumRepository(client: client, historyStore: _History());
     const thread = ForumThread(
         title: 'fixture', url: '$_base?tid-7.html', replies: 40, section: '');
     await repository.saveThreadReadPosition(
@@ -106,7 +107,8 @@ void main() {
     expect(find.text('从头看'), findsOneWidget);
     await tester.tap(find.text('从头看'));
     await tester.pumpAndSettle();
-    expect(client.paths, hasLength(2));
+    expect(client.paths, hasLength(3),
+        reason: 'page2 also fetches compact OP metadata before 从头看');
     expect(find.text(_notFound), findsNothing);
     expect(find.text('Opening fixture body', findRichText: true).hitTestable(),
         findsOneWidget);
@@ -115,7 +117,8 @@ void main() {
     expect(detail.replies.single.anchors, isNot(contains('tpc')));
     final saved = await repository.loadThreadReadPosition(thread);
     expect(saved?.page, 1);
-    expect(saved?.anchor, 'tpc', reason: 'a zero-offset reveal may emit no ScrollEnd');
+    expect(saved?.anchor, 'tpc',
+        reason: 'a zero-offset reveal may emit no ScrollEnd');
     await tester.pumpWidget(const SizedBox());
     await tester.pumpAndSettle();
     final reopened = ForumRepository(client: client, historyStore: _History());

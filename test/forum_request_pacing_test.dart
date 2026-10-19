@@ -57,6 +57,10 @@ class _LocalForumClient extends ForumClient {
   }) : super(httpClient: transport, clock: now, delay: delay);
 
   final Uri origin;
+  bool authenticated = false;
+
+  @override
+  bool get isLoggedIn => authenticated;
 
   @override
   Uri get baseUri => origin;
@@ -572,7 +576,7 @@ void main() {
   });
 
   test(
-      'posting and replies throw transport failures once and keep business results',
+      'compose uncertainty never retries while replies retain transport errors',
       () async {
     const category = ForumCategory(name: '版块甲', slug: 'f7');
     const thread = ForumThread(
@@ -581,6 +585,7 @@ void main() {
       replies: 1,
       section: '版块甲',
     );
+    (client as _LocalForumClient).authenticated = true;
     final repository = ForumRepository(client: client);
 
     final blank = await repository.submitThread(
@@ -608,7 +613,8 @@ void main() {
       title: '示例标题',
       content: '示例正文',
     );
-    expect(posted.success, isTrue);
+    expect(posted.success, isFalse);
+    expect(posted.unconfirmed, isTrue);
 
     _scripted.addAll([
       _text(_postForm),
@@ -665,20 +671,12 @@ void main() {
       _text(_postForm),
       _text('<html><body>刷新不要快于 9 秒</body></html>'),
     ]);
-    await expectLater(
-      repository.submitThread(
-        category: category,
-        title: '示例标题',
-        content: '示例正文',
-      ),
-      throwsA(
-        isA<ForumRequestException>().having(
-          (error) => error.kind,
-          'kind',
-          ForumRequestKind.rateLimited,
-        ),
-      ),
+    final uncertain = await repository.submitThread(
+      category: category,
+      title: '示例标题',
+      content: '示例正文',
     );
+    expect(uncertain.unconfirmed, isTrue);
     expect(
       hits.where((hit) => hit.startsWith('POST')).length,
       postsBefore + 2,
@@ -790,7 +788,8 @@ const _resultWithoutRows = '''
 
 const _postForm = '''
 <html><body>
-  <form name="FORM" action="post.php?">
+  <form name="FORM" method="post" action="post.php?">
+    <input name="fid" value="7">
     <input name="atc_title" value="">
     <textarea name="atc_content"></textarea>
   </form>

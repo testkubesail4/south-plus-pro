@@ -63,7 +63,7 @@ class _DetailsClient extends ForumClient {
       return blockedResponse!;
     }
     if (path.startsWith('post.php') || path.startsWith('read.php')) {
-      return '<form name="FORM" action="post.php"><input name="verify" value="fixture"></form>';
+      return '<form name="FORM" method="post" action="post.php"><input name="verify" value="fixture"><input name="fid" value="9"><input name="atc_title"><textarea name="atc_content"></textarea></form>';
     }
     if (path.startsWith('pw_ajax.php')) return mutationResponse;
     if (path.startsWith('job.php')) return mutationResponse;
@@ -205,16 +205,21 @@ void main() {
     'action-post': UserProfileTab.posts,
     'action-favor': UserProfileTab.favorites,
   }.entries) {
-    test('truncated ${tab.key} keeps healthy sibling tabs and remains retriable', () async {
+    test(
+        'truncated ${tab.key} keeps healthy sibling tabs and remains retriable',
+        () async {
       final client = _DetailsClient()
         ..blockedTab = tab.key
-        ..blockedResponse = '<html><title>South Plus</title><body><div id="main">';
+        ..blockedResponse =
+            '<html><title>South Plus</title><body><div id="main">';
       final repository = ForumRepository(client: client);
       addTearDown(repository.clearSession);
       final partial = await repository.fetchUserProfileDetails(_overview);
       expect(partial.contentErrors.keys, [tab.value]);
-      expect(partial.contentErrors[tab.value], isA<ForumRequestException>().having(
-          (error) => error.kind, 'kind', ForumRequestKind.invalidInput));
+      expect(
+          partial.contentErrors[tab.value],
+          isA<ForumRequestException>().having(
+              (error) => error.kind, 'kind', ForumRequestKind.invalidInput));
       expect(partial.contentPagination.containsKey(tab.value), isFalse);
       final items = {
         UserProfileTab.topics: partial.topics,
@@ -232,9 +237,11 @@ void main() {
       expect(recovered.topics.single.title, 'fixture-topic');
       expect(recovered.posts.single.title, 'fixture-post');
       expect(recovered.favorites.single.title, 'fixture-favorite');
-      expect(client.paths, hasLength(8), reason: 'partial details are not cached as success');
+      expect(client.paths, hasLength(8),
+          reason: 'partial details are not cached as success');
       await repository.fetchUserProfileDetails(_overview);
-      expect(client.paths, hasLength(8), reason: 'complete recovery can be reused');
+      expect(client.paths, hasLength(8),
+          reason: 'complete recovery can be reused');
     });
   }
 
@@ -426,7 +433,8 @@ void main() {
   }
 
   for (final mutation in ['favorite', 'remove', 'reply', 'topic', 'purchase']) {
-    test('successful $mutation invalidates reused and pending profile data',
+    test(
+        '${mutation == 'topic' ? 'possibly published topic' : 'successful $mutation'} invalidates reused and pending profile data',
         () async {
       final client = _DetailsClient();
       final repository = ForumRepository(client: client);
@@ -471,7 +479,7 @@ void main() {
                   title: 'fixture title',
                   content: 'fixture topic',
                 ))
-                    .success,
+                    .unconfirmed,
                 isTrue);
           case 'purchase':
             client.mutationResponse = '购买成功';

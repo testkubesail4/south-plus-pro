@@ -28,17 +28,19 @@ void main() {
     expect(latest.url,
         'https://south-plus.net/read.php?tid-123-uid-42-page-e.html');
     final detail = await repository.fetchThreadDetail(latest, page: 1);
-    expect(client.paths.single, 'read.php?tid-123-uid-42-page-e.html');
+    expect(client.paths.first, 'read.php?tid-123-uid-42-page-e.html');
     expect(detail.pagination.currentPage, 4);
     expect(detail.pagination.totalPages, 4);
     expect(detail.replies.single.anchors, contains('991'));
+    final latestRequest = client.paths.length;
     await repository.fetchThreadDetail(latest,
         page: detail.pagination.currentPage + 1);
-    expect(client.paths.last,
+    expect(client.paths[latestRequest],
         'read.php?tid-123-uid-42-fpage-0-toread--page-5.html');
+    final firstRequest = client.paths.length;
     await repository.fetchThreadDetail(
         _thread.copyWith(url: repository.firstThreadPageUrl(_thread)!));
-    expect(client.paths.last, 'read.php?tid-123-uid-42-page-1.html');
+    expect(client.paths[firstRequest], 'read.php?tid-123-uid-42-page-1.html');
   });
 
   test(
