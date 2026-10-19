@@ -18,6 +18,7 @@ import '../common/thread_row.dart';
 import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_compose_screen.dart';
+import '../thread/thread_reward_view.dart' show boardBountyLabel;
 
 part 'board_navigation_widgets.dart';
 part 'board_thread_list_widgets.dart';

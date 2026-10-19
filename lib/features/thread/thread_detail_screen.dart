@@ -44,6 +44,7 @@ import 'thread_floor_actions.dart';
 import 'thread_page_end_card.dart';
 import 'thread_post_body.dart';
 import 'thread_render_models.dart';
+import 'thread_reward_view.dart';
 import 'thread_sale_box_view.dart'
     show ThreadPurchaseScope, ThreadSaleBoxNotice;
 
@@ -76,6 +77,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final Map<String, ThreadFavoriteState> _favoriteOverrides =
       <String, ThreadFavoriteState>{};
   bool _favoriteBusy = false;
+  // An award with an unknown outcome locks every award until a fresh page
+  // load, and its own floor for the screen's life: it is never sent twice.
+  bool _rewardLocked = false;
+  final _rewardUnconfirmed = <String>{};
+  bool _rewarding = false;
   // Moves when the session or the thread changes: an open category sheet
   // closes and a favorite call still in flight is ignored.
   final _favoriteFlow = ValueNotifier<int>(0);
@@ -266,6 +272,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       setState(() {
         _detail = detail;
         _thread = detail.thread;
+        _rewardLocked = false;
         _page = detail.pagination.currentPage;
         _visiblePage = null;
         _loading = false;
@@ -1276,6 +1283,70 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     }
   }
 
+  Future<void> _handleReward(
+    ThreadReply reply,
+    ThreadRewardAction action,
+  ) async {
+    if (_rewardLocked || _rewarding) return;
+    final repository = widget.repository;
+    final epoch = repository.sessionEpoch.value;
+    final best = action.kind == ThreadRewardKind.bestAnswer;
+    setState(() => _rewarding = true);
+    final ThreadRewardResult? result;
+    try {
+      result = await showThreadRewardDialog(
+        context,
+        repository: repository,
+        action: action,
+        floor: reply.floor ?? '此楼',
+        bounty: _detail?.bodyBounty,
+      );
+    } finally {
+      if (mounted) setState(() => _rewarding = false);
+    }
+    if (result == null || !mounted) return;
+    if (repository.sessionEpoch.value != epoch) return;
+    switch (result.outcome) {
+      case ThreadRewardOutcome.success:
+        _messenger.showSnackBar(SnackBar(
+          content: Text(best ? '已选为最佳答案' : '已给出热心助人'),
+        ));
+        await _refresh();
+      case ThreadRewardOutcome.failed:
+        _messenger.showSnackBar(SnackBar(
+          content: Text(result.message.isEmpty
+              ? '评选未成功'
+              : '评选未成功：${result.message}'),
+        ));
+      case ThreadRewardOutcome.unknown:
+        setState(() {
+          _rewardLocked = true;
+          _rewardUnconfirmed.add(action.pid);
+        });
+        final refresh = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('结果未确认'),
+            content: const Text(
+              '提交已发出，但没有收到论坛的明确答复。'
+              '请刷新查看结果，不要重复提交。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('稍后'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('刷新'),
+              ),
+            ],
+          ),
+        );
+        if (refresh == true && mounted) await _refresh();
+    }
+  }
+
   Future<void> _handleBuySaleBox(ThreadSaleBox saleBox) async {
     final buyPath = saleBox.buyPath;
     // One purchase per box: not while one is running, and never again once it
@@ -1660,6 +1731,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           onQuoteReply: _quoteReply,
           onBuySaleBox: _handleBuySaleBox,
           onRefreshSaleBox: _refreshSaleBoxPage,
+          rewardLocked: _rewardLocked || _rewarding,
+          rewardUnconfirmed: _rewardUnconfirmed,
+          onReward: _handleReward,
           onReplyToFloor: _replyToFloor,
           onPageSelected: _goToPage,
           autoLoadNextPage: _autoLoadNextPage,
@@ -1900,6 +1974,9 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.onQuoteReply,
     required this.onBuySaleBox,
     required this.onRefreshSaleBox,
+    required this.rewardLocked,
+    required this.rewardUnconfirmed,
+    required this.onReward,
     required this.onReplyToFloor,
     required this.onFloorMore,
     required this.onPageSelected,
@@ -1941,6 +2018,9 @@ class _ThreadDetailContent extends StatelessWidget {
   final Future<void> Function(ThreadReply) onQuoteReply;
   final ValueChanged<ThreadSaleBox> onBuySaleBox;
   final Future<void> Function(String buyPath) onRefreshSaleBox;
+  final bool rewardLocked;
+  final Set<String> rewardUnconfirmed;
+  final void Function(ThreadReply reply, ThreadRewardAction action) onReward;
   final ValueChanged<String> onReplyToFloor;
   final void Function(ThreadReply post, bool openingPost) onFloorMore;
   final ValueChanged<int> onPageSelected;
@@ -2143,18 +2223,27 @@ class _ThreadDetailContent extends StatelessWidget {
             threadActions: actions,
             child: _purchaseScope(
                 'opening:${detail.pagination.currentPage}',
-                ThreadPostBody(
-                  content: detail.body,
-                  segments: detail.bodySegments,
-                  renderModel: openingEntry.renderModel,
-                  quote: null,
-                  images: detail.bodyImages,
-                  links: detail.bodyLinks,
-                  saleBoxes: detail.bodySaleBoxes,
-                  saleBoxesFirst: detail.bodySaleBoxesFirst,
-                  buyingSaleBoxes: buyingSaleBoxes,
-                  onBuySaleBox: onBuySaleBox,
-                  onOpenLink: onOpenLink,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ThreadPostBody(
+                      content: detail.body,
+                      segments: detail.bodySegments,
+                      renderModel: openingEntry.renderModel,
+                      quote: null,
+                      images: detail.bodyImages,
+                      links: detail.bodyLinks,
+                      saleBoxes: detail.bodySaleBoxes,
+                      saleBoxesFirst: detail.bodySaleBoxesFirst,
+                      buyingSaleBoxes: buyingSaleBoxes,
+                      onBuySaleBox: onBuySaleBox,
+                      onOpenLink: onOpenLink,
+                    ),
+                    ThreadPostMarks(
+                      bounty: detail.bodyBounty,
+                      ratings: detail.bodyRatings,
+                    ),
+                  ],
                 )),
           ),
         );
@@ -2239,18 +2328,32 @@ class _ThreadDetailContent extends StatelessWidget {
             onQuote: () => onQuoteReply(reply),
             child: _purchaseScope(
                 replyEntry.stableId,
-                ThreadPostBody(
-                  content: reply.content,
-                  segments: reply.segments,
-                  renderModel: replyEntry.renderModel,
-                  quote: reply.quote,
-                  images: reply.images,
-                  links: reply.links,
-                  saleBoxes: reply.saleBoxes,
-                  saleBoxesFirst: reply.saleBoxesFirst,
-                  buyingSaleBoxes: buyingSaleBoxes,
-                  onBuySaleBox: onBuySaleBox,
-                  onOpenLink: onOpenLink,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ThreadPostBody(
+                      content: reply.content,
+                      segments: reply.segments,
+                      renderModel: replyEntry.renderModel,
+                      quote: reply.quote,
+                      images: reply.images,
+                      links: reply.links,
+                      saleBoxes: reply.saleBoxes,
+                      saleBoxesFirst: reply.saleBoxesFirst,
+                      buyingSaleBoxes: buyingSaleBoxes,
+                      onBuySaleBox: onBuySaleBox,
+                      onOpenLink: onOpenLink,
+                    ),
+                    ThreadPostMarks(
+                      award: reply.award,
+                      ratings: reply.ratings,
+                      rewardActions: reply.rewardActions,
+                      rewardLocked: rewardLocked ||
+                          reply.rewardActions
+                              .any((a) => rewardUnconfirmed.contains(a.pid)),
+                      onReward: (action) => onReward(reply, action),
+                    ),
+                  ],
                 )),
           ),
         );

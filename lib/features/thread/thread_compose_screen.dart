@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/forum_models.dart';
@@ -30,6 +31,12 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   bool _draftLoaded = false;
   bool _replyNotice = true;
   String? _error;
+  // The board's native form: its categories and bounty rules.
+  ThreadComposeDraft? _form;
+  Object? _formError;
+  String? _category;
+  final _bestBounty = TextEditingController();
+  final _helpfulBounty = TextEditingController();
 
   String get _draftTitleKey => 'draft.thread.${widget.category.slug}.title';
   String get _draftContentKey => 'draft.thread.${widget.category.slug}.content';
@@ -38,12 +45,15 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
   void initState() {
     super.initState();
     _loadDraft();
+    _loadForm();
   }
 
   @override
   void dispose() {
     _title.dispose();
     _content.dispose();
+    _bestBounty.dispose();
+    _helpfulBounty.dispose();
     super.dispose();
   }
 
@@ -53,6 +63,26 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
     _title.text = prefs.getString(_draftTitleKey) ?? '';
     _content.text = prefs.getString(_draftContentKey) ?? '';
     setState(() => _draftLoaded = true);
+  }
+
+  Future<void> _loadForm() async {
+    setState(() => _formError = null);
+    try {
+      final form =
+          await widget.repository.fetchThreadComposeDraft(widget.category);
+      if (!mounted) return;
+      setState(() {
+        _form = form;
+        _category = form.selectedCategory;
+        // The minimum, shown in full: nothing is charged by a hidden default.
+        _bestBounty.text =
+            '${form.minBestAmount ?? form.defaultBestAmount ?? ''}';
+        _helpfulBounty.text =
+            '${form.minHelpfulAmount ?? form.defaultHelpfulAmount ?? ''}';
+      });
+    } catch (error) {
+      if (mounted) setState(() => _formError = error);
+    }
   }
 
   Future<void> _saveDraft() async {
@@ -71,8 +101,28 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
     await prefs.remove(_draftContentKey);
   }
 
+  BountyInput? get _bounty {
+    final form = _form;
+    if (form == null || !form.bountySupported) return null;
+    return BountyInput(
+      best: int.tryParse(_bestBounty.text.trim()),
+      helpful: int.tryParse(_helpfulBounty.text.trim()),
+      minBest: form.minBestAmount ?? form.defaultBestAmount,
+      minHelpful: form.minHelpfulAmount ?? form.defaultHelpfulAmount,
+      currency: form.bountyCurrency ?? 'SP币',
+    );
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
+    final bounty = _bounty;
+    if (bounty != null) {
+      if (bounty.error case final error?) {
+        setState(() => _error = error);
+        return;
+      }
+      if (!await _confirmBounty(bounty) || !mounted) return;
+    }
     setState(() {
       _submitting = true;
       _error = null;
@@ -84,6 +134,11 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
         title: _title.text,
         content: _content.text,
         enableReplyNotice: _replyNotice,
+        draft: _form,
+        categoryValue: _category,
+        bestAnswerAmount: bounty?.best,
+        helpfulAmount: bounty?.helpful,
+        confirmBounty: bounty != null,
       );
       if (!mounted) return;
       if (!result.success) {
@@ -99,9 +154,33 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
       Navigator.of(context).pop(true);
     } on ForumRequestException catch (error) {
       if (mounted) setState(() => _error = forumRequestErrorText(error.kind));
+    } catch (error) {
+      if (mounted) setState(() => _error = forumErrorText(error));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  Future<bool> _confirmBounty(BountyInput bounty) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('发布悬赏帖？'),
+        content: Text(bounty.terms.join('\n')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const ValueKey('compose-bounty-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('确认发布并扣除 ${bounty.charge} ${bounty.currency}'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
   }
 
   void _preview() => showWindCodePreview(
@@ -147,6 +226,25 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
             decoration: bare('标题'),
           ),
           Divider(color: AppColors.border),
+          if (_formError != null) ...[
+            _FormLoadError(onRetry: _submitting ? null : _loadForm),
+            Divider(color: AppColors.border),
+          ] else if (_form case final form?
+              when form.categories.isNotEmpty || form.bountySupported) ...[
+            _ComposeOptions(
+              form: form,
+              category: _category,
+              onCategory: _submitting
+                  ? null
+                  : (value) => setState(() => _category = value),
+              best: _bestBounty,
+              helpful: _helpfulBounty,
+              bounty: _bounty,
+              enabled: !_submitting,
+              onChanged: () => setState(() {}),
+            ),
+            Divider(color: AppColors.border),
+          ],
           Expanded(
             child: TextField(
               controller: _content,
@@ -291,6 +389,164 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
                   ),
                 ],
               ),
+      ),
+    );
+  }
+}
+
+/// The bounty a new thread offers, checked against the board's minimums,
+/// with what posting it charges (the forum's own showreward rule).
+class BountyInput {
+  const BountyInput({
+    required this.best,
+    required this.helpful,
+    required this.minBest,
+    required this.minHelpful,
+    required this.currency,
+  });
+
+  final int? best;
+  final int? helpful;
+  final int? minBest;
+  final int? minHelpful;
+  final String currency;
+
+  String? get error {
+    final best = this.best;
+    final helpful = this.helpful;
+    if (best == null || best <= 0) return '请填写最佳答案悬赏';
+    if (minBest != null && best < minBest!) return '最佳答案悬赏至少 $minBest';
+    if (helpful == null || helpful < 0) return '请填写热心助人悬赏';
+    if (minHelpful != null && helpful < minHelpful!) {
+      return '热心助人悬赏至少 $minHelpful';
+    }
+    return null;
+  }
+
+  /// Charged on posting: the best answer twice (half is a deposit), plus the
+  /// helpful pool. Only meaningful when [error] is null.
+  int get charge => best! * 2 + helpful!;
+
+  List<String> get terms => [
+        '发布时将预先扣除 $charge $currency：',
+        '· 最佳答案 $best × 2 = ${best! * 2}，选出最佳答案后退回 $best',
+        '· 热心助人 $helpful，奖励热心回复者，不退回',
+        '逾期未选出最佳答案，押金可能无法退回。',
+      ];
+}
+
+class _FormLoadError extends StatelessWidget {
+  const _FormLoadError({required this.onRetry});
+
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            '分类和悬赏设置加载失败',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        TextButton(onPressed: onRetry, child: const Text('重试')),
+      ],
+    );
+  }
+}
+
+/// The board's category and, on bounty boards, the bounty with its charge.
+class _ComposeOptions extends StatelessWidget {
+  const _ComposeOptions({
+    required this.form,
+    required this.category,
+    required this.onCategory,
+    required this.best,
+    required this.helpful,
+    required this.bounty,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final ThreadComposeDraft form;
+  final String? category;
+  final ValueChanged<String?>? onCategory;
+  final TextEditingController best;
+  final TextEditingController helpful;
+  final BountyInput? bounty;
+  final bool enabled;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bounty = this.bounty;
+    final error = bounty?.error;
+    Widget amount(String label, TextEditingController c, int? min, Key key) =>
+        Expanded(
+          child: TextField(
+            key: key,
+            controller: c,
+            enabled: enabled,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onChanged: (_) => onChanged(),
+            decoration: InputDecoration(
+              labelText: label,
+              suffixText: bounty?.currency,
+              helperText: min == null ? null : '至少 $min',
+              isDense: true,
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (form.categories.isNotEmpty)
+            DropdownButtonFormField<String?>(
+              key: const ValueKey('compose-category'),
+              initialValue: category,
+              onChanged: onCategory,
+              decoration: const InputDecoration(
+                labelText: '分类',
+                isDense: true,
+              ),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('不分类')),
+                for (final c in form.categories)
+                  DropdownMenuItem(value: c.value, child: Text(c.label)),
+              ],
+            ),
+          if (bounty != null) ...[
+            if (form.categories.isNotEmpty)
+              const SizedBox(height: AppSpace.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                amount('最佳答案悬赏', best, bounty.minBest,
+                    const ValueKey('compose-bounty-best')),
+                const SizedBox(width: AppSpace.md),
+                amount('热心助人悬赏', helpful, bounty.minHelpful,
+                    const ValueKey('compose-bounty-helpful')),
+              ],
+            ),
+            const SizedBox(height: AppSpace.sm),
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                error ??
+                    '发布时预先扣除 ${bounty.charge} ${bounty.currency}，'
+                        '其中 ${bounty.best} 在选出最佳答案后退回',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: error == null ? null : theme.colorScheme.error,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

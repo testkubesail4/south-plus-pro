@@ -2200,12 +2200,31 @@ class _FakeComposeRepository extends ForumRepository {
   final replyNotices = <bool>[];
   Completer<void>? pending;
 
+  // A plain board: no categories, no bounty.
+  @override
+  Future<ThreadComposeDraft> fetchThreadComposeDraft(
+    ForumCategory category,
+  ) async =>
+      const ThreadComposeDraft(
+        categories: [],
+        selectedCategory: null,
+        bountySupported: false,
+        controls: [],
+        actionPath: 'post.php?',
+        fid: '9',
+      );
+
   @override
   Future<ReplyResult> submitThread({
     required ForumCategory category,
     required String title,
     required String content,
     bool enableReplyNotice = false,
+    ThreadComposeDraft? draft,
+    String? categoryValue,
+    int? bestAnswerAmount,
+    int? helpfulAmount,
+    bool confirmBounty = false,
   }) async {
     replyNotices.add(enableReplyNotice);
     await pending?.future;

@@ -278,6 +278,8 @@ class _ThreadRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final previewImageUrl = thread.previewImageUrl;
+    final bounty = boardBountyLabel(thread.bounty);
+    final activeBounty = thread.bounty?.status == ForumBountyStatus.active;
     final thumbnailDecode = ForumImageDecodeSpec.forDisplay(
       logicalSize: const Size.square(56),
       devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
@@ -289,9 +291,12 @@ class _ThreadRow extends StatelessWidget {
       () => ForumThreadRow(
         title: thread.title,
         titleStyle: thread.titleStyle,
-        tag: thread.isSticky ? '置顶' : null,
+        // A running bounty leads as the accent tag; any other bounty state
+        // is a plain meta word, never a claim the list cannot back.
+        tag: thread.isSticky ? '置顶' : (activeBounty ? bounty : null),
         emphasized: thread.isSticky,
         meta: [
+          if (bounty != null && (thread.isSticky || !activeBounty)) bounty,
           thread.author ?? '匿名',
           if (thread.lastPost case final last? when last.isNotEmpty) last,
           '${thread.replies} 回复',
