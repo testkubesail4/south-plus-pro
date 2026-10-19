@@ -83,8 +83,10 @@ class ThreadRewardParser {
 
   ThreadRewardAction? action(String href) {
     if (!urls.isForumUrl(href)) return null;
-    final uri = Uri.tryParse(urls.absoluteUrl(href));
+    final raw = Uri.tryParse(href);
+    final uri = raw == null ? null : urls.baseUri.resolveUri(raw);
     if (uri == null ||
+        uri.origin != urls.baseUri.origin ||
         uri.path != '/job.php' ||
         uri.hasFragment ||
         uri.userInfo.isNotEmpty) return null;

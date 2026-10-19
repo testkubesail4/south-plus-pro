@@ -1283,10 +1283,12 @@ class ReplyResult {
   const ReplyResult({
     required this.success,
     required this.message,
+    this.unconfirmed = false,
   });
 
   final bool success;
   final String message;
+  final bool unconfirmed;
 }
 
 enum ForumTaskStatus {

@@ -17,7 +17,7 @@ void main() {
       title: 'Fixture title',
       content: 'Fixture content',
     );
-    expect(defaultResult.success, isTrue);
+    expect(defaultResult.unconfirmed, isTrue);
     expect(client.forms.single.containsKey('atc_newrp'), isFalse);
 
     for (final checked in [false, true]) {
@@ -29,7 +29,7 @@ void main() {
           content: 'Fixture content',
           enableReplyNotice: enabled,
         );
-        expect(result.success, isTrue);
+        expect(result.unconfirmed, isTrue);
         expect(client.forms.last, {
           'verify': 'fixture-token',
           'fid': '42',

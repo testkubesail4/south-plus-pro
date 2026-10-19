@@ -131,35 +131,45 @@ class ThreadTransactionParser {
         notifyDefault: fields['ifmsg'] == '1');
   }
 
-  bool rewardAcknowledged(dom.Document document, String tid) {
+  bool rewardAcknowledged(dom.Document document, String tid) =>
+      _acknowledgedThread(document, '操作完成') == tid;
+
+  String? composedThreadId(dom.Document document) =>
+      _acknowledgedThread(document, '发帖完毕');
+
+  String? _acknowledgedThread(dom.Document document, String wording) {
     final text = clean(document.body?.text ?? '');
     if (document.querySelector('table.js-post, form') != null ||
-        !text.contains('操作完成') ||
-        RegExp(r'失败|错误|权限|认证码|验证码').hasMatch(text)) return false;
+        !text.contains(wording) ||
+        RegExp(r'失败|错误|权限|认证码|验证码').hasMatch(text)) return null;
     final refreshes = document
         .querySelectorAll('meta[http-equiv]')
         .where((m) => m.attributes['http-equiv']!.toLowerCase() == 'refresh')
         .toList();
-    if (refreshes.length != 1) return false;
+    if (refreshes.length != 1) return null;
     final value = RegExp(
             r'^\s*\d+(?:\.\d+)?\s*;\s*url\s*=\s*["\x27]?([^"\x27]+?)["\x27]?\s*$',
             caseSensitive: false)
         .firstMatch(refreshes.single.attributes['content'] ?? '')
         ?.group(1);
-    if (value == null || !urls.isForumUrl(value)) return false;
-    final uri = Uri.tryParse(urls.absoluteUrl(value));
-    return uri != null &&
-        uri.path == '/read.php' &&
-        uri.userInfo.isEmpty &&
-        urls.tidFromUrl(value) == tid;
+    if (value == null || !urls.isForumUrl(value)) return null;
+    final raw = Uri.tryParse(value);
+    final uri = raw == null ? null : urls.baseUri.resolveUri(raw);
+    if (uri == null ||
+        uri.origin != urls.baseUri.origin ||
+        uri.path != '/read.php' ||
+        uri.userInfo.isNotEmpty) return null;
+    return urls.tidFromUrl(value);
   }
 
   String actionPath(dom.Element form, String endpoint) {
     if ((form.attributes['method'] ?? '').toLowerCase() != 'post') invalid();
     final value = form.attributes['action'] ?? '';
     if (value.isEmpty || !urls.isForumUrl(value)) invalid();
-    final uri = Uri.tryParse(urls.absoluteUrl(value));
+    final raw = Uri.tryParse(value);
+    final uri = raw == null ? null : urls.baseUri.resolveUri(raw);
     if (uri == null ||
+        uri.origin != urls.baseUri.origin ||
         uri.path != endpoint ||
         uri.userInfo.isNotEmpty ||
         uri.hasFragment) invalid();

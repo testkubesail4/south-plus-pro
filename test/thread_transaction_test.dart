@@ -55,6 +55,7 @@ void main() {
       () async {
     final client = _Client();
     final repository = ForumRepository(client: client);
+    await repository.ensureAccountIdentity();
     final draft = await repository.fetchThreadComposeDraft(_category);
     expect(draft.categories.single.value, '3');
     expect(draft.minBestAmount, 20);
@@ -115,6 +116,70 @@ void main() {
     expect(client.posts, hasLength(1));
   });
 
+  test('synthetic compose ACK still needs exact thread title and issuing UID',
+      () async {
+    for (final mismatch in [
+      'none',
+      'missing identity',
+      'title',
+      'uid',
+      'tid'
+    ]) {
+      final client = _Client()..composeMismatch = mismatch;
+      final repository = ForumRepository(client: client);
+      if (mismatch != 'missing identity')
+        await repository.ensureAccountIdentity();
+      final result = await repository.submitThread(
+          category: _category,
+          title: 'Title',
+          content: 'Body',
+          categoryValue: '3',
+          bestAnswerAmount: 25,
+          helpfulAmount: 12,
+          confirmBounty: true);
+      expect(result.success, mismatch == 'none', reason: mismatch);
+      expect(result.unconfirmed, mismatch != 'none', reason: mismatch);
+      expect(client.posts, hasLength(1));
+    }
+  });
+
+  test('compose never accepts user content as debit confirmation', () async {
+    for (final response in [
+      _thread().replaceFirst('Original', '发表成功'),
+      '<form><textarea>发表成功</textarea></form>',
+      '<p>发帖完毕</p>',
+      '<meta http-equiv="refresh" content="1;url=https://blue-plus.net/read.php?tid=7004"><p>发帖完毕</p>',
+    ]) {
+      final client = _Client()..composeResponse = response;
+      final repository = ForumRepository(client: client);
+      final draft = await repository.fetchThreadComposeDraft(_category);
+      final result = await repository.submitThread(
+          category: _category,
+          title: 'T',
+          content: 'B',
+          draft: draft,
+          categoryValue: '3',
+          bestAnswerAmount: 25,
+          helpfulAmount: 12,
+          confirmBounty: true);
+      expect(result.success, isFalse);
+      expect(result.unconfirmed, isTrue);
+      expect(
+          (await repository.submitThread(
+                  category: _category,
+                  title: 'T',
+                  content: 'B',
+                  draft: draft,
+                  categoryValue: '3',
+                  bestAnswerAmount: 25,
+                  helpfulAmount: 12,
+                  confirmBounty: true))
+              .success,
+          isFalse);
+      expect(client.posts, hasLength(1));
+    }
+  });
+
   test('reward requires native permission and exact server target/type',
       () async {
     for (final client in [
@@ -127,6 +192,9 @@ void main() {
       _Client()
         ..rewardForm = _reward.replaceFirst('action="job.php?action=reward"',
             'action="https://evil.invalid/job.php?action=reward"'),
+      _Client()
+        ..rewardForm = _reward.replaceFirst('action="job.php?action=reward"',
+            'action="https://blue-plus.net/job.php?action=reward"'),
       _Client()..rewardForm = '<title>权限不足</title>',
     ]) {
       final repository = ForumRepository(client: client);
@@ -144,6 +212,7 @@ void main() {
       'success',
       'bad ack',
       'foreign ack',
+      'mirror ack',
       'wrong thread ack',
       'completion without refresh',
       'conflicting refresh',
@@ -156,6 +225,8 @@ void main() {
           'bad ack' => '<p>unrecognized response</p>',
           'foreign ack' =>
             _ack.replaceFirst('read.php?', 'https://evil.invalid/read.php?'),
+          'mirror ack' =>
+            _ack.replaceFirst('read.php?', 'https://blue-plus.net/read.php?'),
           'wrong thread ack' => _ack.replaceFirst('tid=7001', 'tid=7009'),
           'completion without refresh' => '<p>操作完成</p>',
           'conflicting refresh' =>
@@ -187,6 +258,15 @@ void main() {
           ThreadRewardOutcome.failed);
       expect(client.posts, hasLength(1));
     }
+  });
+
+  test('native authorized reply can quote permission wording as user content',
+      () async {
+    final client = _Client()..bodySuffix = '没有权限';
+    final repository = ForumRepository(client: client);
+    final draft = await repository.fetchRewardDraft(_action);
+    expect((await repository.submitReward(draft: draft)).outcome,
+        ThreadRewardOutcome.success);
   });
 
   test('best answer confirms only after native close and exact award amount',
@@ -265,6 +345,8 @@ void main() {
 
 class _Client extends ForumClient {
   String rewardForm = _reward;
+  String composeResponse =
+      '<meta http-equiv="refresh" content="1;url=read.php?tid=7004"><p>发帖完毕</p>';
   String response = _ack;
   bool permitted = true;
   bool applyAward = true;
@@ -276,6 +358,11 @@ class _Client extends ForumClient {
   Future<void>? writeBarrier;
   final writeEntered = Completer<void>();
   Object? writeError;
+  String bodySuffix = '';
+  String composeMismatch = 'none';
+  @override
+  Future<String> get(String path) async =>
+      '<div id="user-login"><a href="u.php">Synthetic owner</a></div><div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-8001.html">Profile</a></div></div>';
   bool loggedIn = true;
   @override
   bool get isLoggedIn => loggedIn;
@@ -288,13 +375,16 @@ class _Client extends ForumClient {
     requireCurrentSession?.call();
     if (path.startsWith('post.php')) return _compose;
     if (path.startsWith('job.php')) return rewardForm;
+    if (path == 'read.php?tid-7004.html')
+      return '<a href="read.php?tid-${composeMismatch == 'tid' ? '7009' : '7004'}.html">Thread</a><h1 id="subject_tpc">${composeMismatch == 'title' ? 'Wrong title' : '[全年龄]Title'}</h1>${_post('tpc', 'Body', '').replaceFirst('uid-8001', composeMismatch == 'uid' ? 'uid-8009' : 'uid-8001')}';
     return _thread(
-        permitted: permitted,
-        best: best,
-        closed: sent && best,
-        awarded: sent && applyAward,
-        remaining: sent && !wrongBalanceAfter ? 9 : 10,
-        tid: sent && wrongThreadAfter ? '7009' : '7001');
+            permitted: permitted,
+            best: best,
+            closed: sent && best,
+            awarded: sent && applyAward,
+            remaining: sent && !wrongBalanceAfter ? 9 : 10,
+            tid: sent && wrongThreadAfter ? '7009' : '7001')
+        .replaceFirst('Original', 'Original $bodySuffix');
   }
 
   @override
@@ -308,6 +398,6 @@ class _Client extends ForumClient {
     posts.add(List.of(fields));
     sent = true;
     if (writeError != null) throw writeError!;
-    return path.startsWith('post.php') ? '<title>发帖完毕</title>' : response;
+    return path.startsWith('post.php') ? composeResponse : response;
   }
 }

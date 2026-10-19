@@ -43,9 +43,11 @@ void main() {
       expect(bounty.helpfulRemaining, 9);
       expect(bounty.remainingHours, hours);
     }
-    expect(
-        parser.action(
-            'https://evil.invalid/job.php?action-reward-tid-1-pid-2-type-1.html'),
-        isNull);
+    for (final host in ['evil.invalid', 'blue-plus.net']) {
+      expect(
+          parser.action(
+              'https://$host/job.php?action-reward-tid-1-pid-2-type-1.html'),
+          isNull);
+    }
   });
 }

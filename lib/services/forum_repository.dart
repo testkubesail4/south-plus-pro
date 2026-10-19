@@ -122,7 +122,8 @@ class ForumRepository {
       BoardThreadPageParser(urls: _urls);
   final ForumFormParser _formParser = const ForumFormParser();
   final _editDraftSessions = Expando<({ForumClient client, int epoch})>();
-  final _composeDraftSessions = Expando<({ForumClient client, int epoch})>();
+  final _composeDraftSessions =
+      Expando<({ForumClient client, int epoch, String? uid})>();
   final _rewardDraftSessions = Expando<({ForumClient client, int epoch})>();
   final _sentRewardTargets = <String>{};
   final ForumResponseParser _responseParser = const ForumResponseParser();
@@ -2276,7 +2277,8 @@ class ForumRepository {
     _throwIfBlockedPage(html);
     final draft =
         ThreadTransactionParser(_urls).compose(html_parser.parse(html), fid);
-    _composeDraftSessions[draft] = (client: client, epoch: epoch);
+    _composeDraftSessions[draft] =
+        (client: client, epoch: epoch, uid: _accountIdentity.value?.uid);
     return draft;
   }
 
@@ -2336,10 +2338,40 @@ class ForumRepository {
       const MapEntry('Submit', '提 交'),
     ];
     _composeDraftSessions[draft] = null;
-    final response = await session.client.postForm(draft.actionPath, fields,
-        multipart: draft.multipart, requireCurrentSession: current);
-    current();
-    return _replyResult(response, '主题已发布');
+    _clearProfileDetails();
+    const unknown = ReplyResult(
+        success: false, unconfirmed: true, message: '发布结果未确认，请查看版块核对，勿重复提交');
+    try {
+      final response = await session.client.postForm(draft.actionPath, fields,
+          multipart: draft.multipart, requireCurrentSession: current);
+      current();
+      final tid = ThreadTransactionParser(_urls)
+          .composedThreadId(html_parser.parse(response));
+      if (tid == null || session.uid == null) return unknown;
+      final document = html_parser.parse(await session.client
+          .getForm('read.php?tid-$tid.html', requireCurrentSession: current));
+      current();
+      final opening = _threadDetailParser
+          .desktopThreadCards(document)
+          .where((post) => post.anchors.contains('read_tpc'))
+          .firstOrNull;
+      var returnedTitle = _threadDetailParser.threadTitle(document);
+      final categoryLabel = draft.categories
+          .where((category) => category.value == categoryValue)
+          .firstOrNull
+          ?.label;
+      if (categoryLabel != null)
+        returnedTitle = returnedTitle?.replaceFirst(
+            RegExp('^\\[${RegExp.escape(categoryLabel)}\\]\\s*'), '');
+      if (_urls.tidFromUrl(_threadDetailParser.threadUrl(document) ?? '') !=
+              tid ||
+          opening?.authorUid != session.uid ||
+          returnedTitle != title.trim()) return unknown;
+      _clearProfileDetails();
+      return const ReplyResult(success: true, message: '主题已发布');
+    } catch (_) {
+      return unknown;
+    }
   }
 
   Future<({dom.Document document, ThreadBounty bounty, ThreadReply target})>
@@ -2350,7 +2382,6 @@ class ForumRepository {
             page: action.page),
         requireCurrentSession: current);
     current();
-    _throwIfBlockedPage(html);
     final document = html_parser.parse(html);
     if (_urls.tidFromUrl(_threadDetailParser.threadUrl(document) ?? '') !=
         action.tid) throw const ForumRepositoryException('响应不是所选帖子');
@@ -2364,7 +2395,10 @@ class ForumRepository {
         .desktopThreadCards(document)
         .where((p) => p.anchors.contains('read_${action.pid}'))
         .firstOrNull;
-    if (target == null) throw const ForumRepositoryException('没有找到所选回复');
+    if (target == null) {
+      _throwIfBlockedPage(html);
+      throw const ForumRepositoryException('没有找到所选回复');
+    }
     final opening = action.page == 1
         ? document
         : html_parser.parse(await client.getForm(
@@ -2730,12 +2764,18 @@ class ForumRepository {
       throw const ForumRepositoryException('网络或登录状态已改变，请重试');
     }
     final favorite = await _extractThreadFavorite(thread, html);
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
     final detail = _parseThreadPage(thread, document, html,
         page: normalizedPage,
         detailPath: detailPath,
         favorite: favorite,
         openingMetadata: openingMetadata);
     await _recordThreadView(detail.thread);
+    if (!identical(client, _client) || epoch != _sessionEpoch.value) {
+      throw const ForumRepositoryException('网络或登录状态已改变，请重试');
+    }
     return detail;
   }
 

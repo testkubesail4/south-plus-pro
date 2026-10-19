@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
@@ -50,6 +52,21 @@ void main() {
     expect(detail.replies, hasLength(1));
   });
 
+  test('session change during favorite fallback never publishes old detail',
+      () async {
+    final client = _NativeClient()..favoriteBarrier = Completer<void>();
+    final repository = ForumRepository(client: client);
+    final pending = repository.fetchThreadDetail(const ForumThread(
+        title: 'Thread',
+        url: 'read.php?tid-7001.html',
+        replies: 1,
+        section: ''));
+    await client.favoriteEntered.future;
+    await repository.clearSession();
+    client.favoriteBarrier!.complete();
+    await expectLater(pending, throwsA(isA<ForumRepositoryException>()));
+  });
+
   test('request board enriches once from matching classic page not user title',
       () async {
     final client = _NativeClient();
@@ -92,13 +109,22 @@ String _post(String id, String uid) =>
 
 class _NativeClient extends ForumClient {
   final paths = <String>[];
+  Completer<void>? favoriteBarrier;
+  final favoriteEntered = Completer<void>();
   bool openingFailure = false;
+  @override
+  Future<void> clearSession() async {}
   bool classicFailure = false;
   @override
   Future<String> getOnce(String path) => get(path);
   @override
   Future<String> get(String path) async {
     paths.add(path);
+    if (path == 'u.php?action-favor.html') {
+      favoriteEntered.complete();
+      await favoriteBarrier?.future;
+      return '<form action="u.php?action=favor"></form>';
+    }
     if (path.startsWith('thread_new.php'))
       return '''<ul class="stream">${[
         7001,
@@ -114,6 +140,6 @@ class _NativeClient extends ForumClient {
     if (path.contains('page-2'))
       return '<a href="read.php?tid-7001.html">Thread</a><div class="pages">Pages: 2/2</div>${_post('7002', '8002')}';
     if (openingFailure) throw StateError('opening unavailable');
-    return '<a href="read.php?tid-7001.html">Thread</a><div class="pages">Pages: 1/2</div>${_post('tpc', '8001')}';
+    return '${favoriteBarrier == null ? '' : "<script>verifyhash = 'fixture-token'</script><a id='favor'>收藏</a>"}<a href="read.php?tid-7001.html">Thread</a><div class="pages">Pages: 1/2</div>${_post('tpc', '8001')}';
   }
 }
