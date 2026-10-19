@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../forum_request_exception.dart';
 import '../forum_url_resolver.dart';
 import 'forum_form_parser.dart';
+import 'forum_response_parser.dart';
 
 class ThreadEditFormParser {
   ThreadEditFormParser(this.urls);
@@ -42,7 +43,14 @@ class ThreadEditFormParser {
     final controls = const ForumFormParser().defaultEntries(form);
     final fields = Map<String, String>.fromEntries(controls);
     for (final key in [
-      'action', 'step', 'fid', 'tid', 'pid', 'article', 'atc_title', 'atc_content'
+      'action',
+      'step',
+      'fid',
+      'tid',
+      'pid',
+      'article',
+      'atc_title',
+      'atc_content'
     ]) {
       if (controls.where((entry) => entry.key == key).length != 1) _invalid();
     }
@@ -62,6 +70,42 @@ class ThreadEditFormParser {
       actionPath: action.path,
       multipart: encoding == 'multipart/form-data',
     );
+  }
+
+  ReplyResult parseResult(dom.Document document, ThreadEditDraft draft) {
+    final text = '${document.querySelector('title')?.text ?? ''}\n'
+        '${document.body?.text ?? ''}';
+    if (RegExp(r'错误|失败|不能为空|权限|认证码|验证码|灌水').hasMatch(text)) {
+      return ReplyResult(
+          success: false,
+          message: const ForumResponseParser().pageMessage(text));
+    }
+    final refreshes = document.querySelectorAll('meta[http-equiv]').where(
+        (meta) => meta.attributes['http-equiv']!.toLowerCase() == 'refresh');
+    if (text.contains('发帖完毕') && refreshes.length == 1) {
+      final match = RegExp(r'^\s*\d+(?:\.\d+)?\s*;\s*url\s*=\s*(.+)$',
+              caseSensitive: false)
+          .firstMatch(refreshes.single.attributes['content'] ?? '');
+      var target = match?.group(1)?.trim() ?? '';
+      if (target.length >= 2 &&
+          ((target.startsWith('"') && target.endsWith('"')) ||
+              (target.startsWith("'") && target.endsWith("'")))) {
+        target = target.substring(1, target.length - 1);
+      }
+      final parsed = Uri.tryParse(target);
+      final uri = parsed == null ? null : urls.baseUri.resolveUri(parsed);
+      if (target.isNotEmpty &&
+          uri != null &&
+          uri.userInfo.isEmpty &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.origin == urls.baseUri.origin &&
+          uri.path == '/read.php' &&
+          urls.tidFromUrl(uri.toString()) == draft.fields['tid'] &&
+          uri.fragment == draft.fields['pid']) {
+        return const ReplyResult(success: true, message: '编辑已保存');
+      }
+    }
+    return const ReplyResult(success: false, message: '提交结果未确认，请刷新帖子确认后重新打开编辑');
   }
 
   ({String path, Map<String, String> fields})? _postTarget(String value) {

@@ -2734,12 +2734,10 @@ class ForumRepository {
         multipart: draft.multipart, requireCurrentSession: requireCurrent);
     requireCurrent();
     _throwIfBlockedPage(response);
-    final message = _responseParser.pageMessage(response);
-    if (_responseParser.isEditSuccess(response, message)) {
-      _clearProfileDetails();
-      return const ReplyResult(success: true, message: '编辑已保存');
-    }
-    return ReplyResult(success: false, message: message);
+    final result = ThreadEditFormParser(_urls)
+        .parseResult(html_parser.parse(response), draft);
+    if (result.success) _clearProfileDetails();
+    return result;
   }
 
   void _requireEditSession(ForumClient client, int epoch) {

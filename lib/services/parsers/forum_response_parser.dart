@@ -43,14 +43,6 @@ class ForumResponseParser {
         message.contains('发表成功');
   }
 
-  bool isEditSuccess(String html, String message) {
-    if (RegExp(r'错误|失败|不能为空|权限|认证码|验证码|灌水').hasMatch(message)) {
-      return false;
-    }
-    return isReplySuccess(html, message) ||
-        RegExp(r'编辑成功|修改成功|操作完成').hasMatch(message);
-  }
-
   bool isPurchaseSuccess(String html, String message) {
     if (message.contains('错误') ||
         message.contains('失败') ||

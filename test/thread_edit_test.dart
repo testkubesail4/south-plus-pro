@@ -14,6 +14,13 @@ const _link = ThreadActionLink(
   label: '编辑',
   url: 'post.php?action-modify-fid-6-tid-700-pid-900-article-12.html',
 );
+const _ack = '<html><head><title>南+ South Plus</title>'
+    '<meta http-equiv="refresh" '
+    'content="1;url=read.php?tid=700&amp;page=3&amp;toread=1#900">'
+    '</head><body>提示信息 [ 发帖完毕点击进入主题列表 ] '
+    '如果您的浏览器没有自动跳转,请点击这里 '
+    '<a href="read.php?tid=700&amp;page=3&amp;toread=1#900">点击这里</a>'
+    '</body></html>';
 const _form = '''<form name="FORM" method="post" action="post.php?"
     enctype="multipart/form-data">
   <input name="atc_title" value="Original &amp; title">
@@ -139,10 +146,11 @@ void main() {
     },
   );
 
-  test('original BBCode may quote forum error phrases without blocking editing', () async {
+  test('original BBCode may quote forum error phrases without blocking editing',
+      () async {
     final client = _EditClient()
-      ..form = _form.replaceAll('Original [b]BBCode[/b]',
-          '您所在的用户组无法进行此操作，请先登录后再操作');
+      ..form =
+          _form.replaceAll('Original [b]BBCode[/b]', '您所在的用户组无法进行此操作，请先登录后再操作');
     final draft = await ForumRepository(client: client).fetchEditDraft(_link);
     expect(draft.content, contains('请先登录'));
   });
@@ -164,7 +172,8 @@ void main() {
       'name="step" value="1"',
     ),
     'GET form': _form.replaceAll('method="post"', 'method="get"'),
-    'unsupported encoding': _form.replaceAll('multipart/form-data', 'text/plain'),
+    'unsupported encoding':
+        _form.replaceAll('multipart/form-data', 'text/plain'),
     'duplicate content': _form.replaceAll('</form>',
         '<textarea name="atc_content">conflicting body</textarea></form>'),
     'no editor': _form.replaceAll('textarea', 'div'),
@@ -260,6 +269,54 @@ void main() {
     expect(client.posts, hasLength(1));
   });
 
+  for (final acknowledgement in <String, String>{
+    'generic prompt': '<title>南+ South Plus</title><p>提示信息</p>',
+    'wording without redirect': '<title>南+ South Plus</title><p>发帖完毕</p>',
+    'wrong thread': _ack.replaceAll('tid=700', 'tid=701'),
+    'wrong post': _ack.replaceAll('#900', '#901'),
+    'foreign origin':
+        _ack.replaceAll('read.php?', 'https://evil.invalid/read.php?'),
+    'wrong endpoint': _ack.replaceAll('read.php?', 'post.php?'),
+    'unsafe scheme': _ack.replaceAll('read.php?', 'javascript:read.php?'),
+    'no native wording': _ack.replaceAll('发帖完毕', '操作完成'),
+    'conflicting refreshes': _ack.replaceFirst('</head>',
+        '<meta http-equiv="refresh" content="1;url=read.php?tid=700#900"></head>'),
+  }.entries) {
+    test('${acknowledgement.key} remains ambiguous and cannot reuse the draft',
+        () async {
+      final client = _EditClient()..response = acknowledgement.value;
+      final repository = ForumRepository(client: client);
+      final draft = await repository.fetchEditDraft(_link);
+      final result = await repository.submitEdit(
+          draft: draft, title: 'Edited', content: 'Keep my edited text');
+      expect(result.success, isFalse);
+      expect(result.message, contains('未确认'));
+      expect(result.message, contains('重新打开编辑'));
+      expect(client.posts, hasLength(1));
+      expect(Map.fromEntries(client.posts.single)['atc_content'],
+          'Keep my edited text');
+      await expectLater(
+          repository.submitEdit(
+              draft: draft, title: 'Edited', content: 'Keep my edited text'),
+          throwsA(isA<ForumRequestException>()));
+      expect(client.posts, hasLength(1));
+    });
+  }
+
+  test(
+      'explicit failure beats even a matching refresh and preserves its message',
+      () async {
+    final client = _EditClient()
+      ..response = _ack.replaceAll('发帖完毕', '编辑失败：正文不能为空');
+    final repository = ForumRepository(client: client);
+    final draft = await repository.fetchEditDraft(_link);
+    final result = await repository.submitEdit(
+        draft: draft, title: 'Edited', content: 'Keep edited text');
+    expect(result.success, isFalse);
+    expect(result.message, contains('正文不能为空'));
+    expect(client.posts, hasLength(1));
+  });
+
   test('failure message is not treated as edit success', () async {
     final client = _EditClient()..response = '<title>错误：没有编辑权限</title>';
     final repository = ForumRepository(client: client);
@@ -282,7 +339,7 @@ class _History extends BrowsingHistoryStore {
 class _EditClient extends ForumClient {
   String form = _form;
   String threadMarkup = '';
-  String response = '<title>编辑成功</title>';
+  String response = _ack;
   int reads = 0;
   bool multipart = false;
   final posts = <List<MapEntry<String, String>>>[];
