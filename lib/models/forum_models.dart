@@ -502,11 +502,13 @@ class ThreadRewardAction {
       {required this.kind,
       required this.url,
       required this.tid,
-      required this.pid});
+      required this.pid,
+      this.page = 1});
   final ThreadRewardKind kind;
   final String url;
   final String tid;
   final String pid;
+  final int page;
 }
 
 class ThreadComposeCategory {

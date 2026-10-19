@@ -5,6 +5,7 @@ import '../forum_url_resolver.dart';
 import '../forum_block_content.dart';
 import 'thread_content_parser.dart';
 import 'thread_edit_form_parser.dart';
+import 'thread_reward_parser.dart';
 
 class ThreadDetailParser {
   ThreadDetailParser({
@@ -102,6 +103,10 @@ class ThreadDetailParser {
           links: links,
           saleBoxes: saleBoxes,
           saleBoxesFirst: saleBoxesFirst,
+          ratings: ThreadRewardParser(urls).ratings(post),
+          award: ThreadRewardParser(urls).award(post),
+          rewardActions: ThreadRewardParser(urls)
+              .actions(post, page: desktopPagination(document).currentPage),
         ),
       );
     }
@@ -126,10 +131,9 @@ class ThreadDetailParser {
       previous = previous.previousElementSibling;
     }
     final pids = anchors
-        .map((anchor) =>
-            RegExp(r'^(?:td_|read_)(tpc|[1-9]\d*)$')
-                .firstMatch(anchor)
-                ?.group(1))
+        .map((anchor) => RegExp(r'^(?:td_|read_)(tpc|[1-9]\d*)$')
+            .firstMatch(anchor)
+            ?.group(1))
         .whereType<String>()
         .toSet();
     final form = _enclosingForm(post);
