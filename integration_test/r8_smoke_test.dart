@@ -9,6 +9,7 @@ import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart'
 import 'package:south_plus_rewrite/features/common/thread_row.dart';
 import 'package:south_plus_rewrite/features/thread/thread_compose_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
+import 'package:south_plus_rewrite/features/thread/thread_rich_content.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
@@ -119,12 +120,17 @@ void main() {
         findsWidgets);
     expect(find.textContaining('Synthetic OP body', findRichText: true),
         findsNothing);
+    final opImage = find.byWidgetPredicate((widget) =>
+        widget is ThreadInlineImage && widget.image.url.endsWith('/r8-op.png'));
+    expect(opImage, findsNothing);
     expect((await fixture('r8/stats'))['thread_pages'], [2, 1]);
 
     await tap(tester, find.text('第 2 / 2 页'));
     await tap(tester, find.text('首楼'));
     await waitFor(
         tester, find.textContaining('Synthetic OP body', findRichText: true));
+    expect(opImage, findsOneWidget,
+        reason: 'the same OP image renders only on the opening page');
     expect(find.text('SP币 +109'), findsOneWidget);
     expect(find.text('HP -10'), findsOneWidget);
     expect((await fixture('r8/stats'))['reward_attempts'], isEmpty);
