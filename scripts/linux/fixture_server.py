@@ -122,7 +122,8 @@ def reset_appendfix(redesign=False, profile_boards=False, collections=False, pag
                      page_size=4 if collections else 50, external_events=[], partial_next=False,
                      unknown_ack_next=False, favorite_menu_label='SPP-repro-10',
                      round=False, edits=[], edit_attempts=[], edit_form_reads=[], edit_feedback='success',
-                     thread_pages=[], thread_reads=[], topic_pages=[], scan_waiting=False,
+                     thread_pages=[], thread_reads=[], topic_pages=[], list_reads=[], scan_waiting=False,
+                     truncate_list_next=False,
                      post_bodies={'950101': '[b]Opening original[/b] [url=https://example.invalid/reference]source[/url]',
                                   '950102': '[i]Reply original[/i] [s:716]'},
                      preferences=dict(tpskin='', editor='0', timedf='0', d_type='0',
@@ -239,16 +240,17 @@ def round_profile(page=None):
 <table id="u-profile"><tr><td>UID</td><td>950002</td></tr></table>'''
     if page is None:
         return f'<html><body>{shell}</body></html>'.encode()
-    data = {1: [('950201', 'Known low', '2025-01-02', '回复:0 浏览:0'),
+    data = {1: [('950201', 'Known low [1999-01-01] 浏览:999 回复:999', '2025-01-02', '回复:0 浏览:0'),
                 ('950202', 'Unknown metrics..', '2025-01-01', ''),
                 ('950203', 'Known high', '2025-01-03', '回复:4 浏览:40')],
             2: [('950204', 'Unloaded maximum', '2025-02-01', '回复:9 浏览:90')],
             3: [('950205', 'Unloaded unknown', '2025-02-02', '')]}
-    rows = ''.join(f'''<tr><td><a href="read.php?tid-{tid}.html">{title}</a>
-<a href="thread.php?fid-950.html">Synthetic board</a> [{date}] {metrics}</td></tr>'''
+    rows = ''.join(f'''<tr><th><a href="read.php?tid-{tid}.html">{escape(title)}</a><br>
+<a class="gray" href="thread.php?fid-950.html">Synthetic board</a>
+<span class="gray f9">[{date}]</span></th><td>{metrics.replace(' ', '<br>')}</td></tr>'''
                    for tid, title, date, metrics in data[page])
     return f'''<html><body>{shell}<div id="u-contentmain"><table class="u-table">{rows}</table>
-<div class="pages">Pages: {page}/3<a href="u.php?action-topic-uid-950002-page-3.html">末页</a>
+<div class="pages">Pages: {page}/3<a href="u.php?action=topic&amp;uid=950002&amp;page=3">末页</a>
 </div></div></body></html>'''.encode()
 
 
@@ -537,6 +539,11 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 APPENDFIX['edit_feedback'] = edit_feedback[path.path]
             self.send_body(b'{}', 'application/json')
             return
+        if self.appendfix and APPENDFIX['round'] and path.path == '/round/truncate-list-next' and raw == b'fixture-only':
+            with APPENDFIX_LOCK:
+                APPENDFIX['truncate_list_next'] = True
+            self.send_body(b'{}', 'application/json')
+            return
         if APPENDFIX['round'] and path.path == '/round/release-scan' and raw == b'fixture-only':
             ROUND_SCAN_GATE.set()
             self.send_body(b'{}', 'application/json')
@@ -780,19 +787,36 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 return
         if APPENDFIX['round'] and path == '/round/stats':
             with APPENDFIX_LOCK:
-                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'edit_attempts', 'edit_form_reads', 'thread_pages', 'thread_reads', 'post_bodies', 'topic_pages', 'scan_waiting')}).encode()
+                body = json.dumps({key: APPENDFIX[key] for key in ('edits', 'edit_attempts', 'edit_form_reads', 'thread_pages', 'thread_reads', 'post_bodies', 'topic_pages', 'list_reads', 'scan_waiting')}).encode()
             self.send_body(body, 'application/json')
             return
         if self.appendfix and APPENDFIX['round']:
             if path == '/read.php':
                 with APPENDFIX_LOCK:
                     APPENDFIX['thread_reads'].append(query)
-            if path == '/u.php' and 'uid-950002' in query:
-                if 'action-topic-' not in query:
+            params = parse_qs(query)
+            if path == '/u.php' and params.get('action', [''])[0] in ('topic.html', 'post.html', 'favor.html', 'friend.html'):
+                self.send_body(b'<html><body><div id="main">', 'text/html; charset=utf-8')
+                return
+            if path == '/u.php' and ('uid-950002' in query or params.get('uid') == ['950002']):
+                action = params.get('action', [''])[0]
+                is_list = action in ('topic', 'post', 'favor', 'friend') or re.search(
+                    r'action-(?:topic|post|favor|friend)(?:-|\.|$)', query)
+                if not is_list:
+                    self.send_body(round_profile(), 'text/html; charset=utf-8')
+                    return
+                with APPENDFIX_LOCK:
+                    APPENDFIX['list_reads'].append(query)
+                    truncated = APPENDFIX['truncate_list_next']
+                    APPENDFIX['truncate_list_next'] = False
+                if truncated:
+                    self.send_body(b'<html><body><div id="main">', 'text/html; charset=utf-8')
+                    return
+                if action != 'topic' and 'action-topic-' not in query:
                     self.send_body(round_profile(), 'text/html; charset=utf-8')
                     return
                 match = re.search(r'-page-(\d+)', query)
-                page = int(match[1]) if match else 1
+                page = int(match[1]) if match else int(params.get('page', ['1'])[0])
                 if page not in (1, 2, 3):
                     self.send_error(404)
                     return

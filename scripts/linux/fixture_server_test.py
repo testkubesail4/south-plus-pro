@@ -136,13 +136,27 @@ class FixtureServerTest(unittest.TestCase):
                     self.assertEqual(len(state['edits']), 1)
                     self.assertEqual(state['post_bodies']['950102'], 'Unsaved edit')
 
+    def test_round_native_metadata_cells_and_explicit_truncated_list_variant(self):
+        truncated = b'<html><body><div id="main">'
+        with appendfix_server() as (request, _):
+            request('/round/reset', b'fixture-only')
+            for action in ('topic', 'post', 'favor', 'friend'):
+                self.assertEqual(request(f'/u.php?action={action}.html'), truncated)
+            path = '/u.php?action-topic-uid-950002.html'
+            native = request(path).decode()
+            self.assertIn('<span class="gray f9">[2025-01-02]</span></th><td>回复:0<br>浏览:0</td>', native)
+            self.assertIn('Known low [1999-01-01] 浏览:999 回复:999</a>', native)
+            request('/round/truncate-list-next', b'fixture-only')
+            self.assertEqual(request(path), truncated)
+            self.assertIn(b'class="u-table"', request(path))
+
     def test_round_scan_returns_requested_pages_with_mixed_known_unknown_metrics(self):
         from fixture_server import ROUND_SCAN_GATE
         with appendfix_server() as (request, _):
             request('/round/reset', b'fixture-only')
             first = request('/u.php?action-topic-uid-950002.html').decode()
             self.assertIn('Unknown metrics', first)
-            self.assertIn('回复:0 浏览:0', first)
+            self.assertIn('回复:0<br>浏览:0', first)
             self.assertNotIn('Unloaded maximum', first)
             result = []
             pending = threading.Thread(target=lambda: result.append(

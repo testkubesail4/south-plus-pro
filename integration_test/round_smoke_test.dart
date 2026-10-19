@@ -7,8 +7,10 @@ import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/models/user_content_query.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/services/forum_session_store.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
@@ -102,6 +104,25 @@ void main() {
     });
     repository = ForumRepository(config: _config);
     expect(await repository.restoreSession(), isTrue);
+  });
+
+  testWidgets(
+      'HTTP 200 truncated list fails loud; native date and metrics never come from the title',
+      (tester) async {
+    const query = UserContentQuery(uid: '950002', tab: UserProfileTab.topics);
+    await fixture('round/truncate-list-next', reset: true);
+    await expectLater(repository.fetchUserContent(query),
+        throwsA(isA<ForumRequestException>()));
+    final result = await repository.fetchUserContent(query, refresh: true);
+    expect(result.items, hasLength(3));
+    final known = result.items.first;
+    expect(known.title, contains('[1999-01-01] 浏览:999 回复:999'));
+    expect(known.date, '2025-01-02');
+    expect(known.views, 0);
+    expect(known.replies, 0);
+    expect(result.items[1].views, isNull);
+    expect(result.items[1].replies, isNull);
+    expect((await fixture('round/stats'))['thread_reads'], isEmpty);
   });
 
   testWidgets(
