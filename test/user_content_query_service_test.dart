@@ -13,6 +13,7 @@ import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/services/forum_url_resolver.dart';
 import 'package:south_plus_rewrite/services/full_scan.dart';
 import 'package:south_plus_rewrite/services/user_content_query_service.dart';
+import 'package:south_plus_rewrite/services/user_content_sort.dart';
 
 String _row(int tid, {int? pid, String board = '48', String? title}) =>
     '<tr><td><a href="${pid == null ? 'read.php?tid-$tid.html' : 'job.php?action-topost-tid-$tid-pid-$pid.html'}">'
@@ -252,6 +253,56 @@ void main() {
     expect(bodyQuery.unresolved, isEmpty);
     expect(client.peak, 1);
   });
+
+  for (final tab in [UserProfileTab.topics, UserProfileTab.posts]) {
+    testWidgets('empty-keyword $tab sort scans list pages only and stays partial until done',
+        (tester) async {
+      final gate = Completer<dom.Document>();
+      final action = tab == UserProfileTab.topics ? 'topic' : 'post';
+      String row(int id, String title, String date, int? views) =>
+          _row(12, pid: tab == UserProfileTab.posts ? id : null, title: title)
+              .replaceFirst('</td>', ' [$date] ${views == null ? '' : '浏览:$views 回复:$views'}</td>')
+              .replaceFirst('tid-12.html', 'tid-$id.html');
+      respond = (path) async {
+        if (!path.startsWith('u.php')) fail('sorting must not enrich from $path');
+        if (_number(path) == 2) return gate.future;
+        return html.parse(_page(
+            row(101, 'unknown..', '2024-02-29', null) +
+            row(102, 'zero', '2024-01-01', 0), pages: 2, action: action));
+      };
+      final repository = ForumRepository(client: client);
+      final query = UserContentQuery(uid: '7', tab: tab);
+      final loaded = await repository.fetchUserContent(query);
+      expect(loaded.hasMore, isTrue);
+      expect(loaded.isComplete, isFalse);
+      final sort = UserContentSort(tab == UserProfileTab.topics
+          ? UserContentSortKey.views : UserContentSortKey.time);
+      final local = sortUserContent(loaded.items, sort);
+      expect(local.map((row) => tab == UserProfileTab.posts ? row.postId : row.threadId),
+          tab == UserProfileTab.topics ? ['102', '101'] : ['101', '102']);
+      expect(paths, hasLength(1), reason: 'loaded sorting adds no requests');
+      final job = repository.scanUserContent(query, loaded: loaded.items,
+          loadedPages: loaded.scannedPages, totalPages: loaded.totalPages);
+      addTearDown(job.dispose);
+      expect(job.hits, hasLength(2), reason: 'truncated title is valid without a keyword');
+      expect(job.progress.pending, 0);
+      job.start();
+      await tester.pump();
+      expect(job.progress.state, ScanState.running);
+      expect(job.progress.scannedPages, 1);
+      expect(job.hits, hasLength(2), reason: 'in-flight order is only partial');
+      gate.complete(html.parse(_page(row(103, 'maximum..', '2025-01-01', 90),
+          pages: 2, page: 2, action: action)));
+      await tester.pump();
+      expect(job.progress.state, ScanState.done);
+      expect(job.progress.scannedPages, 2);
+      expect(job.unresolved, isEmpty);
+      final all = sortUserContent(job.hits, sort);
+      expect(tab == UserProfileTab.posts ? all.first.postId : all.first.threadId, '103');
+      expect(paths, ['u.php?action-$action-uid-7-page-1.html',
+        'u.php?action-$action-uid-7-page-2.html']);
+    });
+  }
 
   testWidgets(
       'classification metadata is explicit and shared by TID while preserving distinct replies',

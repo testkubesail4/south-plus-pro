@@ -250,18 +250,17 @@ class UserContentQueryService {
       total = null;
     String identity(UserListItem item) => _rowIdentity(item, query.tab);
     String? tid(UserListItem item) => urls.tidFromUrl(item.url);
+    bool? titleMatch(UserListItem item) => matchKeyword(
+        query.keyword, [item.title], truncated: item.titleTruncated);
     bool needsMetadata(UserListItem item) =>
-        matchKeyword(query.keyword, [item.title],
-                truncated: item.titleTruncated) !=
-            false &&
+        titleMatch(item) != false &&
         _localMatch(item, query) != false &&
-        (item.titleTruncated || _localMatch(item, query) == null);
+        (titleMatch(item) == null || _localMatch(item, query) == null);
     Iterable<UserListItem> seed() sync* {
       final seen = <String>{};
       for (final item in source) {
-        if (item.titleTruncated ||
-            _localMatch(item, query) != true ||
-            matchKeyword(query.keyword, [item.title]) != true) continue;
+        if (_localMatch(item, query) != true || titleMatch(item) != true)
+          continue;
         if (!seen.add(identity(item))) continue;
         yield item;
         if (seen.length > maxScanResults) return;
@@ -424,14 +423,12 @@ class UserContentQueryService {
           if (seen.contains(id) ||
               processed.contains(id) ||
               local == false ||
-              matchKeyword(query.keyword, [item.title],
-                      truncated: item.titleTruncated) ==
-                  false) {
+              titleMatch(item) == false) {
             processed.add(id);
             cursor++;
             continue;
           }
-          final needs = item.titleTruncated || local == null;
+          final needs = titleMatch(item) == null || local == null;
           bool? match = local;
           if (needs) {
             final decision = await metadata(item);
@@ -454,8 +451,7 @@ class UserContentQueryService {
               match = _matches(item, query, data, decision.type);
             }
           }
-          final title = matchKeyword(query.keyword, [item.title],
-              truncated: item.titleTruncated);
+          final title = titleMatch(item);
           if (title != false && match != false) {
             if (title == null || match == null) {
               scan.retain(request, unresolved: [item]);
