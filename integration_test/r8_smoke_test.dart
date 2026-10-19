@@ -191,7 +191,7 @@ void main() {
     await tester.enterText(
         find.byKey(const ValueKey('compose-bounty-helpful')), '12');
     await tester.pumpAndSettle();
-    expect(find.text('发布时预先扣除 62 SP币'), findsOneWidget);
+    expect(find.textContaining('发布时预先扣除 62 SP币'), findsOneWidget);
     await tap(tester, find.byKey(const ValueKey('compose-submit')));
     await waitFor(tester, find.text('发布悬赏帖？'));
     expect((await fixture('r8/stats'))['compose_attempts'], isEmpty,

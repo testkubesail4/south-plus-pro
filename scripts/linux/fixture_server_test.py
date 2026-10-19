@@ -87,6 +87,7 @@ class FixtureServerTest(unittest.TestCase):
             request('/r8/reset', b'fixture-only')
             page1 = request('/read.php?tid-960001.html').decode()
             self.assertIn('Synthetic signature', page1)
+            self.assertIn('<a href="read.php?tid-960001.html">Synthetic bounty thread</a>', page1)
             self.assertIn('<tr class="r_one"><th><div class="tpc_content"><div class="tips">', page1)
             self.assertIn('SP币:+109', page1)
             self.assertIn('HP:-10', page1)
