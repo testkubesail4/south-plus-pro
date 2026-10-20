@@ -11,9 +11,11 @@ import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/forum_session_store.dart';
 import 'package:south_plus_rewrite/services/image_loading_settings.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
@@ -170,7 +172,20 @@ void main() {
     }
 
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpWidget(app(() => PmComposeScreen(repository: repository)));
+    await ForumSessionStore().saveCookies({
+      'fixture': ForumStoredCookie.session(
+        name: 'fixture_winduser',
+        value: 'synthetic-local-session',
+        origin: const _FixtureSite().baseUri,
+      ),
+    });
+    final client = ForumClient(config: repository.networkConfig);
+    addTearDown(() => client.close(force: true));
+    await client.restoreCookies();
+    final composerRepository = ForumRepository(client: client);
+    expect(composerRepository.isLoggedIn, isTrue);
+    await tester
+        .pumpWidget(app(() => PmComposeScreen(repository: composerRepository)));
     await waitFor(tester, find.byType(WindCodeToolbar));
     await tester.ensureVisible(find.byType(WindCodeToolbar));
     await tester.pumpAndSettle();
