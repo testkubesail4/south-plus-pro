@@ -6,6 +6,7 @@ import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../services/loading_preferences.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
@@ -194,39 +195,49 @@ class _PmDetailViewState extends State<_PmDetailView> {
           ),
           body: SafeArea(
             top: false,
-            child: snapshot.hasError
-                ? AsyncErrorView(
-                    title: '短消息加载失败',
-                    message: forumErrorText(snapshot.error),
-                    onRetry: _retry,
-                  )
-                : detail == null
-                    ? const ThreadDetailSkeleton()
-                    : ListView(
-                        padding: _readingPadding(context),
-                        children: [
-                          _PmMessageCard(
-                            repository: widget.repository,
-                            sender: detail.sender,
-                            title: detail.title,
-                            time: detail.time,
-                            content: detail.content,
-                            segments: detail.segments,
-                          ),
-                          if (detail.replyPath case final path?) ...[
-                            const SizedBox(height: AppSpace.md),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: FilledButton.icon(
-                                onPressed:
-                                    _busy ? null : () => _openCompose(path),
-                                icon: const Icon(Icons.reply_outlined),
-                                label: const Text('回复'),
-                              ),
+            // The message fades in over its skeleton; another account's is
+            // dropped at once.
+            child: AppSwitcher(
+              id: snapshot.hasError
+                  ? 'error'
+                  : detail == null
+                      ? 'loading'
+                      : 'detail',
+              scope: widget.repository.sessionEpoch.value,
+              child: snapshot.hasError
+                  ? AsyncErrorView(
+                      title: '短消息加载失败',
+                      message: forumErrorText(snapshot.error),
+                      onRetry: _retry,
+                    )
+                  : detail == null
+                      ? const ThreadDetailSkeleton()
+                      : ListView(
+                          padding: _readingPadding(context),
+                          children: [
+                            _PmMessageCard(
+                              repository: widget.repository,
+                              sender: detail.sender,
+                              title: detail.title,
+                              time: detail.time,
+                              content: detail.content,
+                              segments: detail.segments,
                             ),
+                            if (detail.replyPath case final path?) ...[
+                              const SizedBox(height: AppSpace.md),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: FilledButton.icon(
+                                  onPressed:
+                                      _busy ? null : () => _openCompose(path),
+                                  icon: const Icon(Icons.reply_outlined),
+                                  label: const Text('回复'),
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
+                        ),
+            ),
           ),
         );
       },
@@ -348,91 +359,101 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
         top: false,
         child: FutureBuilder<ForumPmChatlog>(
           future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return AsyncErrorView(
-                title: '通信记录加载失败',
-                message: forumErrorText(snapshot.error),
-                onRetry: _load,
-              );
-            }
-            if (!snapshot.hasData) return const ThreadDetailSkeleton();
-            final chatlog = snapshot.data!;
-            final pages = [chatlog, ..._more.pages];
-            final last = pages.last;
-            final next = last.nextPagePath;
-            final seen = <String>{};
-            // Any page link the forum showed means there are other pages.
-            final paged = next != null ||
-                pages.length > 1 ||
-                chatlog.currentPage > 1 ||
-                pages.any((page) => page.pageLinks.isNotEmpty);
-            return ListView(
-              controller: _scroll,
-              padding: _readingPadding(context),
-              children: [
-                // Empty as a whole only when the forum has no other page.
-                if (chatlog.records.isEmpty && !paged)
-                  const EmptyStateView(
-                    icon: Icons.forum_outlined,
-                    title: '暂无通信记录',
-                  ),
-                for (final (i, page) in pages.indexed) ...[
-                  if (i > 0) PageBoundary(page: page.currentPage),
-                  if (page.records.isEmpty && paged)
-                    const PageEmptyNote('本页没有通信记录'),
-                  for (final record in page.records)
-                    if (!MorePages.repeats(seen, record.id)) ...[
-                      _PmMessageCard(
-                        repository: widget.repository,
-                        sender: record.sender,
-                        title: record.title,
-                        time: record.time,
-                        content: record.content,
-                        segments: record.segments,
-                      ),
-                      const SizedBox(height: 10),
-                    ],
+          // The records fade in over their skeleton; another account's are
+          // dropped at once.
+          builder: (context, snapshot) => AppSwitcher(
+            id: snapshot.hasError
+                ? 'error'
+                : snapshot.hasData
+                    ? 'records'
+                    : 'loading',
+            scope: widget.repository.sessionEpoch.value,
+            child: Builder(builder: (context) {
+              if (snapshot.hasError) {
+                return AsyncErrorView(
+                  title: '通信记录加载失败',
+                  message: forumErrorText(snapshot.error),
+                  onRetry: _load,
+                );
+              }
+              if (!snapshot.hasData) return const ThreadDetailSkeleton();
+              final chatlog = snapshot.data!;
+              final pages = [chatlog, ..._more.pages];
+              final last = pages.last;
+              final next = last.nextPagePath;
+              final seen = <String>{};
+              // Any page link the forum showed means there are other pages.
+              final paged = next != null ||
+                  pages.length > 1 ||
+                  chatlog.currentPage > 1 ||
+                  pages.any((page) => page.pageLinks.isNotEmpty);
+              return ListView(
+                controller: _scroll,
+                padding: _readingPadding(context),
+                children: [
+                  // Empty as a whole only when the forum has no other page.
+                  if (chatlog.records.isEmpty && !paged)
+                    const EmptyStateView(
+                      icon: Icons.forum_outlined,
+                      title: '暂无通信记录',
+                    ),
+                  for (final (i, page) in pages.indexed) ...[
+                    if (i > 0) PageBoundary(page: page.currentPage),
+                    if (page.records.isEmpty && paged)
+                      const PageEmptyNote('本页没有通信记录'),
+                    for (final record in page.records)
+                      if (!MorePages.repeats(seen, record.id)) ...[
+                        _PmMessageCard(
+                          repository: widget.repository,
+                          sender: record.sender,
+                          title: record.title,
+                          time: record.time,
+                          content: record.content,
+                          segments: record.segments,
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                  ],
+                  if (paged)
+                    PageEndFooter(
+                      next: next == null ? null : last.currentPage + 1,
+                      // The forum gives no page count, so no end is claimed.
+                      endConfirmed: false,
+                      manual: !_more.continuous,
+                      loading: _more.loading,
+                      failed: _more.error != null,
+                      error: _more.error,
+                      paused: _more.paused,
+                      // 手动翻页 turns to the next page alone; 自动接续 appends.
+                      onNext: next == null
+                          ? null
+                          : !_more.continuous
+                              ? () => _load(next)
+                              : () => _more.retry(chatlog, _scroll),
+                    ),
+                  // The links of the last page read, so none leads back.
+                  if (last.pageLinks.isNotEmpty || chatlog.composePath != null)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final link in last.pageLinks)
+                          OutlinedButton(
+                            onPressed: () => _load(link.path),
+                            child: Text(link.label),
+                          ),
+                        if (chatlog.composePath case final path?)
+                          FilledButton.icon(
+                            onPressed: () => _compose(path),
+                            icon: Icon(Icons.reply_outlined, size: 18),
+                            label: const Text('回复'),
+                          ),
+                      ],
+                    ),
                 ],
-                if (paged)
-                  PageEndFooter(
-                    next: next == null ? null : last.currentPage + 1,
-                    // The forum gives no page count, so no end is claimed.
-                    endConfirmed: false,
-                    manual: !_more.continuous,
-                    loading: _more.loading,
-                    failed: _more.error != null,
-                    error: _more.error,
-                    paused: _more.paused,
-                    // 手动翻页 turns to the next page alone; 自动接续 appends.
-                    onNext: next == null
-                        ? null
-                        : !_more.continuous
-                            ? () => _load(next)
-                            : () => _more.retry(chatlog, _scroll),
-                  ),
-                // The links of the last page read, so none leads back.
-                if (last.pageLinks.isNotEmpty || chatlog.composePath != null)
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final link in last.pageLinks)
-                        OutlinedButton(
-                          onPressed: () => _load(link.path),
-                          child: Text(link.label),
-                        ),
-                      if (chatlog.composePath case final path?)
-                        FilledButton.icon(
-                          onPressed: () => _compose(path),
-                          icon: Icon(Icons.reply_outlined, size: 18),
-                          label: const Text('回复'),
-                        ),
-                    ],
-                  ),
-              ],
-            );
-          },
+              );
+            }),
+          ),
         ),
       ),
     );

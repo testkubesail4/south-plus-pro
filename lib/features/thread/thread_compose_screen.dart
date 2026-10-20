@@ -9,6 +9,7 @@ import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../services/local_state_preferences.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../editor/windcode_preview.dart';
 import '../editor/windcode_toolbar.dart';
@@ -368,97 +369,105 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
       ),
       body: SafeArea(
         top: false,
-        child: !_draftLoaded
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  // Fills the space above the toolbar, and scrolls instead of
-                  // overflowing when a keyboard, a long title or an error
-                  // leaves too little room.
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) => SingleChildScrollView(
-                        child: ConstrainedBox(
-                          constraints:
-                              BoxConstraints(minHeight: constraints.maxHeight),
-                          child: IntrinsicHeight(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (_unconfirmed)
-                                  MaterialBanner(
-                                    key: const ValueKey('compose-unconfirmed'),
-                                    content: Text(
-                                      '发布结果未确认：请求已发出，但没有收到论坛的明确答复。'
-                                      '请到版块查看是否已发布，不要重复发布。'
-                                      '${_draftNotKept ? '草稿未能保存到本机，离开前请先复制正文。' : '草稿已保留。'}',
-                                    ),
-                                    leading: const Icon(Icons.help_outline),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(context).pop(true),
-                                        child: const Text('返回版块查看'),
+        // The form fades in once its draft is read.
+        child: AppSwitcher(
+          id: _draftLoaded,
+          child: !_draftLoaded
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    // Fills the space above the toolbar, and scrolls instead of
+                    // overflowing when a keyboard, a long title or an error
+                    // leaves too little room.
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) =>
+                            SingleChildScrollView(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                                minHeight: constraints.maxHeight),
+                            child: IntrinsicHeight(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  if (_unconfirmed)
+                                    MaterialBanner(
+                                      key:
+                                          const ValueKey('compose-unconfirmed'),
+                                      content: Text(
+                                        '发布结果未确认：请求已发出，但没有收到论坛的明确答复。'
+                                        '请到版块查看是否已发布，不要重复发布。'
+                                        '${_draftNotKept ? '草稿未能保存到本机，离开前请先复制正文。' : '草稿已保留。'}',
                                       ),
-                                    ],
-                                  )
-                                else if (error != null)
-                                  MaterialBanner(
-                                    content: Text(error),
-                                    leading: Icon(
-                                      Icons.error_outline,
-                                      color: theme.colorScheme.error,
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            setState(() => _error = null),
-                                        child: const Text('知道了'),
+                                      leading: const Icon(Icons.help_outline),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.of(context).pop(true),
+                                          child: const Text('返回版块查看'),
+                                        ),
+                                      ],
+                                    )
+                                  else if (error != null)
+                                    MaterialBanner(
+                                      content: Text(error),
+                                      leading: Icon(
+                                        Icons.error_outline,
+                                        color: theme.colorScheme.error,
                                       ),
-                                    ],
-                                  ),
-                                Expanded(child: column(fields)),
-                              ],
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              setState(() => _error = null),
+                                          child: const Text('知道了'),
+                                        ),
+                                      ],
+                                    ),
+                                  Expanded(child: column(fields)),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  // Follows the keyboard up, so formatting stays at hand.
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceTint,
-                      border: Border(top: BorderSide(color: AppColors.border)),
-                    ),
-                    child: column(
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Column(
-                          children: [
-                            WindCodeToolbar(
-                              controller: _content,
-                              enabled: !_submitting,
-                              baseUri: widget.repository.networkConfig.baseUri,
-                            ),
-                            SwitchListTile(
-                              value: _replyNotice,
-                              onChanged: _submitting
-                                  ? null
-                                  : (value) =>
-                                      setState(() => _replyNotice = value),
-                              dense: true,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 12),
-                              title: const Text('新回复站内通知'),
-                            ),
-                          ],
+                    // Follows the keyboard up, so formatting stays at hand.
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceTint,
+                        border:
+                            Border(top: BorderSide(color: AppColors.border)),
+                      ),
+                      child: column(
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Column(
+                            children: [
+                              WindCodeToolbar(
+                                controller: _content,
+                                enabled: !_submitting,
+                                baseUri:
+                                    widget.repository.networkConfig.baseUri,
+                              ),
+                              SwitchListTile(
+                                value: _replyNotice,
+                                onChanged: _submitting
+                                    ? null
+                                    : (value) =>
+                                        setState(() => _replyNotice = value),
+                                dense: true,
+                                contentPadding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                title: const Text('新回复站内通知'),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+        ),
       ),
     );
   }

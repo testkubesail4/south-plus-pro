@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/home_reading_preferences.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/board_picker_sheet.dart';
 import '../common/content_width.dart';
@@ -290,7 +291,20 @@ class _QuickListSettingsScreenState extends State<QuickListSettingsScreen> {
         ],
       );
     }
-    return Scaffold(appBar: AppBar(title: const Text('速览')), body: body);
+    // The settings fade in over the spinner; another account's are dropped
+    // at once.
+    return Scaffold(
+      appBar: AppBar(title: const Text('速览')),
+      body: AppSwitcher(
+        id: _error != null
+            ? 'error'
+            : rows == null || sources == null
+                ? 'loading'
+                : 'settings',
+        scope: _current,
+        child: body,
+      ),
+    );
   }
 }
 

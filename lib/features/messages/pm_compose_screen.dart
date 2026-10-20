@@ -5,6 +5,7 @@ import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/session_bound.dart';
@@ -139,113 +140,122 @@ class _PmComposeViewState extends State<_PmComposeView> {
         top: false,
         child: FutureBuilder<ForumPmCompose>(
           future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return AsyncErrorView(
-                title: '消息表单加载失败',
-                message: forumErrorText(snapshot.error),
-                onRetry: () => setState(() {
-                  _future = _fetch();
-                }),
+          // The form fades in over the spinner.
+          builder: (context, snapshot) => AppSwitcher(
+            id: snapshot.hasError
+                ? 'error'
+                : snapshot.hasData
+                    ? 'form'
+                    : 'loading',
+            scope: widget.repository.sessionEpoch.value,
+            child: Builder(builder: (context) {
+              if (snapshot.hasError) {
+                return AsyncErrorView(
+                  title: '消息表单加载失败',
+                  message: forumErrorText(snapshot.error),
+                  onRetry: () => setState(() {
+                    _future = _fetch();
+                  }),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final compose = snapshot.data!;
+              // Fields, toolbar and 发送 share the form width (D§4).
+              final side = appGutter(
+                MediaQuery.sizeOf(context).width,
+                AppWidths.form,
               );
-            }
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final compose = snapshot.data!;
-            // Fields, toolbar and 发送 share the form width (D§4).
-            final side = appGutter(
-              MediaQuery.sizeOf(context).width,
-              AppWidths.form,
-            );
-            return ListView(
-              padding: EdgeInsets.fromLTRB(side, 10, side, 24),
-              children: [
-                TextField(
-                  controller: _recipient,
-                  enabled: !_submitting,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '收件人 UID',
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _title,
-                  enabled: !_submitting,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '标题',
-                    prefixIcon: Icon(Icons.title_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _body,
-                  enabled: !_submitting,
-                  minLines: 8,
-                  maxLines: 14,
-                  decoration: const InputDecoration(
-                    labelText: '内容',
-                    alignLabelWithHint: true,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                WindCodeToolbar(
-                  controller: _body,
-                  enabled: !_submitting,
-                  baseUri: widget.repository.networkConfig.baseUri,
-                  allowSale: false,
-                ),
-                CheckboxListTile(
-                  value: _saveToSendbox,
-                  onChanged: _submitting
-                      ? null
-                      : (value) =>
-                          setState(() => _saveToSendbox = value ?? false),
-                  title: const Text('保存到发件箱'),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+              return ListView(
+                padding: EdgeInsets.fromLTRB(side, 10, side, 24),
+                children: [
+                  TextField(
+                    controller: _recipient,
+                    enabled: !_submitting,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: '收件人 UID',
+                      prefixIcon: Icon(Icons.person_outline),
                     ),
                   ),
-                ],
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  key: const ValueKey('pm-submit-button'),
-                  onPressed: _submitting ? null : _submit,
-                  icon: _submitting
-                      ? SizedBox(
-                          width: 18,
-                          height: 18,
-                          // The button's own foreground, like its label.
-                          child: Builder(
-                            builder: (context) => CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: IconTheme.of(context).color,
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _title,
+                    enabled: !_submitting,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: '标题',
+                      prefixIcon: Icon(Icons.title_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _body,
+                    enabled: !_submitting,
+                    minLines: 8,
+                    maxLines: 14,
+                    decoration: const InputDecoration(
+                      labelText: '内容',
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  WindCodeToolbar(
+                    controller: _body,
+                    enabled: !_submitting,
+                    baseUri: widget.repository.networkConfig.baseUri,
+                    allowSale: false,
+                  ),
+                  CheckboxListTile(
+                    value: _saveToSendbox,
+                    onChanged: _submitting
+                        ? null
+                        : (value) =>
+                            setState(() => _saveToSendbox = value ?? false),
+                    title: const Text('保存到发件箱'),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    key: const ValueKey('pm-submit-button'),
+                    onPressed: _submitting ? null : _submit,
+                    icon: _submitting
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            // The button's own foreground, like its label.
+                            child: Builder(
+                              builder: (context) => CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: IconTheme.of(context).color,
+                              ),
                             ),
-                          ),
-                        )
-                      : Icon(Icons.send_outlined),
-                  label: Text(_submitting
-                      ? '提交中...'
-                      : compose.isEdit
-                          ? '提交修改'
-                          : '发送'),
-                ),
-              ],
-            );
-          },
+                          )
+                        : Icon(Icons.send_outlined),
+                    label: Text(_submitting
+                        ? '提交中...'
+                        : compose.isEdit
+                            ? '提交修改'
+                            : '发送'),
+                  ),
+                ],
+              );
+            }),
+          ),
         ),
       ),
     );

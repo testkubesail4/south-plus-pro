@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_account_models.dart';
 import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
+import 'app_switcher.dart';
 import 'async_state_view.dart';
 import 'content_width.dart';
 import 'grouped_list.dart';
@@ -951,8 +952,17 @@ class _NativeFormPageState extends State<NativeFormPage> {
         ),
         body: SafeArea(
           top: false,
-          child: Builder(
-            builder: (context) {
+          // The form fades in over its skeleton; a form read again, for this
+          // or another account, drops the one shown at once.
+          child: AppSwitcher(
+            id: _loadError != null
+                ? 'error'
+                : _loading || _active == null
+                    ? 'loading'
+                    : 'form',
+            scope: _generation,
+            // Built now: a leaving child keeps what it showed.
+            child: (() {
               if (_loadError != null) {
                 return AsyncErrorView(
                   title: '加载失败',
@@ -1006,7 +1016,7 @@ class _NativeFormPageState extends State<NativeFormPage> {
                   );
                 },
               );
-            },
+            })(),
           ),
         ),
       ),

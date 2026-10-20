@@ -538,78 +538,86 @@ class _QuickListBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pending = future;
-    if (pending == null) return _QuickListSkeleton(rows: rows);
+    // The list fades in over its skeleton; another account's list is
+    // dropped at once.
     return FutureBuilder<List<ForumThread>>(
-      future: pending,
-      builder: (context, snapshot) {
-        // A chosen board that is gone or closed is not fixed by retrying.
-        final gone = switch (snapshot.error) {
-          ForumRequestException(kind: ForumRequestKind.invalidInput) =>
-            '来源版块不存在',
-          ForumRequestException(kind: ForumRequestKind.forbidden) =>
-            '没有权限查看此版块',
-          _ => null,
-        };
-        if (board && gone != null) {
+      future: future,
+      builder: (context, snapshot) => AppSwitcher(
+        id: snapshot.hasError
+            ? 'error'
+            : snapshot.hasData
+                ? 'list'
+                : 'loading',
+        scope: repository.sessionEpoch.value,
+        child: _content(context, snapshot),
+      ),
+    );
+  }
+
+  Widget _content(
+      BuildContext context, AsyncSnapshot<List<ForumThread>> snapshot) {
+    // A chosen board that is gone or closed is not fixed by retrying.
+    final gone = switch (snapshot.error) {
+      ForumRequestException(kind: ForumRequestKind.invalidInput) => '来源版块不存在',
+      ForumRequestException(kind: ForumRequestKind.forbidden) => '没有权限查看此版块',
+      _ => null,
+    };
+    if (board && gone != null) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: AppSpace.sm,
+          children: [
+            Text(gone, style: TextStyle(color: AppColors.textMuted)),
+            TextButton(
+              onPressed: onChangeSource,
+              child: const Text('更换来源'),
+            ),
+          ],
+        ),
+      );
+    }
+    if (snapshot.hasError) {
+      return Align(
+        alignment: Alignment.topLeft,
+        child: TextButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh, size: 18),
+          label: Text('加载失败：${forumErrorText(snapshot.error)}'),
+        ),
+      );
+    }
+    final threads = snapshot.data;
+    if (threads == null) return _QuickListSkeleton(rows: rows);
+    // Blocked authors' threads leave the list as soon as a rule changes.
+    return ValueListenableBuilder(
+      valueListenable: repository.blocking.notifier,
+      builder: (context, rules, _) {
+        final shown = threads.where((thread) => !rules.isThreadBlocked(thread));
+        if (shown.isEmpty) {
           return Padding(
             padding: const EdgeInsets.all(12),
-            child: Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: AppSpace.sm,
-              children: [
-                Text(gone, style: TextStyle(color: AppColors.textMuted)),
-                TextButton(
-                  onPressed: onChangeSource,
-                  child: const Text('更换来源'),
-                ),
-              ],
-            ),
+            child: Text(board ? '此版块暂无主题' : '暂无内容',
+                style: TextStyle(color: AppColors.textMuted)),
           );
         }
-        if (snapshot.hasError) {
-          return Align(
-            alignment: Alignment.topLeft,
-            child: TextButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: Text('加载失败：${forumErrorText(snapshot.error)}'),
-            ),
-          );
-        }
-        final threads = snapshot.data;
-        if (threads == null) return _QuickListSkeleton(rows: rows);
-        // Blocked authors' threads leave the list as soon as a rule changes.
-        return ValueListenableBuilder(
-          valueListenable: repository.blocking.notifier,
-          builder: (context, rules, _) {
-            final shown =
-                threads.where((thread) => !rules.isThreadBlocked(thread));
-            if (shown.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(board ? '此版块暂无主题' : '暂无内容',
-                    style: TextStyle(color: AppColors.textMuted)),
-              );
-            }
-            return _quickRows(context, [
-              for (final thread in shown.take(rows))
-                ForumThreadRow.dense(
-                  title: thread.title,
-                  titleStyle: thread.titleStyle,
-                  count: thread.replies > 0 ? thread.replies : null,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ThreadDetailScreen(
-                        thread: thread,
-                        repository: repository,
-                      ),
-                    ),
+        return _quickRows(context, [
+          for (final thread in shown.take(rows))
+            ForumThreadRow.dense(
+              title: thread.title,
+              titleStyle: thread.titleStyle,
+              count: thread.replies > 0 ? thread.replies : null,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ThreadDetailScreen(
+                    thread: thread,
+                    repository: repository,
                   ),
                 ),
-            ]);
-          },
-        );
+              ),
+            ),
+        ]);
       },
     );
   }

@@ -6,6 +6,7 @@ import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../auth/login_screen.dart';
 import '../common/async_state_view.dart';
 import '../common/grouped_list.dart';
@@ -111,24 +112,35 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
               )
             : FutureBuilder<void>(
                 future: _sync,
-                builder: (context, snapshot) {
-                  if (_blocking.canWriteNative) return _rules();
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  return EmptyStateView(
-                    icon: Icons.block_outlined,
-                    title: '暂时无法识别当前账号',
-                    message: snapshot.hasError
-                        ? _blockingError(snapshot.error)
-                        : '识别账号后才能读取屏蔽名单',
-                    action: OutlinedButton(
-                      onPressed: _refresh,
-                      child: const Text('重试'),
-                    ),
-                  );
-                },
+                // The rules fade in over the spinner; another account's are
+                // dropped at once.
+                builder: (context, snapshot) => AppSwitcher(
+                  id: _blocking.canWriteNative
+                      ? 'rules'
+                      : snapshot.connectionState != ConnectionState.done
+                          ? 'loading'
+                          : 'unknown',
+                  scope: widget.repository.sessionEpoch.value,
+                  child: _synced(snapshot),
+                ),
               ),
+      ),
+    );
+  }
+
+  Widget _synced(AsyncSnapshot<void> snapshot) {
+    if (_blocking.canWriteNative) return _rules();
+    if (snapshot.connectionState != ConnectionState.done) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return EmptyStateView(
+      icon: Icons.block_outlined,
+      title: '暂时无法识别当前账号',
+      message:
+          snapshot.hasError ? _blockingError(snapshot.error) : '识别账号后才能读取屏蔽名单',
+      action: OutlinedButton(
+        onPressed: _refresh,
+        child: const Text('重试'),
       ),
     );
   }
