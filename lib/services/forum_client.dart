@@ -848,8 +848,9 @@ class ForumClient {
         restored!.isEmpty) return;
     _cookies
       ..clear()
-      ..addEntries(restored!.entries.where((entry) =>
-          entry.value.appliesToHost(baseUri.host)));
+      ..addEntries(restored!.values
+          .where((cookie) => cookie.appliesToHost(baseUri.host))
+          .map((cookie) => MapEntry(_cookieKey(cookie), cookie)));
     _credentialGeneration = storeGeneration;
   }
 
