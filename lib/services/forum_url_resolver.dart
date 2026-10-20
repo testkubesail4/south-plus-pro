@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import '../models/forum_models.dart';
+import '../models/forum_pm_models.dart';
 import 'forum_network_config.dart';
+import 'parsers/forum_pm_parser.dart';
 
 class ForumUrlResolver {
   ForumUrlResolver({
@@ -81,6 +83,13 @@ class ForumUrlResolver {
     }
     final normalized = absoluteUrl(raw);
     final uri = Uri.parse(normalized);
+    final legacyTask = uri.path == '/plugin.php' && !uri.hasFragment
+        ? _legacyTaskStatus(uri.query)
+        : null;
+    if (legacyTask != null) {
+      return ForumAppPageLinkTarget(ForumAppPage.forumTasks, normalized,
+          taskStatus: legacyTask);
+    }
     final fields = _queryFields(uri, rawQuery: _rawQuery(normalized));
     if (fields == null) return const ForumBlockedLinkTarget();
     if ({
@@ -98,6 +107,14 @@ class ForumUrlResolver {
     }.contains(fields['action']?.toLowerCase())) {
       return const ForumBlockedLinkTarget();
     }
+    if ({'/u.php', '/profile.php', '/message.php', '/plugin.php'}
+            .contains(uri.path) &&
+        fields.keys
+            .any({'job', 'step', 'verify', 'delids', 'selid'}.contains)) {
+      return const ForumBlockedLinkTarget();
+    }
+    final appPage = _appPageTarget(uri, normalized, fields);
+    if (appPage != null) return appPage;
     final tid = tidFromUrl(normalized);
     if (tid != null) {
       var target = absoluteUrl(threadDetailPath(normalized));
@@ -113,7 +130,7 @@ class ForumUrlResolver {
       }
       return ForumThreadLinkTarget(target);
     }
-    if (uri.path == '/u.php' && uidFromUrl(normalized) != null) {
+    if (uri.path == '/u.php') {
       final action = fields['action'];
       final tab = switch (action) {
         null || 'home' => UserProfileTab.home,
@@ -123,7 +140,15 @@ class ForumUrlResolver {
         'favor' => UserProfileTab.favorites,
         _ => null,
       };
-      if (tab != null) return ForumUserLinkTarget(normalized, tab: tab);
+      if (tab != null) {
+        final uid = uidFromUrl(normalized);
+        if (uid != null) return ForumUserLinkTarget(normalized, tab: tab);
+        if (!uri.hasFragment &&
+            (uri.query.isEmpty || fields.containsKey('action')) &&
+            fields.keys.every({'action'}.contains)) {
+          return ForumUserLinkTarget('$_origin/u.php', tab: tab, isSelf: true);
+        }
+      }
     }
     final fid = fidFromUrl(normalized);
     if (fid != null) {
@@ -134,6 +159,125 @@ class ForumUrlResolver {
       ));
     }
     return ForumPageLinkTarget(normalized);
+  }
+
+  ForumLinkTarget? _appPageTarget(
+      Uri uri, String normalized, Map<String, String> fields) {
+    if (uri.hasFragment) return null;
+    if (uri.query.isEmpty) {
+      if ({'', '/', '/index.php', '/simple/index.php'}.contains(uri.path)) {
+        return ForumAppPageLinkTarget(ForumAppPage.home, normalized);
+      }
+      if (uri.path == '/profile.php') {
+        return ForumAppPageLinkTarget(ForumAppPage.account, normalized);
+      }
+    }
+    if (uri.path == '/u.php' && fields['action'] == 'friend') {
+      final pageNumber = int.tryParse(fields['page'] ?? '1');
+      if (pageNumber == null || pageNumber < 1)
+        return const ForumBlockedLinkTarget();
+      if (!fields.keys.every({'action', 'uid', 'o', 'fuid', 'page'}.contains) ||
+          !_optionalPositive(fields, 'uid') ||
+          !_optionalPositive(fields, 'fuid') ||
+          !_optionalPositive(fields, 'page') ||
+          (fields.containsKey('o') && fields['o'] != 'check') ||
+          (fields.containsKey('fuid') && fields['o'] != 'check')) return null;
+      return ForumAppPageLinkTarget(
+          fields['o'] == 'check'
+              ? ForumAppPage.friendRequests
+              : ForumAppPage.friends,
+          normalized,
+          ownerUid: fields['uid'],
+          pageNumber: pageNumber);
+    }
+    if (uri.path == '/profile.php') {
+      if (fields['action'] == 'modify' && fields.length == 1) {
+        return ForumAppPageLinkTarget(ForumAppPage.profileEdit, normalized);
+      }
+      if (fields['action'] == 'bbsset' &&
+          fields.keys.every({'action', 'info_type'}.contains) &&
+          (!fields.containsKey('info_type') ||
+              {'msg', 'friend'}.contains(fields['info_type']))) {
+        return ForumAppPageLinkTarget(
+            ForumAppPage.forumPreferences, normalized);
+      }
+    }
+    if (uri.path == '/plugin.php' && fields['H_name'] == 'tasks') {
+      if (fields.containsKey('action') ||
+          {'job', 'ajax', 'claim'}.contains(fields['actions'])) {
+        return const ForumBlockedLinkTarget();
+      }
+      if (!fields.keys.every({'H_name', 'actions'}.contains)) return null;
+      final status = _taskStatus(fields['actions']);
+      if (status != null) {
+        return ForumAppPageLinkTarget(ForumAppPage.forumTasks, normalized,
+            taskStatus: status);
+      }
+    }
+    if (uri.path == '/message.php') {
+      final route = ForumPmParser(baseUri: baseUri).route(normalized, {
+        'receivebox',
+        'sendbox',
+        'scout',
+        'write',
+        'read',
+        'readpub',
+        'readsnd',
+        'readscout',
+        'chatlog',
+      });
+      if (route == null) return null;
+      final page = switch (route.action) {
+        'receivebox' => ForumAppPage.pmInbox,
+        'sendbox' => ForumAppPage.pmSendbox,
+        'scout' => ForumAppPage.pmScout,
+        'write' => ForumAppPage.pmCompose,
+        'chatlog' => ForumAppPage.pmChatlog,
+        _ => ForumAppPage.pmDetail,
+      };
+      ForumPmSummary? message;
+      if (page == ForumAppPage.pmDetail) {
+        final type = switch (route.action) {
+          'readpub' => ForumPmType.broadcast,
+          'readsnd' => ForumPmType.sent,
+          'readscout' => ForumPmType.tracked,
+          _ => ForumPmType.personal,
+        };
+        final box = switch (type) {
+          ForumPmType.sent => ForumPmBox.sendbox,
+          ForumPmType.tracked => ForumPmBox.scout,
+          _ => ForumPmBox.inbox,
+        };
+        message = ForumPmSummary(
+            box: box,
+            type: type,
+            id: route.fields['mid']!,
+            peer: '',
+            title: '',
+            time: '',
+            detailPath: route.path);
+      }
+      return ForumAppPageLinkTarget(page, normalized, pmMessage: message);
+    }
+    return null;
+  }
+
+  bool _optionalPositive(Map<String, String> fields, String key) =>
+      !fields.containsKey(key) || RegExp(r'^[1-9]\d*$').hasMatch(fields[key]!);
+
+  ForumTaskStatus? _taskStatus(String? action) => switch (action) {
+        null => ForumTaskStatus.available,
+        'newtasks' => ForumTaskStatus.inProgress,
+        'endtasks' => ForumTaskStatus.completed,
+        'errotasks' => ForumTaskStatus.failed,
+        _ => null,
+      };
+
+  ForumTaskStatus? _legacyTaskStatus(String query) {
+    final match = RegExp(
+            r'^H_name-tasks(?:-actions-(newtasks|endtasks|errotasks)\.html)?\.html$')
+        .firstMatch(query);
+    return match == null ? null : _taskStatus(match.group(1));
   }
 
   ForumSearchLinkPrefill? searchLinkPrefill(String raw) {

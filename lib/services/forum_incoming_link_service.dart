@@ -70,19 +70,11 @@ class ForumIncomingLinkService {
           {'http', 'https'}.contains(uri.scheme) &&
           _urls.isForumUrl(raw) &&
           target is! ForumBlockedLinkTarget;
-      final route = owned &&
-          {
-            '/read.php',
-            '/thread.php',
-            '/thread_new.php',
-            '/u.php',
-            '/search.php',
-            '/simple/index.php'
-          }.contains(uri.path);
-      if (route &&
+      if (owned &&
           (target is ForumThreadLinkTarget ||
               target is ForumUserLinkTarget ||
               target is ForumBoardLinkTarget ||
+              target is ForumAppPageLinkTarget ||
               _urls.searchLinkPrefill(raw) != null)) {
         _onLink?.call(raw);
       } else {

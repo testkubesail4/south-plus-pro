@@ -183,8 +183,10 @@ void main() {
     expect(user.tab, UserProfileTab.topics);
     expect(
         user.userUrl, 'https://south-plus.net/u.php?action-topic-uid-901.html');
-    expect(urls.forumLinkTarget('u.php?action-friend-uid-901.html'),
-        isA<ForumPageLinkTarget>());
+    final friends = urls.forumLinkTarget('u.php?action-friend-uid-901.html')
+        as ForumAppPageLinkTarget;
+    expect(friends.page, ForumAppPage.friends);
+    expect(friends.ownerUid, '901');
     final board = urls.forumLinkTarget('./thread_new.php?fid-42.html')
         as ForumBoardLinkTarget;
     expect(board.category.slug, 'f42');

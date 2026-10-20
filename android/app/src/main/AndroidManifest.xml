@@ -57,6 +57,13 @@
                 <data android:host="*.blue-plus.net"/>
                 <data android:host="imoutolove.me"/>
                 <data android:host="*.imoutolove.me"/>
+                <data android:path=""/>
+                <data android:path="/"/>
+                <data android:path="/index.php"/>
+                <data android:path="/profile.php"/>
+                <data android:path="/message.php"/>
+                <data android:path="/plugin.php"/>
+                <data android:path="/job.php"/>
                 <data android:path="/read.php"/>
                 <data android:path="/thread.php"/>
                 <data android:path="/thread_new.php"/>

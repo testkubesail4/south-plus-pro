@@ -309,6 +309,23 @@ class ForumRepository {
 
   ForumLinkTarget forumLinkTarget(String url) => _urls.forumLinkTarget(url);
 
+  bool canOpenForumAppPage(ForumAppPageLinkTarget target) {
+    final uri = Uri.tryParse(target.url);
+    if (uri == null ||
+        !uri.hasScheme ||
+        !uri.hasAuthority ||
+        uri.origin != _config.baseUri.origin) return false;
+    final current = _urls.forumLinkTarget(target.url);
+    if (current is! ForumAppPageLinkTarget ||
+        current.page != target.page ||
+        current.ownerUid != target.ownerUid) return false;
+    if ({ForumAppPage.home, ForumAppPage.account}.contains(target.page))
+      return true;
+    return isLoggedIn &&
+        (target.ownerUid == null ||
+            target.ownerUid == accountIdentity.value?.uid);
+  }
+
   ForumSearchLinkPrefill? searchLinkPrefill(String raw) =>
       _urls.searchLinkPrefill(raw);
 
@@ -2575,6 +2592,20 @@ class ForumRepository {
   }
 
   Future<UserProfile?> cachedUserProfileOverview(String url) async {
+    final target = _urls.forumLinkTarget(url);
+    if (target is ForumUserLinkTarget && target.isSelf) {
+      if (!isLoggedIn) return null;
+      final epoch = _sessionEpoch.value;
+      final client = _client;
+      final uid = await _uidFromProfileUrl(target.userUrl);
+      final cached = await _profileCache
+          .loadOverview(_urls.userTabUrl(uid, UserProfileTab.profile));
+      if (epoch != _sessionEpoch.value || !identical(client, _client)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重新加载');
+      }
+      return cached;
+    }
     return _profileCache.loadOverview(url);
   }
 
@@ -2759,15 +2790,21 @@ class ForumRepository {
   }
 
   Future<String> _uidFromProfileUrl(String profileUrl) async {
-    var uid = _urls.uidFromUrl(profileUrl);
-    if (uid == null) {
-      final html = await _client.get(_urls.relativePath(profileUrl));
-      uid = _userProfileParser.uidFromDocument(html_parser.parse(html));
+    final target = _urls.forumLinkTarget(profileUrl);
+    if (target is! ForumUserLinkTarget) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '不是用户资料链接');
     }
-    if (uid == null) {
-      throw const ForumRepositoryException('没有找到用户 UID');
+    if (target.isSelf) {
+      await ensureAccountIdentity();
+      final uid = _accountIdentity.value?.uid;
+      if (uid == null) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '请登录后查看自己的资料');
+      }
+      return uid;
     }
-    return uid;
+    return _urls.uidFromUrl(target.userUrl)!;
   }
 
   Future<ThreadDetail> fetchThreadDetail(

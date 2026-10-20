@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'forum_pm_models.dart';
+
 sealed class ForumLinkTarget {
   const ForumLinkTarget();
 }
@@ -10,14 +12,43 @@ class ForumThreadLinkTarget extends ForumLinkTarget {
 }
 
 class ForumUserLinkTarget extends ForumLinkTarget {
-  const ForumUserLinkTarget(this.userUrl, {this.tab = UserProfileTab.home});
+  const ForumUserLinkTarget(this.userUrl,
+      {this.tab = UserProfileTab.home, this.isSelf = false});
   final String userUrl;
   final UserProfileTab tab;
+  final bool isSelf;
 }
 
 class ForumBoardLinkTarget extends ForumLinkTarget {
   const ForumBoardLinkTarget(this.category);
   final ForumCategory category;
+}
+
+enum ForumAppPage {
+  home,
+  account,
+  friends,
+  friendRequests,
+  pmInbox,
+  pmSendbox,
+  pmScout,
+  pmCompose,
+  pmDetail,
+  pmChatlog,
+  forumPreferences,
+  profileEdit,
+  forumTasks,
+}
+
+class ForumAppPageLinkTarget extends ForumLinkTarget {
+  const ForumAppPageLinkTarget(this.page, this.url,
+      {this.ownerUid, this.pmMessage, this.taskStatus, this.pageNumber = 1});
+  final ForumAppPage page;
+  final String url;
+  final String? ownerUid;
+  final ForumPmSummary? pmMessage;
+  final ForumTaskStatus? taskStatus;
+  final int pageNumber;
 }
 
 class ForumPageLinkTarget extends ForumLinkTarget {
