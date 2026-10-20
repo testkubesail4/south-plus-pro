@@ -14,18 +14,14 @@ void main() {
   final persisted = <String, Object>{};
   var reject = false;
   var throwOnWrite = false;
-  var writes = 0;
-  var rejectAt = 0;
   setUp(() {
     SharedPreferences.resetStatic();
     persisted.clear();
     reject = false;
-    writes = 0;
-    rejectAt = 0;
+    throwOnWrite = false;
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'getAll') return Map<String, Object>.of(persisted);
-      writes++;
-      if (reject && writes >= rejectAt) {
+      if (reject) {
         if (throwOnWrite)
           throw PlatformException(code: 'fixture-write-failure');
         return false;
@@ -48,71 +44,75 @@ void main() {
 
   for (final disable in [false, true]) {
     test(
-        'repair ${disable ? 'disable' : 'save'} reports rejected persistence and can retry',
-        () async {
-      throwOnWrite = false;
-      final original = ForumNetworkConfig(
-          site: const ForumSite('fixture.invalid'),
-          dohEnabled: true,
-          dohProvider: ForumNetworkConfig.defaultProvider);
-      await ForumNetworkSettings.save(original);
-      final proxy = ForumProxy(
-          type: ForumProxyType.http, host: 'proxy.fixture.invalid', port: 8080);
-      Future<void> save() => disable
-          ? ForumNetworkSettings.disableProxy()
-          : ForumNetworkSettings.saveProxy(proxy);
-      reject = true;
-      await expectLater(save(), throwsA(isA<Exception>()));
-      expect(await ForumNetworkSettings.load(), original);
-      reject = false;
-      await save();
-      final loaded = await ForumNetworkSettings.load();
-      expect(loaded.proxy, disable ? isNull : proxy);
-      expect(loaded.dohEnabled, isFalse);
-    });
+      'repair ${disable ? 'disable' : 'save'} replaces corrupt JSON only after persistence succeeds',
+      () async {
+        persisted['flutter.forum_network_config_v2'] = '{corrupt-synthetic';
+        final before = Map<String, Object>.of(persisted);
+        final proxy = ForumProxy(
+          type: ForumProxyType.http,
+          host: 'proxy.fixture.invalid',
+          port: 8080,
+        );
+        Future<void> save() => disable
+            ? ForumNetworkSettings.disableProxy()
+            : ForumNetworkSettings.saveProxy(proxy);
+        reject = true;
+        await expectLater(save(), throwsA(isA<Exception>()));
+        expect(persisted, before);
+        await expectLater(ForumNetworkSettings.load(), throwsFormatException);
+        reject = false;
+        await save();
+        final loaded = await ForumNetworkSettings.load();
+        expect(loaded.proxy, disable ? isNull : proxy);
+        expect(
+          loaded.mode,
+          disable ? ForumNetworkMode.native : ForumNetworkMode.proxy,
+        );
+      },
+    );
   }
 
-  for (final failAfter in [0, 2]) {
-    for (final throws in [false, true]) {
-      test(
-          'failed settings ${throws ? 'exception' : 'false'} after $failAfter writes preserves live route and retry persists',
-          () async {
+  for (final throws in [false, true]) {
+    test(
+      'atomic settings ${throws ? 'exception' : 'false'} preserves live route, session and disk until retry',
+      () async {
         throwOnWrite = throws;
         final original = ForumNetworkConfig(
-            site: const ForumSite('fixture.invalid'),
-            dohEnabled: false,
-            dohProvider: ForumNetworkConfig.defaultProvider,
-            proxy: ForumProxy(
-                type: ForumProxyType.http,
-                host: 'proxy.fixture.invalid',
-                port: 8080));
+          site: const ForumSite('fixture.invalid'),
+          mode: ForumNetworkMode.proxy,
+          proxy: ForumProxy(
+            type: ForumProxyType.http,
+            host: 'proxy.fixture.invalid',
+            port: 8080,
+          ),
+        );
         await ForumNetworkSettings.save(original);
         final beforeDisk = Map<String, Object>.of(persisted);
         final client = _TrackedClient(original);
         final repository = ForumRepository(client: client);
         final epoch = repository.sessionEpoch.value;
-        final requested = original.copyWith(clearProxy: true);
-        rejectAt = writes + failAfter + 1;
+        final requested = original.copyWith(mode: ForumNetworkMode.native);
         reject = true;
-        await expectLater(repository.updateNetworkConfig(requested),
-            throwsA(isA<Exception>()));
+        await expectLater(
+          repository.updateNetworkConfig(requested),
+          throwsA(isA<Exception>()),
+        );
         expect(repository.networkConfig, original);
         expect(repository.sessionEpoch.value, epoch);
         expect(client.closed, isFalse);
         expect(ForumHttpRouting.proxyEnabled, isTrue);
         expect(persisted, beforeDisk);
         expect(await ForumNetworkSettings.load(), original);
-        final attempts = writes;
         reject = false;
         await repository.updateNetworkConfig(requested);
-        expect(writes, greaterThan(attempts));
         expect(repository.networkConfig, requested);
         expect(client.closed, isTrue);
         expect(ForumHttpRouting.proxyEnabled, isFalse);
+        expect(requested.proxy, original.proxy);
         await (await SharedPreferences.getInstance()).reload();
         expect(await ForumNetworkSettings.load(), requested);
-      });
-    }
+      },
+    );
   }
 }
 

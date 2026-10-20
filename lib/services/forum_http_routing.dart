@@ -1,25 +1,44 @@
 import 'dart:io';
 
 import 'forum_network_config.dart';
+import 'forum_optimized_transport.dart';
 import 'forum_proxy_connection.dart';
 
-/// The app-wide route also covers clients retained internally by Flutter images
-/// and the disk cache. A route change closes their old pools immediately.
+/// Also covers HttpClients retained by Flutter images, the cache and updates.
 class ForumHttpRouting {
   ForumHttpRouting._();
-  static ForumProxy? _proxy;
-  static bool get proxyEnabled => _proxy != null;
+  static ForumNetworkConfig _config = const ForumNetworkConfig(
+    site: ForumNetworkConfig.defaultSite,
+    mode: ForumNetworkMode.native,
+  );
+  static bool get proxyEnabled => _config.mode == ForumNetworkMode.proxy;
   static final _clients = <_RoutedClient>{};
+  static final _transports = <SecurityContext?, ForumOptimizedTransport>{};
 
   static void install() => HttpOverrides.global = ForumHttpOverrides();
 
-  static void updateProxy(ForumProxy? proxy) {
-    if (proxy == _proxy) return;
-    _proxy = proxy;
+  static void updateConfig(ForumNetworkConfig config) {
+    config.validate();
+    if (config == _config) return;
+    // Detach caller-owned mutable collections before publishing the route.
+    _config = ForumNetworkConfig.fromJson(config.toJson());
+    for (final transport in _transports.values) {
+      transport.close();
+    }
+    _transports.clear();
     for (final client in _clients.toList()) {
       client.invalidate();
     }
   }
+
+  static void updateProxy(ForumProxy? proxy) => updateConfig(
+        _config.copyWith(
+          mode:
+              proxy == null ? ForumNetworkMode.native : ForumNetworkMode.proxy,
+          proxy: proxy,
+          clearProxy: proxy == null,
+        ),
+      );
 }
 
 class ForumHttpOverrides extends HttpOverrides {
@@ -31,32 +50,54 @@ class ForumHttpOverrides extends HttpOverrides {
       _RoutedClient(() => createUnroutedClient(context), context);
 }
 
-HttpClient createUnroutedHttpClient() {
+HttpClient createUnroutedHttpClient({SecurityContext? context}) {
   final overrides = HttpOverrides.current;
   return overrides is ForumHttpOverrides
-      ? overrides.createUnroutedClient(null)
-      : HttpClient();
+      ? overrides.createUnroutedClient(context)
+      : HttpClient(context: context);
 }
 
-void configureForumProxy(HttpClient client, ForumProxy proxy,
-    {SecurityContext? context}) {
-  // Keep proxy credentials out of HttpClient, including its automatic redirects.
+HttpClient createConfiguredForumHttpClient(
+  ForumNetworkConfig config, {
+  SecurityContext? context,
+}) {
+  final overrides = HttpOverrides.current;
+  HttpClient create() => overrides is ForumHttpOverrides
+      ? overrides.createUnroutedClient(context)
+      : overrides?.createHttpClient(context) ??
+          ForumHttpOverrides().createUnroutedClient(context);
+  return _RoutedClient(create, context, config: config);
+}
+
+void configureForumProxy(
+  HttpClient client,
+  ForumProxy proxy, {
+  SecurityContext? context,
+}) {
+  // Keep proxy credentials out of HttpClient, including automatic redirects.
   client.findProxy = (_) => 'DIRECT';
-  client.connectionFactory = (uri, _, __) => connectForumProxy(proxy, uri,
-      context: context,
-      timeout: client.connectionTimeout ?? const Duration(seconds: 15));
+  client.connectionFactory = (uri, _, __) => connectForumProxy(
+        proxy,
+        uri,
+        context: context,
+        timeout: client.connectionTimeout ?? const Duration(seconds: 8),
+      );
 }
 
 class _RoutedClient implements HttpClient {
-  _RoutedClient(this._create, this._context) {
-    ForumHttpRouting._clients.add(this);
+  _RoutedClient(this._create, this._context, {ForumNetworkConfig? config})
+      : _fixedConfig = config {
+    if (config == null) ForumHttpRouting._clients.add(this);
   }
   final HttpClient Function() _create;
   final SecurityContext? _context;
+  final ForumNetworkConfig? _fixedConfig;
   final _settings = <String, void Function(HttpClient)>{};
   final _credentials = <void Function(HttpClient)>[];
   HttpClient? _delegate;
+  ForumOptimizedTransport? _ownedTransport;
   bool _closed = false;
+  ForumNetworkConfig get _config => _fixedConfig ?? ForumHttpRouting._config;
 
   HttpClient get _client {
     if (_closed) throw StateError('HttpClient is closed');
@@ -71,14 +112,40 @@ class _RoutedClient implements HttpClient {
     for (final credential in _credentials) {
       credential(client);
     }
-    final proxy = ForumHttpRouting._proxy;
-    if (proxy != null) configureForumProxy(client, proxy, context: _context);
+    // Native deliberately has no connectionFactory or IP fallback.
+    if (_config.mode == ForumNetworkMode.proxy) {
+      final proxy = _config.proxy;
+      if (proxy == null) {
+        client.close(force: true);
+        throw const FormatException('请先配置代理');
+      }
+      configureForumProxy(client, proxy, context: _context);
+    } else if (_config.mode == ForumNetworkMode.optimized) {
+      final transport = _fixedConfig != null
+          ? (_ownedTransport ??= ForumOptimizedTransport(
+              _config,
+              context: _context,
+            ))
+          : ForumHttpRouting._transports.putIfAbsent(
+              _context,
+              () => ForumOptimizedTransport(_config, context: _context),
+            );
+      client.findProxy = (_) => 'DIRECT';
+      client.connectionFactory = (uri, _, __) => transport.connect(
+            uri,
+            timeout: client.connectionTimeout ?? const Duration(seconds: 8),
+          );
+    } else {
+      client.findProxy = (_) => 'DIRECT';
+    }
     return client;
   }
 
   void invalidate() {
     _delegate?.close(force: true);
     _delegate = null;
+    _ownedTransport?.close();
+    _ownedTransport = null;
   }
 
   void _set(String key, void Function(HttpClient) setting) {
@@ -90,6 +157,7 @@ class _RoutedClient implements HttpClient {
   void close({bool force = false}) {
     _closed = true;
     ForumHttpRouting._clients.remove(this);
+    _ownedTransport?.close(force: force);
     _delegate?.close(force: force);
     _delegate = null;
   }
@@ -123,7 +191,8 @@ class _RoutedClient implements HttpClient {
       _set('authenticate', (c) => c.authenticate = f);
   @override
   set authenticateProxy(
-          Future<bool> Function(String, int, String, String?)? f) =>
+    Future<bool> Function(String, int, String, String?)? f,
+  ) =>
       _set('authenticateProxy', (c) => c.authenticateProxy = f);
   @override
   set badCertificateCallback(bool Function(X509Certificate, String, int)? f) =>
@@ -133,19 +202,23 @@ class _RoutedClient implements HttpClient {
   @override
   set findProxy(String Function(Uri)? f) {
     _settings['findProxy'] = (c) => c.findProxy = f;
-    if (ForumHttpRouting._proxy == null) _client.findProxy = f;
+    if (_config.mode == ForumNetworkMode.native) _client.findProxy = f;
   }
 
   @override
   set connectionFactory(
-      Future<ConnectionTask<Socket>> Function(Uri, String?, int?)? f) {
+    Future<ConnectionTask<Socket>> Function(Uri, String?, int?)? f,
+  ) {
     _settings['connectionFactory'] = (c) => c.connectionFactory = f;
-    if (ForumHttpRouting._proxy == null) _client.connectionFactory = f;
+    if (_config.mode == ForumNetworkMode.native) _client.connectionFactory = f;
   }
 
   @override
   void addCredentials(
-      Uri url, String realm, HttpClientCredentials credentials) {
+    Uri url,
+    String realm,
+    HttpClientCredentials credentials,
+  ) {
     void add(HttpClient c) => c.addCredentials(url, realm, credentials);
     final client = _client;
     _credentials.add(add);
@@ -154,7 +227,11 @@ class _RoutedClient implements HttpClient {
 
   @override
   void addProxyCredentials(
-      String host, int port, String realm, HttpClientCredentials credentials) {
+    String host,
+    int port,
+    String realm,
+    HttpClientCredentials credentials,
+  ) {
     void add(HttpClient c) =>
         c.addProxyCredentials(host, port, realm, credentials);
     final client = _client;
@@ -164,7 +241,11 @@ class _RoutedClient implements HttpClient {
 
   @override
   Future<HttpClientRequest> open(
-          String method, String host, int port, String path) =>
+    String method,
+    String host,
+    int port,
+    String path,
+  ) =>
       _client.open(method, host, port, path);
   @override
   Future<HttpClientRequest> openUrl(String method, Uri url) =>

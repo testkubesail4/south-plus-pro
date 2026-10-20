@@ -10,7 +10,7 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final type in ForumProxyType.values) {
-    test('${type.name} proxy persists and excludes optimization', () async {
+    test('${type.name} proxy persists dormant optimization without using it', () async {
       final proxy = ForumProxy(
           type: type,
           host: 'proxy.fixture.invalid',
@@ -21,16 +21,17 @@ void main() {
         site: ForumNetworkConfig.defaultSite,
         dohEnabled: true,
         dohProvider: ForumNetworkConfig.defaultProvider,
-        fixedAddress: '203.0.113.7',
+        hostAddresses: const {'south-plus.net': ['104.21.43.10']},
         customDohUri: 'https://dns.fixture.invalid/query',
         proxy: proxy,
       );
       expect(config.dohEnabled, isFalse);
-      expect(config.fixedAddress, isNull);
-      expect(config.customDohUri, isNull);
+      expect(config.mode, ForumNetworkMode.proxy);
+      expect(config.hostAddresses['south-plus.net'], ['104.21.43.10']);
+      expect(config.customDohUri, 'https://dns.fixture.invalid/query');
       await ForumNetworkSettings.save(config);
       expect(await ForumNetworkSettings.load(), config);
-      expect(config.copyWith(dohEnabled: true).proxy, isNull);
+      expect(config.copyWith(mode: ForumNetworkMode.optimized).proxy, proxy);
       expect(config.copyWith(clearProxy: true).proxy, isNull);
       expect(proxy.toString(), isNot(contains('synthetic-secret')));
       expect(proxy.toString(), isNot(contains('fixture@')));

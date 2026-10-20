@@ -98,7 +98,7 @@ class ForumRepository {
             ),
         _historyStore = historyStore ?? BrowsingHistoryStore(),
         _taskStateStore = taskStateStore ?? const ForumTaskStateStore() {
-    ForumHttpRouting.updateProxy(_config.proxy);
+    ForumHttpRouting.updateConfig(_config);
     _sessionEpoch.addListener(_clearProfileDetails);
     _sessionEpoch.addListener(() {
       _restoredDesktopHtml = null;
@@ -422,11 +422,12 @@ class ForumRepository {
 
   Future<void> updateNetworkConfig(ForumNetworkConfig config) async {
     if (config == _config) return;
+    config = ForumNetworkConfig.fromJson(config.toJson());
     await ForumNetworkSettings.save(config);
     _sessionEpoch.value++;
     _client.close(force: true);
     _config = config;
-    ForumHttpRouting.updateProxy(config.proxy);
+    ForumHttpRouting.updateConfig(config);
     _urls = ForumUrlResolver(baseUri: config.baseUri);
     _boardThreadPageParser = BoardThreadPageParser(urls: _urls);
     _homePageParser = HomePageParser(urls: _urls);

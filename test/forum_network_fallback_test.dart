@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/services/forum_http_routing.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
+
+import 'support/doh_wire_fixture.dart';
 
 final class _RealIo extends IOOverrides {}
 
@@ -12,24 +14,26 @@ class _SocketRoutes {
   final real = _RealIo();
   final attempts = <String>[];
   int cancels = 0;
-  final systemError = const SocketException('fixture system connection failed');
-  bool rejectSystem = false;
-
-  Future<ConnectionTask<Socket>> start(dynamic host, int port,
-      {dynamic sourceAddress, int sourcePort = 0}) async {
+  int resolverPort = 0;
+  Future<ConnectionTask<Socket>> start(
+    dynamic host,
+    int port, {
+    dynamic sourceAddress,
+    int sourcePort = 0,
+  }) async {
     final name = host is InternetAddress ? host.address : '$host';
-    attempts.add(name);
-    if (rejectSystem && name == 'localhost') {
-      return ConnectionTask.fromSocket(
-        Future<Socket>.delayed(Duration.zero, () => throw systemError),
-        () => cancels++,
-      );
-    }
-    final address = name == '203.0.113.2' || name == '127.0.0.2'
+    if (port != resolverPort && port != 443) attempts.add(name);
+    if (port == 443)
+      throw const SocketException('Other resolver is offline in fixture');
+    final address = name == '172.67.215.174' || name == '127.0.0.2'
         ? '127.0.0.2'
         : '127.0.0.1';
-    final task = await real.socketStartConnect(InternetAddress(address), port,
-        sourceAddress: sourceAddress, sourcePort: sourcePort);
+    final task = await real.socketStartConnect(
+      InternetAddress(address),
+      port,
+      sourceAddress: sourceAddress,
+      sourcePort: sourcePort,
+    );
     return ConnectionTask.fromSocket(task.socket, () {
       cancels++;
       task.cancel();
@@ -37,67 +41,20 @@ class _SocketRoutes {
   }
 }
 
-class _DohOverrides extends HttpOverrides {
-  int clients = 0;
-
-  @override
-  HttpClient createHttpClient(SecurityContext? context) =>
-      clients++ == 0 ? super.createHttpClient(context) : _DohClient();
-}
-
-class _DohClient implements HttpClient {
-  @override
-  Future<HttpClientRequest> getUrl(Uri uri) async => _DohRequest();
-  @override
-  void close({bool force = false}) {}
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _DohRequest implements HttpClientRequest {
-  @override
-  final HttpHeaders headers = _Headers();
-  @override
-  Future<HttpClientResponse> close() async => _DohResponse();
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _Headers implements HttpHeaders {
-  @override
-  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _DohResponse extends Stream<List<int>> implements HttpClientResponse {
-  @override
-  int get statusCode => 200;
-  @override
-  StreamSubscription<List<int>> listen(void Function(List<int>)? onData,
-          {Function? onError, void Function()? onDone, bool? cancelOnError}) =>
-      Stream<List<int>>.value(utf8.encode(jsonEncode({
-        'Answer': [
-          {'type': 1, 'data': '203.0.113.1'},
-          {'type': 1, 'data': '203.0.113.2'},
-        ],
-      }))).listen(onData,
-          onError: onError, onDone: onDone, cancelOnError: cancelOnError);
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
 class _Blackhole {
   _Blackhole(this.server) {
     server.listen((socket) {
       sockets.add(socket);
-      subscription = socket.listen((chunk) {
-        bytes.addAll(chunk);
-        if (!hello.isCompleted) hello.complete();
-      }, onDone: finish, onError: (Object _) => finish());
+      subscription = socket.listen(
+        (chunk) {
+          bytes.addAll(chunk);
+          if (!hello.isCompleted) hello.complete();
+        },
+        onDone: finish,
+        onError: (Object _) => finish(),
+      );
     });
   }
-
   final ServerSocket server;
   final sockets = <Socket>[];
   final bytes = <int>[];
@@ -105,7 +62,6 @@ class _Blackhole {
   final closed = Completer<void>();
   StreamSubscription<List<int>>? subscription;
   SecureSocket? secure;
-
   void finish() {
     if (!closed.isCompleted) closed.complete();
   }
@@ -113,8 +69,11 @@ class _Blackhole {
   Future<void> release(SecurityContext context) async {
     subscription?.pause();
     try {
-      secure = await SecureSocket.secureServer(sockets.single, context,
-          bufferedData: List<int>.of(bytes));
+      secure = await SecureSocket.secureServer(
+        sockets.single,
+        context,
+        bufferedData: List<int>.of(bytes),
+      );
       secure!.listen((_) {}, onDone: finish, onError: (Object _) => finish());
     } on HandshakeException {
       finish();
@@ -136,7 +95,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory certificates;
   late SecurityContext serverContext;
-
   setUpAll(() async {
     certificates = await Directory.systemTemp.createTemp('forum_tls_fixture_');
     final cert = '${certificates.path}/cert.pem';
@@ -165,26 +123,56 @@ void main() {
     SecurityContext.defaultContext.setTrustedCertificates(cert);
   });
   tearDownAll(() => certificates.delete(recursive: true));
-  setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  Future<void> withClient(int port, _SocketRoutes routes,
-          Future<void> Function(HttpClient) action) =>
-      IOOverrides.runZoned(
+  Future<void> withClient(
+    _SocketRoutes routes,
+    Future<void> Function(HttpClient) action,
+  ) async {
+    final resolver = await HttpServer.bindSecure(
+      InternetAddress.loopbackIPv4,
+      0,
+      serverContext,
+    );
+    routes.resolverPort = resolver.port;
+    resolver.listen((request) {
+      final query = base64Url.decode(
+        base64Url.normalize(request.uri.queryParameters['dns']!),
+      );
+      request.response.headers.contentType = ContentType(
+        'application',
+        'dns-message',
+      );
+      request.response.add(
+        dnsReply(query, [
+          dnsRecord('localhost', 1, [104, 21, 43, 10]),
+          dnsRecord('localhost', 1, [172, 67, 215, 174]),
+        ]),
+      );
+      request.response.close();
+    });
+    try {
+      await IOOverrides.runZoned(
         () => HttpOverrides.runWithHttpOverrides(() async {
-          final client = createForumHttpClient(ForumNetworkConfig(
-            site: ForumSite('localhost:$port'),
-            dohEnabled: true,
-            dohProvider: DohProvider.doh090227Sb,
-            customDohUri: 'https://resolver-fixture.invalid/dns-query',
-          ));
+          final client = createForumHttpClient(
+            ForumNetworkConfig(
+              site: const ForumSite('localhost'),
+              mode: ForumNetworkMode.optimized,
+              customDohUri: 'https://localhost:${resolver.port}/dns-query',
+              dohBootstrapAddresses: const ['1.1.1.1'],
+            ),
+          );
           try {
             await action(client);
           } finally {
             client.close(force: true);
           }
-        }, _DohOverrides()),
+        }, ForumHttpOverrides()),
         socketStartConnect: routes.start,
       );
+    } finally {
+      await resolver.close(force: true);
+    }
+  }
 
   test('refused resolved address falls through to a working address', () async {
     final server = await HttpServer.bind(InternetAddress('127.0.0.2'), 0);
@@ -194,84 +182,112 @@ void main() {
       request.response.close();
     });
     final routes = _SocketRoutes();
-    await withClient(server.port, routes, (client) async {
-      final response =
-          await (await client.getUrl(Uri.http('localhost:${server.port}', '/')))
-              .close();
+    await withClient(routes, (client) async {
+      final response = await (await client.getUrl(
+        Uri.http('localhost:${server.port}', '/'),
+      ))
+          .close();
       expect(await utf8.decoder.bind(response).join(), 'fixture ok');
     });
-    expect(routes.attempts.take(2), ['203.0.113.1', '203.0.113.2']);
+    expect(routes.attempts.take(2), ['104.21.43.10', '172.67.215.174']);
   });
 
-  test('failed TLS handshake falls through without relaxing hostname checks',
-      () async {
-    final good = await HttpServer.bindSecure(
-        InternetAddress('127.0.0.2'), 0, serverContext);
-    final bad =
-        await ServerSocket.bind(InternetAddress.loopbackIPv4, good.port);
-    addTearDown(() async {
-      await bad.close();
-      await good.close(force: true);
-    });
-    bad.listen((socket) => socket.destroy());
-    good.listen((request) {
-      request.response.write('fixture secure');
-      request.response.close();
-    }, onError: (Object _) {});
-    final routes = _SocketRoutes();
-    await withClient(good.port, routes, (client) async {
-      final response =
-          await (await client.getUrl(Uri.https('localhost:${good.port}', '/')))
-              .close();
-      expect(await utf8.decoder.bind(response).join(), 'fixture secure');
-    });
-    expect(routes.attempts.take(2), ['203.0.113.1', '203.0.113.2']);
+  test(
+    'failed TLS handshake falls through without relaxing hostname checks',
+    () async {
+      final good = await HttpServer.bindSecure(
+        InternetAddress('127.0.0.2'),
+        0,
+        serverContext,
+      );
+      final bad = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        good.port,
+      );
+      addTearDown(() async {
+        await bad.close();
+        await good.close(force: true);
+      });
+      bad.listen((socket) => socket.destroy());
+      good.listen((request) {
+        request.response.write('fixture secure');
+        request.response.close();
+      }, onError: (Object _) {});
+      final routes = _SocketRoutes();
+      await withClient(routes, (client) async {
+        final response = await (await client.getUrl(
+          Uri.https('localhost:${good.port}', '/'),
+        ))
+            .close();
+        expect(await utf8.decoder.bind(response).join(), 'fixture secure');
+      });
+      expect(routes.attempts.take(2), ['104.21.43.10', '172.67.215.174']);
+      await withClient(_SocketRoutes(), (client) async {
+        await expectLater(
+          client.getUrl(Uri.https('127.0.0.2:${good.port}', '/')),
+          throwsA(isA<HandshakeException>()),
+        );
+      });
+    },
+  );
 
-    await withClient(good.port, _SocketRoutes(), (client) async {
-      // Reach the TLS server so rejection proves a hostname mismatch, not a reset.
-      await expectLater(client.getUrl(Uri.https('127.0.0.2:${good.port}', '/')),
-          throwsA(isA<HandshakeException>()));
-    });
-  });
-
-  test('all failed routes retain the original system error', () async {
-    final reservation =
-        await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final port = reservation.port;
-    await reservation.close();
-    final routes = _SocketRoutes()..rejectSystem = true;
-    await withClient(port, routes, (client) async {
-      await expectLater(client.getUrl(Uri.http('localhost:$port', '/')),
-          throwsA(same(routes.systemError)));
-    });
-    expect(routes.attempts, contains('localhost'));
-  });
+  test(
+    'exhausted optimized candidates never substitute target system DNS',
+    () async {
+      final reservation = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final port = reservation.port;
+      await reservation.close();
+      final routes = _SocketRoutes();
+      await withClient(routes, (client) async {
+        await expectLater(
+          client.getUrl(Uri.http('localhost:$port', '/')),
+          throwsA(isA<SocketException>()),
+        );
+      });
+      expect(routes.attempts, isNot(contains('localhost')));
+      expect(routes.attempts, containsAll(['104.21.43.10', '172.67.215.174']));
+    },
+  );
 
   for (final cancelBy in ['timeout', 'force close']) {
-    test('$cancelBy ends a TLS blackhole promptly and destroys late sockets',
-        () async {
-      final hole =
-          _Blackhole(await ServerSocket.bind(InternetAddress.loopbackIPv4, 0));
-      addTearDown(hole.dispose);
-      final routes = _SocketRoutes();
-      await withClient(hole.server.port, routes, (client) async {
-        client.connectionTimeout = cancelBy == 'timeout'
-            ? const Duration(milliseconds: 200)
-            : const Duration(seconds: 2);
-        final watch = Stopwatch()..start();
-        final request =
-            client.getUrl(Uri.https('localhost:${hole.server.port}', '/'));
-        final rejected = expectLater(
+    test(
+      '$cancelBy ends a TLS blackhole promptly and destroys late sockets',
+      () async {
+        final hole = _Blackhole(
+          await ServerSocket.bind(InternetAddress.loopbackIPv4, 0),
+        );
+        addTearDown(hole.dispose);
+        final routes = _SocketRoutes();
+        await withClient(routes, (client) async {
+          client.connectionTimeout = cancelBy == 'timeout'
+              ? const Duration(milliseconds: 120)
+              : const Duration(seconds: 2);
+          final watch = Stopwatch()..start();
+          final request = client.getUrl(
+            Uri.https('localhost:${hole.server.port}', '/'),
+          );
+          final rejected = expectLater(
             request.timeout(const Duration(seconds: 1)),
-            throwsA(anyOf(isA<SocketException>(), isA<HttpException>())));
-        await hole.hello.future.timeout(const Duration(seconds: 1));
-        if (cancelBy == 'force close') client.close(force: true);
-        await rejected;
-        expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
-        expect(routes.cancels, greaterThan(0));
-        await hole.release(serverContext).timeout(const Duration(seconds: 1));
-        await hole.closed.future.timeout(const Duration(seconds: 1));
-      });
-    });
+            throwsA(
+              anyOf(
+                isA<SocketException>(),
+                isA<HttpException>(),
+                isA<TimeoutException>(),
+              ),
+            ),
+          );
+          await hole.hello.future.timeout(const Duration(seconds: 1));
+          if (cancelBy == 'force close') client.close(force: true);
+          await rejected;
+          expect(watch.elapsed, lessThan(const Duration(seconds: 1)));
+          expect(routes.cancels, greaterThan(0));
+          await hole.release(serverContext).timeout(const Duration(seconds: 1));
+          await hole.closed.future.timeout(const Duration(seconds: 1));
+        });
+      },
+    );
   }
 }
