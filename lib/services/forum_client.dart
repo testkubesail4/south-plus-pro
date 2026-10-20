@@ -55,7 +55,7 @@ class ForumClient {
               dohEnabled: true,
               dohProvider: ForumNetworkConfig.defaultProvider,
             ),
-        _sessionStore = sessionStore ?? ForumSessionStore(),
+        _sessionStore = sessionStore,
         _ownsHttpClient = httpClient == null,
         _pacer = _ForumRequestPacer(
           clock ?? DateTime.now,
@@ -73,18 +73,23 @@ class ForumClient {
 
   final HttpClient _httpClient;
   final bool _ownsHttpClient;
-  final ForumSessionStore? _sessionStore;
+  ForumSessionStore? _sessionStore;
+  ForumSessionStore get _sessions =>
+      _sessionStore ??= ForumSessionStore(origin: baseUri);
   final ForumNetworkConfig config;
   Uri get baseUri => config.baseUri;
   final Map<String, ForumStoredCookie> _cookies = <String, ForumStoredCookie>{};
   final _ForumRequestPacer _pacer;
   Future<void>? _restoreFuture;
-  // Every client shares ForumSessionStore's single persisted session key.
   static Future<void>? _cookieWrites;
-  static int _cookieStoreGeneration = 0;
-  static int _loginAttemptSequence = 0;
+  static final _storeGenerations = <String, int>{};
+  static final _loginAttempts = <String, int>{};
+  int get _cookieStoreGeneration => _storeGenerations[baseUri.host] ?? 0;
+  set _cookieStoreGeneration(int value) => _storeGenerations[baseUri.host] = value;
+  int get _loginAttemptSequence => _loginAttempts[baseUri.host] ?? 0;
+  set _loginAttemptSequence(int value) => _loginAttempts[baseUri.host] = value;
   int _cookieGeneration = 0;
-  int _credentialGeneration = _cookieStoreGeneration;
+  late int _credentialGeneration = _cookieStoreGeneration;
   int get credentialGeneration => _credentialGeneration;
   bool isCredentialCurrent(int generation) =>
       generation == _credentialGeneration &&
@@ -797,7 +802,7 @@ class ForumClient {
     _credentialGeneration = ++_cookieStoreGeneration;
     _cookies.clear();
     await _writeCookies(() async {
-      await _sessionStore?.clear();
+      await _sessions.clear();
     });
   }
 
@@ -806,7 +811,7 @@ class ForumClient {
     final storeGeneration = _cookieStoreGeneration;
     Map<String, ForumStoredCookie>? restored;
     await _writeCookies(() async {
-      restored = await _sessionStore?.loadCookies();
+      restored = await _sessions.loadCookies();
     });
     if (generation != _cookieGeneration ||
         storeGeneration != _cookieStoreGeneration ||
@@ -814,7 +819,8 @@ class ForumClient {
         restored!.isEmpty) return;
     _cookies
       ..clear()
-      ..addAll(restored!);
+      ..addEntries(restored!.entries.where((entry) =>
+          entry.value.appliesToHost(baseUri.host)));
     _credentialGeneration = storeGeneration;
   }
 
@@ -862,16 +868,9 @@ class ForumClient {
         origin,
       );
     } on FormatException {
-      final separator = header.indexOf(';');
-      final firstPart =
-          separator == -1 ? header : header.substring(0, separator);
-      final equals = firstPart.indexOf('=');
-      if (equals <= 0) return null;
-      return ForumStoredCookie.session(
-        name: firstPart.substring(0, equals).trim(),
-        value: firstPart.substring(equals + 1).trim(),
-        origin: origin,
-      );
+      return null;
+    } on ArgumentError {
+      return null;
     }
   }
 
@@ -887,7 +886,7 @@ class ForumClient {
     return _writeCookies(() async {
       requireCurrentSession?.call();
       if (generation != _cookieStoreGeneration) return;
-      await _sessionStore?.saveCookies(snapshot);
+      await _sessions.saveCookies(snapshot);
       requireCurrentSession?.call();
     });
   }
@@ -913,7 +912,10 @@ class ForumClient {
   bool get isLoggedIn {
     return _cookies.values.any(
       (cookie) =>
-          !cookie.isExpired && cookie.name.toLowerCase().contains('winduser'),
+          !cookie.isExpired &&
+          cookie.appliesToHost(baseUri.host) &&
+          (!cookie.secure || baseUri.scheme == 'https') &&
+          cookie.name.toLowerCase().contains('winduser'),
     );
   }
 
