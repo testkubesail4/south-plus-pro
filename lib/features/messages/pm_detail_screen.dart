@@ -342,6 +342,12 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
   void _load([String? path]) {
     setState(() {
       if (path != null) _path = path;
+      // Pages done fading out let theirs go.
+      _leftScrolls.removeWhere((scroll) {
+        if (scroll.hasClients) return false;
+        scroll.dispose();
+        return true;
+      });
       _leftScrolls.add(_scroll..removeListener(_maybeLoadMore));
       _scroll = ScrollController()..addListener(_maybeLoadMore);
       _future = _fetch();
