@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
+import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/services/forum_session_store.dart';
 import 'package:south_plus_rewrite/services/forum_trace_logger.dart';
@@ -260,6 +261,90 @@ void main() {
     delay = (_) async {};
     await client.getOnce('after');
     expect(paths, ['/prime', '/after']);
+  });
+
+  test('queued private message and its form cannot cross a session change',
+      () async {
+    var owner = 'A';
+    final sends = <String?>[];
+    final composeCookies = <String?>[];
+    server.listen((request) async {
+      await request.drain<void>();
+      request.response.headers.contentType = ContentType.html;
+      if (request.uri.path == '/login.php') {
+        request.response.headers.add(
+            HttpHeaders.setCookieHeader, 'winduser=synthetic-$owner; Path=/');
+        request.response.write('<a href="u.php">Synthetic $owner</a>');
+      } else if (request.uri.path == '/message.php' &&
+          request.method == 'GET') {
+        composeCookies.add(request.headers.value(HttpHeaders.cookieHeader));
+        request.response.write('''<form method="post" action="message.php">
+<input type="hidden" name="action" value="write">
+<input type="hidden" name="step" value="2">
+<input type="hidden" name="verify" value="synthetic-$owner">
+<input name="touidmsg" value="902"><input name="msg_title">
+<textarea name="atc_content"></textarea></form>''');
+      } else if (request.uri.path == '/message.php' &&
+          request.method == 'POST') {
+        sends.add(request.headers.value(HttpHeaders.cookieHeader));
+        request.response.write('<body>操作完成</body>');
+      } else {
+        request.response.statusCode = HttpStatus.notFound;
+      }
+      await request.response.close();
+    });
+    final repository = ForumRepository(client: client);
+    addTearDown(repository.clearSession);
+    expect(
+        await repository.login(
+            username: 'Synthetic A', password: 'fixture', captcha: 'fixture'),
+        isTrue);
+    final compose = await repository.fetchPmCompose();
+    expect(composeCookies, ['winduser=synthetic-A']);
+    final waiting = Completer<void>();
+    final release = Completer<void>();
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+    });
+    delay = (_) {
+      waiting.complete();
+      return release.future;
+    };
+    final outcome = repository
+        .submitPm(
+            compose: compose,
+            recipientUid: '902',
+            title: 'Synthetic private title',
+            body: 'Synthetic private body')
+        .then<Object?>((_) => null, onError: (Object error) => error);
+    await waiting.future;
+    await repository.clearSession();
+    release.complete();
+    final error = await outcome;
+    expect(sends, isEmpty,
+        reason: 'logout revokes A even after the message entered the pacer');
+    expect(
+        error,
+        isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.loginRequired));
+    delay = (_) async {};
+    owner = 'B';
+    expect(
+        await repository.login(
+            username: 'Synthetic B', password: 'fixture', captcha: 'fixture'),
+        isTrue);
+    await repository.fetchPmCompose();
+    expect(repository.currentUsername, 'Synthetic B');
+    expect(composeCookies.last, 'winduser=synthetic-B');
+    await expectLater(
+        repository.submitPm(
+            compose: compose,
+            recipientUid: '902',
+            title: 'Synthetic private title',
+            body: 'Synthetic private body'),
+        throwsA(isA<ForumRequestException>()));
+    expect(sends, isEmpty,
+        reason: 'A form must not send using the now-active B cookies');
   });
 
   for (final method in ['GET', 'POST']) {
