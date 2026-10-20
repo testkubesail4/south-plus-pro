@@ -7,6 +7,7 @@ import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../services/forum_search_preferences.dart';
+import '../../services/loading_preferences.dart';
 import '../../services/search_board_hierarchy.dart';
 import '../../theme/app_theme.dart';
 import '../common/app_switcher.dart';
@@ -14,6 +15,7 @@ import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/forum_pager.dart';
+import '../common/page_end.dart';
 import '../common/thread_row.dart';
 import '../thread/thread_detail_screen.dart';
 
@@ -101,6 +103,13 @@ class _SearchScreenState extends State<SearchScreen> {
 
   ForumSearchQuery? _query;
   ForumSearchPage? _page;
+  // Pages appended below [_page] by 自动接续, in order.
+  final _more = <ForumSearchPage>[];
+  bool _loadingMore = false;
+  Object? _moreError;
+  // Appended pages in a row that added no result: after two, following on
+  // waits for a tap.
+  int _emptyRun = 0;
   Future<ForumSearchPage> Function()? _lastRequest;
   // The keyword the last request remembers once answered; empty for pages.
   String _lastKeyword = '';
@@ -116,6 +125,9 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     widget.repository.sessionEpoch.addListener(_dropResults);
+    _scroll.addListener(_maybeLoadMore);
+    LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
+    if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
     for (final focus in [_keywordFocus, _usernameFocus]) {
       focus.addListener(_refreshFocus);
     }
@@ -143,9 +155,109 @@ class _SearchScreenState extends State<SearchScreen> {
     _searching = false;
     _query = null;
     _page = null;
+    _clearMore();
     _error = null;
     _lastRequest = null;
     _editing = true;
+  }
+
+  void _clearMore() {
+    _more.clear();
+    _loadingMore = false;
+    _moreError = null;
+    _emptyRun = 0;
+  }
+
+  /// 自动接续; otherwise (手动翻页, or the setting unread) pages turn by tap.
+  bool get _continuous =>
+      LoadingPreferences.modeFor(LoadingDomain.search) ==
+      LoadingMode.continuous;
+
+  // The footer follows the mode; a page already on its way still lands.
+  void _onLoadingModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  ForumSearchPage? get _lastPage => _more.isEmpty ? _page : _more.last;
+
+  static String _threadKey(ForumThread thread) =>
+      RegExp(r'(?:tid[=-]|/t)(\d+)').firstMatch(thread.url)?.group(1) ??
+      thread.url;
+
+  void _maybeLoadMore() {
+    final next = _lastPage?.nextPagePath;
+    if (!mounted ||
+        !_continuous ||
+        next == null ||
+        _searching ||
+        _loadingMore ||
+        _moreError != null ||
+        _emptyRun >= 2 ||
+        !_scroll.hasClients) {
+      return;
+    }
+    final position = _scroll.position;
+    if (position.extentAfter < position.viewportDimension * 1.5) _loadMore();
+  }
+
+  /// Appends the page after the last one shown.
+  Future<void> _loadMore() async {
+    final query = _query;
+    final next = _lastPage?.nextPagePath;
+    if (query == null || next == null || _loadingMore) return;
+    // A new search, page or session moves these on: the answer is dropped.
+    final id = _requestId;
+    final repository = widget.repository;
+    final session = _session;
+    setState(() {
+      _loadingMore = true;
+      _moreError = null;
+    });
+    try {
+      final page = await repository.searchForumPage(query, next);
+      if (!mounted || id != _requestId || session != _session) return;
+      final seen = {
+        for (final shown in [_page!, ..._more])
+          for (final thread in shown.threads) _threadKey(thread),
+      };
+      final fresh = [
+        for (final thread in page.threads)
+          if (seen.add(_threadKey(thread))) thread,
+      ];
+      final rules = repository.blocking.notifier.value;
+      final added = fresh.any((thread) => !rules.isThreadBlocked(thread));
+      setState(() {
+        _loadingMore = false;
+        _more.add(ForumSearchPage(
+          threads: fresh,
+          total: page.total,
+          nextPagePath: page.nextPagePath,
+          previousPagePath: page.previousPagePath,
+          currentPage: page.currentPage,
+          pageLinks: page.pageLinks,
+          totalPages: page.totalPages,
+        ));
+        _emptyRun = added ? 0 : _emptyRun + 1;
+      });
+      // A page that shows nothing adds no height to scroll through.
+      if (!added) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      }
+    } catch (error) {
+      if (!mounted || id != _requestId || session != _session) return;
+      setState(() {
+        _loadingMore = false;
+        _moreError = error;
+      });
+    }
+  }
+
+  void _retryMore() {
+    setState(() {
+      _moreError = null;
+      _emptyRun = 0;
+    });
+    _loadMore();
   }
 
   String get _boardLabel =>
@@ -174,6 +286,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void dispose() {
     widget.repository.sessionEpoch.removeListener(_dropResults);
+    LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
     _keyword.dispose();
     _username.dispose();
     _scroll.dispose();
@@ -349,6 +462,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
       setState(() {
         _page = page;
+        _clearMore();
         _searching = false;
         if (page.threads.isNotEmpty) _editing = false;
       });
@@ -614,16 +728,19 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                   ),
                   if (page != null && page.threads.isNotEmpty) ...[
-                    // Blocked authors' results disappear as soon as a rule changes.
+                    // A result list fades in, over the one it replaces or the
+                    // spinner. Blocked authors' results disappear as soon as
+                    // a rule changes.
                     AppSliverReveal(
                         id: page,
+                        enter: true,
                         sliver: ValueListenableBuilder<BlockingRules>(
                           valueListenable: widget.repository.blocking.notifier,
                           builder: (context, rules, _) {
-                            final shown = [
-                              for (final thread in page.threads)
-                                if (!rules.isThreadBlocked(thread)) thread,
-                            ];
+                            List<ForumThread> shown(ForumSearchPage page) => [
+                                  for (final thread in page.threads)
+                                    if (!rules.isThreadBlocked(thread)) thread,
+                                ];
                             return SliverPadding(
                               // A fresh list per page, so old row offsets can't shift it.
                               key: ObjectKey(page),
@@ -647,39 +764,14 @@ class _SearchScreenState extends State<SearchScreen> {
                                       ),
                                     ),
                                   ),
-                                  DecoratedSliver(
-                                    decoration: appSurface(context),
-                                    sliver: SliverList.separated(
-                                      itemCount: shown.length,
-                                      separatorBuilder: (_, __) =>
-                                          const Divider(indent: AppSpace.lg),
-                                      itemBuilder: (context, index) =>
-                                          ForumThreadRow(
-                                        title: shown[index].title,
-                                        titleStyle: shown[index].titleStyle,
-                                        // Board first: results span boards.
-                                        meta: [
-                                          if (shown[index].section.isNotEmpty)
-                                            shown[index].section,
-                                          if (shown[index].author
-                                              case final author?)
-                                            author,
-                                          if (shown[index].lastPost
-                                              case final last?)
-                                            last,
-                                          '${shown[index].replies} 回复',
-                                        ],
-                                        onTap: () => Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) => ThreadDetailScreen(
-                                              thread: shown[index],
-                                              repository: widget.repository,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
+                                  _resultRows(shown(page)),
+                                  for (final more in _more) ...[
+                                    SliverToBoxAdapter(
+                                      child:
+                                          PageBoundary(page: more.currentPage),
                                     ),
-                                  ),
+                                    _resultRows(shown(more)),
+                                  ],
                                 ],
                               ),
                             );
@@ -687,7 +779,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         )),
                     SliverPadding(
                       padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 24),
-                      sliver: SliverToBoxAdapter(child: _buildPager(page)),
+                      sliver: SliverToBoxAdapter(child: _buildPager()),
                     ),
                   ] else
                     SliverFillRemaining(
@@ -757,13 +849,57 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildPager(ForumSearchPage page) {
+  Widget _resultRows(List<ForumThread> shown) => DecoratedSliver(
+        decoration: appSurface(context),
+        sliver: SliverList.separated(
+          itemCount: shown.length,
+          separatorBuilder: (_, __) => const Divider(indent: AppSpace.lg),
+          itemBuilder: (context, index) => ForumThreadRow(
+            title: shown[index].title,
+            titleStyle: shown[index].titleStyle,
+            // Board first: results span boards.
+            meta: [
+              if (shown[index].section.isNotEmpty) shown[index].section,
+              if (shown[index].author case final author?) author,
+              if (shown[index].lastPost case final last?) last,
+              '${shown[index].replies} 回复',
+            ],
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ThreadDetailScreen(
+                  thread: shown[index],
+                  repository: widget.repository,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  /// Under the last page shown: its end (the next page, by tap or by
+  /// following on), then the pager for any page.
+  Widget _buildPager() {
+    final page = _lastPage!;
     final previous = page.previousPagePath;
     final next = page.nextPagePath;
     final error = _error;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        PageEndFooter(
+          next: next == null ? null : page.currentPage + 1,
+          manual: !_continuous,
+          loading: _loadingMore,
+          failed: _moreError != null,
+          error: _moreError,
+          paused: _emptyRun >= 2,
+          // 手动翻页 turns to the next page alone; 自动接续 appends.
+          onNext: _searching || next == null
+              ? null
+              : !_continuous
+                  ? () => _openPage(next)
+                  : _retryMore,
+        ),
         if (error != null) ...[
           Text(
             '加载失败：${_errorText(error)}',

@@ -77,12 +77,19 @@ class AppSwitcher extends StatelessWidget {
 
 /// [AppSwitcher] for a sliver in a scroll view, where the old and new
 /// content cannot overlap: when [id] changes the new content fades up from
-/// 65%, never through blank.
+/// 65%, never through blank. With [enter] it also fades up when it first
+/// appears, in place of a spinner or an empty state.
 class AppSliverReveal extends StatefulWidget {
-  const AppSliverReveal({super.key, required this.id, required this.sliver});
+  const AppSliverReveal({
+    super.key,
+    required this.id,
+    required this.sliver,
+    this.enter = false,
+  });
 
   final Object? id;
   final Widget sliver;
+  final bool enter;
 
   @override
   State<AppSliverReveal> createState() => _AppSliverRevealState();
@@ -98,6 +105,16 @@ class _AppSliverRevealState extends State<AppSliverReveal>
   late final _curve =
       CurvedAnimation(parent: _controller, curve: AppMotion.enter);
   late final _opacity = Tween<double>(begin: 0.65, end: 1).animate(_curve);
+
+  bool _entered = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_entered || !widget.enter) return;
+    _entered = true;
+    if (!MediaQuery.disableAnimationsOf(context)) _controller.forward(from: 0);
+  }
 
   @override
   void didUpdateWidget(covariant AppSliverReveal oldWidget) {
