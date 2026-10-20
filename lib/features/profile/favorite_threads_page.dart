@@ -213,11 +213,15 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
       if (!mounted || epoch != _epoch || generation != _moreGeneration) {
         return;
       }
-      // Category numbers can shift on the forum: under another name this is
-      // another category's page, so the list is read again from the start.
-      if (page.categoryId != view ||
-          (view != null && _labelOf(page, view) != _labelOf(data, view))) {
-        _load();
+      // Category numbers are positions on the forum and shift when one goes:
+      // a page whose categories differ in any way is never put under the
+      // menus of the first, so the list is read again from the start.
+      if (page.categoryId != view || !_sameCategories(page, data)) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('收藏分类已变化，已从第一页重新读取')));
+        // Read on only when asked again, so a changing forum cannot loop.
+        _load(readOn: false);
         return;
       }
       final seen = _pageOf;
@@ -240,6 +244,17 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
         _moreError = error;
       });
     }
+  }
+
+  static bool _sameCategories(FavoriteCollections a, FavoriteCollections b) {
+    if (a.categories.length != b.categories.length) return false;
+    for (final (i, c) in a.categories.indexed) {
+      final d = b.categories[i];
+      if (c.id != d.id || c.label != d.label || c.isDefault != d.isDefault) {
+        return false;
+      }
+    }
+    return true;
   }
 
   void _retryMore() {
@@ -365,7 +380,10 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
   /// [keep]: rows still to be chosen once the list is back (what a partial
   /// answer left unfinished), if the forum still lists them.
   Future<void> _load(
-      {String? view, int page = 1, Set<String> keep = const {}}) async {
+      {String? view,
+      int page = 1,
+      Set<String> keep = const {},
+      bool readOn = true}) async {
     // Category numbers can shift on the forum; the name tells which one this is.
     final asked = view == null ? null : _labelOf(_data, view);
     final epoch = ++_epoch;
@@ -403,7 +421,9 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
         _unconfirmed = null;
       });
       // A list too short to scroll reads on by itself.
-      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      if (readOn) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      }
     } catch (error) {
       if (!mounted || epoch != _epoch) return;
       setState(() {

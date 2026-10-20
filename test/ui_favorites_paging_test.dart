@@ -21,6 +21,8 @@ class _Repo extends ForumRepository {
   int pageCount = 3;
   // Pages after the first do not say how many there are.
   bool laterCountUnknown = false;
+  // Later pages list one more category, ahead of 资料.
+  bool laterShift = false;
   // While set, page 3 stays on its way.
   Completer<void>? holdPage3;
   // Categories made here.
@@ -40,7 +42,11 @@ class _Repo extends ForumRepository {
         categoryId: category,
         categories: [
           const FavoriteCategory(id: '0', label: '默认分类'),
-          FavoriteCategory(id: '1', label: page == 1 ? '资料' : laterLabel),
+          if (laterShift && page > 1)
+            const FavoriteCategory(id: '1', label: '新来的'),
+          FavoriteCategory(
+              id: laterShift && page > 1 ? '2' : '1',
+              label: page == 1 ? '资料' : laterLabel),
           ...made,
         ],
         canCreate: true,
@@ -228,6 +234,17 @@ void main() {
     expect(find.text('Fav 300', skipOffstage: false), findsNothing);
     expect(find.text('第 3 页', skipOffstage: false), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('a later page whose other categories moved is not appended',
+      (tester) async {
+    await LoadingPreferences.save(
+        LoadingDomain.favorites, LoadingMode.continuous);
+    // Same name for the category in view; another one appears before it.
+    final repo = await pump(tester, repo: _Repo()..laterShift = true);
+    await toEnd(tester);
+    expect(repo.calls.take(3), ['all:1', 'all:2', 'all:1']);
+    expect(find.text('Fav 200', skipOffstage: false), findsNothing);
   });
 
   testWidgets('a page without its count does not claim to be the last',
