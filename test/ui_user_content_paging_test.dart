@@ -36,7 +36,9 @@ void main() {
   }
 
   Future<void> toEnd(WidgetTester tester) async {
-    await tester.drag(find.text('主题 3'), const Offset(0, -20000));
+    // Any row on screen: the list scrolls under it.
+    await tester.drag(find.textContaining('主题 ').hitTestable().first,
+        const Offset(0, -20000));
     await tester.pumpAndSettle();
   }
 
