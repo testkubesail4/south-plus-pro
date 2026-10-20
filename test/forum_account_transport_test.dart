@@ -278,12 +278,7 @@ void main() {
       } else if (request.uri.path == '/message.php' &&
           request.method == 'GET') {
         composeCookies.add(request.headers.value(HttpHeaders.cookieHeader));
-        request.response.write('''<form method="post" action="message.php">
-<input type="hidden" name="action" value="write">
-<input type="hidden" name="step" value="2">
-<input type="hidden" name="verify" value="synthetic-$owner">
-<input name="touidmsg" value="902"><input name="msg_title">
-<textarea name="atc_content"></textarea></form>''');
+        request.response.write(_composeForm(owner));
       } else if (request.uri.path == '/message.php' &&
           request.method == 'POST') {
         sends.add(request.headers.value(HttpHeaders.cookieHeader));
@@ -347,8 +342,217 @@ void main() {
         reason: 'A form must not send using the now-active B cookies');
   });
 
-  for (final boundary in ['identity', 'friends']) {
-    test('stale $boundary response cannot replace B cookies during login',
+  for (final acceptedBeforeFailure in [true, false]) {
+    test(
+        acceptedBeforeFailure
+            ? 'accepted login survives a newer failed login attempt'
+            : 'unaccepted older login cannot replace a newer accepted login',
+        () async {
+      final olderReceived = Completer<void>();
+      final releaseOlder = Completer<void>();
+      final releaseSave = Completer<void>();
+      addTearDown(() {
+        if (!releaseOlder.isCompleted) releaseOlder.complete();
+        if (!releaseSave.isCompleted) releaseSave.complete();
+      });
+      var logins = 0;
+      String? observedCookie;
+      server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType.html;
+        if (request.uri.path == '/login.php') {
+          final owner = ['A', 'B', 'C'][logins++];
+          if (owner == 'B') {
+            olderReceived.complete();
+            if (!acceptedBeforeFailure) await releaseOlder.future;
+          }
+          if (owner == 'C' && acceptedBeforeFailure) {
+            request.response.write('<body>登录失败</body>');
+          } else {
+            request.response.headers.add(HttpHeaders.setCookieHeader,
+                'winduser=synthetic-$owner; Path=/');
+            request.response.write(_sessionHeader(owner));
+          }
+        } else if (request.uri.path == '/index.php' ||
+            request.uri.path == '/simple/index.php') {
+          request.response
+              .write(_sessionHeader(acceptedBeforeFailure ? 'B' : 'C'));
+        } else {
+          observedCookie = request.headers.value(HttpHeaders.cookieHeader);
+          request.response.write('ok');
+        }
+        await request.response.close();
+      });
+      final repository = ForumRepository(client: client);
+      addTearDown(repository.clearSession);
+      expect(
+          await repository.login(
+              username: 'Synthetic A', password: 'fixture', captcha: 'fixture'),
+          isTrue);
+      if (acceptedBeforeFailure) {
+        store.saveStarted = Completer<void>();
+        store.releaseSave = releaseSave;
+      }
+      final older = repository
+          .login(
+              username: 'Synthetic B', password: 'fixture', captcha: 'fixture')
+          .then<Object?>((result) => result, onError: (Object error) => error);
+      await olderReceived.future.timeout(const Duration(seconds: 5));
+      if (acceptedBeforeFailure) {
+        await store.saveStarted!.future.timeout(const Duration(seconds: 5));
+        expect(repository.currentUsername, 'Synthetic A');
+      }
+      final newer = await repository
+          .login(
+              username: 'Synthetic C', password: 'fixture', captcha: 'fixture')
+          .then<Object?>((result) => result, onError: (Object error) => error);
+      releaseOlder.complete();
+      releaseSave.complete();
+      final olderResult = await older;
+      final persisted = await store.loadCookies();
+      final privateRead = await client
+          .getForm('profile.php?action=bbsset', requireCurrentSession: () {})
+          .then<Object?>((result) => result, onError: (Object error) => error);
+      final winner = acceptedBeforeFailure ? 'B' : 'C';
+      expect([
+        repository.currentUsername,
+        repository.accountIdentity.value?.uid,
+        ...persisted.values.map((cookie) => cookie.value),
+        observedCookie,
+        privateRead,
+        olderResult == true,
+        newer == true,
+      ], [
+        'Synthetic $winner',
+        acceptedBeforeFailure ? '903' : '905',
+        'synthetic-$winner',
+        'winduser=synthetic-$winner',
+        'ok',
+        acceptedBeforeFailure,
+        !acceptedBeforeFailure,
+      ]);
+    });
+  }
+
+  test('guarded response can refresh its own auth cookie', () async {
+    String? observedCookie;
+    server.listen((request) async {
+      await request.drain<void>();
+      if (request.uri.path == '/seed' || request.uri.path == '/profile.php') {
+        final owner = request.uri.path == '/seed' ? 'A' : 'A-refreshed';
+        request.response.headers.add(
+            HttpHeaders.setCookieHeader, 'winduser=synthetic-$owner; Path=/');
+      } else {
+        observedCookie = request.headers.value(HttpHeaders.cookieHeader);
+      }
+      request.response.write('ok');
+      await request.response.close();
+    });
+    await client.getOnce('seed');
+    expect(
+        await client.getForm('profile.php?action=bbsset',
+            requireCurrentSession: () {}),
+        'ok');
+    expect((await store.loadCookies()).values.map((cookie) => cookie.value),
+        ['synthetic-A-refreshed']);
+    await client.getOnce('echo');
+    expect(observedCookie, 'winduser=synthetic-A-refreshed');
+  });
+
+  test('superseded client cannot replace cookies or dispatch guarded requests',
+      () async {
+    final readReceived = Completer<void>();
+    final releaseRead = Completer<void>();
+    addTearDown(() {
+      if (!releaseRead.isCompleted) releaseRead.complete();
+    });
+    var logins = 0;
+    var guardedHits = 0;
+    String? observedCookie;
+    server.listen((request) async {
+      await request.drain<void>();
+      if (request.uri.path == '/login.php') {
+        final owner = ++logins == 1 ? 'A' : 'B';
+        request.response.headers.add(
+            HttpHeaders.setCookieHeader, 'winduser=synthetic-$owner; Path=/');
+        request.response.write(_sessionHeader(owner));
+      } else if (request.uri.path == '/index.php' ||
+          request.uri.path == '/old-public') {
+        if (request.uri.path == '/index.php') {
+          readReceived.complete();
+          await releaseRead.future;
+        }
+        request.response.headers.add(
+            HttpHeaders.setCookieHeader, 'winduser=synthetic-stale-A; Path=/');
+      } else if (request.uri.path == '/profile.php') {
+        guardedHits++;
+      } else {
+        observedCookie = request.headers.value(HttpHeaders.cookieHeader);
+      }
+      await request.response.close();
+    });
+    final oldRepository = ForumRepository(client: client);
+    addTearDown(oldRepository.clearSession);
+    expect(
+        await oldRepository.login(
+            username: 'Synthetic A', password: 'fixture', captcha: 'fixture'),
+        isTrue);
+    final oldRead = client
+        .getOnce('index.php')
+        .then<Object?>((_) => null, onError: (Object error) => error);
+    await readReceived.future.timeout(const Duration(seconds: 5));
+    final replacement = _LocalClient(
+        client.baseUri, transport, _RecordingStore(), (_) async {});
+    final newRepository = ForumRepository(client: replacement);
+    addTearDown(newRepository.clearSession);
+    expect(
+        await newRepository.login(
+            username: 'Synthetic B', password: 'fixture', captcha: 'fixture'),
+        isTrue);
+    expect((await store.loadCookies()).values.map((cookie) => cookie.value),
+        ['synthetic-B']);
+    await client
+        .getOnce('old-public')
+        .then<Object?>((_) => null, onError: (Object error) => error);
+    final afterFreshPublic = await store.loadCookies();
+    final rejected = await client
+        .getForm('profile.php?action=bbsset', requireCurrentSession: () {})
+        .then<Object?>((_) => null, onError: (Object error) => error);
+    releaseRead.complete();
+    await oldRead;
+    final persisted = await store.loadCookies();
+    await replacement.getOnce('echo');
+    expect([
+      ...afterFreshPublic.values.map((cookie) => cookie.value),
+      ...persisted.values.map((cookie) => cookie.value),
+      observedCookie,
+      guardedHits,
+    ], [
+      'synthetic-B',
+      'synthetic-B',
+      'winduser=synthetic-B',
+      0
+    ]);
+    expect(
+        rejected,
+        isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.loginRequired));
+  });
+
+  for (final (boundary, usernamePublished) in [
+    ('identity', false),
+    ('identity', true),
+    ('friends', false),
+    ('friends', true),
+    ('pm', false),
+    ('pm', true),
+    ('public', true),
+    ('redirect', true),
+    ('attachment', true),
+  ]) {
+    test(
+        'stale $boundary response cannot replace B cookies '
+        '${usernamePublished ? 'after' : 'before'} username publication',
         () async {
       final loginReceived = Completer<void>();
       final releaseLogin = Completer<void>();
@@ -360,12 +564,12 @@ void main() {
       });
       var logins = 0;
       String? observedCookie;
-      String header(String owner) => '''<html><head>
-<script>var verifyhash = 'fxToken1';</script></head><body>
-<div id="user-login"><a href="u.php">Synthetic $owner</a></div>
-<div id="menu_profile"><div class="ul2">
-<a href="u.php?action-show-uid-${owner == 'A' ? '901' : '903'}.html">资料</a>
-</div></div></body></html>''';
+      final heldPath = switch (boundary) {
+        'friends' => '/u.php',
+        'pm' => '/message.php',
+        'attachment' => '/job.php',
+        _ => '/index.php',
+      };
       server.listen((request) async {
         await request.drain<void>();
         request.response.headers.contentType = ContentType.html;
@@ -377,24 +581,39 @@ void main() {
           }
           request.response.headers.add(
               HttpHeaders.setCookieHeader, 'winduser=synthetic-$owner; Path=/');
-          request.response.write(header(owner));
+          request.response.write(_sessionHeader(owner));
         } else if (request.uri.path == '/index.php' ||
-            request.uri.path == '/u.php') {
-          final held = boundary == 'identity'
-              ? request.uri.path == '/index.php'
-              : request.uri.path == '/u.php';
+            request.uri.path == '/u.php' ||
+            request.uri.path == '/message.php' ||
+            request.uri.path == '/job.php') {
+          final held = request.uri.path == heldPath;
           if (held) {
             readReceived.complete();
             await releaseRead.future;
-            request.response.headers.add(HttpHeaders.setCookieHeader,
-                'winduser=synthetic-stale-A; Path=/');
+            if (boundary == 'redirect') {
+              request.response.statusCode = HttpStatus.found;
+              request.response.headers.set(HttpHeaders.locationHeader, '/hop');
+            } else {
+              request.response.headers.add(HttpHeaders.setCookieHeader,
+                  'winduser=synthetic-stale-A; Path=/');
+            }
           }
-          request.response.write(request.uri.path == '/index.php'
-              ? header('A')
-              : '''<form method="post" action="u.php?action=friend">
+          if (request.uri.path == '/job.php') {
+            request.response.headers.contentType = ContentType.binary;
+            request.response.add([1, 2, 3]);
+          } else {
+            request.response.write(request.uri.path == '/index.php'
+                ? _sessionHeader('A')
+                : request.uri.path == '/message.php'
+                    ? _composeForm('A')
+                    : '''<form method="post" action="u.php?action=friend">
 <input type="hidden" name="uid" value="901">
 <input type="hidden" name="verify" value="synthetic-A">
 <input type="hidden" name="job" value="delete"></form>''');
+          }
+        } else if (request.uri.path == '/hop') {
+          request.response.headers.add(HttpHeaders.setCookieHeader,
+              'winduser=synthetic-stale-A; Path=/');
         } else if (request.uri.path == '/echo') {
           observedCookie = request.headers.value(HttpHeaders.cookieHeader);
         } else {
@@ -412,32 +631,83 @@ void main() {
           username: 'Synthetic B', password: 'fixture', captcha: 'fixture');
       await loginReceived.future.timeout(const Duration(seconds: 5));
       // Both operations start after B's epoch bump, before its identity arrives.
-      final reading = boundary == 'identity'
-          ? repository.ensureAccountIdentity()
-          : repository.fetchFriends();
+      final attachmentDirectory = boundary == 'attachment'
+          ? await Directory.systemTemp.createTemp('forum_cookie_canary_')
+          : null;
+      if (attachmentDirectory != null) {
+        addTearDown(() => attachmentDirectory.delete(recursive: true));
+      }
+      final reading = switch (boundary) {
+        'identity' => repository.ensureAccountIdentity(),
+        'friends' => repository.fetchFriends(),
+        'pm' => repository.fetchPmCompose(),
+        'attachment' => client.downloadAttachment(
+            'job.php?action=download&aid=701',
+            directory: attachmentDirectory!),
+        _ => client.getOnce('index.php'),
+      };
       final outcome =
           reading.then<Object?>((_) => null, onError: (Object error) => error);
       await readReceived.future.timeout(const Duration(seconds: 5));
+      final releaseBSave = Completer<void>();
+      addTearDown(() {
+        if (!releaseBSave.isCompleted) releaseBSave.complete();
+      });
+      if (!usernamePublished) {
+        store.saveStarted = Completer<void>();
+        store.releaseSave = releaseBSave;
+      }
       releaseLogin.complete();
-      expect(await switching, isTrue);
-      expect(repository.currentUsername, 'Synthetic B');
-      expect((await store.loadCookies()).values.map((cookie) => cookie.value),
-          ['synthetic-B']);
+      if (usernamePublished) {
+        expect(await switching, isTrue);
+        expect(repository.currentUsername, 'Synthetic B');
+        expect((await store.loadCookies()).values.map((cookie) => cookie.value),
+            ['synthetic-B']);
+      } else {
+        await store.saveStarted!.future.timeout(const Duration(seconds: 5));
+        expect(repository.currentUsername, 'Synthetic A');
+      }
+      final oldHeadersObserved = Completer<void>();
+      (client as _LocalClient).onSessionCheck = (path) {
+        if (client.baseUri.resolve(path).path == heldPath &&
+            !oldHeadersObserved.isCompleted) {
+          oldHeadersObserved.complete();
+        }
+      };
       releaseRead.complete();
+      String? duringPublication;
+      if (!usernamePublished) {
+        // A rejected read may finish before invoking the repository's guard.
+        await Future.any<void>([
+          oldHeadersObserved.future,
+          outcome.then<void>((_) {}),
+        ]).timeout(const Duration(seconds: 5));
+        await client.getOnce('echo');
+        duringPublication = observedCookie;
+        releaseBSave.complete();
+        expect(await switching, isTrue);
+        expect(repository.currentUsername, 'Synthetic B');
+      }
       final error = await outcome;
       final persisted = await store.loadCookies();
       await client.getOnce('echo');
       expect([
+        if (!usernamePublished) duringPublication,
         ...persisted.values.map((cookie) => cookie.value),
         observedCookie,
       ], [
+        if (!usernamePublished) 'winduser=synthetic-B',
         'synthetic-B',
         'winduser=synthetic-B'
       ], reason: 'stale A cookies must never replace B in memory or storage');
-      expect(
-          error,
-          isA<ForumRequestException>().having(
-              (error) => error.kind, 'kind', ForumRequestKind.loginRequired));
+      if (boundary != 'public' &&
+          boundary != 'redirect' &&
+          boundary != 'attachment') {
+        expect(
+            error,
+            isA<ForumRequestException>().having(
+                (error) => error.kind, 'kind', ForumRequestKind.loginRequired));
+      }
     });
   }
 
@@ -630,6 +900,28 @@ void main() {
   }
 }
 
+String _sessionHeader(String owner) {
+  final uid = switch (owner) {
+    'A' => '901',
+    'B' => '903',
+    _ => '905',
+  };
+  return '''<html><head>
+<script>var verifyhash = 'fxToken1';</script></head><body>
+<div id="user-login"><a href="u.php">Synthetic $owner</a></div>
+<div id="menu_profile"><div class="ul2">
+<a href="u.php?action-show-uid-$uid.html">资料</a>
+</div></div></body></html>''';
+}
+
+String _composeForm(String owner) =>
+    '''<form method="post" action="message.php">
+<input type="hidden" name="action" value="write">
+<input type="hidden" name="step" value="2">
+<input type="hidden" name="verify" value="synthetic-$owner">
+<input name="touidmsg" value="902"><input name="msg_title">
+<textarea name="atc_content"></textarea></form>''';
+
 class _RealHttp extends HttpOverrides {}
 
 class _LocalClient extends ForumClient {
@@ -638,6 +930,19 @@ class _LocalClient extends ForumClient {
       : super(httpClient: transport, sessionStore: store, delay: delay);
   @override
   final Uri baseUri;
+  void Function(String path)? onSessionCheck;
+  @override
+  Future<String> getForm(String path,
+          {void Function()? requireCurrentSession,
+          bool followRedirects = true}) =>
+      super.getForm(path,
+          requireCurrentSession: requireCurrentSession == null
+              ? null
+              : () {
+                  onSessionCheck?.call(path);
+                  requireCurrentSession();
+                },
+          followRedirects: followRedirects);
 }
 
 class _RecordingStore extends ForumSessionStore {
