@@ -132,6 +132,9 @@ class ForumUrlResolver {
     }
     if (uri.path == '/u.php') {
       final action = fields['action'];
+      if (action == 'favor' && fields.containsKey('type')) {
+        return ForumPageLinkTarget(normalized);
+      }
       final tab = switch (action) {
         null || 'home' => UserProfileTab.home,
         'show' => UserProfileTab.profile,

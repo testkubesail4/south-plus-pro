@@ -246,6 +246,8 @@ void main() {
       'profile.php?action=permission',
       'profile.php?action=bbsset&info_type=unknown',
       'u.php?action=favor&type=1',
+      'u.php?action=favor&uid=101&type=1',
+      'u.php?action-favor-uid-101-type-1.html',
       'u.php?action=friend&o=unknown',
       'u.php?t701.html',
       'message.php?action=write&touid=202&remid=701',
