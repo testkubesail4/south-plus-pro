@@ -445,7 +445,9 @@ class ForumPmParser {
       final body = record!.clone(true);
       body.querySelector('span.fr.gray')?.remove();
       body.querySelector('span.s2')?.remove();
+      final id = checkbox.attributes['value'];
       records.add(ForumPmChatRecord(
+          id: _positive.hasMatch(id ?? '') ? id : null,
           sender: '',
           title: clean(title.text),
           time: clean(time.text),

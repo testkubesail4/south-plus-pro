@@ -117,12 +117,14 @@ class ForumPmCompose {
 
 class ForumPmChatRecord {
   const ForumPmChatRecord({
+    this.id,
     required this.sender,
     required this.title,
     required this.time,
     required this.content,
     this.segments = const [],
   });
+  final String? id;
   final String sender;
   final String title;
   final String time;

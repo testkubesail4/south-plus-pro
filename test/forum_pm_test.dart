@@ -561,6 +561,7 @@ void main() {
     final log = await repository
         .fetchPmChatlog('message.php?action-chatlog-withuid-901.html');
     expect(log.records, hasLength(1));
+    expect(log.records.single.id, '1001');
     expect(log.records.single.sender, isEmpty,
         reason: 'observed chatlog records have no sender field');
     expect(log.records.single.title, 'Fixture history title');
@@ -577,6 +578,42 @@ void main() {
         repository.fetchPmChatlog('message.php?action=dellog&withuid=901'),
         throwsA(isA<ForumRequestException>()));
     expect(client.getPaths, ['message.php?action-chatlog-withuid-901.html']);
+  });
+
+  test(
+      'chatlog native identities preserve distinct same-content records and '
+      'keep invalid or missing IDs as anonymous rows', () async {
+    final row =
+        RegExp(r'<div>.*?</div>', dotAll: true).firstMatch(_chatlog)!.group(0)!;
+    for (final (attribute, id) in [
+      ('value="1002"', '1002'),
+      ('value="0"', null),
+      ('value="bad-id"', null),
+      ('value=""', null),
+      ('', null),
+    ]) {
+      final response = _chatlog.replaceFirst(
+          row, '$row${row.replaceFirst('value="1001"', attribute)}');
+      final client = _PmClient()..responses.add(response);
+      final repository = ForumRepository(client: client);
+      final log = await repository
+          .fetchPmChatlog('message.php?action-chatlog-withuid-901.html');
+      expect(log.records.map((record) => record.id), ['1001', id],
+          reason: attribute);
+      expect(log.records.map((record) => record.title),
+          everyElement('Fixture history title'));
+      expect(log.records.map((record) => record.time),
+          everyElement('2020-01-01 10:00'));
+      expect(log.records.map((record) => record.content),
+          everyElement('Fixture history\nsecond line'));
+      expect(client.posts, isEmpty);
+    }
+    final wrongOwner = _PmClient()..responses.add(_chatlog);
+    await expectLater(
+        ForumRepository(client: wrongOwner)
+            .fetchPmChatlog('message.php?action-chatlog-withuid-902.html'),
+        throwsA(isA<ForumRequestException>()));
+    expect(wrongOwner.posts, isEmpty);
   });
 
   test('chatlog continuation keeps the peer and never guesses a missing next',
