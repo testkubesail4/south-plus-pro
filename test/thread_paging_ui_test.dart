@@ -22,6 +22,7 @@ void main() {
 
   Future<_Repository> pumpThread(
     WidgetTester tester, {
+    _Repository? repository,
     Size size = const Size(400, 800),
     double keyboard = 0,
     double textScale = 1,
@@ -31,7 +32,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
     addTearDown(tester.view.reset);
-    final repository = _Repository();
+    repository ??= _Repository();
     await tester.pumpWidget(MaterialApp(
       theme: theme,
       builder: (context, child) => MediaQuery(
@@ -84,7 +85,7 @@ void main() {
       (tester) async {
     final repository = await pumpThread(tester);
     await jumpToEnd(tester);
-    await tester.tap(find.byKey(const ValueKey('thread-next-page')));
+    await tester.tap(find.byKey(const ValueKey('page-end-next')));
     await tester.pumpAndSettle();
 
     expect(repository.pages, [1, 2]);
@@ -100,15 +101,49 @@ void main() {
     await pumpThread(tester);
     await jumpToEnd(tester);
 
-    expect(find.byKey(const ValueKey('thread-next-page')), findsNothing);
+    expect(find.byKey(const ValueKey('page-end-next')), findsNothing);
     expect(find.text('加载第 2 页'), findsOneWidget);
 
     // Turning it off in 设置 restores explicit paging on the open thread.
     await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.manual);
     await tester.pumpAndSettle();
     await jumpToEnd(tester);
-    expect(find.byKey(const ValueKey('thread-next-page')), findsOneWidget);
+    expect(find.byKey(const ValueKey('page-end-next')), findsOneWidget);
     expect(find.text('加载第 2 页'), findsNothing);
+  });
+
+  testWidgets('the last page ends with 已到最后一页 and a refresh', (tester) async {
+    final repository = _Repository()..totalPages = 1;
+    await pumpThread(tester, repository: repository);
+    await jumpToEnd(tester);
+    expect(find.text('已到最后一页'), findsOneWidget);
+    expect(find.byKey(const ValueKey('page-end-next')), findsNothing);
+
+    await tester.tap(find.text('刷新本页，看看新回复'));
+    await tester.pumpAndSettle();
+    expect(repository.pages, [1, 1]);
+  });
+
+  testWidgets('自动接续 pauses after two pages of repeated floors', (tester) async {
+    await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.continuous);
+    final repository = _Repository()
+      ..totalPages = 5
+      ..repeats = true;
+    await pumpThread(tester, repository: repository);
+    // Only the reader's own scrolling follows on.
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -20000));
+    await tester.pumpAndSettle();
+    await jumpToEnd(tester);
+
+    expect(repository.pages, [1, 2, 3]);
+    // Repeated floors show once.
+    expect(find.text('reply 30', findRichText: true), findsOneWidget);
+    expect(find.text('后续页面的内容已被过滤或重复'), findsOneWidget);
+    // A tap starts a fresh run: page 4 repeats too, so 5 follows on.
+    await tester.tap(find.text('继续加载第 4 页'));
+    await tester.pumpAndSettle();
+    expect(repository.pages, [1, 2, 3, 4, 5]);
+    expect(find.text('已到最后一页'), findsOneWidget);
   });
 
   testWidgets('the page picker opens the chosen page', (tester) async {
@@ -240,6 +275,9 @@ void main() {
 
 class _Repository extends ForumRepository {
   final pages = <int>[];
+  int totalPages = 3;
+  // Every later page repeats page 1's floors, as when the thread moved.
+  bool repeats = false;
   final sentTitles = <String>[];
 
   @override
@@ -268,11 +306,11 @@ class _Repository extends ForumRepository {
     int page = 1,
   }) async {
     pages.add(page);
-    final first = (page - 1) * 30;
+    final first = repeats ? 0 : (page - 1) * 30;
     return ThreadDetail(
       thread: _thread,
       body: page == 1 ? 'opening body' : '',
-      pagination: ThreadPagination(currentPage: page, totalPages: 3),
+      pagination: ThreadPagination(currentPage: page, totalPages: totalPages),
       replies: [
         for (var floor = first + 1; floor <= first + 30; floor++)
           ThreadReply(

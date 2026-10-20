@@ -47,6 +47,7 @@ class PageEndFooter extends StatelessWidget {
     this.error,
     this.paused = false,
     this.nextLabel,
+    this.onRefresh,
   });
 
   final int? next;
@@ -61,6 +62,9 @@ class PageEndFooter extends StatelessWidget {
 
   /// Replaces 下一页 · 第 N 页 where a tap appends instead (加载更多).
   final String? nextLabel;
+
+  /// Offered after the last page, where new rows may still arrive.
+  final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +97,18 @@ class PageEndFooter extends StatelessWidget {
         ],
       );
     } else if (page == null) {
-      child = Text('已到最后一页', style: muted);
+      final refresh = onRefresh;
+      child = Column(
+        children: [
+          Text('已到最后一页', style: muted),
+          if (refresh != null)
+            TextButton.icon(
+              onPressed: refresh,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('刷新本页，看看新回复'),
+            ),
+        ],
+      );
     } else if (paused) {
       child = Column(
         children: [

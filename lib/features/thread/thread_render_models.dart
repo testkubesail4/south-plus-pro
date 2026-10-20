@@ -724,8 +724,12 @@ class ThreadDetailLoadMoreEntry extends ThreadDetailListEntry {
     required this.next,
     required this.loading,
     required this.failed,
+    required this.paused,
     Key? key,
   }) : super(ThreadDetailListEntryType.loadMore, key: key);
+
+  /// Two pages in a row added no new floor; the next waits for a tap.
+  final bool paused;
 
   /// The page after the last one shown; null after the last page.
   final int? next;

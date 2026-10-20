@@ -72,7 +72,7 @@ void main() {
     expect(tester.widget<InkWell>(tile).onTap, isNotNull);
   });
 
-  testWidgets('加载与分页 fits a narrow phone at large text', (tester) async {
+  testWidgets('加载与分页 fits a 320 phone at system 2x × App 1.15', (tester) async {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1;
@@ -81,7 +81,7 @@ void main() {
       theme: AppTheme.light,
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context)
-            .copyWith(textScaler: const TextScaler.linear(1.6)),
+            .copyWith(textScaler: const TextScaler.linear(2.3)),
         child: child!,
       ),
       home: const LoadingSettingsScreen(),

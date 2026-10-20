@@ -42,7 +42,6 @@ import '../reply/thread_edit_screen.dart';
 import '../search/search_screen.dart';
 import 'thread_find.dart';
 import 'thread_floor_actions.dart';
-import 'thread_page_end_card.dart';
 import 'thread_post_body.dart';
 import 'thread_render_models.dart';
 import 'thread_reward_view.dart';
@@ -121,6 +120,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final _morePages = <ThreadDetail>[];
   bool _loadingMore = false;
   bool _loadMoreFailed = false;
+  // Appended pages in a row that added no new floor (repeats or blocked
+  // authors): after two, following on waits for a tap.
+  int _emptyRun = 0;
   final _replyPages = Map<ThreadReply, int>.identity();
   // Mounted posts (ThreadDetail = opening post, or a ThreadReply) for
   // finding the post at the top of the screen.
@@ -262,6 +264,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       // A replacement load supersedes any page being appended.
       _loadingMore = false;
       _loadMoreFailed = false;
+      _emptyRun = 0;
       if (_detail != null) _recomputeDetailRenderState();
     });
     try {
@@ -285,6 +288,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _revealedPosts.clear();
         _loadingMore = false;
         _loadMoreFailed = false;
+        _emptyRun = 0;
         _anchorTarget = latest
             ? (detail.replies.isEmpty ? detail : detail.replies.last)
             : anchor == null
@@ -373,6 +377,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _loading ||
         _loadingMore ||
         _loadMoreFailed ||
+        _emptyRun >= 2 ||
         !last.pagination.hasNext ||
         !_scrollController.hasClients) {
       return;
@@ -400,18 +405,38 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         page: page,
       );
       if (!mounted || runId != _loadRunId) return;
+      final seen = {
+        for (final page in _loadedPages)
+          for (final reply in page.replies)
+            if (_nativeKey(reply) case final key?) key,
+      };
+      final rules = widget.repository.blocking.notifier.value;
+      final added = detail.replies.any((reply) {
+        final key = _nativeKey(reply);
+        return (key == null || !seen.contains(key)) &&
+            rules.floorBlock(
+                    uid: reply.authorUid, contentKey: reply.blockContentKey) ==
+                FloorBlock.none;
+      });
+      // A short or redirected answer must not repeat a loaded page.
+      final appended =
+          detail.pagination.currentPage > last.pagination.currentPage;
       setState(() {
         _loadingMore = false;
-        // A short or redirected answer must not repeat a loaded page.
-        if (detail.pagination.currentPage > last.pagination.currentPage) {
+        if (appended) {
           _addRenderModels(detail, idPrefix: 'p$page:');
           _morePages.add(detail);
+          _emptyRun = added ? 0 : _emptyRun + 1;
         } else {
           _loadMoreFailed = true;
         }
         _recomputeDetailRenderState();
       });
       _find.pagesChanged();
+      // A page that shows nothing new adds no height to scroll through.
+      if (appended && !added) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      }
     } catch (_) {
       if (!mounted || runId != _loadRunId) return;
       setState(() {
@@ -424,7 +449,17 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   void _retryLoadMore() {
     _loadMoreFailed = false;
+    _emptyRun = 0;
     _loadMore();
+  }
+
+  /// The site's own id for a floor, when it has one; floors without one are
+  /// never taken for repeats.
+  static String? _nativeKey(ThreadReply reply) {
+    final quote = reply.quoteUrl;
+    if (quote != null && quote.isNotEmpty) return quote;
+    final floor = reply.floor;
+    return floor != null && floor.isNotEmpty ? floor : null;
   }
 
   void _addRenderModels(ThreadDetail detail, {String idPrefix = ''}) {
@@ -696,6 +731,17 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _visibleFloorCount = visibleReplies.length + (hasOpeningPost ? 1 : 0);
 
     final last = _lastLoaded!;
+    // A floor repeated on a later page (the thread moved while reading)
+    // shows once, where it first appeared.
+    final shownKeys = {
+      for (final reply in detail.replies)
+        if (_nativeKey(reply) case final key?) key,
+    };
+    bool firstShown(ThreadReply reply) {
+      final key = _nativeKey(reply);
+      return key == null || shownKeys.add(key);
+    }
+
     ThreadDetailReplyEntry replyEntry(ThreadReply reply) =>
         ThreadDetailReplyEntry(
           key: identical(_anchorTarget, reply)
@@ -738,7 +784,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           page.pagination.currentPage,
           key: ValueKey('thread-page-${page.pagination.currentPage}'),
         ),
-        for (final reply in page.replies) replyEntry(reply),
+        for (final reply in page.replies)
+          if (firstShown(reply)) replyEntry(reply),
       ],
       if (_autoLoadNextPage && last.pagination.totalPages > 1)
         ThreadDetailLoadMoreEntry(
@@ -747,6 +794,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
               last.pagination.hasNext ? last.pagination.currentPage + 1 : null,
           loading: _loadingMore,
           failed: _loadMoreFailed,
+          paused: _emptyRun >= 2,
         ),
       ThreadDetailPaginationEntry(
         pagination: last.pagination,
@@ -2120,12 +2168,15 @@ class _ThreadDetailContent extends StatelessWidget {
         // Only explicit paging ends a page with a card; the page bar under
         // the list is the page control in both modes.
         if (autoLoadNextPage) return const SizedBox.shrink();
+        final pagination = (entry as ThreadDetailPaginationEntry).pagination ??
+            detail.pagination;
+        final next = pagination.hasNext ? pagination.currentPage + 1 : null;
         return _entryWithKey(
           key: entry.key,
-          child: ThreadPageEndCard(
-            pagination: (entry as ThreadDetailPaginationEntry).pagination ??
-                detail.pagination,
-            onPageSelected: loading ? null : onPageSelected,
+          child: PageEndFooter(
+            manual: true,
+            next: next,
+            onNext: loading || next == null ? null : () => onPageSelected(next),
             onRefresh: loading ? null : onRefresh,
           ),
         );
@@ -2378,6 +2429,7 @@ class _ThreadDetailContent extends StatelessWidget {
             onNext: onRetryLoadMore,
             loading: state.loading,
             failed: state.failed,
+            paused: state.paused,
           ),
         );
     }
