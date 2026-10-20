@@ -39,6 +39,8 @@ void main() {
   testWidgets('加载与分页 shows each list\'s default and saves a change',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
+    // A choice read by an earlier test stays in memory otherwise.
+    await LoadingPreferences.load();
     await openLoading(tester);
     expect(shown(tester, LoadingDomain.thread), {LoadingMode.manual});
     expect(shown(tester, LoadingDomain.board), {LoadingMode.continuous});
@@ -61,6 +63,8 @@ void main() {
       'a guest can reach local home personalization without the account group',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
+    // A choice read by an earlier test stays in memory otherwise.
+    await LoadingPreferences.load();
     await pumpSettings(tester);
     await tester.scrollUntilVisible(find.text('首页版块'), 180,
         scrollable: find.byType(Scrollable).first);
@@ -74,6 +78,8 @@ void main() {
 
   testWidgets('加载与分页 fits a 320 phone at system 2x × App 1.15', (tester) async {
     SharedPreferences.setMockInitialValues({});
+    // A choice read by an earlier test stays in memory otherwise.
+    await LoadingPreferences.load();
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -107,6 +113,8 @@ void main() {
   testWidgets('the version row is information, not a disabled control',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
+    // A choice read by an earlier test stays in memory otherwise.
+    await LoadingPreferences.load();
     await tester.pumpWidget(MaterialApp(
       theme: AppTheme.light,
       home: SettingsScreen(
