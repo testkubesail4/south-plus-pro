@@ -57,12 +57,18 @@ void main() {
   });
 
   testWidgets(
-    'persisted strict policy prevents unknown startup and every bypass; live restore and manual tap work',
+    'strict policy prevents every bypass; live restore and manual tap work',
     (tester) async {
       await tester.runAsync(() async {
-        SharedPreferences.setMockInitialValues({
-          'settings.imageLoadMode': 'noImages',
-        });
+        // A cold start is the cold start test's; this one sets strict
+        // itself and starts with no image fetched or cached, in any order.
+        SharedPreferences.setMockInitialValues({});
+        await ImageLoadingSettings.saveMode(ImageLoadMode.noImages);
+        await ForumImageCache.manager.emptyCache();
+        imageCache
+          ..clear()
+          ..clearLiveImages();
+        final before = fixture.requests.length;
         await tester.pumpWidget(
           frame(
             const Column(
@@ -92,12 +98,12 @@ void main() {
         expect(await ImageLoadingSettings.loadMode(), ImageLoadMode.noImages);
         await tester.pump();
         expect(find.byType(CachedNetworkImage), findsNothing);
-        expect(fixture.requests, isEmpty);
+        expect(fixture.requests.length, before);
 
         await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
         await waitForImages(tester, 3);
         expect(
-          fixture.requests.toSet(),
+          fixture.requests.skip(before).toSet(),
           containsAll([
             ImageHttpFixture.emojiUrl,
             ImageHttpFixture.avatarUrl,
