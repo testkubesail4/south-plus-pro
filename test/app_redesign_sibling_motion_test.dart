@@ -129,7 +129,7 @@ void main() {
         }
         final outgoing = 'fixture-owner-a ${reverse ? 'pending' : 'friend'} 0';
         expect(find.text(outgoing).hitTestable(), findsNothing);
-        expect(find.bySemanticsLabel(RegExp(RegExp.escape(outgoing))),
+        expect(find.semantics.byLabel(RegExp(RegExp.escape(outgoing))),
             findsNothing);
         expect(
             find
@@ -142,7 +142,7 @@ void main() {
             findsNothing,
             reason:
                 'Session replacement must destroy all retained outgoing children in the first frame');
-        expect(find.bySemanticsLabel(RegExp('fixture-owner-a')), findsNothing);
+        expect(find.semantics.byLabel(RegExp('fixture-owner-a')), findsNothing);
         expect(tester.takeException(), isNull);
       } finally {
         semantics.dispose();
