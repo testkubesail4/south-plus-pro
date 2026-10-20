@@ -121,6 +121,59 @@ void main() {
     }
   });
 
+  for (final operation in ['addStream', 'flush']) {
+    test('destroy aborts a bound $operation before its producer closes',
+        () async {
+      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final connected = Completer<void>();
+      final peerClosed = Completer<void>();
+      Socket? peer;
+      server.listen((socket) {
+        peer = socket;
+        connected.complete();
+        socket.listen((_) {}, onDone: () {
+          if (!peerClosed.isCompleted) peerClosed.complete();
+        }, onError: (Object _) {
+          if (!peerClosed.isCompleted) peerClosed.complete();
+        });
+      });
+      final attempt =
+          ForumSocketAttempt(Uri.http('localhost:${server.port}', '/'));
+      final sourceCancelled = Completer<void>();
+      final producer = operation == 'addStream'
+          ? StreamController<List<int>>(onCancel: () {
+              if (!sourceCancelled.isCompleted) sourceCancelled.complete();
+            })
+          : null;
+      try {
+        final socket = await attempt.socket;
+        await connected.future;
+        final socketDone = socket.done.then((_) {}, onError: (Object _) {});
+        final Future<void> pending;
+        if (operation == 'addStream') {
+          pending = socket.addStream(producer!.stream).then<void>((_) {});
+        } else {
+          socket.add([1, 2, 3]);
+          pending = socket.flush();
+        }
+        final failed = expectLater(pending, throwsA(isA<SocketException>()));
+        expect(socket.destroy, returnsNormally);
+        await failed.timeout(const Duration(seconds: 1));
+        await peerClosed.future.timeout(const Duration(seconds: 1));
+        await socketDone.timeout(const Duration(seconds: 1));
+        if (operation == 'addStream')
+          await sourceCancelled.future.timeout(const Duration(seconds: 1));
+        // The source is deliberately still open until all abort assertions pass.
+        if (producer != null) expect(producer.isClosed, isFalse);
+      } finally {
+        await producer?.close();
+        attempt.cancel();
+        peer?.destroy();
+        await server.close();
+      }
+    });
+  }
+
   test('raw TLS validates the original hostname, not the selected IP',
       () async {
     final server = await HttpServer.bindSecure(

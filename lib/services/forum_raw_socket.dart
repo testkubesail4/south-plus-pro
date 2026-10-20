@@ -116,7 +116,23 @@ class ForumRawSocket extends Stream<Uint8List> implements Socket {
   late final StreamController<Uint8List> _incoming;
   late final _RawWriter _writer;
   late final IOSink _sink;
+  Future<void>? _pendingWrite;
+  Future<void>? _destroyDone;
   bool _destroyed = false;
+
+  void _requireOpen() {
+    if (_destroyed) throw const SocketException('Socket destroyed');
+  }
+
+  Future<void> _track(Future<void> future) {
+    _pendingWrite = future;
+    void clear() {
+      if (identical(_pendingWrite, future)) _pendingWrite = null;
+    }
+
+    unawaited(future.then((_) => clear(), onError: (Object _) => clear()));
+    return future;
+  }
 
   @override
   StreamSubscription<Uint8List> listen(void Function(Uint8List)? onData,
@@ -124,43 +140,87 @@ class ForumRawSocket extends Stream<Uint8List> implements Socket {
       _incoming.stream.listen(onData,
           onError: onError, onDone: onDone, cancelOnError: cancelOnError);
   @override
-  void add(List<int> data) => _sink.add(data);
+  void add(List<int> data) {
+    _requireOpen();
+    _sink.add(data);
+  }
+
   @override
-  void addError(Object error, [StackTrace? stackTrace]) =>
-      _sink.addError(error, stackTrace);
+  void addError(Object error, [StackTrace? stackTrace]) {
+    _requireOpen();
+    _sink.addError(error, stackTrace);
+  }
+
   @override
-  Future<void> addStream(Stream<List<int>> stream) => _sink.addStream(stream);
+  Future<void> addStream(Stream<List<int>> stream) {
+    _requireOpen();
+    return _track(_sink.addStream(stream).then<void>((_) {}));
+  }
+
   @override
   Encoding get encoding => _sink.encoding;
   @override
   set encoding(Encoding value) => _sink.encoding = value;
   @override
-  void write(Object? object) => _sink.write(object);
+  void write(Object? object) {
+    _requireOpen();
+    _sink.write(object);
+  }
+
   @override
-  void writeAll(Iterable objects, [String separator = '']) =>
-      _sink.writeAll(objects, separator);
+  void writeAll(Iterable objects, [String separator = '']) {
+    _requireOpen();
+    _sink.writeAll(objects, separator);
+  }
+
   @override
-  void writeCharCode(int charCode) => _sink.writeCharCode(charCode);
+  void writeCharCode(int charCode) {
+    _requireOpen();
+    _sink.writeCharCode(charCode);
+  }
+
   @override
-  void writeln([Object? object = '']) => _sink.writeln(object);
+  void writeln([Object? object = '']) {
+    _requireOpen();
+    _sink.writeln(object);
+  }
+
   @override
-  Future<void> flush() => _sink.flush();
+  Future<void> flush() {
+    _requireOpen();
+    return _track(_sink.flush().then<void>((_) {}));
+  }
+
   @override
   Future<Socket> close() async {
-    await _sink.close();
+    if (_destroyed) {
+      await _destroyDone;
+    } else {
+      await _sink.close();
+    }
     return this;
   }
 
   @override
-  Future<Socket> get done => _sink.done.then((_) => this);
+  Future<Socket> get done => (_destroyDone ?? _sink.done).then((_) => this);
   @override
   void destroy() {
     if (_destroyed) return;
     _destroyed = true;
     _writer.abort(const SocketException('Socket destroyed'));
     unawaited(raw.close());
-    unawaited(_sink.close().then((_) {}, onError: (Object _) {}));
+    _destroyDone = _finishDestroy(_pendingWrite);
     if (!_incoming.isClosed) unawaited(_incoming.close());
+  }
+
+  Future<void> _finishDestroy(Future<void>? pending) async {
+    // Abort the consumer first, then close IOSink only after its binding ends.
+    try {
+      await pending;
+    } catch (_) {/* The caller still receives the write error. */}
+    try {
+      await _sink.close();
+    } catch (_) {/* Destruction already closed the FD. */}
   }
 
   @override
@@ -199,14 +259,23 @@ class _RawWriter implements StreamConsumer<List<int>> {
   _RawWriter(this.raw);
   final RawSocket raw;
   Completer<void>? _ready;
+  Completer<void>? _active;
+  StreamSubscription<List<int>>? _input;
   bool _closed = false;
   Object? _error;
 
   void ready() {
-    raw.writeEventsEnabled = false;
+    if (!_closed) raw.writeEventsEnabled = false;
     final ready = _ready;
     _ready = null;
     ready?.complete();
+  }
+
+  void _fail(Object error, [StackTrace? stack]) {
+    final active = _active;
+    if (active != null && !active.isCompleted)
+      active.completeError(error, stack);
+    unawaited(_input?.cancel().then((_) {}, onError: (Object _) {}));
   }
 
   void abort(Object error) {
@@ -215,22 +284,45 @@ class _RawWriter implements StreamConsumer<List<int>> {
     final ready = _ready;
     _ready = null;
     ready?.completeError(error);
+    _fail(error);
   }
 
   @override
   Future<void> addStream(Stream<List<int>> stream) async {
-    await for (final data in stream) {
-      var offset = 0;
-      while (offset < data.length) {
-        if (_error != null) throw _error!;
-        if (_closed) throw const SocketException('Socket closed');
-        final written = raw.write(data, offset, data.length - offset);
-        offset += written;
-        if (written == 0) {
-          final ready = _ready ??= Completer<void>();
-          raw.writeEventsEnabled = true;
-          await ready.future;
-        }
+    if (_closed) throw _error ?? const SocketException('Socket closed');
+    final active = _active = Completer<void>();
+    try {
+      _input = stream.listen(
+          (data) {
+            _input?.pause();
+            unawaited(_write(data).then((_) {
+              if (!_closed) _input?.resume();
+            }, onError: _fail));
+          },
+          onError: _fail,
+          onDone: () {
+            if (!active.isCompleted) active.complete();
+          });
+      await active.future;
+    } finally {
+      if (identical(_active, active)) {
+        _active = null;
+        _input = null;
+      }
+    }
+  }
+
+  Future<void> _write(List<int> data) async {
+    var offset = 0;
+    while (offset < data.length) {
+      if (_error != null) throw _error!;
+      if (_closed) throw const SocketException('Socket closed');
+      final written = raw.write(data, offset, data.length - offset);
+      offset += written;
+      if (written == 0) {
+        final ready = _ready ??= Completer<void>();
+        raw.writeEventsEnabled = true;
+        await ready.future;
       }
     }
   }
