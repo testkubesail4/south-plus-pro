@@ -216,6 +216,8 @@ class UserProfileParser {
   }
 
   List<UserActivityItem> _parseHomeActivities(dom.Document document) {
+    final feed = document.querySelector('#minifeed');
+    if (feed != null) return _parseNativeFeed(feed);
     final links = document.querySelectorAll(
       '.u-box-wrap a[href*="read.php"], .u-box-wrap a[href*="job.php?action-topost"]',
     );
@@ -239,6 +241,57 @@ class UserProfileParser {
       if (activities.length >= 8) break;
     }
     return activities;
+  }
+
+  List<UserActivityItem> _parseNativeFeed(dom.Element feed) {
+    final items = <UserActivityItem>[];
+    for (final row in feed.querySelectorAll('dl.feed-list > dt')) {
+      final links = row.querySelectorAll('a[href]');
+      final actors = links
+          .where(
+            (link) => urls.forumLinkTarget(link.attributes['href']!)
+                is ForumUserLinkTarget,
+          )
+          .toList();
+      final threads = links.where(
+        (link) => urls.forumLinkTarget(link.attributes['href']!)
+            is ForumThreadLinkTarget,
+      );
+      final thread = threads.firstOrNull;
+      final text = _cleanText(row.text);
+      if (text.isEmpty || actors.isEmpty) continue;
+      final friendship = thread == null && text.contains('成为了好友');
+      final actor = actors.first;
+      final target = friendship && actors.length > 1 ? actors[1] : null;
+      final action = friendship
+          ? '成为了好友'
+          : text.contains('回复')
+              ? '回复了主题'
+              : text.contains('发表')
+                  ? '发表了主题'
+                  : null;
+      final detail = row.parent;
+      final date = RegExp(
+        r'\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?',
+      ).firstMatch(detail?.querySelector('dd')?.text ?? '')?.group(0);
+      items.add(
+        UserActivityItem(
+          title: thread == null ? text : _cleanText(thread.text),
+          url: thread == null
+              ? null
+              : urls.absoluteUrl(thread.attributes['href']!),
+          action: action,
+          author: _cleanText(actor.text),
+          authorUrl: urls.absoluteUrl(actor.attributes['href']!),
+          targetName: target == null ? null : _cleanText(target.text),
+          targetUrl: target == null
+              ? null
+              : urls.absoluteUrl(target.attributes['href']!),
+          date: date,
+        ),
+      );
+    }
+    return items;
   }
 
   List<UserActivityItem> _parseHomeReplies(dom.Document document) {

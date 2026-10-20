@@ -8,6 +8,7 @@ import 'package:html/dom.dart' as dom;
 
 import '../models/forum_models.dart';
 import '../models/forum_account_models.dart';
+import '../models/forum_friend_models.dart';
 import '../models/user_content_query.dart';
 import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
@@ -16,6 +17,7 @@ import 'full_scan.dart';
 import 'thread_search.dart';
 import 'forum_account_service.dart';
 import 'forum_favorites_service.dart';
+import 'forum_friends_service.dart';
 import 'favorite_search.dart';
 import 'home_reading_preferences.dart';
 import 'user_content_query_service.dart';
@@ -155,6 +157,16 @@ class ForumRepository {
     client: () => _client,
     sessionEpoch: () => _sessionEpoch.value,
     isLoggedIn: () => isLoggedIn,
+    didWrite: _clearProfileDetails,
+  );
+  late final ForumFriendsService _friendsService = ForumFriendsService(
+    client: () => _client,
+    sessionEpoch: () => _sessionEpoch.value,
+    isLoggedIn: () => isLoggedIn,
+    ownerUid: () async {
+      await ensureAccountIdentity();
+      return _accountIdentity.value?.uid ?? '';
+    },
     didWrite: _clearProfileDetails,
   );
   final BrowsingHistoryStore _historyStore;
@@ -2599,6 +2611,37 @@ class ForumRepository {
           ThreadFavorite favorite,
           String categoryId) =>
       _favoritesService.addFavoriteToCollection(snapshot, favorite, categoryId);
+
+  Future<ForumFriendPage> fetchFriends({bool pending = false, int page = 1}) =>
+      _friendsService.fetchFriends(pending: pending, page: page);
+
+  Future<ForumFriendAddResult> addFriend(String uid) =>
+      _friendsService.addFriend(uid);
+
+  Future<ForumFriendAddResult> confirmFriendRequest(
+    ForumFriendRequest request, {
+    required String message,
+  }) =>
+      _friendsService.confirmFriendRequest(request, message: message);
+
+  Future<ForumFriendMutationResult> deleteFriends(
+    ForumFriendPage snapshot,
+    List<ForumFriend> selected,
+  ) =>
+      _friendsService.deleteFriends(snapshot, selected);
+
+  Future<ForumFriendMutationResult> respondToFriendRequests(
+    ForumFriendPage snapshot,
+    List<ForumFriend> selected,
+    ForumFriendResponse response, {
+    String refusalMessage = '',
+  }) =>
+      _friendsService.respondToFriendRequests(
+        snapshot,
+        selected,
+        response,
+        refusalMessage: refusalMessage,
+      );
 
   void _evictProfileDetails() {
     _profileDetailsTimer?.cancel();

@@ -1174,14 +1174,25 @@ class UserActivityItem {
     required this.url,
     this.action,
     this.author,
+    this.authorUrl,
+    this.avatarUrl,
+    this.targetName,
+    this.targetUrl,
     this.date,
   });
 
   final String title;
-  final String url;
+  final String? url;
   final String? action;
   final String? author;
+  final String? authorUrl;
+  final String? avatarUrl;
+  final String? targetName;
+  final String? targetUrl;
   final String? date;
+
+  String? get authorUid => _profileUid(authorUrl);
+  String? get targetUid => _profileUid(targetUrl);
 }
 
 class UserListItem {

@@ -485,8 +485,15 @@ class ForumClient {
     final isFavorites = uri.path == '/u.php' &&
         (uri.queryParameters['action'] == 'favor' ||
             RegExp(r'^action(?:=|-)favor(?:-|\.html$)').hasMatch(uri.query));
-    sensitiveAccount =
-        sensitiveAccount || uri.path == '/profile.php' || isFavorites;
+    final isFriends = (uri.path == '/u.php' &&
+            (uri.queryParameters['action'] == 'friend' ||
+                RegExp(r'^action-friend(?:-|\.html$)').hasMatch(uri.query))) ||
+        (uri.path == '/pw_ajax.php' &&
+            uri.queryParameters['action'] == 'addfriend');
+    sensitiveAccount = sensitiveAccount ||
+        uri.path == '/profile.php' ||
+        isFavorites ||
+        isFriends;
     final isAccount = sensitiveAccount;
     final startedAt = DateTime.now();
     final isPm = uri.path == '/message.php';
@@ -496,19 +503,21 @@ class ForumClient {
         (uri.path == '/pw_ajax.php' &&
             {'getblocklist', 'updateblocklist'}
                 .contains(uri.queryParameters['action']));
-    final tracePath = isFavorites
-        ? 'u.php (favorites)'
-        : isAccount
-            ? 'profile.php (account)'
-            : sensitiveBlocking
-                ? 'pw_ajax.php (blocking)'
-                : identityLookup
-                    ? 'sendemail.php'
-                    : isPm
-                        ? 'message.php'
-                        : sensitiveSearch
-                            ? 'search.php'
-                            : uri.toString();
+    final tracePath = isFriends
+        ? 'forum (friends)'
+        : isFavorites
+            ? 'u.php (favorites)'
+            : isAccount
+                ? 'profile.php (account)'
+                : sensitiveBlocking
+                    ? 'pw_ajax.php (blocking)'
+                    : identityLookup
+                        ? 'sendemail.php'
+                        : isPm
+                            ? 'message.php'
+                            : sensitiveSearch
+                                ? 'search.php'
+                                : uri.toString();
     ForumTraceLogger.log(
       'HTTP',
       isAccount ||
