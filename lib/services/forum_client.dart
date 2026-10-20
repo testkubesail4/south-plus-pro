@@ -89,14 +89,37 @@ class ForumClient {
   int get _loginAttemptSequence => _loginAttempts[baseUri.host] ?? 0;
   set _loginAttemptSequence(int value) => _loginAttempts[baseUri.host] = value;
   int _cookieGeneration = 0;
+  bool _closed = false;
   late int _credentialGeneration = _cookieStoreGeneration;
   int get credentialGeneration => _credentialGeneration;
   bool isCredentialCurrent(int generation) =>
+      !_closed &&
       generation == _credentialGeneration &&
       generation == _cookieStoreGeneration;
 
   Future<void> restoreCookies() {
     return _restoreFuture ??= _restoreCookies();
+  }
+
+  void inheritSessionFrom(ForumClient previous) {
+    _requireOpen();
+    if (baseUri.origin != previous.baseUri.origin) {
+      throw ArgumentError('Session origins differ');
+    }
+    if (!previous.isCredentialCurrent(previous.credentialGeneration)) return;
+    _cookies
+      ..clear()
+      ..addEntries(previous._cookies.entries
+          .where((entry) => !entry.value.isExpired));
+    _credentialGeneration = previous.credentialGeneration;
+    _restoreFuture = Future<void>.value();
+  }
+
+  void _requireOpen() {
+    if (_closed) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变，请重新加载');
+    }
   }
 
   Future<String> get(String path) {
@@ -155,6 +178,7 @@ class ForumClient {
     required Directory directory,
     String? suggestedName,
   }) async {
+    _requireOpen();
     if (!isAttachmentUrl(url)) {
       throw const AttachmentDownloadException('不是当前论坛的附件链接');
     }
@@ -164,6 +188,7 @@ class ForumClient {
     if (restoring) storeGeneration = _credentialGeneration;
     var uri = baseUri.resolve(url.trim());
     for (var redirects = 0; redirects <= 5; redirects++) {
+      _requireOpen();
       final request = await _httpClient.getUrl(uri);
       request.followRedirects = false;
       _applyCookies(request);
@@ -525,6 +550,7 @@ class ForumClient {
     int? loginAttempt,
     bool acceptedLogin = false,
   }) async {
+    _requireOpen();
     final isLogin =
         loginAttempt != null || (method == 'POST' && uri.path == '/login.php');
     var storeGeneration = credentialGeneration ?? _credentialGeneration;
@@ -538,6 +564,7 @@ class ForumClient {
       storeGeneration = _credentialGeneration;
     }
     void requireCurrent() {
+      _requireOpen();
       requireCurrentSession?.call();
       if (((requireCurrentSession != null || isLogin) &&
               storeGeneration != _cookieStoreGeneration) ||
@@ -798,6 +825,7 @@ class ForumClient {
   }
 
   Future<void> clearSession() async {
+    _requireOpen();
     _cookieGeneration++;
     _credentialGeneration = ++_cookieStoreGeneration;
     _cookies.clear();
@@ -813,7 +841,8 @@ class ForumClient {
     await _writeCookies(() async {
       restored = await _sessions.loadCookies();
     });
-    if (generation != _cookieGeneration ||
+    if (_closed ||
+        generation != _cookieGeneration ||
         storeGeneration != _cookieStoreGeneration ||
         restored == null ||
         restored!.isEmpty) return;
@@ -841,7 +870,7 @@ class ForumClient {
       {void Function()? requireCurrentSession,
       required int storeGeneration}) async {
     requireCurrentSession?.call();
-    if (storeGeneration != _cookieStoreGeneration) return;
+    if (_closed || storeGeneration != _cookieStoreGeneration) return;
     var changed = false;
     for (final header
         in response.headers[HttpHeaders.setCookieHeader] ?? const <String>[]) {
@@ -856,9 +885,7 @@ class ForumClient {
       }
     }
     if (changed)
-      await _persistCookies(
-          requireCurrentSession: requireCurrentSession,
-          storeGeneration: storeGeneration);
+      await _persistCookies(storeGeneration: storeGeneration);
   }
 
   ForumStoredCookie? _parseCookie(String header, Uri origin) {
@@ -878,16 +905,14 @@ class ForumClient {
     return '${cookie.name};${cookie.domain ?? baseUri.host};${cookie.path ?? '/'}';
   }
 
-  Future<void> _persistCookies(
-      {void Function()? requireCurrentSession, required int storeGeneration}) {
+  Future<void> _persistCookies({required int storeGeneration}) {
     final generation = storeGeneration;
     _cookies.removeWhere((_, cookie) => cookie.isExpired);
     final snapshot = Map<String, ForumStoredCookie>.of(_cookies);
     return _writeCookies(() async {
-      requireCurrentSession?.call();
+      // The response was admitted before enqueue; only a credential change revokes its write.
       if (generation != _cookieStoreGeneration) return;
       await _sessions.saveCookies(snapshot);
-      requireCurrentSession?.call();
     });
   }
 
@@ -910,6 +935,7 @@ class ForumClient {
   }
 
   bool get isLoggedIn {
+    if (_closed) return false;
     return _cookies.values.any(
       (cookie) =>
           !cookie.isExpired &&
@@ -920,6 +946,7 @@ class ForumClient {
   }
 
   void close({bool force = false}) {
+    _closed = true;
     if (_ownsHttpClient) _httpClient.close(force: force);
   }
 }

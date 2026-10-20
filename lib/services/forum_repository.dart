@@ -312,6 +312,8 @@ class ForumRepository {
   final _noticeFlags = ValueNotifier(const ForumNoticeFlags());
   ValueListenable<ForumNoticeFlags> get noticeFlags => _noticeFlags;
   final _sessionUser = ValueNotifier<String?>(null);
+  int? _sessionUserGeneration;
+  final _originIdentities = <String, ForumAccountIdentity>{};
   final _sessionEpoch = ValueNotifier<int>(0);
 
   ValueListenable<String?> get sessionUser => _sessionUser;
@@ -423,9 +425,44 @@ class ForumRepository {
   Future<void> updateNetworkConfig(ForumNetworkConfig config) async {
     if (config == _config) return;
     config = ForumNetworkConfig.fromJson(config.toJson());
-    await ForumNetworkSettings.save(config);
+    final nextClient = ForumClient(config: config);
+    try {
+      await _client.restoreCookies();
+      await nextClient.restoreCookies();
+      await ForumNetworkSettings.save(config);
+    } catch (_) {
+      nextClient.close(force: true);
+      rethrow;
+    }
+    final previous = _client;
+    final previousOrigin = previous.baseUri.origin;
+    final username = currentUsername;
+    final generation = _sessionUserGeneration;
+    final knownIdentity = _accountIdentity.value;
+    if (previous.isLoggedIn &&
+        knownIdentity?.credentialGeneration != null &&
+        previous.isCredentialCurrent(knownIdentity!.credentialGeneration!)) {
+      _originIdentities[previousOrigin] = knownIdentity;
+    } else if (username != null &&
+        generation != null &&
+        previous.isLoggedIn &&
+        previous.isCredentialCurrent(generation)) {
+      _originIdentities[previousOrigin] = ForumAccountIdentity(
+          systemName: username, credentialGeneration: generation);
+    } else {
+      _originIdentities.remove(previousOrigin);
+    }
+    if (nextClient.baseUri.origin == previousOrigin) {
+      nextClient.inheritSessionFrom(previous);
+    }
+    final savedIdentity = _originIdentities[nextClient.baseUri.origin];
+    final identity = nextClient.isLoggedIn &&
+            savedIdentity?.credentialGeneration != null &&
+            nextClient.isCredentialCurrent(savedIdentity!.credentialGeneration!)
+        ? savedIdentity
+        : null;
     _sessionEpoch.value++;
-    _client.close(force: true);
+    previous.close(force: true);
     _config = config;
     ForumHttpRouting.updateConfig(config);
     _urls = ForumUrlResolver(baseUri: config.baseUri);
@@ -443,8 +480,10 @@ class ForumRepository {
       sessionEpoch: () => _sessionEpoch.value,
     );
     _profileCache = UserProfileCache(urls: _urls);
-    _client = ForumClient(config: config);
-    _sessionUser.value = null;
+    _client = nextClient;
+    _sessionUserGeneration = identity?.credentialGeneration;
+    _sessionUser.value = identity?.systemName;
+    _accountIdentity.value = identity;
   }
 
   ForumPmParser get _pmParser => ForumPmParser(baseUri: _config.baseUri);
@@ -878,6 +917,8 @@ class ForumRepository {
     await _client.restoreCookies();
     if (!_client.isLoggedIn) {
       _sessionEpoch.value++;
+      _sessionUserGeneration = null;
+      _originIdentities.remove(_client.baseUri.origin);
       _sessionUser.value = null;
       return false;
     }
@@ -895,6 +936,7 @@ class ForumRepository {
       return false;
     }
     if (username != currentUsername) _sessionEpoch.value++;
+    _sessionUserGeneration = credentialGeneration;
     _sessionUser.value = username;
     _restoredDesktopHtml = header.desktopHtml == null
         ? null
@@ -914,6 +956,8 @@ class ForumRepository {
 
   Future<void> clearSession() async {
     _sessionEpoch.value++;
+    _sessionUserGeneration = null;
+    _originIdentities.remove(_client.baseUri.origin);
     _sessionUser.value = null;
     await _client.clearSession();
   }
@@ -1016,6 +1060,7 @@ class ForumRepository {
           await _fetchLoggedInUsername() ??
           username.trim();
       requireCurrent();
+      _sessionUserGeneration = receipt.credentialGeneration;
       _sessionUser.value = name;
       _captureAccountIdentity(html_parser.parse(response),
           credentialGeneration: receipt.credentialGeneration);
