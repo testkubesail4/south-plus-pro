@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/common/grouped_list.dart';
 import 'package:south_plus_rewrite/features/common/native_form_fields.dart';
 import 'package:south_plus_rewrite/features/profile/account_profile_edit_screen.dart';
@@ -11,6 +12,7 @@ import 'package:south_plus_rewrite/models/forum_account_models.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
+import 'package:south_plus_rewrite/services/loading_preferences.dart';
 
 // Synthetic fixtures only.
 ForumAccountForm _form({String nick = 'old', List<String> block = const []}) =>
@@ -58,6 +60,9 @@ TextButton _save(WidgetTester tester) =>
     tester.widget<TextButton>(find.widgetWithText(TextButton, '保存'));
 
 void main() {
+  // The system avatar sheet reads 加载与分页 if not read yet.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('Save needs a change and sends only the touched fields',
       (tester) async {
     var nick = 'old';
@@ -349,6 +354,69 @@ void main() {
       'uploadurl[1]': ['150'],
     });
     expect(repo.savedUpload, isNotNull);
+  });
+
+  group('system avatars page by 加载与分页', () {
+    Future<_ProfileRepo> open(WidgetTester tester, LoadingMode mode) async {
+      await LoadingPreferences.load();
+      await LoadingPreferences.save(LoadingDomain.avatars, mode);
+      final repo = _ProfileRepo()..avatarPages = 3;
+      await _pumpProfile(tester, repo);
+      await _chooseMode(tester, '系统头像');
+      await tester.tap(_row('系统头像'));
+      await tester.pumpAndSettle();
+      return repo;
+    }
+
+    Future<void> toEnd(WidgetTester tester) async {
+      await tester.drag(
+          find
+              .descendant(
+                  of: find.byType(BottomSheet),
+                  matching: find.byType(Scrollable))
+              .first,
+          const Offset(0, -20000));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('手动翻页: 下一页 turns to page 2 alone, and only on a tap',
+        (tester) async {
+      final repo = await open(tester, LoadingMode.manual);
+      await toEnd(tester);
+      expect(repo.avatarReads, [1]);
+      // Changing the mode reads nothing by itself.
+      await LoadingPreferences.save(LoadingDomain.avatars, LoadingMode.manual);
+      await tester.tap(find.text('下一页'));
+      await tester.pumpAndSettle();
+      expect(repo.avatarReads, [1, 2]);
+      expect(find.text('第 2 页'), findsOneWidget);
+      expect(find.byTooltip('p2-0.gif'), findsOneWidget);
+      expect(find.byTooltip('p1-1.gif', skipOffstage: false), findsNothing);
+      await tester.tap(find.byTooltip('p2-0.gif'));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('自动接续 appends on a scroll, each picture once', (tester) async {
+      final repo = await open(tester, LoadingMode.manual);
+      await LoadingPreferences.save(
+          LoadingDomain.avatars, LoadingMode.continuous);
+      await tester.pumpAndSettle();
+      expect(repo.avatarReads, [1]);
+      expect(find.text('下一页'), findsNothing);
+
+      await toEnd(tester);
+      expect(repo.avatarReads, [1, 2]);
+      expect(find.text('第 2 页', skipOffstage: false), findsOneWidget);
+      expect(find.byTooltip('p1-0.gif', skipOffstage: false), findsOneWidget);
+      await toEnd(tester);
+      await toEnd(tester);
+      expect(repo.avatarReads, [1, 2, 3]);
+      expect(find.text('论坛未给出下一页，页数未能确认', skipOffstage: false), findsOneWidget);
+      // A picture of an appended page is chosen like any other.
+      await tester.tap(find.byTooltip('p3-29.gif'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+    });
   });
 
   testWidgets('leaving upload mode keeps the file as a draft, unsent',
@@ -754,12 +822,33 @@ class _ProfileRepo extends ForumRepository {
   Future<ForumAccountForm> fetchAccountProfileForm() async =>
       _profileForm(mode, linkWidth, _held);
 
+  /// System avatar pages: one picture, or this many pages of 30 where
+  /// each page after the first repeats the first picture of the one before.
+  int avatarPages = 1;
+  final avatarReads = <int>[];
+
   @override
   Future<ForumAccountAvatarPage> fetchAccountSystemAvatars(
-          {int page = 1}) async =>
-      ForumAccountAvatarPage(page: 1, options: const [
+      {int page = 1}) async {
+    avatarReads.add(page);
+    if (avatarPages == 1) {
+      return ForumAccountAvatarPage(page: 1, options: const [
         ForumAccountOption(value: 'a1.gif', label: 'a1.gif'),
       ]);
+    }
+    return ForumAccountAvatarPage(
+      page: page,
+      nextPage: page < avatarPages ? page + 1 : null,
+      previousPage: page > 1 ? page - 1 : null,
+      options: [
+        if (page > 1)
+          ForumAccountOption(
+              value: 'p${page - 1}-0.gif', label: 'p${page - 1}-0.gif'),
+        for (var i = 0; i < 30; i++)
+          ForumAccountOption(value: 'p$page-$i.gif', label: 'p$page-$i.gif'),
+      ],
+    );
+  }
 
   @override
   Future<void> saveAccountProfileForm(

@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_account_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/loading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../common/grouped_list.dart';
+import '../common/more_pages.dart';
 import '../common/native_form_fields.dart';
+import '../common/page_end.dart';
 import 'account_birthday_field.dart';
 import 'avatar_crop.dart';
 import 'account_screen.dart';
@@ -681,14 +684,65 @@ class _SystemAvatarSheet extends StatefulWidget {
 class _SystemAvatarSheetState extends State<_SystemAvatarSheet> {
   var _page = 1;
   late Future<ForumAccountAvatarPage> _future = _fetch(1);
+  // The page the grid starts with, once read.
+  ForumAccountAvatarPage? _first;
+  int _reads = 0;
+  final _scroll = ScrollController();
+  late final _more = MorePages<ForumAccountAvatarPage>(
+    domain: LoadingDomain.avatars,
+    fetch: (page) =>
+        widget.repository.fetchAccountSystemAvatars(page: int.parse(page)),
+    nextOf: (page) => page.nextPage?.toString(),
+    idsOf: (page) => [for (final option in page.options) option.value],
+    changed: () {
+      if (mounted) setState(() {});
+    },
+  );
 
-  Future<ForumAccountAvatarPage> _fetch(int page) =>
-      widget.repository.fetchAccountSystemAvatars(page: page);
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_maybeLoadMore);
+    LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
+    if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
+  }
 
-  void _go(int page) => setState(() {
-        _page = page;
-        _future = _fetch(page);
-      });
+  @override
+  void dispose() {
+    LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _maybeLoadMore() => _more.maybeLoad(_first, _scroll);
+
+  // 自动接续 starts at the next scroll to the end, never by itself.
+  void _onLoadingModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<ForumAccountAvatarPage> _fetch(int page) {
+    final read = ++_reads;
+    _first = null;
+    _more.reset();
+    return widget.repository.fetchAccountSystemAvatars(page: page).then((data) {
+      if (mounted && read == _reads) {
+        _first = data;
+        // A grid too short to scroll reads on by itself.
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      }
+      return data;
+    });
+  }
+
+  /// Another page alone, from its top.
+  void _go(int page) {
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    setState(() {
+      _page = page;
+      _future = _fetch(page);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -720,27 +774,29 @@ class _SystemAvatarSheetState extends State<_SystemAvatarSheet> {
                         )
                       : data == null
                           ? _grid(const [], loading: true)
-                          : _grid(data.options),
+                          : _pages(data),
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton(
-                      onPressed: data?.previousPage == null
-                          ? null
-                          : () => _go(data!.previousPage!),
-                      child: const Text('上一页'),
-                    ),
-                    Text(data == null ? '' : '第 ${data.page} 页',
-                        style: theme.textTheme.bodySmall),
-                    TextButton(
-                      onPressed: data?.nextPage == null
-                          ? null
-                          : () => _go(data!.nextPage!),
-                      child: const Text('下一页'),
-                    ),
-                  ],
-                ),
+                // 自动接续 reads on below the grid instead.
+                if (!_more.continuous || data == null)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton(
+                        onPressed: data?.previousPage == null
+                            ? null
+                            : () => _go(data!.previousPage!),
+                        child: const Text('上一页'),
+                      ),
+                      Text(data == null ? '' : '第 ${data.page} 页',
+                          style: theme.textTheme.bodySmall),
+                      TextButton(
+                        onPressed: data?.nextPage == null
+                            ? null
+                            : () => _go(data!.nextPage!),
+                        child: const Text('下一页'),
+                      ),
+                    ],
+                  ),
               ],
             );
           },
@@ -749,9 +805,47 @@ class _SystemAvatarSheetState extends State<_SystemAvatarSheet> {
     );
   }
 
+  /// The first page, then those 自动接续 appended, each picture once.
+  Widget _pages(ForumAccountAvatarPage first) {
+    final pages = [first, ..._more.pages];
+    final next = pages.last.nextPage;
+    final seen = <String>{};
+    return CustomScrollView(
+      controller: _scroll,
+      slivers: [
+        for (final (i, page) in pages.indexed) ...[
+          if (i > 0)
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
+              sliver: SliverToBoxAdapter(child: PageBoundary(page: page.page)),
+            ),
+          SliverPadding(
+            padding: const EdgeInsets.all(AppSpace.lg),
+            sliver: _grid([
+              for (final option in page.options)
+                if (!MorePages.repeats(seen, option.value)) option,
+            ]),
+          ),
+        ],
+        if (_more.continuous && (next != null || pages.length > 1))
+          SliverToBoxAdapter(
+            child: PageEndFooter(
+              next: next,
+              // The forum gives no page count, so no end is claimed.
+              endConfirmed: false,
+              loading: _more.loading,
+              failed: _more.error != null,
+              error: _more.error,
+              paused: _more.paused,
+              onNext: next == null ? null : () => _more.retry(first, _scroll),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _grid(List<ForumAccountOption> options, {bool loading = false}) {
-    return GridView.builder(
-      padding: const EdgeInsets.all(AppSpace.lg),
+    final grid = SliverGrid.builder(
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 80,
         mainAxisSpacing: AppSpace.md,
@@ -812,5 +906,9 @@ class _SystemAvatarSheetState extends State<_SystemAvatarSheet> {
         );
       },
     );
+    if (!loading) return grid;
+    return CustomScrollView(slivers: [
+      SliverPadding(padding: const EdgeInsets.all(AppSpace.lg), sliver: grid),
+    ]);
   }
 }
