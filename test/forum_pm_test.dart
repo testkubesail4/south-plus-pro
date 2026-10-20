@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
@@ -225,20 +227,20 @@ void main() {
     await expectLater(
         repository.deletePm(message), throwsA(isA<ForumRequestException>()));
     expect(client.posts, hasLength(1));
-    final scoutClient = _PmClient()..responses.addAll([_scout, _successScout]);
+    final scoutClient = _PmClient()
+      ..responses.addAll([
+        _scout,
+        _detail
+            .replaceAll('701', '801')
+            .replaceAll('towhere-receivebox', 'towhere-scout'),
+        _successScout,
+      ]);
     final scoutRepository = ForumRepository(client: scoutClient);
     final scout = await scoutRepository.fetchPmBox(ForumPmBox.scout);
     expect(scout.messages.single.recipientRead, true);
     expect(scout.messages.single.editPath, isNull);
     expect(scout.messages.single.canDelete, false);
-    final supplied = ForumPmDetail(
-        summary: scout.messages.single,
-        sender: 'Fixture peer',
-        title: 'Title',
-        time: '',
-        content: '',
-        deletePath:
-            'message.php?action-del-towhere-scout-delids-801-verify-fixture-token.html');
+    final supplied = await scoutRepository.fetchPmDetail(scout.messages.single);
     await scoutRepository.deletePm(scout.messages.single, detail: supplied);
     expect(scoutClient.getPaths.last, supplied.deletePath);
     expect(scoutClient.posts, isEmpty);
@@ -348,6 +350,115 @@ void main() {
     expect(client.posts, isEmpty);
   });
 
+  test('a compose form belongs to its loading session, never the next account',
+      () async {
+    final client = _PmClient()
+      ..responses.addAll([
+        _compose,
+        _compose.replaceAll('fixture-token', 'new-session-token'),
+        _successInbox,
+      ]);
+    final repository = ForumRepository(client: client);
+    final old = await repository.fetchPmCompose(
+        path: 'message.php?action-write-edmid-801.html');
+    await repository.clearSession();
+    client.loggedIn = true;
+    await expectLater(
+        repository.submitPm(
+            compose: old,
+            recipientUid: '901',
+            title: 'Old title',
+            body: 'Old private body'),
+        throwsA(isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.loginRequired)));
+    expect(client.posts, isEmpty);
+    final fresh = await repository.fetchPmCompose(
+        path: 'message.php?action-write-edmid-801.html');
+    final fabricated = ForumPmCompose(
+        actionPath: fresh.actionPath, fields: fresh.fields, isEdit: fresh.isEdit);
+    await expectLater(
+        repository.submitPm(
+            compose: fabricated,
+            recipientUid: '901',
+            title: 'Title',
+            body: 'Body'),
+        throwsA(isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.invalidInput)));
+    await repository.submitPm(
+        compose: fresh,
+        recipientUid: '901',
+        title: 'New title',
+        body: 'New body');
+    expect(client.posts, hasLength(1));
+    expect(client.posts.single.$2['verify'], 'new-session-token');
+    expect(client.posts.single.$2['atc_content'], 'New body');
+  });
+
+  test('loaded PM summaries and detail action links retire with their session',
+      () async {
+    final client = _PmClient()..responses.addAll([_inbox, _detail]);
+    final repository = ForumRepository(client: client);
+    final page = await repository.fetchPmBox(ForumPmBox.inbox);
+    final detail = await repository.fetchPmDetail(page.messages.first);
+    final before = client.getPaths.length;
+    await repository.clearSession();
+    client.loggedIn = true;
+    final actions = <Future<Object> Function()>[
+      () => repository.fetchPmDetail(page.messages.first),
+      () => repository.markPmUnread(detail),
+      () => repository.deletePm(page.messages.first),
+      () => repository.deletePm(detail.summary, detail: detail),
+    ];
+    for (final action in actions) {
+      await expectLater(
+          action(),
+          throwsA(isA<ForumRequestException>().having(
+              (error) => error.kind, 'kind', ForumRequestKind.loginRequired)));
+    }
+    expect(client.getPaths, hasLength(before));
+    expect(client.posts, isEmpty);
+  });
+
+  test('in-flight PM reads cannot publish into a replacement session',
+      () async {
+    for (final mode in ['box', 'detail', 'compose', 'chatlog']) {
+      final response = switch (mode) {
+        'box' => _inbox,
+        'detail' => _detail,
+        'compose' => _compose,
+        _ => _chatlog,
+      };
+      final client = _PmClient()
+        ..responses.add(response)
+        ..responseGate = Completer<void>();
+      final repository = ForumRepository(client: client);
+      final pending = switch (mode) {
+        'box' => repository.fetchPmBox(ForumPmBox.inbox),
+        'detail' => repository.fetchPmDetail(const ForumPmSummary(
+            box: ForumPmBox.inbox,
+            type: ForumPmType.personal,
+            id: '701',
+            peer: '',
+            title: '',
+            time: '',
+            detailPath: 'message.php?action-read-mid-701.html')),
+        'compose' => repository.fetchPmCompose(
+            path: 'message.php?action-write-edmid-801.html'),
+        _ => repository
+            .fetchPmChatlog('message.php?action-chatlog-withuid-901.html'),
+      };
+      await client.reachedGate.future;
+      await repository.clearSession();
+      client.loggedIn = true;
+      client.responseGate!.complete();
+      await expectLater(
+          pending,
+          throwsA(isA<ForumRequestException>().having(
+              (error) => error.kind, 'kind', ForumRequestKind.loginRequired)),
+          reason: mode);
+    }
+  });
+
   test('chatlog reads records and only same-peer server pages, never dellog',
       () async {
     final client = _PmClient()..responses.add(_chatlog);
@@ -375,21 +486,51 @@ class _PmClient extends ForumClient {
   final responses = <String>[];
   final getPaths = <String>[];
   final posts = <(String, Map<String, String>)>[];
+  bool loggedIn = true;
+  Completer<void>? responseGate;
+  final reachedGate = Completer<void>();
 
   @override
-  Future<String> getOnce(String path) async {
+  bool get isLoggedIn => loggedIn;
+
+  @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
     getPaths.add(path);
+    final response = responses.removeAt(0);
+    if (responseGate != null) {
+      reachedGate.complete();
+      await responseGate!.future;
+    }
+    requireCurrentSession?.call();
+    return response;
+  }
+
+  @override
+  Future<String> postForm(String path, List<MapEntry<String, String>> fields,
+      {bool multipart = false,
+      List<ForumFormFile> files = const [],
+      void Function()? requireCurrentSession}) async {
+    requireCurrentSession?.call();
+    posts.add((path, Map.fromEntries(fields)));
     return responses.removeAt(0);
   }
 
   @override
   Future<String> get(String path) async =>
-      throw StateError('PM must use getOnce');
+      throw StateError('PM must use guarded requests');
 
   @override
-  Future<String> post(String path, Map<String, String> form) async {
-    posts.add((path, Map.of(form)));
-    return responses.removeAt(0);
+  Future<String> getOnce(String path) => get(path);
+
+  @override
+  Future<String> post(String path, Map<String, String> form) => get(path);
+
+  @override
+  Future<void> clearSession() async {
+    loggedIn = false;
   }
 }
 

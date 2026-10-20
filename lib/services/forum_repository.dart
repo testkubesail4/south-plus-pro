@@ -45,6 +45,8 @@ import 'parsers/thread_transaction_parser.dart';
 import 'parsers/thread_edit_form_parser.dart';
 import 'parsers/user_profile_parser.dart';
 
+typedef _PmSession = ({ForumClient client, int epoch});
+
 typedef _ProfileDetailsData = ({
   List<UserActivityItem> homeActivities,
   List<UserActivityItem> homeReplies,
@@ -127,6 +129,7 @@ class ForumRepository {
   final _composeDraftSessions =
       Expando<({ForumClient client, int epoch, String? uid})>();
   final _rewardDraftSessions = Expando<({ForumClient client, int epoch})>();
+  final _pmSessions = Expando<_PmSession>();
   final _sentRewardTargets = <String>{};
   final ForumResponseParser _responseParser = const ForumResponseParser();
   final ForumTasksParser _tasksParser = const ForumTasksParser();
@@ -659,28 +662,75 @@ class ForumRepository {
     }
   }
 
+  _PmSession _pmSession({Object? source, bool loaded = false}) {
+    final saved = source == null ? null : _pmSessions[source];
+    if (loaded && saved == null) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '私讯页面已失效，请重新打开');
+    }
+    final session = saved ?? (client: _client, epoch: _sessionEpoch.value);
+    _checkPmSession(session);
+    return session;
+  }
+
+  void _checkPmSession(_PmSession session) {
+    if (!isLoggedIn ||
+        !identical(session.client, _client) ||
+        session.epoch != _sessionEpoch.value) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变，请重新打开私讯');
+    }
+  }
+
+  Future<String> _requestPm(_PmSession session, String path,
+      {Map<String, String>? fields}) async {
+    void requireCurrent() => _checkPmSession(session);
+    requireCurrent();
+    final response = fields == null
+        ? await session.client.getForm(path,
+            requireCurrentSession: requireCurrent, followRedirects: false)
+        : await session.client.postForm(path, fields.entries.toList(),
+            requireCurrentSession: requireCurrent);
+    requireCurrent();
+    return response;
+  }
+
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
     final path = _pmParser.requireRoute(
       pagePath ?? 'message.php?action-${box.wireName}.html',
       {box.wireName},
     ).path;
-    final response = await _client.getOnce(path);
-    return _parsePm(response, (document) => _pmParser.parseBox(document, box));
+    final session = _pmSession();
+    final response = await _requestPm(session, path);
+    final page =
+        _parsePm(response, (document) => _pmParser.parseBox(document, box));
+    for (final message in page.messages) {
+      _pmSessions[message] = session;
+    }
+    return page;
   }
 
   Future<ForumPmDetail> fetchPmDetail(ForumPmSummary message) async {
     final target = _pmParser.requireDetail(message);
-    final response = await _client.getOnce(target.path);
-    return _parsePm(
+    final session = _pmSession(source: message);
+    _pmSessions[message] = session;
+    final response = await _requestPm(session, target.path);
+    final detail = _parsePm(
         response, (document) => _pmParser.parseDetail(document, message));
+    _pmSessions[detail] = session;
+    _pmSessions[detail.summary] = session;
+    return detail;
   }
 
   Future<ForumPmCompose> fetchPmCompose({String? path}) async {
     final source = _pmParser
         .requireRoute(path ?? 'message.php?action-write.html', {'write'});
-    final response = await _client.getOnce(source.path);
-    return _parsePm(
+    final session = _pmSession();
+    final response = await _requestPm(session, source.path);
+    final compose = _parsePm(
         response, (document) => _pmParser.parseCompose(document, source));
+    _pmSessions[compose] = session;
+    return compose;
   }
 
   Future<ForumPmActionResult> submitPm({
@@ -697,6 +747,7 @@ class ForumRepository {
       throw const ForumRepositoryException('标题和内容不能为空');
     }
     _pmParser.validateCompose(compose);
+    final session = _pmSession(source: compose, loaded: true);
     final fields = <String, String>{
       'font': '',
       'size': '',
@@ -709,7 +760,8 @@ class ForumRepository {
       'atc_content': body,
     }..remove('ifsave');
     if (saveToSendbox) fields['ifsave'] = 'Y';
-    final response = await _client.post(compose.actionPath, fields);
+    final response =
+        await _requestPm(session, compose.actionPath, fields: fields);
     _throwIfBlockedPage(response);
     return _pmParser.parseActionResult(html_parser.parse(response));
   }
@@ -723,7 +775,8 @@ class ForumRepository {
         target.fields['mid'] != message.id) {
       throw const ForumRepositoryException('服务器未提供此消息的标记未读入口');
     }
-    final response = await _client.getOnce(target.path);
+    final session = _pmSession(source: detail, loaded: true);
+    final response = await _requestPm(session, target.path);
     return _parsePm(
         response, (document) => _pmParser.parseUnreadResult(document, message));
   }
@@ -741,6 +794,8 @@ class ForumRepository {
             detail.summary.id != message.id)) {
       throw const ForumRepositoryException('私讯详情与删除目标不一致');
     }
+    final session = _pmSession(source: message, loaded: true);
+    if (detail != null) _pmSession(source: detail, loaded: true);
     final link = detail?.deletePath;
     String response;
     if (link != null) {
@@ -749,16 +804,16 @@ class ForumRepository {
           target.fields['delids'] != message.id) {
         throw const ForumRepositoryException('私讯删除入口与所属箱不一致');
       }
-      response = await _client.getOnce(target.path);
+      response = await _requestPm(session, target.path);
     } else {
       if (!message.canDelete) {
         throw const ForumRepositoryException('服务器未提供此消息的删除入口');
       }
-      final fresh = await _client
-          .getOnce('message.php?action-${message.box.wireName}.html');
+      final fresh = await _requestPm(
+          session, 'message.php?action-${message.box.wireName}.html');
       final fields = _parsePm(
           fresh, (document) => _pmParser.singleDeleteFields(document, message));
-      response = await _client.post('message.php', fields);
+      response = await _requestPm(session, 'message.php', fields: fields);
     }
     _throwIfBlockedPage(response);
     return _pmParser.parseActionResult(html_parser.parse(response));
@@ -766,7 +821,7 @@ class ForumRepository {
 
   Future<ForumPmChatlog> fetchPmChatlog(String path) async {
     final target = _pmParser.requireRoute(path, {'chatlog'});
-    final response = await _client.getOnce(target.path);
+    final response = await _requestPm(_pmSession(), target.path);
     return _parsePm(
         response,
         (document) =>
