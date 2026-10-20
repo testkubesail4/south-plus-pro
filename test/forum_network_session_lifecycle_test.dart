@@ -27,12 +27,14 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   final persisted = <String, Object>{};
   var rejectConfig = false;
+  var configWrites = 0;
   Completer<void>? configEntered;
   Completer<void>? configAck;
   setUp(() {
     SharedPreferences.resetStatic();
     persisted.clear();
     rejectConfig = false;
+    configWrites = 0;
     configEntered = null;
     configAck = null;
     messenger.setMockMethodCallHandler(channel, (call) async {
@@ -40,11 +42,16 @@ void main() {
       final args = call.arguments as Map;
       final key = args['key'] as String;
       if (key == 'flutter.forum_network_config_v2') {
+        configWrites++;
         if (rejectConfig) return false;
-        if (configAck != null) {
+        persisted[key] = args['value'] as Object;
+        if (configAck != null &&
+            (jsonDecode(args['value'] as String) as Map)['mode'] ==
+                'optimized') {
           if (!configEntered!.isCompleted) configEntered!.complete();
           await configAck!.future;
         }
+        return true;
       }
       if (call.method == 'remove') {
         persisted.remove(key);
@@ -208,6 +215,65 @@ void main() {
   });
 
   test(
+      'pending durable settings reject reentry until route and identity publication finishes',
+      () async {
+    await withFixture((fixture) async {
+      final repository = fixture.repository;
+      final identity = repository.accountIdentity.value;
+      final epoch = repository.sessionEpoch.value;
+      final optimized = _siteA.copyWith(mode: ForumNetworkMode.optimized);
+      final proxy =
+          ForumProxy(type: ForumProxyType.http, host: '127.0.0.1', port: 1080);
+      final requested =
+          _siteA.copyWith(mode: ForumNetworkMode.proxy, proxy: proxy);
+      configEntered = Completer<void>();
+      configAck = Completer<void>();
+      final first = repository.updateNetworkConfig(optimized);
+      try {
+        await configEntered!.future.timeout(const Duration(seconds: 2));
+        expect(
+            (jsonDecode(persisted['flutter.forum_network_config_v2'] as String)
+                as Map)['mode'],
+            'optimized');
+        await expectLater(
+            repository
+                .updateNetworkConfig(requested)
+                .timeout(const Duration(seconds: 1)),
+            throwsStateError);
+        await expectLater(
+            repository
+                .updateNetworkConfig(_siteA)
+                .timeout(const Duration(seconds: 1)),
+            throwsStateError);
+        expect(configWrites, 1);
+        expect(repository.networkConfig, _siteA);
+        expect(repository.sessionEpoch.value, epoch);
+        expect(repository.currentUsername, 'Synthetic A');
+        expect(repository.accountIdentity.value, same(identity));
+        expect(canUseOwner(repository, '901'), isTrue);
+        await expectProxyTestRoute(null);
+      } finally {
+        if (!configAck!.isCompleted) configAck!.complete();
+        await first;
+      }
+      expect(await ForumNetworkSettings.load(), optimized);
+      expect(repository.networkConfig, optimized);
+      expect(repository.sessionEpoch.value, epoch + 1);
+      expect(repository.accountIdentity.value, same(identity));
+      configAck = null;
+      await repository.updateNetworkConfig(requested);
+      expect(configWrites, 2);
+      expect(await ForumNetworkSettings.load(), requested);
+      expect(repository.networkConfig, requested);
+      expect(repository.sessionEpoch.value, epoch + 2);
+      expect(repository.currentUsername, 'Synthetic A');
+      expect(repository.accountIdentity.value, same(identity));
+      expect(canUseOwner(repository, '901'), isTrue);
+      await expectProxyTestRoute(proxy.host);
+    });
+  });
+
+  test(
       'failed configuration persistence preserves live identity, client and route',
       () async {
     await withFixture((fixture) async {
@@ -237,6 +303,13 @@ void main() {
       await expectProxyTestRoute(null);
       expect(
           await fixture.initialClient.getOnce('echo'), 'winduser=synthetic-A');
+      expect(canUseOwner(repository, '901'), isTrue);
+      rejectConfig = false;
+      await repository.updateNetworkConfig(
+          _siteA.copyWith(mode: ForumNetworkMode.optimized));
+      expect(repository.sessionEpoch.value, epoch + 1);
+      expect(repository.accountIdentity.value, same(identity));
+      expect(repository.currentUsername, 'Synthetic A');
       expect(canUseOwner(repository, '901'), isTrue);
     });
   });

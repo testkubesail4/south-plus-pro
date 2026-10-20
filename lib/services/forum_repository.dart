@@ -314,6 +314,7 @@ class ForumRepository {
   final _sessionUser = ValueNotifier<String?>(null);
   int? _sessionUserGeneration;
   final _originIdentities = <String, ForumAccountIdentity>{};
+  bool _updatingNetworkConfig = false;
   final _sessionEpoch = ValueNotifier<int>(0);
 
   ValueListenable<String?> get sessionUser => _sessionUser;
@@ -423,6 +424,18 @@ class ForumRepository {
       );
 
   Future<void> updateNetworkConfig(ForumNetworkConfig config) async {
+    if (_updatingNetworkConfig) {
+      throw StateError('A network settings update is already running');
+    }
+    _updatingNetworkConfig = true;
+    try {
+      await _applyNetworkConfig(config);
+    } finally {
+      _updatingNetworkConfig = false;
+    }
+  }
+
+  Future<void> _applyNetworkConfig(ForumNetworkConfig config) async {
     if (config == _config) return;
     config = ForumNetworkConfig.fromJson(config.toJson());
     final nextClient = ForumClient(config: config);
