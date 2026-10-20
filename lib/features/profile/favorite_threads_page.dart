@@ -7,6 +7,7 @@ import '../../services/forum_request_exception.dart';
 import '../../services/forum_url_resolver.dart';
 import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
+import '../../services/loading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../common/app_switcher.dart';
@@ -14,6 +15,7 @@ import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/leave_watch.dart';
+import '../common/page_end.dart';
 import '../common/search_scope_bar.dart';
 import '../common/thread_row.dart';
 import '../common/unresolved_group.dart';
@@ -62,6 +64,15 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
   final _selected = <String>{};
   bool _selecting = false;
 
+  /// 自动接续: the pages read after [_data], in order. A row a page repeats
+  /// is shown once; a write goes to the page its rows came from.
+  final _more = <FavoriteCollections>[];
+  bool _loadingMore = false;
+  Object? _moreError;
+  // Pages in a row that added no row; two pause 自动接续.
+  int _emptyRun = 0;
+  final _scroll = ScrollController();
+
   /// One write at a time.
   bool _busy = false;
 
@@ -84,6 +95,9 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
   void initState() {
     super.initState();
     widget.repository.sessionEpoch.addListener(_onSession);
+    _scroll.addListener(_maybeLoadMore);
+    LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
+    if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
     WidgetsBinding.instance.addPostFrameCallback((_) => _prime());
   }
 
@@ -101,10 +115,149 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
   @override
   void dispose() {
     widget.repository.sessionEpoch.removeListener(_onSession);
+    LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
     _dropScan();
     _query.dispose();
+    _scroll.dispose();
     super.dispose();
   }
+
+  /// 自动接续; otherwise (手动翻页, or the setting unread) pages turn by tap.
+  bool get _continuous =>
+      LoadingPreferences.modeFor(LoadingDomain.favorites) ==
+      LoadingMode.continuous;
+
+  // The footer follows the mode; a page already on its way still lands.
+  void _onLoadingModeChanged() {
+    if (!mounted) return;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+  }
+
+  void _clearMore() {
+    _more.clear();
+    _loadingMore = false;
+    _moreError = null;
+    _emptyRun = 0;
+  }
+
+  FavoriteCollections? get _lastPage => _more.isEmpty ? _data : _more.last;
+
+  int? get _nextPage {
+    final last = _lastPage;
+    final count = last?.pageCount;
+    return last == null || count == null || last.page >= count
+        ? null
+        : last.page + 1;
+  }
+
+  /// Each row once, in page order, with the page it was read on.
+  Map<String, FavoriteCollections> get _pageOf {
+    final pages = <String, FavoriteCollections>{};
+    for (final page in [if (_data case final data?) data, ..._more]) {
+      for (final entry in page.items) {
+        pages.putIfAbsent(entry.id, () => page);
+      }
+    }
+    return pages;
+  }
+
+  List<FavoriteCollectionEntry> get _items {
+    final data = _data;
+    if (data == null) return const [];
+    if (_more.isEmpty) return data.items;
+    final seen = <String>{};
+    return [
+      for (final page in [data, ..._more])
+        for (final entry in page.items)
+          if (seen.add(entry.id)) entry,
+    ];
+  }
+
+  void _maybeLoadMore() {
+    if (!mounted ||
+        !_continuous ||
+        _nextPage == null ||
+        _loading ||
+        _error != null ||
+        _scan != null ||
+        _loadingMore ||
+        _moreError != null ||
+        _emptyRun >= 2 ||
+        !_scroll.hasClients) {
+      return;
+    }
+    final position = _scroll.position;
+    if (position.extentAfter < position.viewportDimension * 1.5) _loadMore();
+  }
+
+  /// Appends the page after the last one shown.
+  Future<void> _loadMore() async {
+    final next = _nextPage;
+    final data = _data;
+    if (next == null || data == null || _loadingMore) return;
+    // Any load, write or session change moves this on: the answer is dropped.
+    final epoch = _epoch;
+    final view = _view;
+    setState(() {
+      _loadingMore = true;
+      _moreError = null;
+    });
+    try {
+      final page = await widget.repository
+          .fetchFavoriteCollectionsPage(categoryId: view, page: next);
+      if (!mounted || epoch != _epoch) return;
+      // Category numbers can shift on the forum: under another name this is
+      // another category's page, so the list is read again from the start.
+      if (page.categoryId != view ||
+          (view != null && _labelOf(page, view) != _labelOf(data, view))) {
+        _load();
+        return;
+      }
+      final seen = _pageOf;
+      final added = page.items.any((entry) => !seen.containsKey(entry.id));
+      setState(() {
+        _loadingMore = false;
+        _more.add(page);
+        _emptyRun = added ? 0 : _emptyRun + 1;
+      });
+      // A page that shows nothing adds no height to scroll through.
+      if (!added) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      }
+    } catch (error) {
+      if (!mounted || epoch != _epoch) return;
+      setState(() {
+        _loadingMore = false;
+        _moreError = error;
+      });
+    }
+  }
+
+  void _retryMore() {
+    setState(() {
+      _moreError = null;
+      _emptyRun = 0;
+    });
+    _loadMore();
+  }
+
+  /// 手动翻页: the next page alone, from its top.
+  void _turnTo(int page) {
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    _load(view: _view, page: page);
+  }
+
+  // Rows written together come from one page's snapshot.
+  bool _canJoin(String id) {
+    if (_selected.isEmpty || _more.isEmpty) return true;
+    final pages = _pageOf;
+    return identical(pages[id], pages[_selected.first]);
+  }
+
+  void _onePageOnly() => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(const SnackBar(content: Text('一次只能选择同一页的收藏')));
 
   // Another account's categories and rows must not stay visible.
   void _forget() {
@@ -113,6 +266,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     _error = null;
     _loading = false;
     _view = null;
+    _clearMore();
     _selected.clear();
     _selecting = false;
     _busy = false;
@@ -202,7 +356,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
 
   /// [keep]: rows still to be chosen once the list is back (what a partial
   /// answer left unfinished), if the forum still lists them.
-  Future<void> _load({String? view, Set<String> keep = const {}}) async {
+  Future<void> _load(
+      {String? view, int page = 1, Set<String> keep = const {}}) async {
     // Category numbers can shift on the forum; the name tells which one this is.
     final asked = view == null ? null : _labelOf(_data, view);
     final epoch = ++_epoch;
@@ -214,13 +369,16 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
       _loading = true;
       _error = null;
       _view = view;
+      _clearMore();
       _selected.clear();
       _selecting = false;
       _dropScan();
     });
     try {
-      final data =
-          await widget.repository.fetchFavoriteCollections(categoryId: view);
+      final data = page == 1
+          ? await widget.repository.fetchFavoriteCollections(categoryId: view)
+          : await widget.repository
+              .fetchFavoriteCollectionsPage(categoryId: view, page: page);
       if (!mounted || epoch != _epoch) return;
       if (view != null && asked != null && _labelOf(data, view) != asked) {
         // Another category has that number now: start from all instead.
@@ -236,6 +394,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
         _loading = false;
         _unconfirmed = null;
       });
+      // A list too short to scroll reads on by itself.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
     } catch (error) {
       if (!mounted || epoch != _epoch) return;
       setState(() {
@@ -253,7 +413,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
   }
 
   List<FavoriteCollectionEntry> get _chosen => [
-        for (final entry in _data?.items ?? const <FavoriteCollectionEntry>[])
+        for (final entry in _items)
           if (_selected.contains(entry.id)) entry,
       ];
 
@@ -275,10 +435,13 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     int count = 1,
     bool reloadAfter = false,
     bool keepSelection = false,
+    FavoriteCollections? source,
   }) async {
-    final snapshot = _data;
+    // The page the rows were read on; categories are any page's.
+    final snapshot = source ?? _data;
     if (snapshot == null || _locked) return null;
     final epoch = _epoch;
+    final pageBefore = snapshot.page;
     final viewBefore = _view;
     final labelBefore =
         viewBefore == null ? null : _labelOf(snapshot, viewBefore);
@@ -312,6 +475,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     setState(() {
       _busy = false;
       if (fresh != null) {
+        // A write retires every page read before it.
+        _clearMore();
         _data = fresh;
         _view = fresh.categoryId;
       }
@@ -356,7 +521,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     }
     // Without a fresh list the screen holds an old one: read it again.
     if (fresh == null) {
-      _load(view: _view);
+      _load(view: _view, page: pageBefore);
     } else if (reloadAfter) {
       // Numbers shift when a category goes: start from all again.
       if (viewBefore != null) _load();
@@ -369,7 +534,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
           if (c.label == labelBefore) c,
       ];
       if (named.length == 1) {
-        _load(view: named.single.id, keep: Set.of(_selected));
+        _load(view: named.single.id, page: pageBefore, keep: Set.of(_selected));
       }
     }
     return result.status;
@@ -388,6 +553,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
       (snapshot) => widget.repository.removeFavorites(snapshot, entries),
       done: (n) => n == 1 ? '已取消收藏' : '已取消收藏 $n 个',
       count: entries.length,
+      source: _pageOf[entries.first.id],
     );
   }
 
@@ -452,7 +618,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
       final data = _data!;
       final rebound = <FavoriteCollectionEntry>[];
       for (final request in pending.entries) {
-        final matches = data.items
+        final matches = _items
             .where((entry) =>
                 entry.id == request.key && _tid(entry) == request.value)
             .toList();
@@ -509,7 +675,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
             (snapshot) =>
                 widget.repository.moveFavorites(snapshot, rebound, target.id),
             done: (n) => '已移动 $n 个到「${target.label}」',
-            count: rebound.length);
+            count: rebound.length,
+            source: _pageOf[rebound.first.id]);
         return;
       }
       ManageAction? manage;
@@ -606,12 +773,16 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     _selecting = _selected.isNotEmpty;
   }
 
-  void _toggle(String id) => setState(() {
-        if (!_selected.remove(id)) _selected.add(id);
-      });
+  void _toggle(String id) {
+    if (!_selected.contains(id) && !_canJoin(id)) return _onePageOnly();
+    setState(() {
+      if (!_selected.remove(id)) _selected.add(id);
+    });
+  }
 
   void _startSelecting([String? id]) {
-    if (_locked || (_data?.items.isEmpty ?? true)) return;
+    if (_locked || _items.isEmpty) return;
+    if (id != null && !_canJoin(id)) return _onePageOnly();
     setState(() {
       _selecting = true;
       if (id != null) _selected.add(id);
@@ -640,7 +811,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
       ]);
     }
     final data = _data;
-    final items = data?.items ?? const <FavoriteCollectionEntry>[];
+    final items = _items;
+    final pageOf = _pageOf;
     final keyword = _keyword;
     final scan = _scan;
     // A truncated title that misses the keyword may still hold it.
@@ -664,7 +836,17 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
           ];
     // 全选 takes the rows the search shows; chosen undecided rows are not
     // what it counts.
-    final shownIds = {for (final e in shown) e.id};
+    // Rows written together come from one page: the chosen rows' page, or
+    // the first shown.
+    final anchor = _selected.isNotEmpty
+        ? pageOf[_selected.first]
+        : shown.isEmpty
+            ? null
+            : pageOf[shown.first.id];
+    final shownIds = {
+      for (final e in shown)
+        if (identical(pageOf[e.id], anchor)) e.id,
+    };
     final allChosen = shownIds.isNotEmpty && _selected.containsAll(shownIds);
     Widget rows(List<FavoriteCollectionEntry> entries) => DecoratedBox(
           decoration: appSurface(context),
@@ -695,6 +877,28 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
             ],
           ),
         );
+    // Appended pages each start under their 第 N 页 rule.
+    Widget pagedRows(List<FavoriteCollectionEntry> entries) {
+      if (_more.isEmpty) return rows(entries);
+      final runs = <(FavoriteCollections, List<FavoriteCollectionEntry>)>[];
+      for (final entry in entries) {
+        final page = pageOf[entry.id]!;
+        if (runs.isEmpty || !identical(runs.last.$1, page)) {
+          runs.add((page, []));
+        }
+        runs.last.$2.add(entry);
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (page, run) in runs) ...[
+            if (!identical(page, data)) PageBoundary(page: page.page),
+            rows(run),
+          ],
+        ],
+      );
+    }
+
     final Widget body;
     if (_error != null) {
       // Whatever view was loaded before is not shown under this one's name.
@@ -709,7 +913,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
       body = _scanBody(scan);
     } else if (items.isEmpty) {
       // Only the whole list being on this page says there is nothing at all.
-      final complete = _pageNote(data) == null;
+      final complete = _wholeList;
       body = EmptyStateView(
         title: !complete
             ? '本页没有主题'
@@ -725,16 +929,20 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
       );
     } else {
       // Only the whole list on this page, all titles whole, makes a miss final.
-      final complete = _pageNote(data) == null && undecided.isEmpty;
+      final complete = _wholeList && undecided.isEmpty;
       body = Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (shown.isNotEmpty)
-            rows(shown)
+            pagedRows(shown)
           else
             EmptyStateView(
               icon: Icons.manage_search_outlined,
-              title: complete ? '没有符合的收藏' : '本页没有符合的收藏',
+              title: complete
+                  ? '没有符合的收藏'
+                  : _more.isEmpty
+                      ? '本页没有符合的收藏'
+                      : '已加载的页面没有符合的收藏',
             ),
           if (undecided.isNotEmpty) ...[
             const SizedBox(height: AppSpace.md),
@@ -795,6 +1003,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                     final side =
                         appGutter(constraints.maxWidth, AppWidths.list);
                     return ListView(
+                      controller: _scroll,
                       padding: EdgeInsets.fromLTRB(side, 0, side, 32),
                       children: [
                         if (_busy) const LinearProgressIndicator(minHeight: 2),
@@ -829,7 +1038,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                           SearchScopeBar(
                             progress: scan?.progress ??
                                 ScanProgress(
-                                  scannedPages: 1,
+                                  scannedPages: 1 + _more.length,
                                   totalPages: data.pageCount,
                                   found: shown.length,
                                   unresolved: undecided.length,
@@ -859,6 +1068,28 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                             child: body,
                           ),
                         ),
+                        if (data != null &&
+                            !_loading &&
+                            _error == null &&
+                            scan == null &&
+                            (_nextPage != null ||
+                                _more.isNotEmpty ||
+                                data.page > 1))
+                          PageEndFooter(
+                            next: _nextPage,
+                            manual: !_continuous,
+                            loading: _loadingMore,
+                            failed: _moreError != null,
+                            error: _moreError,
+                            paused: _emptyRun >= 2,
+                            // 手动翻页 turns to the next page alone; 自动接续
+                            // appends.
+                            onNext: _nextPage == null || _locked
+                                ? null
+                                : !_continuous
+                                    ? () => _turnTo(_nextPage!)
+                                    : _retryMore,
+                          ),
                       ],
                     );
                   },
@@ -951,10 +1182,18 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
   // Said only when the forum has more than the page shown, or when that is
   // not known.
   String? _pageNote(FavoriteCollections data) {
-    final count = data.pageCount;
+    final last = _lastPage ?? data;
+    final count = last.pageCount;
     if (count == null) return '页数未能确认';
-    return count > 1 ? '第 ${data.page}/$count 页' : null;
+    if (count <= 1) return null;
+    return last.page == data.page
+        ? '第 ${data.page}/$count 页'
+        : '第 ${data.page}–${last.page}/$count 页';
   }
+
+  /// Every page is on screen, from the first.
+  bool get _wholeList =>
+      _data?.page == 1 && _lastPage?.pageCount != null && _nextPage == null;
 
   String? _labelOf(FavoriteCollections? data, String? id) {
     if (data == null || id == null) return null;
