@@ -200,7 +200,7 @@ class ForumUrlResolver {
       if (fields['action'] == 'bbsset' &&
           fields.keys.every({'action', 'info_type'}.contains) &&
           (!fields.containsKey('info_type') ||
-              {'msg', 'friend'}.contains(fields['info_type']))) {
+              {'msg', 'friend', 'fancy'}.contains(fields['info_type']))) {
         return ForumAppPageLinkTarget(
             ForumAppPage.forumPreferences, normalized);
       }

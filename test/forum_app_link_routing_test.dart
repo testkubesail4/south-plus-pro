@@ -45,6 +45,9 @@ void main() {
       'profile.php?action-bbsset-info_type-friend.html':
           ForumAppPage.forumPreferences,
       'profile.php?action=bbsset&info_type=msg': ForumAppPage.forumPreferences,
+      'profile.php?action-bbsset-info_type-fancy.html':
+          ForumAppPage.forumPreferences,
+      'profile.php?action=bbsset&info_type=fancy': ForumAppPage.forumPreferences,
       'u.php?action-friend.html': ForumAppPage.friends,
       'u.php?action=friend&uid=101': ForumAppPage.friends,
       'message.php': ForumAppPage.pmInbox,
