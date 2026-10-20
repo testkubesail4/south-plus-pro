@@ -165,18 +165,29 @@ void main() {
   testWidgets('floors without a site id are kept, never taken for repeats',
       (tester) async {
     await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.continuous);
+    // Many pages still to come: only the reader's scrolling asks for them.
     final repository = _Repository()
-      ..totalPages = 2
+      ..totalPages = 50
       ..repeats = true
       ..unnumbered = true;
     await pumpThread(tester, repository: repository);
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -20000));
     await tester.pumpAndSettle();
     await jumpToEnd(tester);
+    await tester.pump(const Duration(seconds: 5));
 
     expect(repository.pages, [1, 2]);
     // Same author and time as page 1's floors, yet page 2's rows stay.
     expect(find.text('again 30', findRichText: true), findsOneWidget);
+    expect(find.text('已到最后一页'), findsNothing);
+
+    // Scrolling on asks for more, and only while it lasts.
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
+    await tester.pumpAndSettle();
+    final asked = repository.pages.length;
+    expect(asked, greaterThan(2));
+    await tester.pump(const Duration(seconds: 5));
+    expect(repository.pages.length, asked);
   });
 
   testWidgets('another session drops the pages and the draft in one frame',
