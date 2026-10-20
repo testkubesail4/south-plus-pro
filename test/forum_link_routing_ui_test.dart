@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/common/forum_link_opener.dart';
 import 'package:south_plus_rewrite/features/messages/pm_box_screen.dart';
 import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
@@ -47,6 +48,12 @@ class _Repo extends ForumRepository {
     friendReads.add((pending, page));
     return ForumFriendPage(items: const [], pending: pending);
   }
+
+  // Held so a test can answer after the compose page closed.
+  final compose = Completer<ForumPmCompose>();
+
+  @override
+  Future<ForumPmCompose> fetchPmCompose({String? path}) => compose.future;
 
   @override
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) {
@@ -144,6 +151,53 @@ void main() {
     expect(find.text('在浏览器中打开'), findsNothing);
     expect(find.text('登录后才能打开这个页面'), findsOneWidget);
     expect(find.widgetWithText(SnackBarAction, '登录'), findsOneWidget);
+  });
+
+  testWidgets('logging in from the notice first closes pushed private pages',
+      (tester) async {
+    final repo = _Repo(signedIn: false);
+    await tester.pumpWidget(const MaterialApp(home: Text('root')));
+    tester.state<NavigatorState>(find.byType(Navigator)).push(
+          MaterialPageRoute<void>(
+            builder: (context) => Scaffold(
+              body: Column(children: [
+                const Text('A 的私信'),
+                TextButton(
+                  onPressed: () => openForumLink(context, repo,
+                      '$_site/u.php?action-friend-o-check-fuid-1001.html'),
+                  child: const Text('link'),
+                ),
+              ]),
+            ),
+          ),
+        );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('link'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SnackBarAction, '登录'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.text('A 的私信', skipOffstage: false), findsNothing);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('root'), findsOneWidget);
+  });
+
+  testWidgets('a late compose answer after the page closed stays unseen',
+      (tester) async {
+    final repo = _Repo();
+    await tapLink(tester, repo, '$_site/message.php?action-write-touid-1001.html');
+    expect(find.byType(PmComposeScreen), findsOneWidget);
+    tester
+        .state<NavigatorState>(find.byType(Navigator))
+        .popUntil((route) => route.isFirst);
+    await tester.pumpAndSettle();
+    repo.compose.complete(ForumPmCompose(
+        actionPath: 'message.php', fields: const {}, body: 'A 的草稿'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('A 的草稿', skipOffstage: false), findsNothing);
   });
 
   testWidgets('another account\'s page stays closed, no browser',

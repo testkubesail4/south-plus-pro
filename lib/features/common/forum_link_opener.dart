@@ -193,7 +193,7 @@ Widget _appPage(
 void _showAccountNotice(BuildContext context, ForumRepository repository) {
   final signedIn = repository.isLoggedIn;
   // The page under the snack bar may be gone when 登录 is tapped.
-  final rootContext = Navigator.of(context, rootNavigator: true).context;
+  final navigator = Navigator.of(context, rootNavigator: true);
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(
@@ -202,7 +202,12 @@ void _showAccountNotice(BuildContext context, ForumRepository repository) {
           ? null
           : SnackBarAction(
               label: '登录',
-              onPressed: () => openLogin(rootContext, repository),
+              onPressed: () {
+                // Pages pushed by the old session may hold its private
+                // content; only the shell, which follows the session, stays.
+                navigator.popUntil((route) => route.isFirst);
+                openLogin(navigator.context, repository);
+              },
             ),
     ));
 }

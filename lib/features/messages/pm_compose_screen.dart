@@ -35,6 +35,8 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
 
   Future<ForumPmCompose> _fetch() async {
     final compose = await widget.repository.fetchPmCompose(path: widget.path);
+    // Closed meanwhile (e.g. a login cleared the stack): nothing to fill.
+    if (!mounted) return compose;
     _compose = compose;
     _recipient.text = compose.recipientUid;
     _title.text = compose.title;
