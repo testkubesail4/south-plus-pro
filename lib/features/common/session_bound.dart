@@ -52,8 +52,10 @@ class _SessionBoundState extends State<SessionBound> {
       return;
     }
     setState(() => _ended = true);
+    // Only from a page still in the history: one already leaving (closed by
+    // a private page below it) has nothing above it to close.
     final route = ModalRoute.of(context);
-    if (route != null && !route.isCurrent) {
+    if (route != null && route.isActive && !route.isCurrent) {
       Navigator.of(context).popUntil((r) => r == route);
     }
   }
