@@ -101,6 +101,39 @@ class DohWireFixture {
   }
 }
 
+// Inject only DNS HTTP responses; the target client and its RawSocket path are real.
+class DohHttpOverrides extends ForumHttpOverrides {
+  DohHttpOverrides(this.wire);
+  final HttpClient wire;
+  var first = true;
+  @override
+  HttpClient createUnroutedClient(SecurityContext? context) {
+    if (first) {
+      first = false;
+      return super.createUnroutedClient(context);
+    }
+    return _InjectedWireClient(wire);
+  }
+}
+
+class _InjectedWireClient implements HttpClient {
+  _InjectedWireClient(this.wire);
+  final HttpClient wire;
+  @override
+  Future<HttpClientRequest> getUrl(Uri uri) => wire.getUrl(uri);
+  @override
+  set findProxy(String Function(Uri)? value) {}
+  @override
+  set connectionTimeout(Duration? value) {}
+  @override
+  set connectionFactory(
+      Future<ConnectionTask<Socket>> Function(Uri, String?, int?)? value) {}
+  @override
+  void close({bool force = false}) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _LocalWireClient implements HttpClient {
   _LocalWireClient(this.client, this.port);
   final HttpClient client;

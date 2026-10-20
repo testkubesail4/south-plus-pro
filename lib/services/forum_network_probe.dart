@@ -4,6 +4,7 @@ import 'dart:io';
 import 'forum_connection_race.dart';
 import 'forum_http_routing.dart';
 import 'forum_network_config.dart';
+import 'forum_raw_socket.dart';
 
 class ForumProbeCancellation {
   bool _cancelled = false;
@@ -43,20 +44,44 @@ class ForumNetworkProbe {
         success: false,
         message: '已取消',
       );
-    return _testClient(
-      config.site,
-      createForumHttpClient(config),
-      cancellation: cancellation,
-    );
+    final client = createForumHttpClient(config);
+    final attempts = <ForumSocketAttempt>{};
+    var closed = false;
+    if (config.mode == ForumNetworkMode.native) {
+      // Only isolated probes need a cancellable TLS handle; ordinary native
+      // clients retain platform/system semantics and never receive candidates.
+      client.connectionFactory = (uri, _, __) async {
+        if (closed || cancellation?.isCancelled == true)
+          throw const SocketException('Probe cancelled');
+        final attempt = ForumSocketAttempt(uri, timeout: timeout);
+        attempts.add(attempt);
+        unawaited(attempt.socket
+            .then((_) {}, onError: (Object _) {})
+            .whenComplete(() {
+          attempts.remove(attempt);
+        }));
+        return ConnectionTask.fromSocket(attempt.socket, attempt.cancel);
+      };
+    }
+    return _testClient(config.site, client, cancellation: cancellation,
+        close: () {
+      closed = true;
+      for (final attempt in attempts.toList()) {
+        attempt.cancel();
+      }
+      client.close(force: true);
+    });
   }
 
   Future<ForumSiteProbeResult> _testClient(
     ForumSite site,
     HttpClient client, {
     ForumProbeCancellation? cancellation,
+    void Function()? close,
   }) async {
+    close ??= () => client.close(force: true);
     final watch = Stopwatch()..start();
-    final detach = cancellation?._attach(() => client.close(force: true));
+    final detach = cancellation?._attach(close);
     String message(String fallback) =>
         cancellation?.isCancelled == true ? '已取消' : fallback;
     try {
@@ -106,7 +131,7 @@ class ForumNetworkProbe {
       );
     } finally {
       detach?.call();
-      client.close(force: true);
+      close();
     }
   }
 

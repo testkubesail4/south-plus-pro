@@ -17,8 +17,8 @@ void main() {
         final context = SecurityContext()
           ..useCertificateChain('test/support/proxy_fixture_cert.pem')
           ..usePrivateKey('test/support/proxy_fixture_key.pem');
-        final trust = SecurityContext()
-          ..setTrustedCertificates('test/support/proxy_fixture_cert.pem');
+        SecurityContext.defaultContext
+            .setTrustedCertificates('test/support/proxy_fixture_cert.pem');
         final server = await HttpServer.bindSecure(
           InternetAddress.loopbackIPv4,
           0,
@@ -42,12 +42,12 @@ void main() {
         try {
           final result = await HttpOverrides.runWithHttpOverrides(
             () => const ForumNetworkProbe().testConfig(
-              const ForumNetworkConfig(
-                site: ForumSite('fixture.invalid'),
+              ForumNetworkConfig(
+                site: ForumSite('localhost:${server.port}'),
                 mode: ForumNetworkMode.native,
               ),
             ),
-            _OriginOverrides(server.port, trust),
+            ForumHttpOverrides(),
           );
           expect(result.statusCode, status);
           expect(result.success, status == 200);
@@ -60,21 +60,4 @@ void main() {
       },
     );
   }
-}
-
-class _OriginOverrides extends ForumHttpOverrides {
-  _OriginOverrides(this.port, this.trust);
-  final int port;
-  final SecurityContext trust;
-  @override
-  HttpClient createUnroutedClient(SecurityContext? context) =>
-      super.createUnroutedClient(trust)
-        ..connectionFactory = (uri, _, __) async {
-          final task =
-              await Socket.startConnect(InternetAddress.loopbackIPv4, port);
-          return ConnectionTask.fromSocket<Socket>(
-              task.socket.then((socket) =>
-                  SecureSocket.secure(socket, host: uri.host, context: trust)),
-              task.cancel);
-        };
 }
