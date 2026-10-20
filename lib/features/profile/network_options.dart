@@ -954,7 +954,7 @@ class _HostAddressesPageState extends State<HostAddressesPage> {
   }
 
   void _test() {
-    final config = _read()?.copyWith(mode: ForumNetworkMode.optimized);
+    final config = _read();
     if (config == null) return;
     _check.run((cancellation) async => ProbeReading.site(
         await widget.probe.testConfig(config, cancellation: cancellation)));

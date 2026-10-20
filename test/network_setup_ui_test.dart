@@ -245,6 +245,29 @@ void main() {
       });
     });
 
+    testWidgets('target addresses are tested with the chosen mode',
+        (tester) async {
+      final probe = _Probe();
+      await pumpGuide(tester, probe: probe);
+      await tapText(tester, '代理');
+      await tapText(tester, '下一步');
+      await enterProxy(tester);
+      await tapText(tester, '使用此代理');
+      for (var i = 0; i < 2; i++) {
+        await tapText(tester, '上一步');
+      }
+      await tapText(tester, '网络优化');
+      for (var i = 0; i < 3; i++) {
+        await tapText(tester, '下一步');
+      }
+      await tapText(tester, '目标地址');
+      await tester.enterText(find.byType(TextField), '104.18.26.110');
+      await tapText(tester, '测试');
+      final tested = probe.configs.last;
+      expect(tested.mode, ForumNetworkMode.optimized);
+      expect(tested.hostAddresses['south-plus.net'], ['104.18.26.110']);
+    });
+
     testWidgets('proxy types stay on one line at large text', (tester) async {
       tallView(tester, width: 360);
       await tester.pumpWidget(MaterialApp(
@@ -481,12 +504,14 @@ class _Probe extends ForumNetworkProbe {
 
   final Future<ForumSiteProbeResult> Function(ForumNetworkConfig)? check;
 
-  /// Every token handed to a connection test, in order.
+  /// Every connection test's config and token, in order.
+  final configs = <ForumNetworkConfig>[];
   final checks = <ForumProbeCancellation?>[];
 
   @override
   Future<ForumSiteProbeResult> testConfig(ForumNetworkConfig config,
       {ForumProbeCancellation? cancellation}) {
+    configs.add(config);
     checks.add(cancellation);
     return check?.call(config) ?? Completer<ForumSiteProbeResult>().future;
   }

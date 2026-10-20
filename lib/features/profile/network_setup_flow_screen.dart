@@ -334,7 +334,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
                   ? null
                   : () async {
                       final updated = await HostAddressesPage.open(
-                          context, _draft,
+                          context, _result,
                           probe: widget.probe);
                       if (updated == null || !mounted) return;
                       _update(updated);
