@@ -4,13 +4,16 @@ import '../../models/forum_models.dart';
 import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
+import '../../services/loading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
+import '../common/page_end.dart';
 import '../common/session_bound.dart';
 import '../thread/thread_rich_content.dart';
 import 'pm_compose_screen.dart';
+import '../common/more_pages.dart';
 
 /// Returns the server result so the box can follow its refresh destination.
 class PmDetailScreen extends StatelessWidget {
@@ -268,9 +271,58 @@ class _PmChatlogView extends StatefulWidget {
 class _PmChatlogViewState extends State<_PmChatlogView> {
   late String _path = widget.path;
   late Future<ForumPmChatlog> _future = _fetch();
+  // The page the list starts with, once read.
+  ForumPmChatlog? _first;
+  int _reads = 0;
+  final _scroll = ScrollController();
+  late final _more = MorePages<ForumPmChatlog>(
+    fetch: widget.repository.fetchPmChatlog,
+    nextOf: (page) => page.nextPagePath,
+    idsOf: (page) => [for (final record in page.records) record.id],
+    changed: () {
+      if (mounted) setState(() {});
+    },
+    domain: LoadingDomain.pm,
+  );
 
-  Future<ForumPmChatlog> _fetch() => widget.repository.fetchPmChatlog(_path);
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_maybeLoadMore);
+    LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
+    if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
+  }
 
+  @override
+  void dispose() {
+    LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _maybeLoadMore() => _more.maybeLoad(_first, _scroll);
+
+  // The footer follows the mode; a page already on its way still lands.
+  // 自动接续 starts at the next scroll to the end, never by itself.
+  void _onLoadingModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<ForumPmChatlog> _fetch() {
+    final read = ++_reads;
+    _first = null;
+    _more.reset();
+    return widget.repository.fetchPmChatlog(_path).then((page) {
+      if (mounted && read == _reads) {
+        _first = page;
+        // A page too short to scroll reads on by itself.
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      }
+      return page;
+    });
+  }
+
+  /// Another page alone, from its top.
   void _load([String? path]) {
     setState(() {
       if (path != null) _path = path;
@@ -306,7 +358,12 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
             }
             if (!snapshot.hasData) return const ThreadDetailSkeleton();
             final chatlog = snapshot.data!;
+            final pages = [chatlog, ..._more.pages];
+            final last = pages.last;
+            final next = last.nextPagePath;
+            final seen = <String>{};
             return ListView(
+              controller: _scroll,
               padding: _readingPadding(context),
               children: [
                 if (chatlog.records.isEmpty)
@@ -314,17 +371,36 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
                     icon: Icons.forum_outlined,
                     title: '暂无通信记录',
                   ),
-                for (final record in chatlog.records) ...[
-                  _PmMessageCard(
-                    repository: widget.repository,
-                    sender: record.sender,
-                    title: record.title,
-                    time: record.time,
-                    content: record.content,
-                    segments: record.segments,
-                  ),
-                  const SizedBox(height: 10),
+                for (final (i, page) in pages.indexed) ...[
+                  if (i > 0) PageBoundary(page: page.currentPage),
+                  for (final record in page.records)
+                    if (!MorePages.repeats(seen, record.id)) ...[
+                      _PmMessageCard(
+                        repository: widget.repository,
+                        sender: record.sender,
+                        title: record.title,
+                        time: record.time,
+                        content: record.content,
+                        segments: record.segments,
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                 ],
+                if (next != null || pages.length > 1 || chatlog.currentPage > 1)
+                  PageEndFooter(
+                    next: next == null ? null : last.currentPage + 1,
+                    manual: !_more.continuous,
+                    loading: _more.loading,
+                    failed: _more.error != null,
+                    error: _more.error,
+                    paused: _more.paused,
+                    // 手动翻页 turns to the next page alone; 自动接续 appends.
+                    onNext: next == null
+                        ? null
+                        : !_more.continuous
+                            ? () => _load(next)
+                            : () => _more.retry(chatlog, _scroll),
+                  ),
                 if (chatlog.pageLinks.isNotEmpty || chatlog.composePath != null)
                   Wrap(
                     spacing: 8,

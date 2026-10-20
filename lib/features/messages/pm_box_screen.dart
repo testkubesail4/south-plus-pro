@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/loading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
+import '../common/page_end.dart';
 import '../common/thread_row.dart';
 import 'pm_compose_screen.dart';
 import 'pm_detail_screen.dart';
+import '../common/more_pages.dart';
 
 class PmBoxScreen extends StatefulWidget {
   const PmBoxScreen({
@@ -37,16 +40,61 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
   int _slide = 0;
   String? _pagePath;
   late Future<ForumPmPage> _future;
+  // The page the list starts with, once read.
+  ForumPmPage? _first;
+  int _reads = 0;
+  final _scroll = ScrollController();
+  late final _more = MorePages<ForumPmPage>(
+    fetch: (path) => widget.repository.fetchPmBox(_box, pagePath: path),
+    nextOf: (page) => page.nextPagePath,
+    idsOf: (page) => [
+      for (final message in page.messages)
+        message.id.isEmpty ? null : message.id,
+    ],
+    changed: () {
+      if (mounted) setState(() {});
+    },
+    domain: LoadingDomain.pm,
+  );
 
   @override
   void initState() {
     super.initState();
     if (widget.initialPath case final path?) _openPath(path);
     _future = _fetch();
+    _scroll.addListener(_maybeLoadMore);
+    LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
+    if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
   }
 
-  Future<ForumPmPage> _fetch() =>
-      widget.repository.fetchPmBox(_box, pagePath: _pagePath);
+  @override
+  void dispose() {
+    LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _maybeLoadMore() => _more.maybeLoad(_first, _scroll);
+
+  // The footer follows the mode; a page already on its way still lands.
+  // 自动接续 starts at the next scroll to the end, never by itself.
+  void _onLoadingModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<ForumPmPage> _fetch() {
+    final read = ++_reads;
+    _first = null;
+    _more.reset();
+    return widget.repository.fetchPmBox(_box, pagePath: _pagePath).then((page) {
+      if (mounted && read == _reads) {
+        _first = page;
+        // A page too short to scroll reads on by itself.
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      }
+      return page;
+    });
+  }
 
   /// Moves to the box and page a native box path names, if it names one.
   void _openPath(String path) {
@@ -193,7 +241,9 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
                                   color: AppColors.brand,
                                   onRefresh: _refresh,
                                   child: _PmList(
-                                    page: snapshot.data!,
+                                    pages: [snapshot.data!, ..._more.pages],
+                                    scroll: _scroll,
+                                    footer: _footer(snapshot.data!),
                                     onOpen: _openMessage,
                                     onPage: _openPage,
                                   ),
@@ -208,16 +258,43 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
       ),
     );
   }
+
+  Widget? _footer(ForumPmPage first) {
+    final last = _more.pages.isEmpty ? first : _more.pages.last;
+    final next = last.nextPagePath;
+    if (next == null && _more.pages.isEmpty && first.currentPage <= 1) {
+      return null;
+    }
+    return PageEndFooter(
+      next: next == null ? null : last.currentPage + 1,
+      manual: !_more.continuous,
+      loading: _more.loading,
+      failed: _more.error != null,
+      error: _more.error,
+      paused: _more.paused,
+      // 手动翻页 turns to the next page alone; 自动接续 appends.
+      onNext: next == null
+          ? null
+          : !_more.continuous
+              ? () => _openPage(next)
+              : () => _more.retry(first, _scroll),
+    );
+  }
 }
 
 class _PmList extends StatelessWidget {
   const _PmList({
-    required this.page,
+    required this.pages,
+    required this.scroll,
+    required this.footer,
     required this.onOpen,
     required this.onPage,
   });
 
-  final ForumPmPage page;
+  /// The first page, then those 自动接续 appended.
+  final List<ForumPmPage> pages;
+  final ScrollController scroll;
+  final Widget? footer;
   final ValueChanged<ForumPmSummary> onOpen;
   final ValueChanged<String> onPage;
 
@@ -225,27 +302,39 @@ class _PmList extends StatelessWidget {
   Widget build(BuildContext context) {
     // Unread shows as dots on the tabs and rows, so no banner.
     final children = <Widget>[];
-    if (page.messages.isEmpty) {
-      children.add(const EmptyStateView(
-        icon: Icons.mark_email_read_outlined,
-        title: '暂无消息',
-      ));
-    } else if (page.box == ForumPmBox.inbox) {
-      // The inbox page holds both groups; split them without reordering.
-      for (final (type, label) in const [
-        (ForumPmType.personal, '个人消息'),
-        (ForumPmType.broadcast, '群发消息'),
-      ]) {
-        final group = page.messages.where((m) => m.type == type).toList();
-        if (group.isEmpty) continue;
-        if (children.isNotEmpty) {
-          children.add(const SizedBox(height: AppSpace.xl));
+    final page = pages.first;
+    final seen = <String>{};
+    for (final (i, shown) in pages.indexed) {
+      final messages = [
+        for (final m in shown.messages)
+          if (!MorePages.repeats(seen, m.id.isEmpty ? null : m.id)) m,
+      ];
+      if (i > 0) children.add(PageBoundary(page: shown.currentPage));
+      if (messages.isEmpty) {
+        if (i == 0) {
+          children.add(const EmptyStateView(
+            icon: Icons.mark_email_read_outlined,
+            title: '暂无消息',
+          ));
         }
-        children.add(_group(group, label: label));
+      } else if (shown.box == ForumPmBox.inbox) {
+        // The inbox page holds both groups; split them without reordering.
+        var first = true;
+        for (final (type, label) in const [
+          (ForumPmType.personal, '个人消息'),
+          (ForumPmType.broadcast, '群发消息'),
+        ]) {
+          final group = messages.where((m) => m.type == type).toList();
+          if (group.isEmpty) continue;
+          if (!first) children.add(const SizedBox(height: AppSpace.xl));
+          first = false;
+          children.add(_group(group, label: label));
+        }
+      } else {
+        children.add(_group(messages));
       }
-    } else {
-      children.add(_group(page.messages));
     }
+    if (footer case final footer?) children.add(footer);
     if (page.pageLinks.isNotEmpty) {
       children.add(Padding(
         padding: const EdgeInsets.only(top: AppSpace.md),
@@ -263,6 +352,7 @@ class _PmList extends StatelessWidget {
       ));
     }
     return ListView(
+      controller: scroll,
       physics: const AlwaysScrollableScrollPhysics(),
       // Clear of the 写消息 FAB.
       padding: const EdgeInsets.only(top: AppSpace.md, bottom: 88),
