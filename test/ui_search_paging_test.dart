@@ -116,20 +116,22 @@ void main() {
     expect(repo.paths[2], 'search.php?step=2&page=4');
   });
 
+  const third = 'search.php?step=2&page=3';
+  // An empty page 1 that links page 3 only.
+  _Repo skipping() => _Repo()
+    ..pages = (page) => page == 1
+        ? const ForumSearchPage(
+            threads: [],
+            nextPagePath: third,
+            pageLinks: [
+              ForumSearchPageLink(label: '3', path: third, page: 3),
+            ])
+        : ForumSearchPage(threads: [_thread(100)], currentPage: 3);
+
   testWidgets(
       'a page with no rows still turns, to the page the forum links next',
       (tester) async {
-    const third = 'search.php?step=2&page=3';
-    final repo = await search(tester,
-        repo: _Repo()
-          ..pages = (page) => page == 1
-              ? const ForumSearchPage(
-                  threads: [],
-                  nextPagePath: third,
-                  pageLinks: [
-                    ForumSearchPageLink(label: '3', path: third, page: 3),
-                  ])
-              : ForumSearchPage(threads: [_thread(100)], currentPage: 3));
+    final repo = await search(tester, repo: skipping());
     expect(find.text('本页没有结果'), findsOneWidget);
     expect(find.text('没有找到相关主题'), findsNothing);
     // Page 2 is not linked: the next is 3, and says so.
@@ -141,6 +143,28 @@ void main() {
     // No next link, and no page count: the end is not claimed.
     expect(find.text('已到最后一页'), findsNothing);
     expect(find.text('论坛未给出下一页，页数未能确认'), findsOneWidget);
+  });
+
+  testWidgets('the pager arrow follows the forum next link too',
+      (tester) async {
+    final repo = await search(tester, repo: skipping());
+    await tester.scrollUntilVisible(find.byTooltip('下一页'), 300,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('下一页'));
+    await tester.pumpAndSettle();
+    expect(repo.paths, [third]);
+    expect(find.text('Result 100'), findsOneWidget);
+  });
+
+  testWidgets('an empty page the forum counts among more is not no results',
+      (tester) async {
+    await search(tester,
+        repo: _Repo()
+          ..pages = (page) => const ForumSearchPage(
+              threads: [], currentPage: 3, totalPages: 5));
+    expect(find.text('没有找到相关主题'), findsNothing);
+    expect(find.text('本页没有结果'), findsOneWidget);
   });
 
   testWidgets('results without a valid thread are never taken for repeats',

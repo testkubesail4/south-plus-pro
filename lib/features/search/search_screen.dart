@@ -187,12 +187,16 @@ class _SearchScreenState extends State<SearchScreen> {
       ForumUrlResolver(baseUri: widget.repository.networkConfig.baseUri)
           .tidFromUrl(thread.url);
 
-  /// A page with no rows still turns: the forum may link pages around it.
+  /// A page with no rows is still one of several when the forum links
+  /// pages around it or counts more results or pages.
   static bool _hasPages(ForumSearchPage page) =>
       page.threads.isNotEmpty ||
       page.nextPagePath != null ||
       page.previousPagePath != null ||
-      page.pageLinks.isNotEmpty;
+      page.pageLinks.isNotEmpty ||
+      page.currentPage > 1 ||
+      (page.totalPages ?? 0) > 1 ||
+      (page.total ?? 0) > 0;
 
   void _maybeLoadMore() {
     final next = _lastPage?.nextPagePath;
@@ -970,19 +974,27 @@ class _SearchScreenState extends State<SearchScreen> {
               return ForumPager(
                 current: current,
                 total: total,
+                // The arrows follow the forum's own links, wherever they go.
+                arrows: (
+                  previous: previous == null ? null : () => _openPage(previous),
+                  next: next == null ? null : () => _openPage(next),
+                ),
                 onSelected: _searching
                     ? null
                     : (number) {
-                        // A neighbour link counts where no page link
-                        // numbers it otherwise.
-                        bool leadsTo(int? linked, int side) =>
-                            number == (linked ?? current + side);
-                        final path = next != null && leadsTo(nextNumber, 1)
+                        final path = number == nextNumber
                             ? next
-                            : previous != null && leadsTo(previousNumber, -1)
+                            : number == previousNumber
                                 ? previous
                                 : page.pathForPage(number);
-                        if (path != null) _openPage(path);
+                        if (path != null) {
+                          _openPage(path);
+                        } else {
+                          ScaffoldMessenger.of(context)
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(
+                                SnackBar(content: Text('论坛未给出第 $number 页的链接')));
+                        }
                       },
               );
             },

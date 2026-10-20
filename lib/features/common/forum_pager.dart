@@ -12,26 +12,45 @@ class ForumPager extends StatelessWidget {
     required this.current,
     required this.total,
     required this.onSelected,
+    this.arrows,
   });
 
   final int current;
   final int total;
   final ValueChanged<int>? onSelected;
 
+  /// What the arrows do where they follow the forum's own previous and next
+  /// links, which may skip pages; a null side is disabled. Without it they
+  /// select the neighbouring page.
+  final ({VoidCallback? previous, VoidCallback? next})? arrows;
+
   @override
   Widget build(BuildContext context) {
     final select = onSelected;
     Widget divider() => VerticalDivider(
-      width: 1,
-      thickness: 1,
-      indent: 10,
-      endIndent: 10,
-      color: AppColors.border,
-    );
-    Widget arrow(String tooltip, IconData icon, int page, bool enabled) =>
+          width: 1,
+          thickness: 1,
+          indent: 10,
+          endIndent: 10,
+          color: AppColors.border,
+        );
+    Widget arrow(
+            String tooltip,
+            IconData icon,
+            int page,
+            bool enabled,
+            VoidCallback? Function(
+                    ({VoidCallback? previous, VoidCallback? next}))
+                linked) =>
         IconButton(
           tooltip: tooltip,
-          onPressed: enabled && select != null ? () => select(page) : null,
+          onPressed: select == null
+              ? null
+              : arrows != null
+                  ? linked(arrows!)
+                  : enabled
+                      ? () => select(page)
+                      : null,
           icon: Icon(icon),
           constraints: const BoxConstraints(minWidth: 48, minHeight: 44),
         );
@@ -48,7 +67,8 @@ class ForumPager extends StatelessWidget {
           child: IntrinsicHeight(
             child: Row(
               children: [
-                arrow('上一页', Icons.chevron_left, current - 1, current > 1),
+                arrow('上一页', Icons.chevron_left, current - 1, current > 1,
+                    (a) => a.previous),
                 divider(),
                 Expanded(
                   child: Tooltip(
@@ -101,7 +121,8 @@ class ForumPager extends StatelessWidget {
                   ),
                 ),
                 divider(),
-                arrow('下一页', Icons.chevron_right, current + 1, current < total),
+                arrow('下一页', Icons.chevron_right, current + 1, current < total,
+                    (a) => a.next),
               ],
             ),
           ),
@@ -245,10 +266,10 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
                 // move the tiles to two per row.
                 final label =
                     MediaQuery.textScalerOf(context).scale(12) * longest;
-                final perRow = constraints.maxWidth / count >=
-                        label + 4 * AppSpace.xs
-                    ? count
-                    : 2;
+                final perRow =
+                    constraints.maxWidth / count >= label + 4 * AppSpace.xs
+                        ? count
+                        : 2;
                 return Wrap(
                   children: [
                     for (final (label, icon, onTap) in widget.shortcuts)
@@ -276,9 +297,9 @@ class _PagePickerSheetState extends State<_PagePickerSheet> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final columns = (constraints.maxWidth / _tile).floor().clamp(
-                  1,
-                  12,
-                );
+                      1,
+                      12,
+                    );
                 final row = (widget.current - 1) ~/ columns;
                 return ConstrainedBox(
                   constraints: BoxConstraints(maxHeight: _tile * 4.5),
