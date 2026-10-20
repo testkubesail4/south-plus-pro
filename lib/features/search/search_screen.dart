@@ -9,6 +9,7 @@ import '../../services/forum_request_exception.dart';
 import '../../services/forum_search_preferences.dart';
 import '../../services/search_board_hierarchy.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/forum_pager.dart';
@@ -578,109 +579,121 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final page = _page;
+    // A tab of the shell, or a page opened from a board, thread or link.
+    final pushed = ModalRoute.of(context)?.canPop ?? false;
     return Scaffold(
-      appBar: AppBar(title: const Text('搜索')),
+      appBar: pushed ? AppBar(title: const Text('搜索')) : null,
       body: SafeArea(
         top: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final gutter = appGutter(constraints.maxWidth, AppWidths.list);
-            final form = _editing || _query == null;
-            // The form is a form (720); the summary lines up with results.
-            final top =
-                form ? appGutter(constraints.maxWidth, AppWidths.form) : gutter;
-            return CustomScrollView(
-              controller: _scroll,
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              slivers: [
-                SliverPadding(
-                  padding: EdgeInsets.fromLTRB(top, 12, top, 8),
-                  sliver: SliverToBoxAdapter(
-                    child: form
-                        ? _buildForm(context)
-                        : _SearchSummary(
-                            query: _query!,
-                            filters: _filterSummary(_query),
-                            onEdit: () => setState(() => _editing = true),
-                          ),
+        child: Column(children: [
+          if (!pushed) const AppTabHeader(title: '搜索'),
+          Expanded(child: LayoutBuilder(
+            builder: (context, constraints) {
+              final gutter = appGutter(constraints.maxWidth, AppWidths.list);
+              final form = _editing || _query == null;
+              // The form is a form (720); the summary lines up with results.
+              final top = form
+                  ? appGutter(constraints.maxWidth, AppWidths.form)
+                  : gutter;
+              return CustomScrollView(
+                controller: _scroll,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                slivers: [
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(top, 12, top, 8),
+                    sliver: SliverToBoxAdapter(
+                      child: form
+                          ? _buildForm(context)
+                          : _SearchSummary(
+                              query: _query!,
+                              filters: _filterSummary(_query),
+                              onEdit: () => setState(() => _editing = true),
+                            ),
+                    ),
                   ),
-                ),
-                if (page != null && page.threads.isNotEmpty) ...[
-                  // Blocked authors' results disappear as soon as a rule changes.
-                  ValueListenableBuilder<BlockingRules>(
-                    valueListenable: widget.repository.blocking.notifier,
-                    builder: (context, rules, _) {
-                      final shown = [
-                        for (final thread in page.threads)
-                          if (!rules.isThreadBlocked(thread)) thread,
-                      ];
-                      return SliverPadding(
-                        // A fresh list per page, so old row offsets can't shift it.
-                        key: ObjectKey(page),
-                        padding: EdgeInsets.fromLTRB(gutter, 4, gutter, 16),
-                        sliver: SliverMainAxisGroup(
-                          slivers: [
-                            SliverToBoxAdapter(
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-                                child: Text(
-                                  [
-                                    if (page.total != null)
-                                      '共 ${page.total} 条结果',
-                                    '第 ${page.currentPage} 页',
-                                  ].join(' · '),
-                                  style: Theme.of(context).textTheme.bodySmall,
+                  if (page != null && page.threads.isNotEmpty) ...[
+                    // Blocked authors' results disappear as soon as a rule changes.
+                    ValueListenableBuilder<BlockingRules>(
+                      valueListenable: widget.repository.blocking.notifier,
+                      builder: (context, rules, _) {
+                        final shown = [
+                          for (final thread in page.threads)
+                            if (!rules.isThreadBlocked(thread)) thread,
+                        ];
+                        return SliverPadding(
+                          // A fresh list per page, so old row offsets can't shift it.
+                          key: ObjectKey(page),
+                          padding: EdgeInsets.fromLTRB(gutter, 4, gutter, 16),
+                          sliver: SliverMainAxisGroup(
+                            slivers: [
+                              SliverToBoxAdapter(
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                                  child: Text(
+                                    [
+                                      if (page.total != null)
+                                        '共 ${page.total} 条结果',
+                                      '第 ${page.currentPage} 页',
+                                    ].join(' · '),
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
                                 ),
                               ),
-                            ),
-                            DecoratedSliver(
-                              decoration: appSurface(context),
-                              sliver: SliverList.separated(
-                                itemCount: shown.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(indent: AppSpace.lg),
-                                itemBuilder: (context, index) => ForumThreadRow(
-                                  title: shown[index].title,
-                                  titleStyle: shown[index].titleStyle,
-                                  // Board first: results span boards.
-                                  meta: [
-                                    if (shown[index].section.isNotEmpty)
-                                      shown[index].section,
-                                    if (shown[index].author case final author?)
-                                      author,
-                                    if (shown[index].lastPost case final last?)
-                                      last,
-                                    '${shown[index].replies} 回复',
-                                  ],
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => ThreadDetailScreen(
-                                        thread: shown[index],
-                                        repository: widget.repository,
+                              DecoratedSliver(
+                                decoration: appSurface(context),
+                                sliver: SliverList.separated(
+                                  itemCount: shown.length,
+                                  separatorBuilder: (_, __) =>
+                                      const Divider(indent: AppSpace.lg),
+                                  itemBuilder: (context, index) =>
+                                      ForumThreadRow(
+                                    title: shown[index].title,
+                                    titleStyle: shown[index].titleStyle,
+                                    // Board first: results span boards.
+                                    meta: [
+                                      if (shown[index].section.isNotEmpty)
+                                        shown[index].section,
+                                      if (shown[index].author
+                                          case final author?)
+                                        author,
+                                      if (shown[index].lastPost
+                                          case final last?)
+                                        last,
+                                      '${shown[index].replies} 回复',
+                                    ],
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => ThreadDetailScreen(
+                                          thread: shown[index],
+                                          repository: widget.repository,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                  SliverPadding(
-                    padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 24),
-                    sliver: SliverToBoxAdapter(child: _buildPager(page)),
-                  ),
-                ] else
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: _buildStatus(),
-                  ),
-              ],
-            );
-          },
-        ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 24),
+                      sliver: SliverToBoxAdapter(child: _buildPager(page)),
+                    ),
+                  ] else
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: _buildStatus(),
+                    ),
+                ],
+              );
+            },
+          )),
+        ]),
       ),
     );
   }

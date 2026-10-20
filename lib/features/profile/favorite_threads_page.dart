@@ -9,6 +9,7 @@ import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
+import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/leave_watch.dart';
@@ -618,16 +619,18 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
   @override
   Widget build(BuildContext context) {
     if (!widget.repository.isLoggedIn) {
-      return SafeArea(
-        bottom: false,
-        child: LoginPrompt(
-          icon: Icons.star_outline,
-          title: '收藏',
-          message: '登录后，在帖子里收藏的主题会集中在这里。',
-          onLogin:
-              widget.onLoginTap ?? () => openLogin(context, widget.repository),
+      return Column(children: [
+        const AppTabHeader(title: '收藏'),
+        Expanded(
+          child: LoginPrompt(
+            icon: Icons.star_outline,
+            title: '收藏',
+            message: '登录后，在帖子里收藏的主题会集中在这里。',
+            onLogin: widget.onLoginTap ??
+                () => openLogin(context, widget.repository),
+          ),
         ),
-      );
+      ]);
     }
     final data = _data;
     final items = data?.items ?? const <FavoriteCollectionEntry>[];
@@ -749,6 +752,33 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
         bottom: false,
         child: Column(
           children: [
+            _Header(
+              // Scan rows are no page's: no count, no 选择.
+              count: data == null || _loading || _error != null || scan != null
+                  ? null
+                  : items.length,
+              page: data == null ? null : _pageNote(data),
+              selecting: _selecting,
+              selected: _selected.length,
+              allSelected: allChosen,
+              // Scan rows only open threads.
+              canSelect:
+                  data != null && shown.isNotEmpty && !_locked && scan == null,
+              filtered: keyword.isNotEmpty,
+              onSearch: data == null || _searchOpen
+                  ? null
+                  : () => setState(() => _searchOpen = true),
+              onStart: _startSelecting,
+              // Only the rows the search shows.
+              onAll: () => setState(() {
+                if (allChosen) {
+                  _selected.clear();
+                } else {
+                  _selected.addAll(shownIds);
+                }
+              }),
+              onExit: _stopSelecting,
+            ),
             Expanded(
               child: RefreshIndicator(
                 color: AppColors.brand,
@@ -758,40 +788,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                     final side =
                         appGutter(constraints.maxWidth, AppWidths.list);
                     return ListView(
-                      padding: EdgeInsets.fromLTRB(side, 8, side, 32),
+                      padding: EdgeInsets.fromLTRB(side, 0, side, 32),
                       children: [
-                        _Header(
-                          // Scan rows are no page's: no count, no 选择.
-                          count: data == null ||
-                                  _loading ||
-                                  _error != null ||
-                                  scan != null
-                              ? null
-                              : items.length,
-                          page: data == null ? null : _pageNote(data),
-                          selecting: _selecting,
-                          selected: _selected.length,
-                          allSelected: allChosen,
-                          // Scan rows only open threads.
-                          canSelect: data != null &&
-                              shown.isNotEmpty &&
-                              !_locked &&
-                              scan == null,
-                          filtered: keyword.isNotEmpty,
-                          onSearch: data == null || _searchOpen
-                              ? null
-                              : () => setState(() => _searchOpen = true),
-                          onStart: _startSelecting,
-                          // Only the rows the search shows.
-                          onAll: () => setState(() {
-                            if (allChosen) {
-                              _selected.clear();
-                            } else {
-                              _selected.addAll(shownIds);
-                            }
-                          }),
-                          onExit: _stopSelecting,
-                        ),
                         if (_busy) const LinearProgressIndicator(minHeight: 2),
                         if (_unconfirmed case final text?)
                           _Notice(text: text, onRefresh: _refresh),
@@ -983,64 +981,49 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 48),
-      child: selecting
-          ? Row(
-              children: [
-                IconButton(
-                  key: const ValueKey('favorite-select-exit'),
-                  tooltip: '完成',
-                  icon: const Icon(Icons.close),
-                  onPressed: onExit,
-                ),
-                Expanded(
-                  child: Semantics(
-                    liveRegion: true,
-                    child: Text('已选 $selected 个',
-                        style: theme.textTheme.titleMedium),
-                  ),
-                ),
-                TextButton(
-                  key: const ValueKey('favorite-select-all'),
-                  onPressed: onAll,
-                  child: Text(allSelected
-                      ? '取消全选'
-                      : filtered
-                          ? '全选结果'
-                          : '全选已加载'),
-                ),
-              ],
-            )
-          // Centred, not on one baseline: the search icon's glyph would sit on
-          // it, and a wrapped count would pull the title away from the buttons.
-          : Row(
-              children: [
-                Text('收藏', style: theme.textTheme.headlineSmall),
-                if (count != null && (count! > 0 || page != null)) ...[
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                        '已加载 $count 个主题${page == null ? '' : ' · $page'}',
-                        style: theme.textTheme.bodySmall),
-                  ),
-                  if (onSearch != null)
-                    IconButton(
-                      key: const ValueKey('favorite-search'),
-                      tooltip: '搜索收藏',
-                      onPressed: onSearch,
-                      icon: const Icon(Icons.search),
-                    ),
-                  if (count! > 0)
-                    TextButton(
-                      key: const ValueKey('favorite-select-start'),
-                      onPressed: canSelect ? onStart : null,
-                      child: const Text('选择'),
-                    ),
-                ],
-              ],
-            ),
+    if (selecting) {
+      return AppTabHeader(
+        title: '已选 $selected 个',
+        liveRegion: true,
+        leading: IconButton(
+          key: const ValueKey('favorite-select-exit'),
+          tooltip: '完成',
+          icon: const Icon(Icons.close),
+          onPressed: onExit,
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('favorite-select-all'),
+            onPressed: onAll,
+            child: Text(allSelected
+                ? '取消全选'
+                : filtered
+                    ? '全选结果'
+                    : '全选已加载'),
+          ),
+        ],
+      );
+    }
+    final shown = count != null && (count! > 0 || page != null);
+    return AppTabHeader(
+      title: '收藏',
+      subtitle:
+          shown ? '已加载 $count 个主题${page == null ? '' : ' · $page'}' : null,
+      actions: [
+        if (shown && onSearch != null)
+          IconButton(
+            key: const ValueKey('favorite-search'),
+            tooltip: '搜索收藏',
+            onPressed: onSearch,
+            icon: const Icon(Icons.search),
+          ),
+        if (shown && count! > 0)
+          TextButton(
+            key: const ValueKey('favorite-select-start'),
+            onPressed: canSelect ? onStart : null,
+            child: const Text('选择'),
+          ),
+      ],
     );
   }
 }

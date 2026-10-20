@@ -16,6 +16,7 @@ import '../../services/home_reading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
+import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/brand_mark.dart';
 import '../common/thread_row.dart';
@@ -146,13 +147,18 @@ class _HomeShellState extends State<HomeShell> {
                     () => _repository.isLoggedIn
                         ? MessagesScreen(repository: _repository)
                         : Scaffold(
-                            appBar: AppBar(title: const Text('消息')),
-                            body: LoginPrompt(
-                              icon: Icons.mail_outline,
-                              title: '消息',
-                              message: '登录后可以查看短消息和回复提醒。',
-                              onLogin: () => openLogin(context, _repository),
-                            ),
+                            body: Column(children: [
+                              const AppTabHeader(title: '消息'),
+                              Expanded(
+                                child: LoginPrompt(
+                                  icon: Icons.mail_outline,
+                                  title: '消息',
+                                  message: '登录后可以查看短消息和回复提醒。',
+                                  onLogin: () =>
+                                      openLogin(context, _repository),
+                                ),
+                              ),
+                            ]),
                           ),
                   ),
                   tab(
@@ -588,136 +594,139 @@ class _ForumHomePageState extends State<ForumHomePage> {
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // A centred column at most _homeMaxWidth wide; phones (< 600)
-            // get a compact header and single-column lists.
-            final width = constraints.maxWidth;
-            final compact = width < 600;
-            final gutter = math.max(
-              compact ? 16.0 : 32.0,
-              (width - _homeMaxWidth) / 2,
-            );
-            final inner = width - 2 * gutter;
-            return RefreshIndicator(
-              color: AppColors.brand,
-              onRefresh: _refresh,
-              child: FutureBuilder<ForumHomeSnapshot>(
-                future: _future,
-                builder: (context, snapshot) {
-                  final data = snapshot.data;
-                  final sections = data?.sections ?? const <ForumSection>[];
-                  final prefs = _prefs.reconcile(sections);
-                  final hiddenSections = sections
-                      .where((s) => prefs.hiddenSectionIds
-                          .contains(prefs.sectionId(s, sections)))
-                      .length;
-                  final hiddenParents = {
-                    for (final s in sections)
-                      for (final b in s.items) _boardFid(b)
-                  }.where((id) => prefs.hiddenParentFids.contains(id)).length;
-                  return ListView(
-                    padding: EdgeInsets.fromLTRB(
-                      gutter,
-                      compact ? 4 : 24,
-                      gutter,
-                      32,
-                    ),
-                    children: [
-                      _HomeHeader(
-                        repository: widget.repository,
-                        onAccountTap: widget.onAccountTap,
+        child: Column(children: [
+          _HomeHeader(
+            repository: widget.repository,
+            onAccountTap: widget.onAccountTap,
+          ),
+          Expanded(child: LayoutBuilder(
+            builder: (context, constraints) {
+              // A centred column at most _homeMaxWidth wide; phones (< 600)
+              // get single-column lists.
+              final width = constraints.maxWidth;
+              final compact = width < 600;
+              final gutter = math.max(
+                compact ? AppSpace.lg : AppSpace.xl,
+                (width - _homeMaxWidth) / 2,
+              );
+              final inner = width - 2 * gutter;
+              return RefreshIndicator(
+                color: AppColors.brand,
+                onRefresh: _refresh,
+                child: FutureBuilder<ForumHomeSnapshot>(
+                  future: _future,
+                  builder: (context, snapshot) {
+                    final data = snapshot.data;
+                    final sections = data?.sections ?? const <ForumSection>[];
+                    final prefs = _prefs.reconcile(sections);
+                    final hiddenSections = sections
+                        .where((s) => prefs.hiddenSectionIds
+                            .contains(prefs.sectionId(s, sections)))
+                        .length;
+                    final hiddenParents = {
+                      for (final s in sections)
+                        for (final b in s.items) _boardFid(b)
+                    }.where((id) => prefs.hiddenParentFids.contains(id)).length;
+                    return ListView(
+                      padding: EdgeInsets.fromLTRB(
+                        gutter,
+                        compact ? AppSpace.sm : AppSpace.xl,
+                        gutter,
+                        32,
                       ),
-                      SizedBox(height: compact ? 16 : 32),
-                      if (snapshot.hasError)
-                        AsyncErrorView(
-                          title: '主页加载失败',
-                          message: '${snapshot.error}',
-                          onRetry: _refresh,
-                        )
-                      else ...[
-                        _SectionHeader(
-                          '速览',
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: '速览设置',
-                                onPressed: data == null || _layoutLocked
-                                    ? null
-                                    : _openQuickSettings,
-                                icon: const Icon(Icons.tune, size: 20),
-                              ),
-                              data == null
-                                  ? _taskButtonPlaceholder()
-                                  : _TaskShortcut(
-                                      repository: widget.repository),
-                            ],
-                          ),
-                        ),
-                        _QuickLists(
-                          // Lazy lists reload with the snapshot they came from.
-                          key: ObjectKey(data),
-                          lists: data?.quickLists,
-                          latest: data?.latest ?? const [],
-                          // Large text gives up the side-by-side lists.
-                          columns: inner >= 840 &&
-                              MediaQuery.textScalerOf(context).scale(1) <= 1.3,
-                          rows: _prefs.quickRowCount,
-                          repository: widget.repository,
-                          onChangeSource: _openQuickSettings,
-                        ),
-                        _HotBoards(
-                          hotBoards: data?.hot,
-                          boneCount: _shape.hot,
-                          onOpen: _openCategory,
-                        ),
-                        _MyBoards(
-                          repository: widget.repository,
-                          recent: _prefs.recentBoards,
-                          hotBoards: data?.hot,
-                          sections: data?.sections,
-                          onOpen: _openCategory,
-                        ),
-                        if (data == null || !_prefsReady)
-                          SizedBox(
-                              height: 120,
-                              child: Center(
-                                  child: _prefsError == null
-                                      ? const Text('版块加载中…')
-                                      : TextButton(
-                                          onPressed: _loadPrefs,
-                                          child: const Text('首页设置加载失败，重试'))))
+                      children: [
+                        if (snapshot.hasError)
+                          AsyncErrorView(
+                            title: '主页加载失败',
+                            message: '${snapshot.error}',
+                            onRetry: _refresh,
+                          )
                         else ...[
-                          for (final section in prefs.orderedSections(sections))
-                            if (!prefs.hiddenSectionIds
-                                .contains(prefs.sectionId(section, sections)))
-                              ..._section(section, sections,
-                                  sections.indexOf(section), inner, prefs),
-                          if (_prefsError != null)
-                            _HomeFootnote(
-                              key: const ValueKey('home-layout-retry'),
-                              text: '首页设置未能读取',
-                              action: '重试',
-                              onAction: _loadPrefs,
-                            )
-                          else if (hiddenSections + hiddenParents > 0)
-                            _HomeFootnote(
-                              key: const ValueKey('home-hidden-summary'),
-                              text:
-                                  _hiddenSummary(hiddenSections, hiddenParents),
-                              action: '管理',
-                              onAction: _openHomeSettings,
+                          _SectionHeader(
+                            '速览',
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: '速览设置',
+                                  onPressed: data == null || _layoutLocked
+                                      ? null
+                                      : _openQuickSettings,
+                                  icon: const Icon(Icons.tune, size: 20),
+                                ),
+                                data == null
+                                    ? _taskButtonPlaceholder()
+                                    : _TaskShortcut(
+                                        repository: widget.repository),
+                              ],
                             ),
+                          ),
+                          _QuickLists(
+                            // Lazy lists reload with the snapshot they came from.
+                            key: ObjectKey(data),
+                            lists: data?.quickLists,
+                            latest: data?.latest ?? const [],
+                            // Large text gives up the side-by-side lists.
+                            columns: inner >= 840 &&
+                                MediaQuery.textScalerOf(context).scale(1) <=
+                                    1.3,
+                            rows: _prefs.quickRowCount,
+                            repository: widget.repository,
+                            onChangeSource: _openQuickSettings,
+                          ),
+                          _HotBoards(
+                            hotBoards: data?.hot,
+                            boneCount: _shape.hot,
+                            onOpen: _openCategory,
+                          ),
+                          _MyBoards(
+                            repository: widget.repository,
+                            recent: _prefs.recentBoards,
+                            hotBoards: data?.hot,
+                            sections: data?.sections,
+                            onOpen: _openCategory,
+                          ),
+                          if (data == null || !_prefsReady)
+                            SizedBox(
+                                height: 120,
+                                child: Center(
+                                    child: _prefsError == null
+                                        ? const Text('版块加载中…')
+                                        : TextButton(
+                                            onPressed: _loadPrefs,
+                                            child: const Text('首页设置加载失败，重试'))))
+                          else ...[
+                            for (final section
+                                in prefs.orderedSections(sections))
+                              if (!prefs.hiddenSectionIds
+                                  .contains(prefs.sectionId(section, sections)))
+                                ..._section(section, sections,
+                                    sections.indexOf(section), inner, prefs),
+                            if (_prefsError != null)
+                              _HomeFootnote(
+                                key: const ValueKey('home-layout-retry'),
+                                text: '首页设置未能读取',
+                                action: '重试',
+                                onAction: _loadPrefs,
+                              )
+                            else if (hiddenSections + hiddenParents > 0)
+                              _HomeFootnote(
+                                key: const ValueKey('home-hidden-summary'),
+                                text: _hiddenSummary(
+                                    hiddenSections, hiddenParents),
+                                action: '管理',
+                                onAction: _openHomeSettings,
+                              ),
+                          ],
                         ],
                       ],
-                    ],
-                  );
-                },
-              ),
-            );
-          },
-        ),
+                    );
+                  },
+                ),
+              );
+            },
+          )),
+        ]),
       ),
     );
   }

@@ -212,64 +212,26 @@ class _HomeHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final nameStyle = Theme.of(context)
-        .textTheme
-        .titleSmall
-        ?.copyWith(fontWeight: FontWeight.w600);
     if (!repository.isLoggedIn) {
-      return ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 56),
-        child: Row(
-          children: [
-            const BrandMark(size: 32),
-            const SizedBox(width: AppSpace.md),
-            Expanded(
-              child: Text(
-                '欢迎来到南+',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: nameStyle,
-              ),
-            ),
-            FilledButton(
-              onPressed: () => openLogin(context, repository),
-              child: const Text('登录'),
-            ),
-          ],
-        ),
-      );
-    }
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 56),
-      child: Row(
-        children: [
-          Expanded(
-            child: ValueListenableBuilder<ForumAccountIdentity?>(
-              valueListenable: repository.accountIdentity,
-              builder: (context, identity, _) => InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: onAccountTap,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 48),
-                  child: Row(
-                    children: [
-                      AccountAvatar(avatarUrl: identity?.avatarUrl, size: 32),
-                      const SizedBox(width: AppSpace.md),
-                      Flexible(
-                        child: Text(
-                          _displayName(repository, identity),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: nameStyle,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+      return AppTabHeader(
+        title: '欢迎来到南+',
+        maxWidth: _homeMaxWidth,
+        leading: const BrandMark(size: 32),
+        actions: [
+          FilledButton(
+            onPressed: () => openLogin(context, repository),
+            child: const Text('登录'),
           ),
         ],
+      );
+    }
+    return ValueListenableBuilder<ForumAccountIdentity?>(
+      valueListenable: repository.accountIdentity,
+      builder: (context, identity, _) => AppTabHeader(
+        title: _displayName(repository, identity),
+        maxWidth: _homeMaxWidth,
+        leading: AccountAvatar(avatarUrl: identity?.avatarUrl, size: 32),
+        onTitleTap: onAccountTap,
       ),
     );
   }

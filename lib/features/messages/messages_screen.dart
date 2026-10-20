@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_tab_header.dart';
 import '../common/content_width.dart';
 import '../profile/forum_preferences_screen.dart';
 import 'pm_box_screen.dart';
@@ -38,23 +39,25 @@ class MessagesScreen extends StatelessWidget {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('消息'),
-          actions: [
-            if (repository.isLoggedIn)
-              IconButton(
-                tooltip: '短消息设置',
-                icon: const Icon(Icons.tune_outlined),
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) =>
-                      ForumPreferencesScreen(repository: repository),
-                )),
-              ),
-          ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(kTextTabBarHeight),
+        body: Column(
+          children: [
+            AppTabHeader(
+              title: '消息',
+              actions: [
+                if (repository.isLoggedIn)
+                  IconButton(
+                    tooltip: '短消息设置',
+                    icon: const Icon(Icons.tune_outlined),
+                    onPressed: () =>
+                        Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) =>
+                          ForumPreferencesScreen(repository: repository),
+                    )),
+                  ),
+              ],
+            ),
             // The tabs line up with the lists below them.
-            child: AppContentWidth(
+            AppContentWidth(
               maxWidth: AppWidths.list,
               child: ValueListenableBuilder<ForumNoticeFlags>(
                 valueListenable: repository.noticeFlags,
@@ -66,13 +69,16 @@ class MessagesScreen extends StatelessWidget {
                 ),
               ),
             ),
-          ),
-        ),
-        body: TabBarView(
-          children: [
-            _KeepAlive(PmBoxScreen(repository: repository, embedded: true)),
-            _KeepAlive(
-              ReplyNoticesScreen(repository: repository, embedded: true),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _KeepAlive(
+                      PmBoxScreen(repository: repository, embedded: true)),
+                  _KeepAlive(
+                    ReplyNoticesScreen(repository: repository, embedded: true),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

@@ -6,6 +6,7 @@ import '../../services/forum_repository.dart';
 import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
+import '../common/app_tab_header.dart';
 import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
@@ -97,149 +98,148 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   Widget build(BuildContext context) {
     final loggedIn = widget.repository.isLoggedIn;
-    final theme = Theme.of(context);
-    return SafeArea(
-      bottom: false,
-      child: LayoutBuilder(
-        builder: (context, constraints) => ListView(
-          padding: EdgeInsets.symmetric(
-            horizontal: appGutter(constraints.maxWidth, AppWidths.form),
-          ).copyWith(top: AppSpace.sm, bottom: AppSpace.xxl),
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Semantics(
-                    header: true,
-                    child: Text('我的', style: theme.textTheme.headlineSmall),
-                  ),
-                ),
-                IconButton(
-                  tooltip: '设置',
-                  onPressed: _openSettings,
-                  icon: const Icon(Icons.settings_outlined),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpace.md),
-            ValueListenableBuilder<ForumAccountIdentity?>(
-              valueListenable: widget.repository.accountIdentity,
-              builder: (context, identity, _) {
-                final name = accountDisplayName(identity);
-                // A nickname is shown first; the system name stays below it.
-                final nicknameShown =
-                    identity != null && name != identity.systemName;
-                return _AccountHeader(
-                  title: !loggedIn
-                      ? '未登录'
-                      : name ?? widget.repository.currentUsername ?? '已登录',
-                  subtitle: !loggedIn
-                      ? '登录后查看主题、回复、收藏和短消息'
-                      : nicknameShown
-                          ? identity.systemName
-                          : null,
-                  avatarUrl: loggedIn ? identity?.avatarUrl : null,
-                  onTap:
-                      loggedIn ? () => _openProfile(UserProfileTab.home) : null,
-                  action: loggedIn
-                      ? null
-                      : FilledButton.icon(
-                          onPressed: () =>
-                              openLogin(context, widget.repository),
-                          icon: const Icon(Icons.login),
-                          label: const Text('登录南+账号'),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(48),
-                          ),
-                        ),
-                );
-              },
-            ),
-            if (loggedIn) ...[
-              const SizedBox(height: AppSpace.xl),
-              AppGroup(
-                children: [
-                  AppRow(
-                    icon: Icons.edit_outlined,
-                    title: const Text('编辑资料'),
-                    onTap: () => _push(AccountProfileEditScreen(
-                        repository: widget.repository)),
-                  ),
-                  AppRow(
-                    icon: Icons.tune_outlined,
-                    title: const Text('论坛偏好'),
-                    subtitle: const Text('短消息黑名单、好友和个人设置'),
-                    onTap: () => _push(
-                        ForumPreferencesScreen(repository: widget.repository)),
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: AppSpace.xl),
-            AppGroup(
-              children: [
-                if (loggedIn) ...[
-                  AppRow(
-                    icon: Icons.article_outlined,
-                    title: const Text('我的主题'),
-                    onTap: () => _openProfile(UserProfileTab.topics),
-                  ),
-                  AppRow(
-                    icon: Icons.forum_outlined,
-                    title: const Text('我的回复'),
-                    onTap: () => _openProfile(UserProfileTab.posts),
-                  ),
-                  AppRow(
-                    icon: Icons.people_outline,
-                    title: const Text('好友'),
-                    onTap: () =>
-                        _push(FriendsScreen(repository: widget.repository)),
-                  ),
-                ],
-                AppRow(
-                  icon: Icons.history_outlined,
-                  title: const Text('浏览历史'),
-                  onTap: () => _push(BrowsingHistoryScreen(
-                    repository: widget.repository,
-                    onBrowseHome: widget.onBrowseHome,
-                  )),
-                ),
-              ],
-            ),
-            if (loggedIn) ...[
-              const SizedBox(height: AppSpace.xl),
-              AppGroup(
-                children: [
-                  AppRow(
-                    icon: Icons.fact_check_outlined,
-                    title: const Text('论坛任务'),
-                    onTap: () =>
-                        _push(ForumTasksScreen(repository: widget.repository)),
-                  ),
-                  AppRow(
-                    icon: Icons.block_outlined,
-                    title: const Text('屏蔽配置'),
-                    onTap: () => _push(
-                        BlockingSettingsScreen(repository: widget.repository)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpace.xl),
-              AppGroup(
-                children: [
-                  AppRow(
-                    icon: Icons.logout,
-                    title: const Text('退出登录'),
-                    destructive: true,
-                    onTap: _logout,
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
+    return Column(children: [
+      AppTabHeader(
+        title: '我的',
+        maxWidth: AppWidths.form,
+        actions: [
+          IconButton(
+            tooltip: '设置',
+            onPressed: _openSettings,
+            icon: const Icon(Icons.settings_outlined),
+          ),
+        ],
       ),
-    );
+      Expanded(
+          child: SafeArea(
+        top: false,
+        bottom: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) => ListView(
+            padding: EdgeInsets.symmetric(
+              horizontal: appGutter(constraints.maxWidth, AppWidths.form),
+            ).copyWith(top: AppSpace.sm, bottom: AppSpace.xxl),
+            children: [
+              ValueListenableBuilder<ForumAccountIdentity?>(
+                valueListenable: widget.repository.accountIdentity,
+                builder: (context, identity, _) {
+                  final name = accountDisplayName(identity);
+                  // A nickname is shown first; the system name stays below it.
+                  final nicknameShown =
+                      identity != null && name != identity.systemName;
+                  return _AccountHeader(
+                    title: !loggedIn
+                        ? '未登录'
+                        : name ?? widget.repository.currentUsername ?? '已登录',
+                    subtitle: !loggedIn
+                        ? '登录后查看主题、回复、收藏和短消息'
+                        : nicknameShown
+                            ? identity.systemName
+                            : null,
+                    avatarUrl: loggedIn ? identity?.avatarUrl : null,
+                    onTap: loggedIn
+                        ? () => _openProfile(UserProfileTab.home)
+                        : null,
+                    action: loggedIn
+                        ? null
+                        : FilledButton.icon(
+                            onPressed: () =>
+                                openLogin(context, widget.repository),
+                            icon: const Icon(Icons.login),
+                            label: const Text('登录南+账号'),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                            ),
+                          ),
+                  );
+                },
+              ),
+              if (loggedIn) ...[
+                const SizedBox(height: AppSpace.xl),
+                AppGroup(
+                  children: [
+                    AppRow(
+                      icon: Icons.edit_outlined,
+                      title: const Text('编辑资料'),
+                      onTap: () => _push(AccountProfileEditScreen(
+                          repository: widget.repository)),
+                    ),
+                    AppRow(
+                      icon: Icons.tune_outlined,
+                      title: const Text('论坛偏好'),
+                      subtitle: const Text('短消息黑名单、好友和个人设置'),
+                      onTap: () => _push(ForumPreferencesScreen(
+                          repository: widget.repository)),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: AppSpace.xl),
+              AppGroup(
+                children: [
+                  if (loggedIn) ...[
+                    AppRow(
+                      icon: Icons.article_outlined,
+                      title: const Text('我的主题'),
+                      onTap: () => _openProfile(UserProfileTab.topics),
+                    ),
+                    AppRow(
+                      icon: Icons.forum_outlined,
+                      title: const Text('我的回复'),
+                      onTap: () => _openProfile(UserProfileTab.posts),
+                    ),
+                    AppRow(
+                      icon: Icons.people_outline,
+                      title: const Text('好友'),
+                      onTap: () =>
+                          _push(FriendsScreen(repository: widget.repository)),
+                    ),
+                  ],
+                  AppRow(
+                    icon: Icons.history_outlined,
+                    title: const Text('浏览历史'),
+                    onTap: () => _push(BrowsingHistoryScreen(
+                      repository: widget.repository,
+                      onBrowseHome: widget.onBrowseHome,
+                    )),
+                  ),
+                ],
+              ),
+              if (loggedIn) ...[
+                const SizedBox(height: AppSpace.xl),
+                AppGroup(
+                  children: [
+                    AppRow(
+                      icon: Icons.fact_check_outlined,
+                      title: const Text('论坛任务'),
+                      onTap: () => _push(
+                          ForumTasksScreen(repository: widget.repository)),
+                    ),
+                    AppRow(
+                      icon: Icons.block_outlined,
+                      title: const Text('屏蔽配置'),
+                      onTap: () => _push(BlockingSettingsScreen(
+                          repository: widget.repository)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpace.xl),
+                AppGroup(
+                  children: [
+                    AppRow(
+                      icon: Icons.logout,
+                      title: const Text('退出登录'),
+                      destructive: true,
+                      onTap: _logout,
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      )),
+    ]);
   }
 }
 

@@ -420,7 +420,8 @@ class AppTheme {
         backgroundColor: colors.background,
         surfaceTintColor: Colors.transparent,
         foregroundColor: colors.text,
-        titleTextStyle: textTheme.titleMedium,
+        // One page-title size app-wide, the same as the top-level tabs.
+        titleTextStyle: textTheme.titleLarge,
       ),
       badgeTheme: const BadgeThemeData(
         backgroundColor: AppColors.noticeDot,
