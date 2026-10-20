@@ -10,7 +10,7 @@ import '../../services/forum_repository.dart';
 import '../../services/forum_text_size_settings.dart';
 import '../../services/home_reading_preferences.dart';
 import '../../services/image_loading_settings.dart';
-import '../../services/thread_paging_settings.dart';
+import '../../services/loading_preferences.dart';
 import '../../services/update_checker.dart';
 import '../../theme/app_theme.dart';
 import '../common/cached_forum_image.dart';
@@ -53,7 +53,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    ThreadPagingSettings.load().ignore();
     HomeReadingPreferences.revision.addListener(_reloadHomeReading);
     widget.repository.sessionEpoch.addListener(_scopeChanged);
     widget.repository.sessionUser.addListener(_scopeChanged);
@@ -88,17 +87,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _openLocalAnnotations() {
     final page = LocalUserAnnotationsScreen(repository: widget.repository);
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
-  }
-
-  Future<void> _setAutoLoad(bool enabled) async {
-    try {
-      await ThreadPagingSettings.save(enabled);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
-    }
   }
 
   Future<HomeReadingPreferences> _loadHomeReading() =>
@@ -332,16 +320,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 AppGroup(
                   label: '阅读',
                   children: [
-                    ValueListenableBuilder<bool>(
-                      valueListenable: ThreadPagingSettings.notifier,
-                      builder: (context, autoLoad, _) => MergeSemantics(
-                        child: AppRow(
-                          icon: Icons.vertical_align_bottom_outlined,
-                          title: const Text('自动加载下一页'),
-                          subtitle: const Text('滑到页尾时接上下一页'),
-                          onTap: () => _setAutoLoad(!autoLoad),
-                          trailing:
-                              Switch(value: autoLoad, onChanged: _setAutoLoad),
+                    AppRow(
+                      icon: Icons.vertical_align_bottom_outlined,
+                      title: const Text('加载与分页'),
+                      subtitle: const Text('帖子、版块、搜索等列表各自翻页或接续'),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const LoadingSettingsScreen(),
                         ),
                       ),
                     ),
@@ -496,12 +481,124 @@ String _formatReleaseDate(DateTime dateTime) {
       '${twoDigits(local.hour)}:${twoDigits(local.minute)}';
 }
 
+/// 加载与分页: for each list that pages, whether the next page waits for a
+/// tap or follows on by itself.
+class LoadingSettingsScreen extends StatefulWidget {
+  const LoadingSettingsScreen({super.key});
+
+  @override
+  State<LoadingSettingsScreen> createState() => _LoadingSettingsScreenState();
+}
+
+class _LoadingSettingsScreenState extends State<LoadingSettingsScreen> {
+  late Future<void> _read = _load();
+
+  static const _domains = {
+    LoadingDomain.thread: ('帖子楼层', Icons.forum_outlined, null),
+    LoadingDomain.board: ('版块主题列表', Icons.view_list_outlined, null),
+    LoadingDomain.search: ('搜索结果', Icons.search, null),
+    LoadingDomain.favorites: ('收藏夹', Icons.star_outline, null),
+    LoadingDomain.userContent: (
+      '用户主页的主题、回复与收藏',
+      Icons.person_outline,
+      '手动时点按「加载更多」接在后面',
+    ),
+    LoadingDomain.pm: ('短消息与对话', Icons.mail_outline, null),
+    LoadingDomain.friends: ('好友列表', Icons.people_outline, null),
+    LoadingDomain.avatars: ('系统头像', Icons.face_outlined, null),
+  };
+
+  static Future<void> _load() async {
+    if (!LoadingPreferences.isReady) await LoadingPreferences.load();
+  }
+
+  Future<void> _save(LoadingDomain domain, LoadingMode mode) async {
+    try {
+      await LoadingPreferences.save(domain, mode);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('无法保存加载设置')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('加载与分页')),
+      body: FutureBuilder<void>(
+        future: _read,
+        builder: (context, snapshot) {
+          final failed = snapshot.hasError;
+          // Unread choices are not shown or saved over: the lists behave
+          // as 手动翻页 until a read succeeds.
+          final ready =
+              snapshot.connectionState == ConnectionState.done && !failed;
+          return ValueListenableBuilder<Map<LoadingDomain, LoadingMode>>(
+            valueListenable: LoadingPreferences.notifier,
+            builder: (context, modes, _) => ListView(
+              padding: EdgeInsets.symmetric(
+                horizontal:
+                    appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
+                vertical: AppSpace.md,
+              ),
+              children: [
+                if (failed)
+                  AppGroup(children: [
+                    AppRow(
+                      icon: Icons.error_outline,
+                      title: const Text('加载设置读取失败'),
+                      subtitle: const Text('读取成功前，所有列表都手动翻页'),
+                      trailing: TextButton(
+                        onPressed: () => setState(() => _read = _load()),
+                        child: const Text('重试'),
+                      ),
+                    ),
+                  ]),
+                if (failed) const SizedBox(height: AppSpace.xl),
+                AppGroup(
+                  description: '手动翻页：只在点按时加载下一页。'
+                      '自动接续：滑到底部时自动接上下一页。',
+                  children: [
+                    for (final MapEntry(key: domain, value: (title, icon, note))
+                        in _domains.entries)
+                      _SegmentRow<LoadingMode>(
+                        key: ValueKey('loading-${domain.name}'),
+                        icon: icon,
+                        title: title,
+                        subtitle: note,
+                        value: modes[domain]!,
+                        options: const {
+                          LoadingMode.manual: '手动翻页',
+                          LoadingMode.continuous: '自动接续',
+                        },
+                        onChanged: ready ? (mode) => _save(domain, mode) : null,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpace.md),
+                Text(
+                  '浏览历史、回复提醒和速览一次显示全部内容，不分页。',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// A setting with a few short choices: the title row, then a full-width
-/// segmented control (DESIGN.md §7).
+/// segmented control (DESIGN.md §7). A null [onChanged] disables it.
 class _SegmentRow<T> extends StatelessWidget {
   const _SegmentRow({
+    super.key,
     required this.icon,
     required this.title,
+    this.subtitle,
     required this.value,
     required this.options,
     required this.onChanged,
@@ -509,9 +606,10 @@ class _SegmentRow<T> extends StatelessWidget {
 
   final IconData icon;
   final String title;
+  final String? subtitle;
   final T value;
   final Map<T, String> options;
-  final ValueChanged<T> onChanged;
+  final ValueChanged<T>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -530,6 +628,12 @@ class _SegmentRow<T> extends StatelessWidget {
               ),
             ],
           ),
+          if (subtitle != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 22 + AppSpace.lg),
+              child:
+                  Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+            ),
           const SizedBox(height: AppSpace.md),
           SegmentedButton<T>(
             showSelectedIcon: false,
@@ -538,7 +642,9 @@ class _SegmentRow<T> extends StatelessWidget {
                 ButtonSegment(value: key, label: Text(label)),
             ],
             selected: {value},
-            onSelectionChanged: (selection) => onChanged(selection.single),
+            onSelectionChanged: onChanged == null
+                ? null
+                : (selection) => onChanged!(selection.single),
           ),
         ],
       ),

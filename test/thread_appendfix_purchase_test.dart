@@ -8,7 +8,7 @@ import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_sale_box_view.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
-import 'package:south_plus_rewrite/services/thread_paging_settings.dart';
+import 'package:south_plus_rewrite/services/loading_preferences.dart';
 
 // Synthetic fixtures only: fictional tid, uids and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
@@ -147,7 +147,10 @@ class _Repo extends ForumRepository {
 }
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await LoadingPreferences.load();
+  });
 
   Future<void> pumpThread(WidgetTester tester, _Repo repo) async {
     tester.view.physicalSize = const Size(400, 800);
@@ -287,10 +290,10 @@ void main() {
 
   testWidgets('a box on an appended page refreshes that page, not page 1',
       (tester) async {
-    await ThreadPagingSettings.save(true);
+    await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.continuous);
     final repo = _Repo(boxOnPage2: true)..buyThrows = true;
     await pumpThread(tester, repo);
-    // 自动加载下一页 appends page 2 by itself near the end of page 1.
+    // 自动接续 appends page 2 by itself near the end of page 1.
     await tester.drag(find.byType(ListView).first, const Offset(0, -20000));
     await tester.pumpAndSettle();
     expect(repo.pages, [1, 2]);

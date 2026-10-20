@@ -7,14 +7,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
-import 'package:south_plus_rewrite/services/thread_paging_settings.dart';
+import 'package:south_plus_rewrite/services/loading_preferences.dart';
 
 // Synthetic fixtures only: fictional host, tid, pids and authors.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
 const _thread = ForumThread(title: 'nav', url: _url, replies: 0, section: '');
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await LoadingPreferences.load();
+  });
 
   Future<_FakeRepository> pumpThread(
     WidgetTester tester, {
@@ -26,7 +29,9 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     repository ??= _FakeRepository();
-    if (autoLoad) await ThreadPagingSettings.save(true);
+    if (autoLoad)
+      await LoadingPreferences.save(
+          LoadingDomain.thread, LoadingMode.continuous);
     await tester.pumpWidget(MaterialApp(
       home: ThreadDetailScreen(
         repository: repository,

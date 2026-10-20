@@ -21,7 +21,7 @@ import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
 import '../../services/full_scan.dart';
 import '../../services/thread_search.dart';
-import '../../services/thread_paging_settings.dart';
+import '../../services/loading_preferences.dart';
 import '../../services/thread_share_service.dart';
 import '../../theme/app_theme.dart';
 import '../board/board_thread_list_screen.dart';
@@ -30,6 +30,7 @@ import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
 import '../common/forum_pager.dart';
+import '../common/page_end.dart';
 import '../common/thread_row.dart' show AppTag;
 import '../common/user_note.dart';
 import '../common/user_tags_inline.dart';
@@ -138,7 +139,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     super.initState();
     _thread = widget.thread;
     _pendingAnchor = _fragmentOf(widget.thread.url);
-    ThreadPagingSettings.notifier.addListener(_onPagingSettingChanged);
+    LoadingPreferences.notifier.addListener(_onPagingSettingChanged);
     widget.repository.blocking.notifier.addListener(_onBlockingChanged);
     widget.repository.sessionEpoch.addListener(_onSessionChanged);
     _notes.addListener(_onNotesChanged);
@@ -150,10 +151,12 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   /// A plain thread link resumes where the reader stopped last time; links
   /// to a page or floor open exactly what they point to.
   Future<void> _openAtSavedPosition() async {
-    try {
-      await ThreadPagingSettings.load();
-    } catch (_) {
-      ThreadPagingSettings.notifier.value = false;
+    if (!LoadingPreferences.isReady) {
+      try {
+        await LoadingPreferences.load();
+      } catch (_) {
+        // Unread, the thread pages by hand.
+      }
     }
     if (!mounted) return;
     final page = _explicitPage.firstMatch(widget.thread.url)?.group(1);
@@ -364,7 +367,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _morePages.isEmpty ? _detail : _morePages.last;
 
   void _maybeLoadMore() {
-    if (!ThreadPagingSettings.notifier.value) return;
+    if (!_autoLoadNextPage) return;
     final last = _lastLoaded;
     if (last == null ||
         _loading ||
@@ -740,7 +743,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       if (_autoLoadNextPage && last.pagination.totalPages > 1)
         ThreadDetailLoadMoreEntry(
           key: const ValueKey('thread-load-more'),
-          hasMore: last.pagination.hasNext,
+          next:
+              last.pagination.hasNext ? last.pagination.currentPage + 1 : null,
           loading: _loadingMore,
           failed: _loadMoreFailed,
         ),
@@ -767,7 +771,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
 
   @override
   void dispose() {
-    ThreadPagingSettings.notifier.removeListener(_onPagingSettingChanged);
+    LoadingPreferences.notifier.removeListener(_onPagingSettingChanged);
     widget.repository.blocking.notifier.removeListener(_onBlockingChanged);
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
     _notes.removeListener(_onNotesChanged);
@@ -997,7 +1001,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _openComposer();
   }
 
-  bool get _autoLoadNextPage => ThreadPagingSettings.notifier.value;
+  bool get _autoLoadNextPage =>
+      LoadingPreferences.modeFor(LoadingDomain.thread) ==
+      LoadingMode.continuous;
 
   // Reveal choices belong to the account that made them.
   void _onSessionChanged() {
@@ -2362,53 +2368,16 @@ class _ThreadDetailContent extends StatelessWidget {
         );
       case ThreadDetailListEntryType.pageDivider:
         final page = (entry as ThreadDetailPageDividerEntry).page;
-        return _entryWithKey(
-          key: entry.key,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              children: [
-                const Expanded(child: Divider()),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    '第 $page 页',
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                ),
-                const Expanded(child: Divider()),
-              ],
-            ),
-          ),
-        );
+        return _entryWithKey(key: entry.key, child: PageBoundary(page: page));
       case ThreadDetailListEntryType.loadMore:
         final state = entry as ThreadDetailLoadMoreEntry;
         return _entryWithKey(
           key: entry.key,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Center(
-              child: state.failed
-                  ? TextButton.icon(
-                      onPressed: onRetryLoadMore,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('下一页加载失败，点按重试'),
-                    )
-                  : state.loading
-                      ? const SizedBox.square(
-                          dimension: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : state.hasMore
-                          ? TextButton(
-                              onPressed: onRetryLoadMore,
-                              child: const Text('加载下一页'),
-                            )
-                          : Text(
-                              '已到最后一页',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-            ),
+          child: PageEndFooter(
+            next: state.next,
+            onNext: onRetryLoadMore,
+            loading: state.loading,
+            failed: state.failed,
           ),
         );
     }

@@ -9,6 +9,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
+import 'package:south_plus_rewrite/services/loading_preferences.dart';
 
 // Synthetic boards and topics only.
 const _board = ForumCategory(
@@ -134,7 +135,10 @@ Future<int> _count(WidgetTester tester, String text) async {
 }
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await LoadingPreferences.load();
+  });
 
   testWidgets('scrolling to the end appends the next pages in order, once',
       (tester) async {
@@ -185,7 +189,7 @@ void main() {
     await _toBottom(tester);
     await _toBottom(tester);
     expect(_pages(repo), [1, 2, 3]);
-    expect(find.text('加载下一页失败'), findsNothing);
+    expect(find.textContaining('页加载失败'), findsNothing);
     expect(find.text('已到最后一页'), findsOneWidget);
     expect(find.text('第 2 / 2 页'), findsOneWidget);
     await _toBottom(tester);
@@ -197,7 +201,7 @@ void main() {
     final repo = _Repo()..failing.add(2);
     await _pump(tester, repo);
     await _toBottom(tester);
-    expect(find.text('加载下一页失败'), findsOneWidget);
+    expect(find.textContaining('页加载失败'), findsOneWidget);
     expect(await _count(tester, 'lastPost p1 t0'), 1,
         reason: 'the loaded page stays; no full-page error');
     await _toBottom(tester);
@@ -207,7 +211,7 @@ void main() {
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
     expect(_pages(repo), [1, 2, 2]);
-    expect(find.text('加载下一页失败'), findsNothing);
+    expect(find.textContaining('页加载失败'), findsNothing);
     expect(await _count(tester, 'lastPost p2 t0'), 1);
   });
 

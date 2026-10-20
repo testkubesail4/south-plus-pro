@@ -6,7 +6,7 @@ import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_floor_actions.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
-import 'package:south_plus_rewrite/services/thread_paging_settings.dart';
+import 'package:south_plus_rewrite/services/loading_preferences.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic fixtures only: fictional host, tid and authors.
@@ -15,7 +15,10 @@ const _thread =
     ForumThread(title: 'paging', url: _url, replies: 0, section: '');
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await LoadingPreferences.load();
+  });
 
   Future<_Repository> pumpThread(
     WidgetTester tester, {
@@ -91,21 +94,21 @@ void main() {
     expect(find.text('reply 1', findRichText: true), findsNothing);
   });
 
-  testWidgets('with 自动加载下一页 on, the end offers loading more instead',
+  testWidgets('with 自动接续 on, the end offers loading more instead',
       (tester) async {
-    await ThreadPagingSettings.save(true);
+    await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.continuous);
     await pumpThread(tester);
     await jumpToEnd(tester);
 
     expect(find.byKey(const ValueKey('thread-next-page')), findsNothing);
-    expect(find.text('加载下一页'), findsOneWidget);
+    expect(find.text('加载第 2 页'), findsOneWidget);
 
     // Turning it off in 设置 restores explicit paging on the open thread.
-    await ThreadPagingSettings.save(false);
+    await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.manual);
     await tester.pumpAndSettle();
     await jumpToEnd(tester);
     expect(find.byKey(const ValueKey('thread-next-page')), findsOneWidget);
-    expect(find.text('加载下一页'), findsNothing);
+    expect(find.text('加载第 2 页'), findsNothing);
   });
 
   testWidgets('the page picker opens the chosen page', (tester) async {

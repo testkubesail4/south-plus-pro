@@ -721,13 +721,14 @@ class ThreadDetailPageDividerEntry extends ThreadDetailListEntry {
 /// The state of loading the next page at the end of the list.
 class ThreadDetailLoadMoreEntry extends ThreadDetailListEntry {
   const ThreadDetailLoadMoreEntry({
-    required this.hasMore,
+    required this.next,
     required this.loading,
     required this.failed,
     Key? key,
   }) : super(ThreadDetailListEntryType.loadMore, key: key);
 
-  final bool hasMore;
+  /// The page after the last one shown; null after the last page.
+  final int? next;
   final bool loading;
   final bool failed;
 }

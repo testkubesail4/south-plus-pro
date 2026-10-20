@@ -8,10 +8,12 @@ import '../../services/forum_blocking_settings.dart';
 import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
 import '../../services/home_reading_preferences.dart';
+import '../../services/loading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/forum_pager.dart';
+import '../common/page_end.dart';
 import '../common/forum_title_text.dart';
 import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
@@ -71,6 +73,9 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   bool _firstDone = false;
   bool _loadingMore = false;
   bool _moreFailed = false;
+  // Pages in a row that added no topic (repeats or blocked authors): after
+  // two, following on waits for a tap instead of asking on and on.
+  int _emptyRun = 0;
   // The storage scope [_collapsedIds] belongs to. A login or forum-origin
   // change while this route is open moves it, and nothing is written to the
   // old scope's successor from stale state.
@@ -84,6 +89,8 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     super.initState();
     _future = _fetchPage(_page);
     _scrollController.addListener(_maybeLoadMore);
+    LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
+    if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
     _sessionSignals.addListener(_onSessionSignal);
     _loadCollapsed(_scope);
   }
@@ -124,9 +131,21 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       RegExp(r'(?:tid[=-]|/t)(\d+)').firstMatch(thread.url)?.group(1) ??
       thread.url;
 
+  /// 自动接续; otherwise (手动翻页, or the setting unread) pages turn by tap.
+  bool get _continuous =>
+      LoadingPreferences.modeFor(LoadingDomain.board) == LoadingMode.continuous;
+
+  // The footer follows the mode; a page already on its way still lands, and
+  // nothing new is asked for until the next scroll.
+  void _onLoadingModeChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _maybeLoadMore() {
     final shown = _shown;
     if (!mounted ||
+        !_continuous ||
+        _emptyRun >= 2 ||
         shown == null ||
         !_firstDone ||
         _loadingMore ||
@@ -179,13 +198,17 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         for (final thread in result.threads)
           if (seen.add(_threadKey(thread))) thread,
       ];
+      final rules = widget.repository.blocking.notifier.value;
+      final added = fresh.any((thread) => !rules.isThreadBlocked(thread));
       setState(() {
         _loadingMore = false;
         _moreTotal = math.max(result.totalPages, result.currentPage);
         _more.add((page: result.currentPage, threads: fresh));
+        _emptyRun = added ? 0 : _emptyRun + 1;
       });
-      // A page of repeats adds no height, so no scroll would ask for more.
-      if (fresh.isEmpty) {
+      // A page that shows nothing adds no height, so no scroll would ask
+      // for more.
+      if (!added) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
       }
     } catch (_) {
@@ -198,7 +221,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   }
 
   void _retryMore() {
-    setState(() => _moreFailed = false);
+    setState(() {
+      _moreFailed = false;
+      _emptyRun = 0;
+    });
     _loadMore();
   }
 
@@ -320,6 +346,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       _moreTotal = null;
       _loadingMore = false;
       _moreFailed = false;
+      _emptyRun = 0;
       _future = _fetchPage(_page);
     });
     await _future;
@@ -456,6 +483,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 
   @override
   void dispose() {
+    LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
     _sessionSignals.removeListener(_onSessionSignal);
     _scrollController.dispose();
     super.dispose();
@@ -670,13 +698,20 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                 padded(_listSliver(items)),
             ]),
           ),
-          if (page != null && items != null && items.isNotEmpty)
+          if (page != null &&
+              items != null &&
+              items.isNotEmpty &&
+              _totalPages > 1)
             padded(SliverToBoxAdapter(
-              child: _BoardMoreFooter(
+              child: PageEndFooter(
+                next: _lastPage < _totalPages ? _lastPage + 1 : null,
+                manual: !_continuous,
                 loading: _loadingMore,
                 failed: _moreFailed,
-                atEnd: _totalPages > 1 && _lastPage >= _totalPages,
-                onRetry: _retryMore,
+                paused: _emptyRun >= 2,
+                // 手动翻页 turns to the next page alone; 自动接续 appends.
+                onNext:
+                    !_continuous ? () => _goToPage(_lastPage + 1) : _retryMore,
               ),
             )),
           if (page != null && _totalPages > 1)
@@ -705,7 +740,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
             thread: thread,
             onTap: () => _openThread(thread),
           ),
-        _BoardPageItem(:final page) => _PageBoundary(page: page),
+        _BoardPageItem(:final page) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: PageBoundary(page: page),
+          ),
       };
 
   List<_BoardListItem> _moreItems(
@@ -760,7 +798,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       if (item is _BoardPageItem) {
         flush();
         onFirstPage = false;
-        slivers.add(SliverToBoxAdapter(child: _PageBoundary(page: item.page)));
+        slivers.add(SliverToBoxAdapter(child: PageBoundary(page: item.page)));
       } else if (item is _BoardThreadItem &&
           !(onFirstPage && item.thread.isSticky)) {
         tiles.add(item.thread);
