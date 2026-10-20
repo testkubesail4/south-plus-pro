@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,9 +8,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
+import 'package:south_plus_rewrite/features/profile/friends_screen.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/features/search/search_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
+import 'package:south_plus_rewrite/models/forum_friend_models.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
@@ -268,6 +271,72 @@ void main() {
     });
   }
 
+  testWidgets('a pending-friends link asks a guest to log in, then opens',
+      (tester) async {
+    const pending =
+        'https://south-plus.net/u.php?action-friend-o-check-fuid-7001.html';
+    final repository = _FakeRepository()..restore.complete(true);
+    await tester
+        .pumpWidget(MaterialApp(home: SessionGate(repository: repository)));
+    await settle(tester);
+
+    await sendLink(tester, 13, pending);
+    expect(find.text('登录后才能打开这个页面'), findsOneWidget);
+    expect(find.byType(FriendsScreen), findsNothing);
+    expect(find.text('暂不支持在应用内打开'), findsNothing);
+    expect(launches, isEmpty);
+
+    repository.signedIn = true;
+    await sendLink(tester, 14, pending);
+    expect(find.byType(FriendsScreen), findsOneWidget);
+    expect(
+        tester.widget<FriendsScreen>(find.byType(FriendsScreen)).initialPending,
+        isTrue);
+  });
+
+  testWidgets("another account's friend page stays closed, never a browser",
+      (tester) async {
+    final repository = _FakeRepository()
+      ..signedIn = true
+      ..restore.complete(true);
+    await tester
+        .pumpWidget(MaterialApp(home: SessionGate(repository: repository)));
+    await settle(tester);
+
+    await sendLink(
+        tester, 15, 'https://south-plus.net/u.php?action-friend-uid-7002.html');
+    expect(find.text('无法确认这是当前账号的页面'), findsOneWidget);
+    expect(find.byType(FriendsScreen), findsNothing);
+    expect(launches, isEmpty);
+  });
+
+  testWidgets('a repeated homepage link reselects home after a tab change',
+      (tester) async {
+    // Phone width: the shell shows its bottom NavigationBar.
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repository = _FakeRepository()..restore.complete(true);
+    await tester
+        .pumpWidget(MaterialApp(home: SessionGate(repository: repository)));
+    await settle(tester);
+    int selected() =>
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex;
+    Future<void> selectAccount() async {
+      await tester.tap(find.descendant(
+          of: find.byType(NavigationBar), matching: find.text('我的')));
+      await settle(tester);
+    }
+
+    await selectAccount();
+    await sendLink(tester, 16, 'https://south-plus.net/index.php');
+    expect(selected(), HomeShell.homeTab);
+    await selectAccount();
+    await sendLink(tester, 17, 'https://south-plus.net/index.php');
+    expect(selected(), HomeShell.homeTab);
+    expect(launches, isEmpty);
+  });
+
   testWidgets('links after dispose are dropped', (tester) async {
     final repository = _FakeRepository()..restore.complete(true);
     await tester
@@ -285,6 +354,18 @@ void main() {
 class _FakeRepository extends ForumRepository {
   final restore = Completer<bool>();
   int searches = 0;
+  bool signedIn = false;
+
+  @override
+  bool get isLoggedIn => signedIn;
+
+  @override
+  ValueListenable<ForumAccountIdentity?> get accountIdentity => ValueNotifier(
+      signedIn ? const ForumAccountIdentity(systemName: 'me', uid: '7000') : null);
+
+  @override
+  Future<ForumFriendPage> fetchFriends({bool pending = false, int page = 1}) =>
+      Completer<ForumFriendPage>().future;
 
   @override
   Future<bool> restoreSession() => restore.future;

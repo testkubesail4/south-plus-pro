@@ -5,7 +5,6 @@ import 'features/common/forum_link_opener.dart';
 import 'features/home/home_shell.dart';
 import 'features/profile/network_setup_flow_screen.dart';
 import 'features/profile/proxy_form.dart';
-import 'features/search/search_screen.dart';
 import 'models/forum_models.dart';
 import 'services/forum_incoming_link_service.dart';
 import 'services/forum_network_config.dart';
@@ -147,34 +146,19 @@ class _SessionGateState extends State<SessionGate> {
   void _openLink(String url) {
     final repository = _readyRepository;
     if (!mounted || repository == null || _alreadyShowing(url)) return;
-    final prefill = repository.searchLinkPrefill(url);
-    if (prefill != null) {
-      final boardId = prefill.boardId;
-      Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => SearchScreen(
-          repository: repository,
-          initialKeyword: prefill.keyword ?? '',
-          initialUsername: prefill.username ?? '',
-          initialBoard: boardId == null || boardId == 'all'
-              ? null
-              : ForumSearchBoard(id: boardId, name: ''),
-        ),
-      ));
-    } else {
-      switch (repository.forumLinkTarget(url)) {
-        case ForumThreadLinkTarget() ||
-              ForumUserLinkTarget() ||
-              ForumBoardLinkTarget():
-          openForumLink(context, repository, url);
-        case ForumPageLinkTarget(:final url):
-          _showRejectedLink(url);
-          return;
-        case ForumExternalLinkTarget() || ForumBlockedLinkTarget():
-          _showRejectedLink(null);
-          return;
-      }
+    if (!forumLinkOpensInApp(repository, url)) {
+      _showRejectedLink(switch (repository.forumLinkTarget(url)) {
+        ForumPageLinkTarget(:final url) => url,
+        _ => null,
+      });
+      return;
     }
-    _rememberTopRoute(url);
+    // Only a pushed page counts as showing the link: after a login notice
+    // the same link must open once signed in, and a shell tab link must
+    // reselect its tab after the user moved on.
+    openForumLink(context, repository, url).then((opened) {
+      if (opened && mounted) _rememberTopRoute(url);
+    });
   }
 
   // Inbound links never go to the browser: it may hand them straight back.

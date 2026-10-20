@@ -15,9 +15,13 @@ class PmBoxScreen extends StatefulWidget {
     super.key,
     required this.repository,
     this.embedded = false,
+    this.initialPath,
   });
 
   final ForumRepository repository;
+
+  /// A native box page (from a forum link) to open on.
+  final String? initialPath;
 
   /// Inside the 消息 tab, which supplies the app bar; 写消息 becomes the FAB.
   final bool embedded;
@@ -29,27 +33,36 @@ class PmBoxScreen extends StatefulWidget {
 class _PmBoxScreenState extends State<PmBoxScreen> {
   ForumPmBox _box = ForumPmBox.inbox;
   String? _pagePath;
-  late Future<ForumPmPage> _future = _fetch();
+  late Future<ForumPmPage> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialPath case final path?) _openPath(path);
+    _future = _fetch();
+  }
 
   Future<ForumPmPage> _fetch() =>
       widget.repository.fetchPmBox(_box, pagePath: _pagePath);
 
-  Future<void> _refresh([ForumPmActionResult? result]) async {
-    final path = result?.refreshPath;
-    if (path != null) {
-      final uri = Uri.parse(path);
-      final action = uri.queryParameters['action'] ??
-          RegExp(r'^action-(receivebox|sendbox|scout)(?:-|\.)')
-              .firstMatch(uri.query)
-              ?.group(1);
-      for (final box in ForumPmBox.values) {
-        if (box.wireName == action) {
-          _box = box;
-          _pagePath = path;
-          break;
-        }
+  /// Moves to the box and page a native box path names, if it names one.
+  void _openPath(String path) {
+    final uri = Uri.parse(path);
+    final action = uri.queryParameters['action'] ??
+        RegExp(r'^action-(receivebox|sendbox|scout)(?:-|\.)')
+            .firstMatch(uri.query)
+            ?.group(1);
+    for (final box in ForumPmBox.values) {
+      if (box.wireName == action) {
+        _box = box;
+        _pagePath = path;
+        break;
       }
     }
+  }
+
+  Future<void> _refresh([ForumPmActionResult? result]) async {
+    if (result?.refreshPath case final path?) _openPath(path);
     setState(() {
       _future = _fetch();
     });

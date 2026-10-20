@@ -17,10 +17,14 @@ class FriendsScreen extends StatefulWidget {
     super.key,
     required this.repository,
     this.initialPending = false,
+    this.initialPage = 1,
   });
 
   final ForumRepository repository;
   final bool initialPending;
+
+  /// The page of the initial list (a forum link can name one).
+  final int initialPage;
 
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
@@ -28,7 +32,10 @@ class FriendsScreen extends StatefulWidget {
 
 class _FriendsScreenState extends State<FriendsScreen> {
   late bool _pending = widget.initialPending;
-  final _pages = {false: 1, true: 1};
+  late final _pages = {
+    false: widget.initialPending ? 1 : widget.initialPage,
+    true: widget.initialPending ? widget.initialPage : 1,
+  };
   late final _futures = {
     false: _fetch(false),
     true: _fetch(true),

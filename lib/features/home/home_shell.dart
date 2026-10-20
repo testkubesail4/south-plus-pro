@@ -32,11 +32,33 @@ import 'quick_list_settings_screen.dart';
 part 'home_board_shortcuts.dart';
 part 'home_widgets.dart';
 
+/// The shell tab a forum link asked for, e.g. the forum homepage; every
+/// request notifies, even for the tab asked for last time.
+class _TabRequests extends ChangeNotifier {
+  int tab = 0;
+
+  void request(int value) {
+    tab = value;
+    notifyListeners();
+  }
+}
+
+final _tabRequests = _TabRequests();
+
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, ForumRepository? repository})
       : repository = repository;
 
   final ForumRepository? repository;
+
+  static const homeTab = 0;
+  static const accountTab = 4;
+
+  /// Returns to the shell and shows [tab], as a link to that page does.
+  static void showTab(BuildContext context, int tab) {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    _tabRequests.request(tab);
+  }
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -59,6 +81,20 @@ class _HomeShellState extends State<HomeShell> {
   void _showHome() {
     Navigator.of(context).popUntil((route) => route.isFirst);
     _select(0);
+  }
+
+  void _onTabRequest() => _select(_tabRequests.tab);
+
+  @override
+  void initState() {
+    super.initState();
+    _tabRequests.addListener(_onTabRequest);
+  }
+
+  @override
+  void dispose() {
+    _tabRequests.removeListener(_onTabRequest);
+    super.dispose();
   }
 
   @override

@@ -60,6 +60,26 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('home and account links select their tab every time',
+      (tester) async {
+    await pumpShell(tester);
+    int selected() =>
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex;
+    Future<void> follow(int tab) async {
+      HomeShell.showTab(tester.element(find.byType(NavigationBar)), tab);
+      await tester.pumpAndSettle();
+    }
+
+    await selectTab(tester, '我的');
+    await follow(HomeShell.homeTab);
+    expect(selected(), HomeShell.homeTab);
+    await follow(HomeShell.accountTab);
+    expect(selected(), HomeShell.accountTab);
+    await selectTab(tester, '首页');
+    await follow(HomeShell.accountTab);
+    expect(selected(), HomeShell.accountTab);
+  });
+
   testWidgets('tabs separate personal content from device settings',
       (tester) async {
     final repository = await pumpShell(tester);

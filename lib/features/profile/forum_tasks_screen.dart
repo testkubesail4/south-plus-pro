@@ -8,7 +8,13 @@ import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 
 class ForumTasksScreen extends StatefulWidget {
-  const ForumTasksScreen({super.key, required this.repository});
+  const ForumTasksScreen({
+    super.key,
+    required this.repository,
+    this.initialStatus = ForumTaskStatus.inProgress,
+  });
+
+  final ForumTaskStatus initialStatus;
 
   final ForumRepository repository;
 
@@ -17,7 +23,7 @@ class ForumTasksScreen extends StatefulWidget {
 }
 
 class _ForumTasksScreenState extends State<ForumTasksScreen> {
-  ForumTaskStatus _status = ForumTaskStatus.inProgress;
+  late ForumTaskStatus _status = widget.initialStatus;
   late Future<List<ForumTask>> _future = _load();
   final Set<String> _runningIds = {};
   var _quickClaiming = false;
