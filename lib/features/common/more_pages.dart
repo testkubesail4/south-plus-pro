@@ -44,6 +44,12 @@ class MorePages<P> {
     emptyRun = 0;
   }
 
+  /// Drops a page still on its way, keeping those shown: a write began.
+  void cancelPending() {
+    _generation++;
+    loading = false;
+  }
+
   String? nextAfter(P first) => nextOf(pages.isEmpty ? first : pages.last);
 
   /// Whether [id] was already shown on an earlier page; marks it shown.

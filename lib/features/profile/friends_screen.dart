@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/forum_friend_models.dart';
 import '../../services/forum_repository.dart';
+import '../../services/loading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
@@ -9,6 +10,8 @@ import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/forum_pager.dart';
 import '../common/grouped_list.dart';
+import '../common/more_pages.dart';
+import '../common/page_end.dart';
 import 'forum_preferences_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -37,6 +40,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
     false: widget.initialPending ? 1 : widget.initialPage,
     true: widget.initialPending ? widget.initialPage : 1,
   };
+  // Each list's first page once read, the pages 自动接续 appended after it,
+  // and its scroll.
+  final _first = <bool, ForumFriendPage?>{false: null, true: null};
+  final _reads = {false: 0, true: 0};
+  late final _more = {
+    for (final pending in [false, true]) pending: _pagesAfter(pending)
+  };
+  final _scrolls = {false: ScrollController(), true: ScrollController()};
   late final _futures = {
     false: _fetch(false),
     true: _fetch(true),
@@ -51,16 +62,64 @@ class _FriendsScreenState extends State<FriendsScreen> {
   void initState() {
     super.initState();
     widget.repository.sessionEpoch.addListener(_onSessionChanged);
+    for (final pending in [false, true]) {
+      _scrolls[pending]!.addListener(() => _maybeLoadMore(pending));
+    }
+    LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
+    if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
   }
 
   @override
   void dispose() {
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
+    LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
+    for (final scroll in _scrolls.values) {
+      scroll.dispose();
+    }
     super.dispose();
   }
 
-  Future<ForumFriendPage> _fetch(bool pending) =>
-      widget.repository.fetchFriends(pending: pending, page: _pages[pending]!);
+  MorePages<ForumFriendPage> _pagesAfter(bool pending) => MorePages(
+        domain: LoadingDomain.friends,
+        fetch: (page) => widget.repository
+            .fetchFriends(pending: pending, page: int.parse(page)),
+        nextOf: (page) =>
+            page.page < page.pageCount ? '${page.page + 1}' : null,
+        idsOf: (page) => [for (final friend in page.items) friend.uid],
+        changed: () {
+          if (mounted) setState(() {});
+        },
+      );
+
+  // Not while a write runs: its reload starts the lists over.
+  void _maybeLoadMore(bool pending) {
+    if (_busy.isEmpty) {
+      _more[pending]!.maybeLoad(_first[pending], _scrolls[pending]!);
+    }
+  }
+
+  // The footer follows the mode; a page already on its way still lands.
+  // 自动接续 starts at the next scroll to the end, never by itself.
+  void _onLoadingModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<ForumFriendPage> _fetch(bool pending) {
+    final read = _reads[pending] = _reads[pending]! + 1;
+    _first[pending] = null;
+    _more[pending]!.reset();
+    return widget.repository
+        .fetchFriends(pending: pending, page: _pages[pending]!)
+        .then((page) {
+      if (mounted && read == _reads[pending]) {
+        _first[pending] = page;
+        // A page too short to scroll reads on by itself.
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _maybeLoadMore(pending));
+      }
+      return page;
+    });
+  }
 
   // No automatic reload: the session may still be switching cookies.
   void _onSessionChanged() {
@@ -69,6 +128,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
       _sessionChanged = true;
       _busy.clear();
       _pages.updateAll((_, __) => 1);
+      for (final more in _more.values) {
+        more.reset();
+      }
     });
   }
 
@@ -95,6 +157,25 @@ class _FriendsScreenState extends State<FriendsScreen> {
     });
   }
 
+  Widget _footer(ForumFriendPage first, MorePages<ForumFriendPage> more) {
+    final last = more.pages.isEmpty ? first : more.pages.last;
+    final next = last.page < last.pageCount ? last.page + 1 : null;
+    return PageEndFooter(
+      next: next,
+      manual: !more.continuous,
+      loading: more.loading,
+      failed: more.error != null,
+      error: more.error,
+      paused: more.paused,
+      // 手动翻页 turns to the next page alone; 自动接续 appends.
+      onNext: next == null
+          ? null
+          : !more.continuous
+              ? () => _openPage(next)
+              : () => more.retry(first, _scrolls[_pending]!),
+    );
+  }
+
   void _toast(String text) => ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(text)));
@@ -108,7 +189,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
     String done,
   ) async {
     if (!_current(epoch) || _sessionChanged) return;
-    setState(() => _busy.add(friend.uid));
+    setState(() {
+      _busy.add(friend.uid);
+      // A page on its way was read before the write: it is not appended.
+      for (final more in _more.values) {
+        more.cancelPending();
+      }
+    });
     try {
       final result = await run();
       if (!_current(epoch)) return;
@@ -288,10 +375,25 @@ class _FriendsScreenState extends State<FriendsScreen> {
                               );
                             }
                             final page = snapshot.data!;
+                            final more = _more[_pending]!;
+                            // Each row once, acted on with the page it came on.
+                            final seen = <String>{};
+                            final pages = [
+                              for (final shown in [page, ...more.pages])
+                                (
+                                  shown,
+                                  [
+                                    for (final friend in shown.items)
+                                      if (!MorePages.repeats(seen, friend.uid))
+                                        friend,
+                                  ]
+                                ),
+                            ];
                             return RefreshIndicator(
                               color: AppColors.brand,
                               onRefresh: _reloadAll,
                               child: ListView(
+                                controller: _scrolls[_pending],
                                 physics: const AlwaysScrollableScrollPhysics(),
                                 padding: const EdgeInsets.only(
                                     top: AppSpace.md, bottom: AppSpace.xxl),
@@ -305,35 +407,50 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                       message:
                                           _pending ? null : '在其他用户的资料页点「加为好友」',
                                     )
-                                  else if (_pending)
-                                    AppGroup(
-                                      description: '仅接受：对方的好友列表加上你，你的列表不加对方。',
-                                      dividerIndent: AppSpace.lg,
-                                      children: [
-                                        for (final friend in page.items)
-                                          _RequestRow(
-                                            friend: friend,
-                                            busy: _busy.contains(friend.uid),
-                                            onOpen: () => _openProfile(friend),
-                                            onRespond: (response) => _respond(
-                                                page, friend, response),
-                                          ),
-                                      ],
-                                    )
                                   else
-                                    AppGroup(
-                                      dividerIndent: 72,
-                                      children: [
-                                        for (final friend in page.items)
-                                          _FriendRow(
-                                            friend: friend,
-                                            busy: _busy.contains(friend.uid),
-                                            onOpen: () => _openProfile(friend),
-                                            onDelete: () =>
-                                                _delete(page, friend),
-                                          ),
-                                      ],
-                                    ),
+                                    for (final (i, (shown, friends))
+                                        in pages.indexed) ...[
+                                      if (i > 0) PageBoundary(page: shown.page),
+                                      if (friends.isEmpty)
+                                        const SizedBox.shrink()
+                                      else if (_pending)
+                                        AppGroup(
+                                          description: i > 0
+                                              ? null
+                                              : '仅接受：对方的好友列表加上你，你的列表不加对方。',
+                                          dividerIndent: AppSpace.lg,
+                                          children: [
+                                            for (final friend in friends)
+                                              _RequestRow(
+                                                friend: friend,
+                                                busy:
+                                                    _busy.contains(friend.uid),
+                                                onOpen: () =>
+                                                    _openProfile(friend),
+                                                onRespond: (response) =>
+                                                    _respond(shown, friend,
+                                                        response),
+                                              ),
+                                          ],
+                                        )
+                                      else
+                                        AppGroup(
+                                          dividerIndent: 72,
+                                          children: [
+                                            for (final friend in friends)
+                                              _FriendRow(
+                                                friend: friend,
+                                                busy:
+                                                    _busy.contains(friend.uid),
+                                                onOpen: () =>
+                                                    _openProfile(friend),
+                                                onDelete: () =>
+                                                    _delete(shown, friend),
+                                              ),
+                                          ],
+                                        ),
+                                    ],
+                                  if (page.pageCount > 1) _footer(page, more),
                                   if (page.pageCount > 1)
                                     Padding(
                                       padding: const EdgeInsets.only(
