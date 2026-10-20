@@ -44,6 +44,7 @@ class _PrivacyRepository extends AppRedesignRepository {
       title: '$owner private title',
       time: '2026-01-01',
       content: '$owner private body',
+      replyPath: 'message.php?action-write-remid-14.html',
     );
   }
 
@@ -189,5 +190,56 @@ void main() {
     } finally {
       semantics.dispose();
     }
+  });
+
+  testWidgets(
+      'nested PM reply revocation preserves the root and an unrelated new-account route',
+      (tester) async {
+    final repository = _PrivacyRepository('fixture-owner-a');
+    await _open(tester, repository, _Surface.detail);
+    await tester.tap(find.text('回复'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PmComposeScreen), findsOneWidget);
+    expect(find.textContaining('fixture-owner-a private body'), findsWidgets);
+    final navigator =
+        tester.state<NavigatorState>(find.byType(Navigator).first);
+    repository.changeOwner('fixture-owner-b');
+    navigator.push(MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: const Text('New account route')),
+        body: const Text('fixture-owner-b unrelated route'),
+      ),
+    ));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('fixture-owner-a', skipOffstage: false),
+        findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.text('fixture-owner-b unrelated route').hitTestable(),
+        findsOneWidget,
+        reason: 'Old scope listeners may only revoke routes they still own');
+    final rootRetained = find
+        .text('Open private surface', skipOffstage: false)
+        .evaluate()
+        .isNotEmpty;
+    debugPrint(
+        'PM_NESTED canReturn=${navigator.canPop()} rootRetained=$rootRetained');
+    expect(rootRetained, isTrue,
+        reason: 'The original root route remains below the new-account route');
+    expect(navigator.canPop(), isTrue,
+        reason:
+            'The unrelated new-account route must still have a safe return');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    // At most the two original private routes can remain as closed notices.
+    for (var remaining = 2; remaining > 0; remaining--) {
+      if (find.text('Open private surface').hitTestable().evaluate().isNotEmpty)
+        break;
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Open private surface').hitTestable(), findsOneWidget,
+        reason: 'Revocation must not pop the root Navigator route');
+    expect(tester.takeException(), isNull);
   });
 }
