@@ -462,9 +462,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                     Padding(
                                       padding: const EdgeInsets.only(
                                           top: AppSpace.md),
+                                      // From the last page shown, appended
+                                      // ones included.
                                       child: ForumPager(
-                                        current: page.page,
-                                        total: page.pageCount,
+                                        current: (more.pages.lastOrNull ?? page)
+                                            .page,
+                                        total: (more.pages.lastOrNull ?? page)
+                                            .pageCount,
                                         onSelected: _openPage,
                                       ),
                                     ),

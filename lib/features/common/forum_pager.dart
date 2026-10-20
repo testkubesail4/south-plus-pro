@@ -82,7 +82,10 @@ class ForumPager extends StatelessWidget {
                                 current: current,
                                 total: total,
                               );
-                              if (page != null && page != current) {
+                              // A pager replaced meanwhile chooses nothing.
+                              if (page != null &&
+                                  page != current &&
+                                  context.mounted) {
                                 select(page);
                               }
                             },

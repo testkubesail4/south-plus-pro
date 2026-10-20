@@ -83,6 +83,24 @@ void main() {
     expect(find.text('Friend 200', skipOffstage: false), findsOneWidget);
   });
 
+  testWidgets('back to 手动翻页, the pager stands on the last page shown',
+      (tester) async {
+    final repo = await pump(tester, LoadingMode.continuous);
+    await toEnd(tester);
+    await toEnd(tester);
+    expect(repo.pages, [1, 2, 3]);
+    await LoadingPreferences.save(LoadingDomain.friends, LoadingMode.manual);
+    await tester.pumpAndSettle();
+    await toEnd(tester);
+    expect(repo.pages, [1, 2, 3]);
+    expect(find.text('第 3 / 3 页'), findsOneWidget);
+    final next = tester.widget<IconButton>(find.ancestor(
+        of: find.byIcon(Icons.chevron_right),
+        matching: find.byType(IconButton)));
+    expect(next.onPressed, isNull);
+    expect(find.text('Friend 100', skipOffstage: false), findsOneWidget);
+  });
+
   testWidgets('自动接续 appends; a row is removed with the page it came on',
       (tester) async {
     final repo = await pump(tester, LoadingMode.continuous);

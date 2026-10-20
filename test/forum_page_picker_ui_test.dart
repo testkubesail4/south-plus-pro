@@ -42,6 +42,31 @@ void main() {
   double top(WidgetTester tester, String label) =>
       tester.getTopLeft(find.text(label)).dy;
 
+  testWidgets('a pager gone while its picker is open chooses nothing',
+      (tester) async {
+    final chosen = <int>[];
+    final show = ValueNotifier(true);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ValueListenableBuilder<bool>(
+          valueListenable: show,
+          builder: (context, shown, _) => shown
+              ? ForumPager(current: 1, total: 5, onSelected: chosen.add)
+              : const SizedBox(),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('第 1 / 5 页'));
+    await tester.pumpAndSettle();
+    // The list behind changes, as on a new session, and takes the pager.
+    show.value = false;
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '2');
+    await tester.tap(find.text('跳转'));
+    await tester.pumpAndSettle();
+    expect(chosen, isEmpty);
+  });
+
   testWidgets('shortcuts share one row and close the sheet when used',
       (tester) async {
     final tapped = await openSheet(tester, 1);
