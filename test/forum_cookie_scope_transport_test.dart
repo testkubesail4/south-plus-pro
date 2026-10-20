@@ -139,21 +139,26 @@ void main() {
   for (final domain in ['other.invalid', 'invalid', '.invalid']) {
     test('origin cannot inject a cookie for Domain=$domain', () async {
       responseCookies = ['session=synthetic-injection; Domain=$domain; Path=/'];
-      await client('forum.fixture.invalid').getOnce('/seed');
-      final restored = client('other.invalid');
+      final origin = client('forum.fixture.invalid');
+      await origin.getOnce('/seed');
       for (final host in ['other.invalid', 'forum.fixture.invalid']) {
-        await restored.getOnce('http://$host/check');
-        expect(requests.last.$3, isNull, reason: host);
+        await origin.getOnce('http://$host/check');
+        expect(requests.last.$3, isNull, reason: 'same client: $host');
       }
+      await client('other.invalid').getOnce('/check');
+      expect(requests.last.$3, isNull, reason: 'reloaded client');
     });
   }
 
   test('custom site cannot plant a cookie on a multi-label public suffix',
       () async {
     responseCookies = ['session=synthetic-suffix; Domain=co.uk; Path=/'];
-    await client('forum.example.co.uk').getOnce('/seed');
+    final origin = client('forum.example.co.uk');
+    await origin.getOnce('/seed');
+    await origin.getOnce('http://other.co.uk/check');
+    expect(requests.last.$3, isNull, reason: 'same client');
     await client('other.co.uk').getOnce('/check');
-    expect(requests.last.$3, isNull);
+    expect(requests.last.$3, isNull, reason: 'reloaded client');
   });
 
   test('malformed attributes cannot downgrade an invalid Domain to a session',
