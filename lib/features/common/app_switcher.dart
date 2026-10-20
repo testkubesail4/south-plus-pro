@@ -8,7 +8,8 @@ import '../../theme/app_theme.dart';
 /// fades, as between loading, content and error.
 ///
 /// The fade is linear so the two together never thin out below the fainter
-/// one. The leaving child cannot be tapped or read out, and a new [scope]
+/// one. The leaving child keeps its state but cannot be tapped, focused,
+/// typed into or read out, and a new [scope]
 /// (e.g. the session epoch) drops it in the same frame: another account's
 /// content never fades out.
 class AppSwitcher extends StatelessWidget {
@@ -28,6 +29,19 @@ class AppSwitcher extends StatelessWidget {
 
   static const double _shift = 24;
 
+  // The same widgets around the child whether it stays or leaves, so leaving
+  // keeps its state (scroll offset, field text) and only switches them on.
+  static Widget _layer(Widget child, {required bool leaving}) => KeyedSubtree(
+        key: child.key,
+        child: IgnorePointer(
+          ignoring: leaving,
+          child: ExcludeSemantics(
+            excluding: leaving,
+            child: ExcludeFocus(excluding: leaving, child: child),
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final current =
@@ -41,9 +55,8 @@ class AppSwitcher extends StatelessWidget {
             fit: StackFit.passthrough,
             alignment: Alignment.topCenter,
             children: [
-              for (final old in previous)
-                IgnorePointer(child: ExcludeSemantics(child: old)),
-              if (current != null) current,
+              for (final old in previous) _layer(old, leaving: true),
+              if (current != null) _layer(current, leaving: false),
             ],
           ),
           transitionBuilder: (child, animation) {

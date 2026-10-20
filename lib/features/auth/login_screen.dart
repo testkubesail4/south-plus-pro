@@ -251,13 +251,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: AppSpace.md),
                   FutureBuilder<LoginChallenge?>(
                     future: _challengeFuture,
-                    // The captcha fades in over the spinner, a new one too.
+                    // The captcha fades in over the spinner. A new one replaces the
+                    // picture in place, so its field keeps focus and keyboard.
                     builder: (context, snapshot) {
                       final challengeLoadError = _challengeLoadError;
                       final failed =
                           challengeLoadError != null && !snapshot.hasData;
                       return AppSwitcher(
-                        id: failed ? 'error' : snapshot.data ?? 'loading',
+                        id: failed
+                            ? 'error'
+                            : snapshot.hasData
+                                ? 'captcha'
+                                : 'loading',
                         child: challengeLoadError != null && !snapshot.hasData
                             ? _ChallengeError(
                                 message: challengeLoadError,

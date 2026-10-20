@@ -38,8 +38,9 @@ void main() {
     expect(b.opacity.value, inExclusiveRange(0, 1));
     // Linear: together never fainter than one whole child.
     expect(a.opacity.value + b.opacity.value, closeTo(1, 0.01));
-    expect(find.bySemanticsLabel('A'), findsNothing);
-    expect(find.bySemanticsLabel('B'), findsOneWidget);
+    // Read from the semantics tree itself.
+    expect(find.semantics.byLabel('A'), findsNothing);
+    expect(find.semantics.byLabel('B'), findsOneWidget);
 
     expect(find.text('A').hitTestable(), findsNothing);
     await tester.tap(find.text('B'));
@@ -93,5 +94,35 @@ void main() {
     expect(opacity(), inExclusiveRange(0.65, 1));
     await tester.pumpAndSettle();
     expect(opacity(), 1);
+  });
+
+  testWidgets('the leaving child keeps its text but loses focus and keys',
+      (tester) async {
+    Widget app(String shown) => MaterialApp(
+          home: Scaffold(
+            body: AppSwitcher(
+              id: shown,
+              child: shown == 'A'
+                  ? const TextField(autofocus: true)
+                  : const Text('B'),
+            ),
+          ),
+        );
+    await tester.pumpWidget(app('A'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'typed');
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    await tester.pumpWidget(app('B'));
+    await tester.pump(const Duration(milliseconds: 80));
+    // Still shown as it was while it fades, but no longer typed into.
+    expect(find.text('typed'), findsOneWidget);
+    expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isFalse);
+    expect(tester.testTextInput.isVisible, isFalse);
   });
 }

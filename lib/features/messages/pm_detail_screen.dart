@@ -359,16 +359,20 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
         top: false,
         child: FutureBuilder<ForumPmChatlog>(
           future: _future,
-          // The records fade in over their skeleton; another account's are
-          // dropped at once.
+          // The records fade in over their skeleton, and another page over
+          // the skeleton again; another account's are dropped at once.
           builder: (context, snapshot) => AppSwitcher(
-            id: snapshot.hasError
-                ? 'error'
-                : snapshot.hasData
-                    ? 'records'
-                    : 'loading',
+            id: snapshot.connectionState != ConnectionState.done
+                ? 'loading'
+                : snapshot.hasError
+                    ? 'error'
+                    : snapshot.data,
             scope: widget.repository.sessionEpoch.value,
-            child: Builder(builder: (context) {
+            // Built now: a leaving page keeps what it showed.
+            child: (() {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const ThreadDetailSkeleton();
+              }
               if (snapshot.hasError) {
                 return AsyncErrorView(
                   title: '通信记录加载失败',
@@ -452,7 +456,7 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
                     ),
                 ],
               );
-            }),
+            })(),
           ),
         ),
       ),

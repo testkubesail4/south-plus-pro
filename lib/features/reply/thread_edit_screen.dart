@@ -4,8 +4,10 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
+import '../common/session_bound.dart';
 import '../editor/windcode_preview.dart';
 import '../editor/windcode_toolbar.dart';
 
@@ -15,7 +17,7 @@ import '../editor/windcode_toolbar.dart';
 /// Pops `true` once the forum confirmed the save, `false` when a save was
 /// sent but not confirmed (the floor should be reloaded to check), and null
 /// when nothing was sent.
-class ThreadEditScreen extends StatefulWidget {
+class ThreadEditScreen extends StatelessWidget {
   const ThreadEditScreen({
     super.key,
     required this.repository,
@@ -29,8 +31,29 @@ class ThreadEditScreen extends StatefulWidget {
   final ThreadActionLink link;
   final bool openingPost;
 
+  // The post's source and the edits belong to the account that opened it.
   @override
-  State<ThreadEditScreen> createState() => _ThreadEditScreenState();
+  Widget build(BuildContext context) => SessionBound(
+        repository: repository,
+        title: openingPost ? '编辑帖子' : '编辑回复',
+        child: _ThreadEditView(
+            repository: repository, link: link, openingPost: openingPost),
+      );
+}
+
+class _ThreadEditView extends StatefulWidget {
+  const _ThreadEditView({
+    required this.repository,
+    required this.link,
+    required this.openingPost,
+  });
+
+  final ForumRepository repository;
+  final ThreadActionLink link;
+  final bool openingPost;
+
+  @override
+  State<_ThreadEditView> createState() => _ThreadEditScreenState();
 }
 
 // The repository's own wording says what to do next (e.g. reopen the edit).
@@ -39,7 +62,7 @@ String _errorText(Object error) =>
         ? error.message
         : forumErrorText(error);
 
-class _ThreadEditScreenState extends State<ThreadEditScreen> {
+class _ThreadEditScreenState extends State<_ThreadEditView> {
   final _title = TextEditingController();
   final _content = TextEditingController();
   ThreadEditDraft? _draft;
@@ -185,15 +208,23 @@ class _ThreadEditScreenState extends State<ThreadEditScreen> {
             ],
           ],
         ),
-        body: ready
-            ? _form(context)
-            : loadError != null
-                ? AsyncErrorView(
-                    title: '无法打开编辑',
-                    message: _errorText(loadError),
-                    onRetry: _load,
-                  )
-                : const Center(child: CircularProgressIndicator()),
+        // The form fades in over the spinner.
+        body: AppSwitcher(
+          id: ready
+              ? 'form'
+              : loadError != null
+                  ? 'error'
+                  : 'loading',
+          child: ready
+              ? _form(context)
+              : loadError != null
+                  ? AsyncErrorView(
+                      title: '无法打开编辑',
+                      message: _errorText(loadError),
+                      onRetry: _load,
+                    )
+                  : const Center(child: CircularProgressIndicator()),
+        ),
       ),
     );
   }

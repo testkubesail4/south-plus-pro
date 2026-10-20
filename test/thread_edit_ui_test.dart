@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -107,6 +109,28 @@ void main() {
     expect(repository.pages, [1, 1]);
   });
 
+  testWidgets('the form fades in over its spinner', (tester) async {
+    final repository = _Repo()..hold = Completer();
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadEditScreen(
+          repository: repository, link: _replyLink, openingPost: false),
+    ));
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    repository.hold!.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    // Mid-fade: the spinner leaves as the form comes in.
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    final form = tester.widget<FadeTransition>(find
+        .ancestor(
+            of: find.text('[b]原文[/b]'), matching: find.byType(FadeTransition))
+        .first);
+    expect(form.opacity.value, inExclusiveRange(0, 1));
+    await tester.pumpAndSettle();
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
   testWidgets('a draft that cannot load offers a retry and sends nothing',
       (tester) async {
     final repository = await pumpThread(tester);
@@ -179,6 +203,7 @@ class _Repo extends ForumRepository {
   final submits = <(String, String)>[];
   final results = <ReplyResult>[];
   bool draftFails = false;
+  Completer<void>? hold;
 
   @override
   Future<ThreadDetail> fetchThreadDetail(ForumThread thread,
@@ -213,6 +238,7 @@ class _Repo extends ForumRepository {
   @override
   Future<ThreadEditDraft> fetchEditDraft(ThreadActionLink link) async {
     draftLinks.add(link);
+    await hold?.future;
     if (draftFails) {
       throw const ForumRequestException(
           ForumRequestKind.invalidInput, '编辑链接无效，请刷新帖子');

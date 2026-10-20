@@ -11,10 +11,11 @@ import '../../services/local_state_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
+import '../common/session_bound.dart';
 import '../editor/windcode_preview.dart';
 import '../editor/windcode_toolbar.dart';
 
-class ThreadComposeScreen extends StatefulWidget {
+class ThreadComposeScreen extends StatelessWidget {
   const ThreadComposeScreen({
     super.key,
     required this.category,
@@ -24,11 +25,26 @@ class ThreadComposeScreen extends StatefulWidget {
   final ForumCategory category;
   final ForumRepository repository;
 
+  // What is being written belongs to the account that wrote it.
   @override
-  State<ThreadComposeScreen> createState() => _ThreadComposeScreenState();
+  Widget build(BuildContext context) => SessionBound(
+        repository: repository,
+        title: '发新帖',
+        child: _ThreadComposeView(category: category, repository: repository),
+      );
 }
 
-class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
+class _ThreadComposeView extends StatefulWidget {
+  const _ThreadComposeView({required this.category, required this.repository});
+
+  final ForumCategory category;
+  final ForumRepository repository;
+
+  @override
+  State<_ThreadComposeView> createState() => _ThreadComposeScreenState();
+}
+
+class _ThreadComposeScreenState extends State<_ThreadComposeView> {
   final _title = TextEditingController();
   final _content = TextEditingController();
   bool _submitting = false;
