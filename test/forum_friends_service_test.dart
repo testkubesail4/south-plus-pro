@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_friend_models.dart';
+import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_friends_service.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
@@ -8,6 +10,22 @@ import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  test('friend mutation invalidates the warm self mixed-feed cache', () async {
+    final client = _ProfileClient();
+    final repository = ForumRepository(client: client);
+    addTearDown(repository.clearSession);
+    const overview = UserProfile(uid: '101', name: 'self', url: 'u.php');
+    final before = await repository.fetchUserProfileDetails(overview);
+    expect(before.homeActivities.map((item) => item.authorUid), ['101', '202']);
+    await repository.fetchUserProfileDetails(overview);
+    expect(client.homeReads, 1, reason: 'the second read is warm');
+    final friends = await repository.fetchFriends();
+    expect((await repository.deleteFriends(friends, friends.items)).confirmed,
+        isTrue);
+    final after = await repository.fetchUserProfileDetails(overview);
+    expect(client.homeReads, 2);
+    expect(after.homeActivities.map((item) => item.authorUid), ['101']);
+  });
   test(
     'native verification popup preserves hidden fields and optional message once',
     () async {
@@ -278,6 +296,36 @@ ${pending ? '''<input type="radio" name="job" value="acceptadd" checked>
     }
     return '<div>操作完成</div>';
   }
+}
+
+class _ProfileClient extends _Client {
+  int homeReads = 0;
+
+  @override
+  bool get isLoggedIn => true;
+
+  @override
+  Future<String> getOnce(String path) => get(path);
+
+  @override
+  Future<String> get(String path) async {
+    if (path == 'index.php')
+      return '''
+<head><script>var verifyhash='fxToken1';</script></head>
+<div id="user-login"><a href="u.php">self</a></div>
+<div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-101.html">profile</a></div></div>''';
+    if (path == 'u.php?uid-101.html') {
+      homeReads++;
+      return '''<div id="minifeed">
+<dl class="feed-list"><dt><a href="u.php?uid-101.html">self</a> 发表了主题：<a href="read.php?tid-701.html">own topic</a></dt></dl>
+${friendPresent ? '<dl class="feed-list"><dt><a href="u.php?uid-202.html">friend</a> 发表了主题：<a href="read.php?tid-702.html">friend topic</a></dt></dl>' : ''}
+</div>''';
+    }
+    return '<table class="u-table"></table>';
+  }
+
+  @override
+  Future<String> post(String path, Map<String, String> fields) async => '{}';
 }
 
 String _xml(String payload) =>
