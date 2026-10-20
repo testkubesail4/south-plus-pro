@@ -47,7 +47,8 @@ void main() {
       'profile.php?action=bbsset&info_type=msg': ForumAppPage.forumPreferences,
       'profile.php?action-bbsset-info_type-fancy.html':
           ForumAppPage.forumPreferences,
-      'profile.php?action=bbsset&info_type=fancy': ForumAppPage.forumPreferences,
+      'profile.php?action=bbsset&info_type=fancy':
+          ForumAppPage.forumPreferences,
       'u.php?action-friend.html': ForumAppPage.friends,
       'u.php?action=friend&uid=101': ForumAppPage.friends,
       'message.php': ForumAppPage.pmInbox,
@@ -175,6 +176,43 @@ void main() {
     await expectLater(pending, throwsA(isA<ForumRequestException>()));
   });
 
+  test('an index read begun during login cannot replace the new route owner',
+      () async {
+    final client = _IdentityClient();
+    final repository = ForumRepository(client: client);
+    addTearDown(repository.clearSession);
+    await repository.submitLogin(
+        username: 'synthetic-A',
+        password: 'synthetic-password',
+        captcha: 'synthetic-captcha',
+        fields: {});
+    client.loginGate = Completer<void>();
+    client.indexGate = Completer<void>();
+    final login = repository.submitLogin(
+        username: 'synthetic-B',
+        password: 'synthetic-password',
+        captcha: 'synthetic-captcha',
+        fields: {});
+    await client.loginReached.future;
+    final pending = repository.ensureAccountIdentity();
+    await client.indexReached.future;
+    client.loginGate!.complete();
+    await login;
+    expect(repository.accountIdentity.value?.uid, '202');
+    client.indexGate!.complete();
+    await expectLater(
+        pending,
+        throwsA(isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.loginRequired)));
+    expect(repository.accountIdentity.value?.uid, '202');
+    final own = repository.forumLinkTarget('u.php?action-friend-uid-202.html')
+        as ForumAppPageLinkTarget;
+    final old = repository.forumLinkTarget('u.php?action-friend-uid-101.html')
+        as ForumAppPageLinkTarget;
+    expect(repository.canOpenForumAppPage(own), isTrue);
+    expect(repository.canOpenForumAppPage(old), isFalse);
+  });
+
   test(
       'known account destinations are admitted only for current session owner and origin',
       () async {
@@ -274,22 +312,51 @@ void main() {
 class _IdentityClient extends ForumClient {
   bool loggedIn = true;
   final reads = <String>[];
+  Completer<void>? indexGate;
+  final indexReached = Completer<void>();
+  Completer<void>? loginGate;
+  final loginReached = Completer<void>();
   @override
   bool get isLoggedIn => loggedIn;
   @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
+    final response = await get(path);
+    requireCurrentSession?.call();
+    return response;
+  }
+
+  @override
   Future<String> get(String path) async {
     reads.add(path);
-    if (path == 'index.php')
+    if (path == 'index.php') {
+      if (indexGate != null) {
+        indexReached.complete();
+        await indexGate!.future;
+      }
       return '''
 <head><script>var verifyhash='fxToken1';</script></head>
 <a href="u.php?uid-999.html">unrelated first user</a>
 <div id="user-login"><a href="u.php">self</a></div>
 <div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-101.html">profile</a></div></div>''';
+    }
     return '<div id="u-top"><div class="u-h1">self</div></div>';
   }
 
   @override
-  Future<String> post(String path, Map<String, String> fields) async => '{}';
+  Future<String> post(String path, Map<String, String> fields) async {
+    if (path != 'login.php') return '{}';
+    if (loginGate != null) {
+      loginReached.complete();
+      await loginGate!.future;
+    }
+    final uid = fields['pwuser'] == 'synthetic-A' ? '101' : '202';
+    return '<div id="user-login"><a href="u.php">${fields['pwuser']}</a></div>'
+        '<div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-$uid.html">profile</a></div></div>';
+  }
+
   @override
   Future<void> clearSession() async {
     loggedIn = false;

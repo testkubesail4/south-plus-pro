@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_friend_models.dart';
@@ -10,6 +12,35 @@ import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  test('a friend read begun during login cannot publish under the new identity',
+      () async {
+    final client = _ProfileClient();
+    final repository = ForumRepository(client: client);
+    addTearDown(repository.clearSession);
+    await repository.submitLogin(
+        username: 'synthetic-A',
+        password: 'synthetic-password',
+        captcha: 'synthetic-captcha',
+        fields: {});
+    client.loginGate = Completer<void>();
+    client.friendGate = Completer<void>();
+    final login = repository.submitLogin(
+        username: 'synthetic-B',
+        password: 'synthetic-password',
+        captcha: 'synthetic-captcha',
+        fields: {});
+    await client.loginReached.future;
+    final pending = repository.fetchFriends();
+    await client.friendReached.future;
+    client.loginGate!.complete();
+    await login;
+    expect(repository.currentUsername, 'synthetic-B');
+    client.friendGate!.complete();
+    await expectLater(
+        pending,
+        throwsA(isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.loginRequired)));
+  });
   test('friend mutation invalidates the warm self mixed-feed cache', () async {
     final client = _ProfileClient();
     final repository = ForumRepository(client: client);
@@ -217,6 +248,7 @@ ForumFriendsService _service(_Client client) => ForumFriendsService(
       client: () => client,
       sessionEpoch: () => 0,
       isLoggedIn: () => true,
+      currentUsername: () => null,
       ownerUid: () async => '101',
       didWrite: () {},
     );
@@ -300,12 +332,34 @@ ${pending ? '''<input type="radio" name="job" value="acceptadd" checked>
 
 class _ProfileClient extends _Client {
   int homeReads = 0;
+  Completer<void>? loginGate;
+  final loginReached = Completer<void>();
+  Completer<void>? friendGate;
+  final friendReached = Completer<void>();
 
   @override
   bool get isLoggedIn => true;
 
   @override
   Future<String> getOnce(String path) => get(path);
+
+  @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
+    final response = path == 'index.php'
+        ? await get(path)
+        : await super.getForm(path,
+            requireCurrentSession: requireCurrentSession,
+            followRedirects: followRedirects);
+    if (friendGate != null && path.startsWith('u.php?action-friend-')) {
+      friendReached.complete();
+      await friendGate!.future;
+    }
+    requireCurrentSession?.call();
+    return response;
+  }
 
   @override
   Future<String> get(String path) async {
@@ -325,7 +379,16 @@ ${friendPresent ? '<dl class="feed-list"><dt><a href="u.php?uid-202.html">friend
   }
 
   @override
-  Future<String> post(String path, Map<String, String> fields) async => '{}';
+  Future<String> post(String path, Map<String, String> fields) async {
+    if (path != 'login.php') return '{}';
+    if (loginGate != null) {
+      loginReached.complete();
+      await loginGate!.future;
+    }
+    final uid = fields['pwuser'] == 'synthetic-A' ? '101' : '303';
+    return '<div id="user-login"><a href="u.php">${fields['pwuser']}</a></div>'
+        '<div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-$uid.html">profile</a></div></div>';
+  }
 }
 
 String _xml(String payload) =>

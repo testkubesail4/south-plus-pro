@@ -10,16 +10,19 @@ class ForumFriendsService {
     required ForumClient Function() client,
     required int Function() sessionEpoch,
     required bool Function() isLoggedIn,
+    required String? Function() currentUsername,
     required Future<String> Function() ownerUid,
     required void Function() didWrite,
   })  : _client = client,
         _epoch = sessionEpoch,
         _loggedIn = isLoggedIn,
+        _username = currentUsername,
         _ownerUid = ownerUid,
         _didWrite = didWrite;
   final ForumClient Function() _client;
   final int Function() _epoch;
   final bool Function() _loggedIn;
+  final String? Function() _username;
   final Future<String> Function() _ownerUid;
   final void Function() _didWrite;
   final _pages = Expando<_FriendContext>();
@@ -31,18 +34,22 @@ class ForumFriendsService {
   Future<_FriendContext> _context() async {
     final client = _client();
     final epoch = _epoch();
-    _check(client, epoch);
+    final username = _username();
+    _check(client, epoch, username);
     final uid = await _ownerUid();
-    _check(client, epoch);
+    _check(client, epoch, username);
     if (!RegExp(r'^[1-9]\d*$').hasMatch(uid)) _invalid('无法识别当前账号');
-    return _FriendContext(client, epoch, uid, _revision);
+    return _FriendContext(client, epoch, uid, _revision, username);
   }
 
   ForumFriendsParser _parser(_FriendContext context) => ForumFriendsParser(
         urls: ForumUrlResolver(baseUri: context.client.baseUri),
       );
-  void _check(ForumClient client, int epoch) {
-    if (!_loggedIn() || !identical(client, _client()) || epoch != _epoch()) {
+  void _check(ForumClient client, int epoch, String? username) {
+    if (!_loggedIn() ||
+        !identical(client, _client()) ||
+        epoch != _epoch() ||
+        username != _username()) {
       throw const ForumRequestException(
         ForumRequestKind.loginRequired,
         '登录状态已改变，请重新加载',
@@ -51,7 +58,7 @@ class ForumFriendsService {
   }
 
   void _current(_FriendContext context) =>
-      _check(context.client, context.epoch);
+      _check(context.client, context.epoch, context.username);
 
   Future<ForumFriendPage> fetchFriends({
     bool pending = false,
@@ -306,9 +313,11 @@ class ForumFriendsService {
 }
 
 class _FriendContext {
-  const _FriendContext(this.client, this.epoch, this.uid, this.revision);
+  const _FriendContext(
+      this.client, this.epoch, this.uid, this.revision, this.username);
   final ForumClient client;
   final int epoch;
   final String uid;
   final int revision;
+  final String? username;
 }

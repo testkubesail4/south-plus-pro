@@ -376,6 +376,7 @@ class _Client extends ForumClient {
       {void Function()? requireCurrentSession,
       bool followRedirects = true}) async {
     requireCurrentSession?.call();
+    if (path == 'index.php') return get(path);
     if (path.startsWith('post.php')) return _compose;
     if (path.startsWith('job.php')) return rewardForm;
     if (path == 'read.php?tid-7004.html') {

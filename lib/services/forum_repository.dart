@@ -166,6 +166,7 @@ class ForumRepository {
     client: () => _client,
     sessionEpoch: () => _sessionEpoch.value,
     isLoggedIn: () => isLoggedIn,
+    currentUsername: () => currentUsername,
     ownerUid: () async {
       await ensureAccountIdentity();
       return _accountIdentity.value?.uid ?? '';
@@ -202,12 +203,21 @@ class ForumRepository {
       return;
     final client = _client;
     final epoch = _sessionEpoch.value;
-    try {
-      final response = await client.get('index.php');
-      if (!isLoggedIn || client != _client || epoch != _sessionEpoch.value) {
+    final username = currentUsername;
+    void requireCurrent() {
+      if (!isLoggedIn ||
+          client != _client ||
+          epoch != _sessionEpoch.value ||
+          username != currentUsername) {
         throw const ForumRequestException(
             ForumRequestKind.loginRequired, '登录状态已改变，请重试');
       }
+    }
+
+    try {
+      final response = await client.getForm('index.php',
+          requireCurrentSession: requireCurrent, followRedirects: false);
+      requireCurrent();
       _throwIfBlockedPage(response);
       final document = html_parser.parse(response);
       _captureAccountIdentity(document);

@@ -108,15 +108,15 @@ void main() {
 
   testWidgets('屏蔽头像 only swaps the avatar for the initial', (tester) async {
     final repository = await pumpThread(tester);
-    final bobAvatar = find.byWidgetPredicate(
-        (widget) => widget is CachedForumImage && widget.url.endsWith('/602.png'));
+    final bobAvatar = find.byWidgetPredicate((widget) =>
+        widget is CachedForumImage && widget.url.endsWith('/602.png'));
     expect(bobAvatar, findsOneWidget);
     await openMenu(tester, 'floor-actions-bob-B2F');
     await tester.tap(find.text('屏蔽头像'));
     await tester.pumpAndSettle();
 
-    expect((repository.server.config['blist'] as Map)['602']['level'],
-        ['avatar']);
+    expect(
+        (repository.server.config['blist'] as Map)['602']['level'], ['avatar']);
     expect(find.text('已屏蔽头像'), findsOneWidget);
     expect(find.textContaining('已屏蔽此人的发言'), findsNothing);
     expect(bobAvatar, findsNothing);
@@ -128,8 +128,7 @@ void main() {
         "a blocked avatar leaves the opening poster's card "
         '(${openingBody.isEmpty ? 'header only' : 'with body'})',
         (tester) async {
-      final repository =
-          _Repository(loggedIn: true, openingBody: openingBody);
+      final repository = _Repository(loggedIn: true, openingBody: openingBody);
       repository.blocking.notifier.value = const BlockingRules(users: [
         BlockedUser(
             uid: '500', name: 'op', userBlocked: false, avatarBlocked: true),
@@ -267,8 +266,8 @@ void main() {
     expect(find.text('登录后可同步南+屏蔽配置'), findsNWidgets(2));
     expect(
       tester
-          .widget<ListTile>(
-              find.ancestor(of: find.text('屏蔽此人'), matching: find.byType(ListTile)))
+          .widget<ListTile>(find.ancestor(
+              of: find.text('屏蔽此人'), matching: find.byType(ListTile)))
           .enabled,
       isFalse,
     );
@@ -302,7 +301,10 @@ class _SessionClient extends ForumClient {
   var name = 'Synthetic account';
   final gets = <String>[];
   final posts = <String>[];
-  Map<String, dynamic> blocklist = {'version': '3.1', 'blist': <String, dynamic>{}};
+  Map<String, dynamic> blocklist = {
+    'version': '3.1',
+    'blist': <String, dynamic>{}
+  };
 
   @override
   bool get isLoggedIn => loggedIn;
@@ -312,6 +314,16 @@ class _SessionClient extends ForumClient {
 
   @override
   Future<void> clearSession() async => loggedIn = false;
+
+  @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
+    final response = await get(path);
+    requireCurrentSession?.call();
+    return response;
+  }
 
   @override
   Future<String> get(String path) async {
@@ -336,7 +348,10 @@ class _SessionClient extends ForumClient {
 
 class _NativeServer {
   final actions = <String>[];
-  Map<String, dynamic> config = {'version': '3.1', 'blist': <String, dynamic>{}};
+  Map<String, dynamic> config = {
+    'version': '3.1',
+    'blist': <String, dynamic>{}
+  };
 
   Future<String> request(String action, Map<String, String> fields) async {
     actions.add(action);

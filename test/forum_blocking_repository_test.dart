@@ -112,6 +112,16 @@ class _BlockingClient extends ForumClient {
   }
 
   @override
+  Future<String> getForm(String path,
+      {void Function()? requireCurrentSession,
+      bool followRedirects = true}) async {
+    requireCurrentSession?.call();
+    final response = await get(path);
+    requireCurrentSession?.call();
+    return response;
+  }
+
+  @override
   Future<String> get(String path) async {
     gets.add(path);
     return pendingIndex == null ? header : pendingIndex!.future;
