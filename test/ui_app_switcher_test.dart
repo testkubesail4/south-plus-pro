@@ -50,6 +50,20 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('a new scope drops the leaving child in the same frame',
+      (tester) async {
+    Widget scoped(String shown, int scope) => MaterialApp(
+          home: AppSwitcher(id: shown, scope: scope, child: Text(shown)),
+        );
+    await tester.pumpWidget(scoped('A', 1));
+    await tester.pumpWidget(scoped('B', 1));
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(find.text('A'), findsOneWidget, reason: 'mid-swap');
+    await tester.pumpWidget(scoped('B', 2));
+    expect(find.text('A', skipOffstage: false), findsNothing);
+    expect(find.text('B'), findsOneWidget);
+  });
+
   testWidgets('reduced motion swaps at once', (tester) async {
     await tester.pumpWidget(app('A', reduce: true));
     await tester.pumpWidget(app('B', reduce: true));
@@ -58,7 +72,7 @@ void main() {
     expect(find.text('B'), findsOneWidget);
   });
 
-  testWidgets('a sliver reveal starts at 40%, never blank', (tester) async {
+  testWidgets('a sliver reveal starts at 65%, never blank', (tester) async {
     Widget list(int id) => MaterialApp(
           home: CustomScrollView(slivers: [
             AppSliverReveal(
@@ -74,9 +88,9 @@ void main() {
     await tester.pumpWidget(list(1));
     expect(opacity(), 1, reason: 'first content shows as is');
     await tester.pumpWidget(list(2));
-    expect(opacity(), 0.4);
+    expect(opacity(), 0.65);
     await tester.pump(const Duration(milliseconds: 100));
-    expect(opacity(), inExclusiveRange(0.4, 1));
+    expect(opacity(), inExclusiveRange(0.65, 1));
     await tester.pumpAndSettle();
     expect(opacity(), 1);
   });

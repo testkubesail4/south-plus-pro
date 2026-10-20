@@ -296,6 +296,7 @@ class _LocalUserAnnotationsScreenState
                             child: Center(child: CircularProgressIndicator())),
                       const SizedBox(height: AppSpace.md),
                       AppSwitcher(
+                        scope: widget.repository.sessionEpoch.value,
                         id: _tab,
                         direction: _tab == 0 ? -1 : 1,
                         child: Column(

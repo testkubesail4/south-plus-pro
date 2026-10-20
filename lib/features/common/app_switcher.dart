@@ -8,19 +8,23 @@ import '../../theme/app_theme.dart';
 /// fades, as between loading, content and error.
 ///
 /// The fade is linear so the two together never thin out below the fainter
-/// one. The leaving child cannot be tapped or read out.
+/// one. The leaving child cannot be tapped or read out, and a new [scope]
+/// (e.g. the session epoch) drops it in the same frame: another account's
+/// content never fades out.
 class AppSwitcher extends StatelessWidget {
   const AppSwitcher({
     super.key,
     required this.child,
     this.id,
     this.direction = 0,
+    this.scope,
   });
 
   /// A new [id] (or, without one, a new key on [child]) starts a transition.
   final Widget child;
   final Object? id;
   final int direction;
+  final Object? scope;
 
   static const double _shift = 24;
 
@@ -28,49 +32,52 @@ class AppSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     final current =
         id == null ? child : KeyedSubtree(key: ValueKey(id), child: child);
-    return AnimatedSwitcher(
-      duration: AppMotion.of(context, AppMotion.medium),
-      layoutBuilder: (current, previous) => Stack(
-        fit: StackFit.passthrough,
-        alignment: Alignment.topCenter,
-        children: [
-          for (final old in previous)
-            IgnorePointer(child: ExcludeSemantics(child: old)),
-          if (current != null) current,
-        ],
-      ),
-      transitionBuilder: (child, animation) {
-        // The entering child comes from the side it lies on; the leaving
-        // one goes the other way. Runs again for the leaving child on every
-        // swap, so its key tells which it is now.
-        final sign = child.key == current.key ? direction : -direction;
-        return FadeTransition(
-          opacity: animation,
-          child: sign == 0
-              ? child
-              : AnimatedBuilder(
-                  animation: animation,
-                  child: child,
-                  builder: (context, child) => Transform.translate(
-                    offset: Offset(
-                      sign *
-                          _shift *
-                          (1 - AppMotion.enter.transform(animation.value)),
-                      0,
+    // A new scope is a new switcher, holding nothing of the old one.
+    return KeyedSubtree(
+        key: ValueKey(scope),
+        child: AnimatedSwitcher(
+          duration: AppMotion.of(context, AppMotion.medium),
+          layoutBuilder: (current, previous) => Stack(
+            fit: StackFit.passthrough,
+            alignment: Alignment.topCenter,
+            children: [
+              for (final old in previous)
+                IgnorePointer(child: ExcludeSemantics(child: old)),
+              if (current != null) current,
+            ],
+          ),
+          transitionBuilder: (child, animation) {
+            // The entering child comes from the side it lies on; the leaving
+            // one goes the other way. Runs again for the leaving child on every
+            // swap, so its key tells which it is now.
+            final sign = child.key == current.key ? direction : -direction;
+            return FadeTransition(
+              opacity: animation,
+              child: sign == 0
+                  ? child
+                  : AnimatedBuilder(
+                      animation: animation,
+                      child: child,
+                      builder: (context, child) => Transform.translate(
+                        offset: Offset(
+                          sign *
+                              _shift *
+                              (1 - AppMotion.enter.transform(animation.value)),
+                          0,
+                        ),
+                        child: child,
+                      ),
                     ),
-                    child: child,
-                  ),
-                ),
-        );
-      },
-      child: current,
-    );
+            );
+          },
+          child: current,
+        ));
   }
 }
 
 /// [AppSwitcher] for a sliver in a scroll view, where the old and new
 /// content cannot overlap: when [id] changes the new content fades up from
-/// 40%, never through blank.
+/// 65%, never through blank.
 class AppSliverReveal extends StatefulWidget {
   const AppSliverReveal({super.key, required this.id, required this.sliver});
 
@@ -90,7 +97,7 @@ class _AppSliverRevealState extends State<AppSliverReveal>
   );
   late final _curve =
       CurvedAnimation(parent: _controller, curve: AppMotion.enter);
-  late final _opacity = Tween<double>(begin: 0.4, end: 1).animate(_curve);
+  late final _opacity = Tween<double>(begin: 0.65, end: 1).animate(_curve);
 
   @override
   void didUpdateWidget(covariant AppSliverReveal oldWidget) {

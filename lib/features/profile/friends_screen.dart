@@ -256,6 +256,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               Expanded(
                   child: AppSwitcher(
                 direction: _pending ? 1 : -1,
+                scope: widget.repository.sessionEpoch.value,
                 child: FutureBuilder<ForumFriendPage>(
                   key: ValueKey(_pending),
                   future: _futures[_pending],
@@ -267,6 +268,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           onRetry: _reloadAll,
                         )
                       : AppSwitcher(
+                          scope: widget.repository.sessionEpoch.value,
                           id: snapshot.connectionState != ConnectionState.done
                               ? 'loading'
                               : snapshot.hasError

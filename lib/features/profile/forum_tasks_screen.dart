@@ -184,6 +184,8 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
               Expanded(
                   child: AppSwitcher(
                 direction: _slide,
+                // Another account's tasks never fade out under this one.
+                scope: widget.repository.sessionEpoch.value,
                 child: FutureBuilder<List<ForumTask>>(
                   key: ValueKey(_status),
                   future: _future,
