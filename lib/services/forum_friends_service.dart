@@ -35,21 +35,25 @@ class ForumFriendsService {
     final client = _client();
     final epoch = _epoch();
     final username = _username();
-    _check(client, epoch, username);
+    final credentialGeneration = client.credentialGeneration;
+    _check(client, epoch, username, credentialGeneration);
     final uid = await _ownerUid();
-    _check(client, epoch, username);
+    _check(client, epoch, username, credentialGeneration);
     if (!RegExp(r'^[1-9]\d*$').hasMatch(uid)) _invalid('无法识别当前账号');
-    return _FriendContext(client, epoch, uid, _revision, username);
+    return _FriendContext(
+        client, epoch, uid, _revision, username, credentialGeneration);
   }
 
   ForumFriendsParser _parser(_FriendContext context) => ForumFriendsParser(
         urls: ForumUrlResolver(baseUri: context.client.baseUri),
       );
-  void _check(ForumClient client, int epoch, String? username) {
+  void _check(ForumClient client, int epoch, String? username,
+      int credentialGeneration) {
     if (!_loggedIn() ||
         !identical(client, _client()) ||
         epoch != _epoch() ||
-        username != _username()) {
+        username != _username() ||
+        !client.isCredentialCurrent(credentialGeneration)) {
       throw const ForumRequestException(
         ForumRequestKind.loginRequired,
         '登录状态已改变，请重新加载',
@@ -57,8 +61,8 @@ class ForumFriendsService {
     }
   }
 
-  void _current(_FriendContext context) =>
-      _check(context.client, context.epoch, context.username);
+  void _current(_FriendContext context) => _check(context.client, context.epoch,
+      context.username, context.credentialGeneration);
 
   Future<ForumFriendPage> fetchFriends({
     bool pending = false,
@@ -313,11 +317,12 @@ class ForumFriendsService {
 }
 
 class _FriendContext {
-  const _FriendContext(
-      this.client, this.epoch, this.uid, this.revision, this.username);
+  const _FriendContext(this.client, this.epoch, this.uid, this.revision,
+      this.username, this.credentialGeneration);
   final ForumClient client;
   final int epoch;
   final String uid;
   final int revision;
   final String? username;
+  final int credentialGeneration;
 }

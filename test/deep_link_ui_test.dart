@@ -16,6 +16,7 @@ import 'package:south_plus_rewrite/models/forum_friend_models.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_network_setup_store.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/forum_client.dart';
 
 // Synthetic fixtures only: fictional ids and names on the configured mirror.
 const _thread = 'https://south-plus.net/read.php?tid-9001-page-2.html';
@@ -352,6 +353,9 @@ void main() {
 }
 
 class _FakeRepository extends ForumRepository {
+  _FakeRepository() : this._(ForumClient());
+  _FakeRepository._(this.client) : super(client: client);
+  final ForumClient client;
   final restore = Completer<bool>();
   int searches = 0;
   bool signedIn = false;
@@ -360,8 +364,13 @@ class _FakeRepository extends ForumRepository {
   bool get isLoggedIn => signedIn;
 
   @override
-  ValueListenable<ForumAccountIdentity?> get accountIdentity => ValueNotifier(
-      signedIn ? const ForumAccountIdentity(systemName: 'me', uid: '7000') : null);
+  ValueListenable<ForumAccountIdentity?> get accountIdentity =>
+      ValueNotifier(signedIn
+          ? ForumAccountIdentity(
+              systemName: 'me',
+              uid: '7000',
+              credentialGeneration: client.credentialGeneration)
+          : null);
 
   @override
   Future<ForumFriendPage> fetchFriends({bool pending = false, int page = 1}) =>

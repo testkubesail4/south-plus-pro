@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
@@ -163,6 +164,39 @@ void main() {
         'https://south-plus.net/u.php?action-show-uid-101.html');
   });
 
+  test(
+      'an explicit owner link fails closed when identity provenance is unknown',
+      () {
+    final repository = _UnknownIdentityRepository(_IdentityClient());
+    final target =
+        repository.forumLinkTarget('u.php?action-friend-uid-101.html')
+            as ForumAppPageLinkTarget;
+    expect(repository.isLoggedIn, isTrue);
+    expect(repository.accountIdentity.value?.uid, '101');
+    expect(repository.canOpenForumAppPage(target), isFalse);
+  });
+
+  test(
+      'cached own identity cannot authorize an old owner after credentials change',
+      () async {
+    final client = _IdentityClient();
+    final repository = ForumRepository(client: client);
+    addTearDown(repository.clearSession);
+    await repository.ensureAccountIdentity();
+    final old = repository.forumLinkTarget('u.php?action-friend-uid-101.html')
+        as ForumAppPageLinkTarget;
+    expect(repository.canOpenForumAppPage(old), isTrue);
+    client.credentialOverride = client.credentialGeneration + 1;
+    client.indexUid = '202';
+    expect(repository.canOpenForumAppPage(old), isFalse);
+    await repository.ensureAccountIdentity();
+    expect(client.reads, ['index.php', 'index.php']);
+    expect(repository.accountIdentity.value?.uid, '202');
+    final fresh = repository.forumLinkTarget('u.php?action-friend-uid-202.html')
+        as ForumAppPageLinkTarget;
+    expect(repository.canOpenForumAppPage(fresh), isTrue);
+  });
+
   test('a self-profile cache reply cannot cross a session switch', () async {
     final client = _IdentityClient();
     final cache = _Cache()..gate = Completer<UserProfile?>();
@@ -309,8 +343,25 @@ void main() {
   });
 }
 
+class _UnknownIdentityRepository extends ForumRepository {
+  _UnknownIdentityRepository(ForumClient client) : super(client: client);
+  final identity = ValueNotifier<ForumAccountIdentity?>(
+      const ForumAccountIdentity(systemName: 'unverified', uid: '101'));
+  @override
+  ValueListenable<ForumAccountIdentity?> get accountIdentity => identity;
+}
+
 class _IdentityClient extends ForumClient {
   bool loggedIn = true;
+  String indexUid = '101';
+  int? credentialOverride;
+  @override
+  int get credentialGeneration =>
+      credentialOverride ?? super.credentialGeneration;
+  @override
+  bool isCredentialCurrent(int generation) => credentialOverride == null
+      ? super.isCredentialCurrent(generation)
+      : generation == credentialOverride;
   final reads = <String>[];
   Completer<void>? indexGate;
   final indexReached = Completer<void>();
@@ -340,9 +391,24 @@ class _IdentityClient extends ForumClient {
 <head><script>var verifyhash='fxToken1';</script></head>
 <a href="u.php?uid-999.html">unrelated first user</a>
 <div id="user-login"><a href="u.php">self</a></div>
-<div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-101.html">profile</a></div></div>''';
+<div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-$indexUid.html">profile</a></div></div>''';
     }
     return '<div id="u-top"><div class="u-h1">self</div></div>';
+  }
+
+  @override
+  Future<
+      ({
+        String response,
+        int credentialGeneration,
+        bool installedCredentials
+      })> postLogin(Map<String, String> form) async {
+    final response = await post('login.php', form);
+    return (
+      response: response,
+      credentialGeneration: credentialGeneration,
+      installedCredentials: isLoggedIn
+    );
   }
 
   @override

@@ -156,6 +156,21 @@ class _UsernameClient extends ForumClient {
   }
 
   @override
+  Future<
+      ({
+        String response,
+        int credentialGeneration,
+        bool installedCredentials
+      })> postLogin(Map<String, String> form) async {
+    final response = await post('login.php', form);
+    return (
+      response: response,
+      credentialGeneration: credentialGeneration,
+      installedCredentials: isLoggedIn
+    );
+  }
+
+  @override
   Future<String> post(String path, Map<String, String> form) async {
     if (path != 'login.php')
       throw StateError('Username lookup must never POST');

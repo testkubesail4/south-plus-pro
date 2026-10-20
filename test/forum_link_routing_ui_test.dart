@@ -25,9 +25,15 @@ const _site = 'https://south-plus.net';
 
 /// Signed in as UID 900 unless told otherwise; lists answer empty.
 class _Repo extends ForumRepository {
-  _Repo({this.signedIn = true, String? selfUid = '900'})
-      : super(client: ForumClient()) {
-    identity.value = ForumAccountIdentity(systemName: 'me', uid: selfUid);
+  _Repo({bool signedIn = true, String? selfUid = '900'})
+      : this._(ForumClient(), signedIn, selfUid);
+
+  _Repo._(ForumClient client, this.signedIn, String? selfUid)
+      : super(client: client) {
+    identity.value = ForumAccountIdentity(
+        systemName: 'me',
+        uid: selfUid,
+        credentialGeneration: client.credentialGeneration);
   }
 
   bool signedIn;
@@ -99,8 +105,8 @@ void main() {
   final routes = <String, Matcher>{
     '$_site/u.php?action-friend-uid-900.html': isA<FriendsScreen>()
         .having((s) => s.initialPending, 'pending', isFalse),
-    '$_site/u.php?action-friend-uid-900-o-check.html': isA<FriendsScreen>()
-        .having((s) => s.initialPending, 'pending', isTrue),
+    '$_site/u.php?action-friend-uid-900-o-check.html':
+        isA<FriendsScreen>().having((s) => s.initialPending, 'pending', isTrue),
     '$_site/u.php': isA<UserProfileScreen>(),
     '$_site/profile.php?action-modify.html': isA<AccountProfileEditScreen>(),
     '$_site/profile.php?action-bbsset.html': isA<ForumPreferencesScreen>(),
@@ -119,7 +125,8 @@ void main() {
       await tapLink(tester, _Repo(), url);
       expect(find.text('在浏览器中打开'), findsNothing);
       expect(
-          tester.widgetList(find.byWidgetPredicate((w) => matcher.matches(w, {}))),
+          tester.widgetList(
+              find.byWidgetPredicate((w) => matcher.matches(w, {}))),
           hasLength(1));
       // Lets the opened screen's own retry timers run out.
       await tester.pumpWidget(const SizedBox());
@@ -130,7 +137,8 @@ void main() {
   testWidgets('a linked mailbox page opens on that box and page',
       (tester) async {
     final repo = _Repo();
-    await tapLink(tester, repo, '$_site/message.php?action-sendbox-page-3.html');
+    await tapLink(
+        tester, repo, '$_site/message.php?action-sendbox-page-3.html');
     expect(repo.boxReads.single.$1, ForumPmBox.sendbox);
     expect(repo.boxReads.single.$2, contains('page-3'));
   });
@@ -138,8 +146,8 @@ void main() {
   testWidgets('a linked friend-request page opens on that page',
       (tester) async {
     final repo = _Repo();
-    await tapLink(tester, repo,
-        '$_site/u.php?action-friend-uid-900-o-check-page-2.html');
+    await tapLink(
+        tester, repo, '$_site/u.php?action-friend-uid-900-o-check-page-2.html');
     expect(repo.friendReads, contains((true, 2)));
   });
 
@@ -223,7 +231,8 @@ void main() {
   testWidgets('a late compose answer after the page closed stays unseen',
       (tester) async {
     final repo = _Repo();
-    await tapLink(tester, repo, '$_site/message.php?action-write-touid-1001.html');
+    await tapLink(
+        tester, repo, '$_site/message.php?action-write-touid-1001.html');
     expect(find.byType(PmComposeScreen), findsOneWidget);
     tester
         .state<NavigatorState>(find.byType(Navigator))

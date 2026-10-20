@@ -984,12 +984,14 @@ class ForumAccountIdentity {
     this.uid,
     this.nickname,
     this.avatarUrl,
+    this.credentialGeneration,
   });
 
   final String systemName;
   final String? uid;
   final String? nickname;
   final String? avatarUrl;
+  final int? credentialGeneration;
 }
 
 class ForumNoticeFlags {

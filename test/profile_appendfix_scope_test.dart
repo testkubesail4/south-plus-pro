@@ -26,6 +26,21 @@ class _LoginClient extends ForumClient {
       username == null ? '' : '<a href="u.php">$username</a>';
 
   @override
+  Future<
+      ({
+        String response,
+        int credentialGeneration,
+        bool installedCredentials
+      })> postLogin(Map<String, String> form) async {
+    final response = await post('login.php', form);
+    return (
+      response: response,
+      credentialGeneration: credentialGeneration,
+      installedCredentials: isLoggedIn
+    );
+  }
+
+  @override
   Future<String> post(String path, Map<String, String> form) async {
     username = form['pwuser'];
     loggedIn = true;

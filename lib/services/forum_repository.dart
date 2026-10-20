@@ -45,7 +45,12 @@ import 'parsers/thread_transaction_parser.dart';
 import 'parsers/thread_edit_form_parser.dart';
 import 'parsers/user_profile_parser.dart';
 
-typedef _PmSession = ({ForumClient client, int epoch, String? username});
+typedef _PmSession = ({
+  ForumClient client,
+  int epoch,
+  String? username,
+  int credentialGeneration
+});
 
 typedef _ProfileDetailsData = ({
   List<UserActivityItem> homeActivities,
@@ -99,6 +104,7 @@ class ForumRepository {
       _restoredDesktopHtml = null;
       _sentRewardTargets.clear();
       _replyNoticeVerify = null;
+      _replyNoticeCredentialGeneration = null;
       _blocking?.reset();
       _blockingLoadedEpoch = null;
       _noticeFlags.value = const ForumNoticeFlags();
@@ -119,7 +125,7 @@ class ForumRepository {
   }
 
   ForumClient _client;
-  String? _restoredDesktopHtml;
+  ({String html, int credentialGeneration})? _restoredDesktopHtml;
   ForumNetworkConfig _config;
   ForumUrlResolver _urls;
   late BoardThreadPageParser _boardThreadPageParser =
@@ -199,16 +205,22 @@ class ForumRepository {
 
   Future<void> ensureAccountIdentity() async {
     if (!isLoggedIn ||
-        (_accountIdentity.value?.uid != null && _replyNoticeVerify != null))
-      return;
+        (_accountIdentity.value?.uid != null &&
+            _replyNoticeVerify != null &&
+            _replyNoticeCredentialGeneration != null &&
+            _client.isCredentialCurrent(_replyNoticeCredentialGeneration!) &&
+            _accountIdentity.value?.credentialGeneration ==
+                _replyNoticeCredentialGeneration)) return;
     final client = _client;
     final epoch = _sessionEpoch.value;
     final username = currentUsername;
+    final credentialGeneration = client.credentialGeneration;
     void requireCurrent() {
       if (!isLoggedIn ||
           client != _client ||
           epoch != _sessionEpoch.value ||
-          username != currentUsername) {
+          username != currentUsername ||
+          !client.isCredentialCurrent(credentialGeneration)) {
         throw const ForumRequestException(
             ForumRequestKind.loginRequired, '登录状态已改变，请重试');
       }
@@ -220,8 +232,10 @@ class ForumRepository {
       requireCurrent();
       _throwIfBlockedPage(response);
       final document = html_parser.parse(response);
-      _captureAccountIdentity(document);
-      _captureIndexNotices(document);
+      _captureAccountIdentity(document,
+          credentialGeneration: credentialGeneration);
+      _captureIndexNotices(document,
+          credentialGeneration: credentialGeneration);
       if (_accountIdentity.value?.uid == null) {
         throw const ForumRequestException(
             ForumRequestKind.server, '暂时无法识别当前账号，请重试');
@@ -292,6 +306,7 @@ class ForumRepository {
       _accountIdentity;
 
   String? _replyNoticeVerify;
+  int? _replyNoticeCredentialGeneration;
   Future<void> _replyNoticeQueue = Future.value();
   DateTime? _replyNoticeReadyAt;
   final _noticeFlags = ValueNotifier(const ForumNoticeFlags());
@@ -334,9 +349,12 @@ class ForumRepository {
         current.ownerUid != target.ownerUid) return false;
     if ({ForumAppPage.home, ForumAppPage.account}.contains(target.page))
       return true;
+    final identity = accountIdentity.value;
     return isLoggedIn &&
         (target.ownerUid == null ||
-            target.ownerUid == accountIdentity.value?.uid);
+            (target.ownerUid == identity?.uid &&
+                identity?.credentialGeneration != null &&
+                _client.isCredentialCurrent(identity!.credentialGeneration!)));
   }
 
   ForumSearchLinkPrefill? searchLinkPrefill(String raw) =>
@@ -440,13 +458,16 @@ class ForumRepository {
     }
   }
 
-  void _captureAccountIdentity(dom.Document document) {
+  void _captureAccountIdentity(dom.Document document,
+      {required int credentialGeneration}) {
+    if (!_client.isCredentialCurrent(credentialGeneration)) return;
     final identity = _userProfileParser.parseAccountIdentity(document);
     if (identity == null) return;
     final previous = _accountIdentity.value;
     _accountIdentity.value = ForumAccountIdentity(
       systemName: identity.systemName,
       uid: identity.uid,
+      credentialGeneration: credentialGeneration,
       nickname: identity.uid != null && identity.uid == previous?.uid
           ? previous?.nickname
           : null,
@@ -573,6 +594,7 @@ class ForumRepository {
     _accountIdentity.value = ForumAccountIdentity(
       systemName: identity.systemName,
       uid: identity.uid,
+      credentialGeneration: identity.credentialGeneration,
       nickname: nickname == null || nickname.isEmpty ? null : nickname,
       avatarUrl: profile.avatarUrl ?? identity.avatarUrl,
     );
@@ -581,8 +603,11 @@ class ForumRepository {
   ForumReplyNoticeParser get _replyNoticeParser =>
       ForumReplyNoticeParser(urls: _urls);
 
-  void _captureIndexNotices(dom.Document document) {
+  void _captureIndexNotices(dom.Document document,
+      {required int credentialGeneration}) {
+    if (!_client.isCredentialCurrent(credentialGeneration)) return;
     _replyNoticeVerify = _replyNoticeParser.verifyToken(document);
+    _replyNoticeCredentialGeneration = credentialGeneration;
     _noticeFlags.value = ForumNoticeFlags(
       replyNotice: _replyNoticeParser.hasReplyNotice(document),
       unreadPm: _replyNoticeParser.hasUnreadPm(document),
@@ -613,10 +638,12 @@ class ForumRepository {
       }
       requireCurrentSession();
       if (_replyNoticeVerify == null) {
+        final credentialGeneration = client.credentialGeneration;
         final response = await client.get('index.php');
         requireCurrentSession();
         _throwIfBlockedPage(response);
-        _captureIndexNotices(html_parser.parse(response));
+        _captureIndexNotices(html_parser.parse(response),
+            credentialGeneration: credentialGeneration);
       }
       final verify = _replyNoticeVerify;
       if (verify == null) {
@@ -682,7 +709,8 @@ class ForumRepository {
         (
           client: _client,
           epoch: _sessionEpoch.value,
-          username: currentUsername
+          username: currentUsername,
+          credentialGeneration: _client.credentialGeneration
         );
     _checkPmSession(session);
     return session;
@@ -692,7 +720,8 @@ class ForumRepository {
     if (!isLoggedIn ||
         !identical(session.client, _client) ||
         session.epoch != _sessionEpoch.value ||
-        session.username != currentUsername) {
+        session.username != currentUsername ||
+        !session.client.isCredentialCurrent(session.credentialGeneration)) {
       throw const ForumRequestException(
           ForumRequestKind.loginRequired, '登录状态已改变，请重新打开私讯');
     }
@@ -854,9 +883,11 @@ class ForumRepository {
 
     final client = _client;
     final epoch = _sessionEpoch.value;
+    final credentialGeneration = client.credentialGeneration;
     final header = await _fetchSessionHeader();
-    if (!identical(client, _client) || epoch != _sessionEpoch.value)
-      return false;
+    if (!identical(client, _client) ||
+        epoch != _sessionEpoch.value ||
+        !client.isCredentialCurrent(credentialGeneration)) return false;
     final username = header.username;
     if (username == null) {
       await clearSession();
@@ -864,11 +895,18 @@ class ForumRepository {
     }
     if (username != currentUsername) _sessionEpoch.value++;
     _sessionUser.value = username;
-    _restoredDesktopHtml = header.desktopHtml;
+    _restoredDesktopHtml = header.desktopHtml == null
+        ? null
+        : (
+            html: header.desktopHtml!,
+            credentialGeneration: credentialGeneration
+          );
     if (header.desktopHtml != null) {
       final document = html_parser.parse(header.desktopHtml!);
-      _captureAccountIdentity(document);
-      _captureIndexNotices(document);
+      _captureAccountIdentity(document,
+          credentialGeneration: credentialGeneration);
+      _captureIndexNotices(document,
+          credentialGeneration: credentialGeneration);
     }
     return true;
   }
@@ -948,7 +986,8 @@ class ForumRepository {
     }
 
     _sessionEpoch.value++;
-    final response = await _client.post('login.php', {
+    final client = _client;
+    final receipt = await client.postLogin({
       ...fields,
       'step': fields['step'] ?? '2',
       'lgt': fields['lgt'] ?? '0',
@@ -960,11 +999,25 @@ class ForumRepository {
       'submit': '登 录',
     });
 
-    if (_client.isLoggedIn || response.contains('登录成功')) {
-      _sessionUser.value = _responseParser.loggedInUsername(response) ??
+    void requireCurrent() {
+      if (!identical(client, _client) ||
+          !client.isCredentialCurrent(receipt.credentialGeneration)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+      }
+    }
+
+    requireCurrent();
+    final response = receipt.response;
+    if ((receipt.installedCredentials && client.isLoggedIn) ||
+        response.contains('登录成功')) {
+      final name = _responseParser.loggedInUsername(response) ??
           await _fetchLoggedInUsername() ??
           username.trim();
-      _captureAccountIdentity(html_parser.parse(response));
+      requireCurrent();
+      _sessionUser.value = name;
+      _captureAccountIdentity(html_parser.parse(response),
+          credentialGeneration: receipt.credentialGeneration);
       return const LoginResult(success: true, message: '登录成功');
     }
 
@@ -1145,15 +1198,26 @@ class ForumRepository {
     _invalidateQuickLists();
     final generation = _homeGeneration;
     // Consume session verification once; refreshes still fetch a fresh directory.
-    final restoredDesktopHtml = _restoredDesktopHtml;
+    final restoredCache = _restoredDesktopHtml;
     _restoredDesktopHtml = null;
     final client = _client;
+    final credentialGeneration = client.credentialGeneration;
+    final restoredDesktopHtml = restoredCache != null &&
+            client.isCredentialCurrent(restoredCache.credentialGeneration)
+        ? restoredCache.html
+        : null;
     final epoch = _sessionEpoch.value;
     final account = localPreferenceAccount;
     final sourcesRevision =
         HomeReadingPreferences.quickSourcesRevision(account: account);
-    void requireCurrent() =>
-        _requireHome(client, epoch, generation, account, sourcesRevision);
+    void requireCurrent() {
+      _requireHome(client, epoch, generation, account, sourcesRevision);
+      if (!client.isCredentialCurrent(credentialGeneration)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重新加载');
+      }
+    }
+
     final sources =
         (await HomeReadingPreferences.load(account: account)).quickSources;
     requireCurrent();
@@ -1216,8 +1280,10 @@ class ForumRepository {
     _homePreferenceAccount = account;
     _homeSourcesRevision = sourcesRevision;
     if (indexDocument != null) {
-      _captureIndexNotices(indexDocument);
-      _captureAccountIdentity(indexDocument);
+      _captureIndexNotices(indexDocument,
+          credentialGeneration: credentialGeneration);
+      _captureAccountIdentity(indexDocument,
+          credentialGeneration: credentialGeneration);
     }
     return ForumHomeSnapshot(
       latest: latest,
@@ -3344,10 +3410,15 @@ class ForumRepository {
 
   Future<String?> _fetchLoggedInUsername() async {
     final epoch = _sessionEpoch.value;
+    final client = _client;
+    final credentialGeneration = client.credentialGeneration;
     final header = await _fetchSessionHeader();
-    if (epoch != _sessionEpoch.value) return null;
+    if (epoch != _sessionEpoch.value ||
+        !identical(client, _client) ||
+        !client.isCredentialCurrent(credentialGeneration)) return null;
     if (header.desktopHtml != null) {
-      _captureAccountIdentity(html_parser.parse(header.desktopHtml!));
+      _captureAccountIdentity(html_parser.parse(header.desktopHtml!),
+          credentialGeneration: credentialGeneration);
     }
     return header.username;
   }

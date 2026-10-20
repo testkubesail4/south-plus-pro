@@ -82,7 +82,13 @@ class ForumClient {
   // Every client shares ForumSessionStore's single persisted session key.
   static Future<void>? _cookieWrites;
   static int _cookieStoreGeneration = 0;
+  static int _loginAttemptSequence = 0;
   int _cookieGeneration = 0;
+  int _credentialGeneration = _cookieStoreGeneration;
+  int get credentialGeneration => _credentialGeneration;
+  bool isCredentialCurrent(int generation) =>
+      generation == _credentialGeneration &&
+      generation == _cookieStoreGeneration;
 
   Future<void> restoreCookies() {
     return _restoreFuture ??= _restoreCookies();
@@ -147,14 +153,17 @@ class ForumClient {
     if (!isAttachmentUrl(url)) {
       throw const AttachmentDownloadException('不是当前论坛的附件链接');
     }
+    var storeGeneration = _credentialGeneration;
+    final restoring = _restoreFuture == null;
     await restoreCookies();
+    if (restoring) storeGeneration = _credentialGeneration;
     var uri = baseUri.resolve(url.trim());
     for (var redirects = 0; redirects <= 5; redirects++) {
       final request = await _httpClient.getUrl(uri);
       request.followRedirects = false;
       _applyCookies(request);
       final response = await _pacer.send(uri, request.close);
-      await _storeCookies(response, uri);
+      await _storeCookies(response, uri, storeGeneration: storeGeneration);
       if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
         final location = response.headers.value(HttpHeaders.locationHeader);
         await response.listen(null).cancel();
@@ -266,6 +275,26 @@ class ForumClient {
     return _readText('POST', path, form: form);
   }
 
+  Future<
+      ({
+        String response,
+        int credentialGeneration,
+        bool installedCredentials
+      })> postLogin(Map<String, String> form) async {
+    var generation = credentialGeneration;
+    var installed = false;
+    final response = await _readText('POST', 'login.php', form: form,
+        didReceiveCredentials: (value, accepted) {
+      generation = value;
+      installed = accepted;
+    });
+    return (
+      response: response,
+      credentialGeneration: generation,
+      installedCredentials: installed
+    );
+  }
+
   Future<String> postForm(
     String path,
     List<MapEntry<String, String>> fields, {
@@ -359,6 +388,7 @@ class ForumClient {
     ForumReadRedirectPolicy redirectPolicy = ForumReadRedirectPolicy.none,
     bool sensitiveAccount = false,
     bool followRedirects = true,
+    void Function(int generation, bool installed)? didReceiveCredentials,
   }) async {
     final uri = baseUri.resolve(path).removeFragment();
     try {
@@ -406,6 +436,8 @@ class ForumClient {
           uri.path == '/sendemail.php' ? '登录名称查询请求返回了非预期状态' : '私讯请求返回了非预期状态',
         );
       }
+      didReceiveCredentials?.call(
+          result.credentialGeneration, result.installedCredentials);
       return body;
     } on ForumRequestException {
       rethrow;
@@ -463,7 +495,13 @@ class ForumClient {
     }
   }
 
-  Future<({int status, Uint8List bytes})> _exchange(
+  Future<
+      ({
+        int status,
+        Uint8List bytes,
+        int credentialGeneration,
+        bool installedCredentials
+      })> _exchange(
     String method,
     Uri uri, {
     Map<String, String>? form,
@@ -478,10 +516,35 @@ class ForumClient {
     Uint8List? body,
     ContentType? contentType,
     void Function()? requireCurrentSession,
+    int? credentialGeneration,
+    int? loginAttempt,
+    bool acceptedLogin = false,
   }) async {
-    final storeGeneration = _cookieStoreGeneration;
+    final isLogin =
+        loginAttempt != null || (method == 'POST' && uri.path == '/login.php');
+    var storeGeneration = credentialGeneration ?? _credentialGeneration;
+    if (isLogin && loginAttempt == null) {
+      loginAttempt = ++_loginAttemptSequence;
+      storeGeneration = _cookieStoreGeneration;
+    }
+    final restoring = _restoreFuture == null;
     await restoreCookies();
-    requireCurrentSession?.call();
+    if (restoring && credentialGeneration == null && !isLogin) {
+      storeGeneration = _credentialGeneration;
+    }
+    void requireCurrent() {
+      requireCurrentSession?.call();
+      if (((requireCurrentSession != null || isLogin) &&
+              storeGeneration != _cookieStoreGeneration) ||
+          (isLogin &&
+              !acceptedLogin &&
+              loginAttempt != _loginAttemptSequence)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重新加载');
+      }
+    }
+
+    requireCurrent();
     final isFavorites = uri.path == '/u.php' &&
         (uri.queryParameters['action'] == 'favor' ||
             RegExp(r'^action(?:=|-)favor(?:-|\.html$)').hasMatch(uri.query));
@@ -546,7 +609,7 @@ class ForumClient {
     _applyCookies(request);
     final response = await _pacer.send(uri, () {
       try {
-        requireCurrentSession?.call();
+        requireCurrent();
       } catch (error) {
         request.abort();
         rethrow;
@@ -561,11 +624,26 @@ class ForumClient {
       return request.close();
     });
     try {
-      requireCurrentSession?.call();
+      requireCurrent();
+      if (isLogin &&
+          !acceptedLogin &&
+          (response.headers[HttpHeaders.setCookieHeader] ?? const <String>[])
+              .any((header) =>
+                  _parseCookie(header, uri)
+                      ?.name
+                      .toLowerCase()
+                      .contains('winduser') ==
+                  true)) {
+        acceptedLogin = true;
+        storeGeneration = ++_cookieStoreGeneration;
+        _credentialGeneration = storeGeneration;
+      }
       await _storeCookies(response, uri,
-          requireCurrentSession: requireCurrentSession,
-          storeGeneration: storeGeneration);
-      requireCurrentSession?.call();
+          requireCurrentSession: requireCurrent,
+          storeGeneration: isLogin && !acceptedLogin
+              ? _credentialGeneration
+              : storeGeneration);
+      requireCurrent();
     } catch (_) {
       await response.listen(null).cancel();
       rethrow;
@@ -604,7 +682,11 @@ class ForumClient {
           '重定向次数过多',
         );
       }
-      if ((isAccount || identityLookup || sensitiveBlocking || guardedRead) &&
+      if ((isAccount ||
+              isLogin ||
+              identityLookup ||
+              sensitiveBlocking ||
+              guardedRead) &&
           !_sameOrigin(next)) {
         throw ForumRequestException(
           guardedRead ? ForumRequestKind.invalidInput : ForumRequestKind.server,
@@ -638,13 +720,16 @@ class ForumClient {
         redirectPolicy: redirectPolicy,
         followRedirects: followRedirects,
         requireCurrentSession: requireCurrentSession,
+        credentialGeneration: storeGeneration,
+        loginAttempt: loginAttempt,
+        acceptedLogin: acceptedLogin,
       );
     }
     final bytes = Uint8List.fromList(
       await response
           .fold<List<int>>(<int>[], (body, data) => body..addAll(data)),
     );
-    requireCurrentSession?.call();
+    requireCurrent();
     final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
     ForumTraceLogger.log(
       'HTTP',
@@ -662,7 +747,13 @@ class ForumClient {
         utf8.decode(bytes, allowMalformed: true),
       );
     }
-    return (status: response.statusCode, bytes: bytes);
+    return (
+      status: response.statusCode,
+      bytes: bytes,
+      credentialGeneration:
+          isLogin && !acceptedLogin ? _credentialGeneration : storeGeneration,
+      installedCredentials: acceptedLogin
+    );
   }
 
   bool _isReadOnlyBoardRedirect(Uri uri) {
@@ -703,7 +794,7 @@ class ForumClient {
 
   Future<void> clearSession() async {
     _cookieGeneration++;
-    _cookieStoreGeneration++;
+    _credentialGeneration = ++_cookieStoreGeneration;
     _cookies.clear();
     await _writeCookies(() async {
       await _sessionStore?.clear();
@@ -724,6 +815,7 @@ class ForumClient {
     _cookies
       ..clear()
       ..addAll(restored!);
+    _credentialGeneration = storeGeneration;
   }
 
   void _applyCookies(HttpClientRequest request) {
@@ -740,10 +832,10 @@ class ForumClient {
   }
 
   Future<void> _storeCookies(HttpClientResponse response, Uri origin,
-      {void Function()? requireCurrentSession, int? storeGeneration}) async {
+      {void Function()? requireCurrentSession,
+      required int storeGeneration}) async {
     requireCurrentSession?.call();
-    if (storeGeneration != null && storeGeneration != _cookieStoreGeneration)
-      return;
+    if (storeGeneration != _cookieStoreGeneration) return;
     var changed = false;
     for (final header
         in response.headers[HttpHeaders.setCookieHeader] ?? const <String>[]) {
@@ -788,8 +880,8 @@ class ForumClient {
   }
 
   Future<void> _persistCookies(
-      {void Function()? requireCurrentSession, int? storeGeneration}) {
-    final generation = storeGeneration ?? _cookieStoreGeneration;
+      {void Function()? requireCurrentSession, required int storeGeneration}) {
+    final generation = storeGeneration;
     _cookies.removeWhere((_, cookie) => cookie.isExpired);
     final snapshot = Map<String, ForumStoredCookie>.of(_cookies);
     return _writeCookies(() async {

@@ -350,6 +350,38 @@ void main() {
     expect(client.posts, isEmpty);
   });
 
+  test(
+      'a loaded PM form cannot adopt newly installed credentials before username publication',
+      () async {
+    final client = _PmClient()
+      ..responses.addAll([
+        _compose,
+        _compose.replaceAll('fixture-token', 'fresh-credential-token'),
+        _successInbox
+      ]);
+    final repository = ForumRepository(client: client);
+    final old = await repository.fetchPmCompose(
+        path: 'message.php?action-write-edmid-801.html');
+    client.credentialOverride = client.credentialGeneration + 1;
+    await expectLater(
+        repository.submitPm(
+            compose: old,
+            recipientUid: '901',
+            title: 'Title',
+            body: 'Private body'),
+        throwsA(isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.loginRequired)));
+    expect(client.posts, isEmpty);
+    final fresh = await repository.fetchPmCompose(
+        path: 'message.php?action-write-edmid-801.html');
+    await repository.submitPm(
+        compose: fresh,
+        recipientUid: '901',
+        title: 'Title',
+        body: 'Fresh body');
+    expect(client.posts.single.$2['verify'], 'fresh-credential-token');
+  });
+
   test('a compose form belongs to its loading session, never the next account',
       () async {
     final client = _PmClient()
@@ -519,6 +551,14 @@ class _PmClient extends ForumClient {
   final getPaths = <String>[];
   final posts = <(String, Map<String, String>)>[];
   bool loggedIn = true;
+  int? credentialOverride;
+  @override
+  int get credentialGeneration =>
+      credentialOverride ?? super.credentialGeneration;
+  @override
+  bool isCredentialCurrent(int generation) => credentialOverride == null
+      ? super.isCredentialCurrent(generation)
+      : generation == credentialOverride;
   Completer<void>? responseGate;
   final reachedGate = Completer<void>();
   Completer<void>? loginGate;
@@ -558,6 +598,21 @@ class _PmClient extends ForumClient {
 
   @override
   Future<String> getOnce(String path) => get(path);
+
+  @override
+  Future<
+      ({
+        String response,
+        int credentialGeneration,
+        bool installedCredentials
+      })> postLogin(Map<String, String> form) async {
+    final response = await post('login.php', form);
+    return (
+      response: response,
+      credentialGeneration: credentialGeneration,
+      installedCredentials: isLoggedIn
+    );
+  }
 
   @override
   Future<String> post(String path, Map<String, String> form) async {

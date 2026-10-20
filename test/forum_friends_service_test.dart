@@ -41,6 +41,23 @@ void main() {
         throwsA(isA<ForumRequestException>().having(
             (error) => error.kind, 'kind', ForumRequestKind.loginRequired)));
   });
+  test(
+      'a friend snapshot cannot adopt newly installed credentials before username publication',
+      () async {
+    final client = _Client();
+    final service = _service(client);
+    final old = await service.fetchFriends();
+    client.credentialOverride = client.credentialGeneration + 1;
+    await expectLater(
+        service.deleteFriends(old, old.items),
+        throwsA(isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.loginRequired)));
+    expect(client.posts, isEmpty);
+    final fresh = await service.fetchFriends();
+    expect((await service.deleteFriends(fresh, fresh.items)).confirmed, isTrue);
+    expect(client.posts, hasLength(1));
+  });
+
   test('friend mutation invalidates the warm self mixed-feed cache', () async {
     final client = _ProfileClient();
     final repository = ForumRepository(client: client);
@@ -254,6 +271,14 @@ ForumFriendsService _service(_Client client) => ForumFriendsService(
     );
 
 class _Client extends ForumClient {
+  int? credentialOverride;
+  @override
+  int get credentialGeneration =>
+      credentialOverride ?? super.credentialGeneration;
+  @override
+  bool isCredentialCurrent(int generation) => credentialOverride == null
+      ? super.isCredentialCurrent(generation)
+      : generation == credentialOverride;
   bool popup = false;
   bool friendPresent = true;
   bool pendingPresent = true;
@@ -376,6 +401,21 @@ ${friendPresent ? '<dl class="feed-list"><dt><a href="u.php?uid-202.html">friend
 </div>''';
     }
     return '<table class="u-table"></table>';
+  }
+
+  @override
+  Future<
+      ({
+        String response,
+        int credentialGeneration,
+        bool installedCredentials
+      })> postLogin(Map<String, String> form) async {
+    final response = await post('login.php', form);
+    return (
+      response: response,
+      credentialGeneration: credentialGeneration,
+      installedCredentials: isLoggedIn
+    );
   }
 
   @override
