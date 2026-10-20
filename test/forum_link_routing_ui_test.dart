@@ -30,7 +30,7 @@ class _Repo extends ForumRepository {
     identity.value = ForumAccountIdentity(systemName: 'me', uid: selfUid);
   }
 
-  final bool signedIn;
+  bool signedIn;
   final identity = ValueNotifier<ForumAccountIdentity?>(null);
 
   @override
@@ -182,6 +182,42 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.text('root'), findsOneWidget);
+  });
+
+  testWidgets('a login inside a linked page closes the private page below',
+      (tester) async {
+    final repo = _Repo();
+    await tester.pumpWidget(const MaterialApp(home: Text('root')));
+    tester.state<NavigatorState>(find.byType(Navigator)).push(
+          MaterialPageRoute<void>(
+            builder: (context) => Scaffold(
+              body: Column(children: [
+                const Text('A 的私信'),
+                TextButton(
+                  onPressed: () => openForumLink(
+                      context, repo, '$_site/plugin.php?H_name-tasks.html'),
+                  child: const Text('link'),
+                ),
+              ]),
+            ),
+          ),
+        );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('link'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ForumTasksScreen), findsOneWidget);
+
+    // The cookie expires; the task page offers its own login.
+    repo.signedIn = false;
+    tester.element(find.byType(ForumTasksScreen)).markNeedsBuild();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('去登录'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.text('A 的私信', skipOffstage: false), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(minutes: 1));
   });
 
   testWidgets('a late compose answer after the page closed stays unseen',

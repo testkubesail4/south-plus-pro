@@ -202,12 +202,7 @@ void _showAccountNotice(BuildContext context, ForumRepository repository) {
           ? null
           : SnackBarAction(
               label: '登录',
-              onPressed: () {
-                // Pages pushed by the old session may hold its private
-                // content; only the shell, which follows the session, stays.
-                navigator.popUntil((route) => route.isFirst);
-                openLogin(navigator.context, repository);
-              },
+              onPressed: () => openLogin(navigator.context, repository),
             ),
     ));
 }

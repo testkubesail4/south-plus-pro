@@ -10,8 +10,14 @@ import '../common/brand_mark.dart';
 
 /// Opens the login page; true once a login succeeded. The app shell follows
 /// the session itself, so callers only refresh their own screen.
+///
+/// Pages pushed under the old session may hold its private content, so
+/// login starts from the shell: every pushed page closes first, the caller's
+/// own included unless it is a shell tab.
 Future<bool> openLogin(BuildContext context, ForumRepository repository) async {
-  final loggedIn = await Navigator.of(context).push<bool>(
+  final navigator = Navigator.of(context, rootNavigator: true)
+    ..popUntil((route) => route.isFirst);
+  final loggedIn = await navigator.push<bool>(
     MaterialPageRoute(builder: (_) => LoginScreen(repository: repository)),
   );
   return loggedIn ?? false;
