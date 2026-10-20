@@ -158,7 +158,10 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
           message: '登录后可以申请日常、周常任务，并领取 SP 币奖励。',
           onLogin: () async {
             if (!await openLogin(context, widget.repository)) return;
-            if (mounted) setState(() => _future = _load());
+            if (!mounted) return;
+            setState(() {
+              _future = _load();
+            });
           },
         ),
       );

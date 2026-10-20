@@ -76,7 +76,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _reloadHomeReading() {
-    if (mounted) setState(() => _homeReading = _loadHomeReading());
+    if (!mounted) return;
+    setState(() {
+      _homeReading = _loadHomeReading();
+    });
   }
 
   void _openHomeBoards() {
@@ -551,7 +554,9 @@ class _LoadingSettingsScreenState extends State<LoadingSettingsScreen> {
                       title: const Text('加载设置读取失败'),
                       subtitle: const Text('读取成功前，所有列表都手动翻页'),
                       trailing: TextButton(
-                        onPressed: () => setState(() => _read = _load()),
+                        onPressed: () => setState(() {
+                          _read = _load();
+                        }),
                         child: const Text('重试'),
                       ),
                     ),
