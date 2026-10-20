@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'forum_http_routing.dart';
+import 'forum_network_defaults.dart';
 
 class ForumSite {
   const ForumSite(this.host);
@@ -37,15 +38,21 @@ class ForumProxy {
     String? password,
   }) {
     final error = validationError(
-        type: type,
-        host: host,
-        port: port,
-        username: username,
-        password: password);
+      type: type,
+      host: host,
+      port: port,
+      username: username,
+      password: password,
+    );
     if (error != null) throw FormatException(error);
     username = username?.isEmpty == true ? null : username;
-    return ForumProxy._(type, host.trim(), port, username,
-        username == null ? null : password ?? '');
+    return ForumProxy._(
+      type,
+      host.trim(),
+      port,
+      username,
+      username == null ? null : password ?? '',
+    );
   }
 
   static String? validationError({
@@ -61,11 +68,16 @@ class ForumProxy {
       InternetAddress(host);
       validHost = true;
     } on ArgumentError {
-      validHost = host.isNotEmpty &&
+      validHost =
+          host.isNotEmpty &&
           host.length <= 253 &&
-          host.split('.').every((label) => RegExp(
-                r'^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$',
-              ).hasMatch(label));
+          host
+              .split('.')
+              .every(
+                (label) => RegExp(
+                  r'^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$',
+                ).hasMatch(label),
+              );
     }
     if (!validHost || port < 1 || port > 65535) {
       return '请输入有效的代理主机和端口';
@@ -90,7 +102,12 @@ class ForumProxy {
   }
 
   const ForumProxy._(
-      this.type, this.host, this.port, this.username, this.password);
+    this.type,
+    this.host,
+    this.port,
+    this.username,
+    this.password,
+  );
   final ForumProxyType type;
   final String host;
   final int port;
@@ -98,12 +115,12 @@ class ForumProxy {
   final String? password;
 
   Map<String, Object?> toJson() => {
-        'type': type.name,
-        'host': host,
-        'port': port,
-        'username': username,
-        'password': password,
-      };
+    'type': type.name,
+    'host': host,
+    'port': port,
+    'username': username,
+    'password': password,
+  };
 
   factory ForumProxy.fromJson(Object? value) {
     if (value is! Map<String, dynamic> ||
@@ -118,11 +135,12 @@ class ForumProxy {
         .firstOrNull;
     if (type == null) throw const FormatException('代理类型无效');
     return ForumProxy(
-        type: type,
-        host: value['host'] as String,
-        port: value['port'] as int,
-        username: value['username'] as String?,
-        password: value['password'] as String?);
+      type: type,
+      host: value['host'] as String,
+      port: value['port'] as int,
+      username: value['username'] as String?,
+      password: value['password'] as String?,
+    );
   }
 
   @override
@@ -139,20 +157,31 @@ class ForumProxy {
   String toString() => 'ForumProxy(${type.name}, $host:$port)';
 }
 
+enum ForumNetworkMode { native, optimized, proxy }
+
 class ForumNetworkConfig {
   const ForumNetworkConfig({
     required this.site,
-    required bool dohEnabled,
-    required this.dohProvider,
-    String? fixedAddress,
-    String? customDohUri,
+    ForumNetworkMode? mode,
+    bool? dohEnabled,
+    this.dohProvider = defaultProvider,
+    this.ipv6Enabled = false,
+    this.dohBootstrapAddresses = const [],
+    this.hostAddresses = const {},
+    this.fixedAddress,
+    this.customDohUri,
     this.proxy,
-  })  : dohEnabled = proxy == null && dohEnabled,
-        fixedAddress = proxy == null ? fixedAddress : null,
-        customDohUri = proxy == null ? customDohUri : null;
+  }) : mode =
+           mode ??
+           (proxy != null
+               ? ForumNetworkMode.proxy
+               : dohEnabled == false
+               ? ForumNetworkMode.native
+               : ForumNetworkMode.optimized),
+       assert(mode != ForumNetworkMode.proxy || proxy != null);
 
   static const defaultSite = ForumSite('south-plus.net');
-  static const defaultProvider = DohProvider.doh090227Sb;
+  static const defaultProvider = DohProvider.cmliuCloudflare;
 
   static const List<ForumSite> sites = [
     ForumSite('east-plus.net'),
@@ -186,7 +215,11 @@ class ForumNetworkConfig {
   }
 
   final ForumSite site;
-  final bool dohEnabled;
+  final ForumNetworkMode mode;
+  final bool ipv6Enabled;
+  final List<String> dohBootstrapAddresses;
+  final Map<String, List<String>> hostAddresses;
+  bool get dohEnabled => mode == ForumNetworkMode.optimized;
   final DohProvider dohProvider;
   final String? fixedAddress;
   final String? customDohUri;
@@ -229,7 +262,11 @@ class ForumNetworkConfig {
       other is ForumNetworkConfig &&
           runtimeType == other.runtimeType &&
           site == other.site &&
-          dohEnabled == other.dohEnabled &&
+          mode == other.mode &&
+          ipv6Enabled == other.ipv6Enabled &&
+          jsonEncode(dohBootstrapAddresses) ==
+              jsonEncode(other.dohBootstrapAddresses) &&
+          jsonEncode(hostAddresses) == jsonEncode(other.hostAddresses) &&
           dohProvider == other.dohProvider &&
           fixedAddress == other.fixedAddress &&
           customDohUri == other.customDohUri &&
@@ -237,10 +274,118 @@ class ForumNetworkConfig {
 
   @override
   int get hashCode => Object.hash(
-      site, dohEnabled, dohProvider, fixedAddress, customDohUri, proxy);
+    site,
+    mode,
+    ipv6Enabled,
+    jsonEncode(dohBootstrapAddresses),
+    jsonEncode(hostAddresses),
+    dohProvider,
+    fixedAddress,
+    customDohUri,
+    proxy,
+  );
+
+  static List<String> builtInHostAddresses(String host) =>
+      forumHostFallback[host.toLowerCase()] ?? const [];
+
+  List<String> fallbackAddressesFor(String host) => List.unmodifiable({
+        ...?hostAddresses[host.toLowerCase()],
+        ...builtInHostAddresses(host),
+      });
+
+  static String? normalizeHost(String value) => _normalizeHost(value);
+  static String? normalizeDohUri(String value) => _normalizeDohUri(value);
+  static String? validateAddressLiteral(String value) {
+    final address = InternetAddress.tryParse(value);
+    if (address == null) return '请输入有效的 IPv4 或 IPv6 地址';
+    final bytes = address.rawAddress;
+    if (address.type == InternetAddressType.IPv4) {
+      if (!ForumResolvedAddressStore._isUsableCachedIpv4(address) ||
+          (bytes[0] == 192 && bytes[1] == 0) ||
+          (bytes[0] == 198 && bytes[1] == 51 && bytes[2] == 100) ||
+          (bytes[0] == 203 && bytes[1] == 0 && bytes[2] == 113))
+        return '请输入公网 IP 地址';
+    } else if ((bytes[0] & 0xe0) != 0x20 ||
+        (bytes[0] == 0x20 &&
+            bytes[1] == 0x01 &&
+            bytes[2] == 0x0d &&
+            bytes[3] == 0xb8)) {
+      return '请输入公网 IP 地址';
+    }
+    return null;
+  }
+
+  void validate() {
+    if (_normalizeHost(site.host) != site.host)
+      throw const FormatException('请输入有效的论坛域名');
+    if (mode == ForumNetworkMode.proxy && proxy == null)
+      throw const FormatException('请先配置代理');
+    if (customDohUri != null && _normalizeDohUri(customDohUri) == null)
+      throw const FormatException('请输入有效的 HTTPS DoH 地址');
+    for (final host in hostAddresses.keys) {
+      if (_normalizeHost(host) != host)
+        throw const FormatException('请输入有效的候选地址域名');
+    }
+    for (final address in [
+      ...dohBootstrapAddresses,
+      ...hostAddresses.values.expand((v) => v),
+    ]) {
+      final error = validateAddressLiteral(address);
+      if (error != null) throw FormatException(error);
+    }
+    if (dohBootstrapAddresses.length > 8 ||
+        hostAddresses.values.any((v) => v.length > 8)) {
+      throw const FormatException('每个域名最多配置 8 个地址');
+    }
+  }
+
+  Map<String, Object?> toJson() => {
+    'version': 2,
+    'site': site.host,
+    'mode': mode.name,
+    'ipv6Enabled': ipv6Enabled,
+    'dohProvider': dohProvider.name,
+    'customDohUri': customDohUri,
+    'dohBootstrapAddresses': dohBootstrapAddresses,
+    'hostAddresses': hostAddresses,
+    'proxy': proxy?.toJson(),
+  };
+
+  factory ForumNetworkConfig.fromJson(Map<String, dynamic> json) {
+    if (json['version'] != 2)
+      throw const FormatException('Unsupported network configuration');
+    final mode = ForumNetworkMode.values
+        .where((m) => m.name == json['mode'])
+        .firstOrNull;
+    if (mode == null || json['site'] is! String || json['ipv6Enabled'] is! bool)
+      throw const FormatException('Invalid network configuration');
+    final config = ForumNetworkConfig(
+      site: ForumSite(json['site'] as String),
+      mode: mode,
+      ipv6Enabled: json['ipv6Enabled'] as bool,
+      dohProvider: DohProvider.fromName(json['dohProvider'] as String?),
+      customDohUri: json['customDohUri'] as String?,
+      dohBootstrapAddresses: List<String>.unmodifiable(
+        json['dohBootstrapAddresses'] as List,
+      ),
+      hostAddresses: Map<String, List<String>>.unmodifiable(
+        (json['hostAddresses'] as Map).map(
+          (key, value) =>
+              MapEntry(key as String, List<String>.unmodifiable(value as List)),
+        ),
+      ),
+      proxy: json['proxy'] == null ? null : ForumProxy.fromJson(json['proxy']),
+    );
+    config.validate();
+    return config;
+  }
 
   ForumNetworkConfig copyWith({
     ForumSite? site,
+    ForumNetworkMode? mode,
+    bool? ipv6Enabled,
+    List<String>? dohBootstrapAddresses,
+    Map<String, List<String>>? hostAddresses,
     bool? dohEnabled,
     DohProvider? dohProvider,
     String? fixedAddress,
@@ -250,26 +395,35 @@ class ForumNetworkConfig {
     ForumProxy? proxy,
     bool clearProxy = false,
   }) {
-    final selectedProxy = proxy ??
-        (clearProxy ||
-                dohEnabled == true ||
-                fixedAddress != null ||
-                customDohUri != null
-            ? null
-            : this.proxy);
+    final selectedProxy = clearProxy ? null : proxy ?? this.proxy;
     return ForumNetworkConfig(
       proxy: selectedProxy,
+      mode:
+          mode ??
+          (proxy != null
+              ? ForumNetworkMode.proxy
+              : dohEnabled != null
+              ? (dohEnabled
+                    ? ForumNetworkMode.optimized
+                    : ForumNetworkMode.native)
+              : clearProxy && this.mode == ForumNetworkMode.proxy
+              ? ForumNetworkMode.native
+              : this.mode),
+      ipv6Enabled: ipv6Enabled ?? this.ipv6Enabled,
+      dohBootstrapAddresses:
+          dohBootstrapAddresses ?? this.dohBootstrapAddresses,
+      hostAddresses: hostAddresses ?? this.hostAddresses,
       site: site ?? this.site,
       dohEnabled: dohEnabled ?? this.dohEnabled,
       dohProvider: dohProvider ?? this.dohProvider,
       fixedAddress: clearFixedAddress
           ? null
           : fixedAddress?.trim().isEmpty == true
-              ? null
-              : fixedAddress ?? this.fixedAddress,
+          ? null
+          : fixedAddress ?? this.fixedAddress,
       customDohUri: clearCustomDohUri
           ? null
-          : _normalizeDohUri(customDohUri) ?? this.customDohUri,
+          : customDohUri ?? this.customDohUri,
     );
   }
 
@@ -293,7 +447,16 @@ class ForumNetworkConfig {
         .first
         .split(':')
         .first;
-    if (withoutScheme.isEmpty || withoutScheme.contains(' ')) return null;
+    if (withoutScheme.isEmpty ||
+        withoutScheme.length > 253 ||
+        !withoutScheme
+            .split('.')
+            .every(
+              (label) => RegExp(
+                r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$',
+              ).hasMatch(label),
+            ))
+      return null;
     return withoutScheme;
   }
 
@@ -302,7 +465,8 @@ class ForumNetworkConfig {
     if (trimmed == null || trimmed.isEmpty) return null;
     final uri = Uri.tryParse(trimmed);
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
-    if (uri.scheme != 'https') return null;
+    if (uri.scheme != 'https' || uri.userInfo.isNotEmpty || uri.hasFragment)
+      return null;
     return uri.toString();
   }
 }
@@ -312,19 +476,12 @@ enum DohProvider {
     label: 'cmliu Cloudflare 镜像',
     uri: 'https://doh.cm.edu.kg/CMLiussss',
   ),
-  doh090227Sb(
-    label: '090227 SB-query',
-    uri: 'https://doh.090227.xyz/SB-query',
-  ),
+  doh090227Sb(label: '090227 SB-query', uri: 'https://doh.090227.xyz/SB-query'),
   cloudflareGateway(
     label: 'Cloudflare Gateway',
     uri: 'https://frd4wvnobp.cloudflare-gateway.com/dns-query',
   ),
-  tiarap(
-    label: 'Tiarap',
-    uri: 'https://doh.tiarap.org/dns-query',
-  ),
-  ;
+  tiarap(label: 'Tiarap', uri: 'https://doh.tiarap.org/dns-query');
 
   const DohProvider({required this.label, required this.uri});
 
@@ -344,6 +501,7 @@ enum DohProvider {
 class ForumNetworkSettings {
   ForumNetworkSettings._();
 
+  static const _configKey = 'forum_network_config_v2';
   static const _proxyKey = 'forum_network_proxy_v1';
   static const _siteHostKey = 'forum_network_site_host_v1';
   static const _dohEnabledKey = 'forum_network_doh_enabled_v1';
@@ -355,6 +513,16 @@ class ForumNetworkSettings {
 
   static Future<ForumNetworkConfig> load() async {
     final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_configKey);
+    if (saved != null) {
+      try {
+        return ForumNetworkConfig.fromJson(
+          jsonDecode(saved) as Map<String, dynamic>,
+        );
+      } on Object {
+        throw const FormatException('网络设置无法读取，请重新设置');
+      }
+    }
     final proxyJson = prefs.getString(_proxyKey);
     ForumProxy? proxy;
     try {
@@ -366,82 +534,69 @@ class ForumNetworkSettings {
     return ForumNetworkConfig(
       proxy: proxy,
       site: ForumNetworkConfig.siteForHost(prefs.getString(_siteHostKey)),
-      dohEnabled: prefs.getBool(_dohEnabledKey) ?? true,
+      mode: proxy != null
+          ? ForumNetworkMode.proxy
+          : prefs.getBool(_dohEnabledKey) == false
+          ? ForumNetworkMode.native
+          : ForumNetworkMode.optimized,
       dohProvider: DohProvider.fromName(prefs.getString(_dohProviderKey)),
-      fixedAddress: _normalizeAddress(prefs.getString(_fixedAddressKey)),
+      // Legacy global fixed/cache IPs have no trustworthy hostname scope.
+      fixedAddress: null,
       customDohUri: ForumNetworkConfig._normalizeDohUri(
-          prefs.getString(_customDohUriKey)),
+        prefs.getString(_customDohUriKey),
+      ),
     );
   }
 
   static Future<void> save(ForumNetworkConfig config) async {
+    config.validate();
     final prefs = await SharedPreferences.getInstance();
-    await _checkedWrite(prefs, prefs.setString(_siteHostKey, config.site.host));
     await _checkedWrite(
-        prefs, prefs.setBool(_dohEnabledKey, config.dohEnabled));
-    await _checkedWrite(
-        prefs, prefs.setString(_dohProviderKey, config.dohProvider.name));
-    final customDohUri = config.normalizedCustomDohUri;
-    if (customDohUri == null) {
-      await _checkedWrite(prefs, prefs.remove(_customDohUriKey));
-    } else {
-      await _checkedWrite(
-          prefs, prefs.setString(_customDohUriKey, customDohUri));
-    }
-    final fixedAddress = _normalizeAddress(config.fixedAddress);
-    if (fixedAddress == null) {
-      await _checkedWrite(prefs, prefs.remove(_fixedAddressKey));
-    } else {
-      await _checkedWrite(
-          prefs, prefs.setString(_fixedAddressKey, fixedAddress));
-    }
-    // Commit the proxy selection last so an earlier write failure cannot disable it.
-    if (config.proxy == null) {
-      await _checkedWrite(prefs, prefs.remove(_proxyKey));
-    } else {
-      await _checkedWrite(prefs,
-          prefs.setString(_proxyKey, jsonEncode(config.proxy!.toJson())));
-    }
+      prefs,
+      prefs.setString(_configKey, jsonEncode(config.toJson())),
+    );
   }
 
   static Future<void> saveProxy(ForumProxy proxy) async {
-    final prefs = await SharedPreferences.getInstance();
-    await _checkedWrite(prefs, prefs.setBool(_dohEnabledKey, false));
-    await _checkedWrite(prefs, prefs.remove(_fixedAddressKey));
-    await _checkedWrite(prefs, prefs.remove(_customDohUriKey));
-    await _checkedWrite(
-        prefs, prefs.setString(_proxyKey, jsonEncode(proxy.toJson())));
+    await save(
+      (await load()).copyWith(mode: ForumNetworkMode.proxy, proxy: proxy),
+    );
   }
 
   static Future<void> disableProxy() async {
-    final prefs = await SharedPreferences.getInstance();
-    await _checkedWrite(prefs, prefs.setBool(_dohEnabledKey, false));
-    await _checkedWrite(prefs, prefs.remove(_fixedAddressKey));
-    await _checkedWrite(prefs, prefs.remove(_customDohUriKey));
-    await _checkedWrite(prefs, prefs.remove(_proxyKey));
+    await save(
+      (await load()).copyWith(mode: ForumNetworkMode.native, clearProxy: true),
+    );
   }
 
   static Future<void> _checkedWrite(
-      SharedPreferences prefs, Future<bool> write) async {
+    SharedPreferences prefs,
+    Future<bool> write,
+  ) async {
     try {
       if (!await write) throw Exception('网络设置保存失败，请重试');
     } catch (_) {
       // The plugin updates its memory cache before acknowledging disk writes.
       try {
         await prefs.reload();
-      } catch (_) {/* Preserve the write failure. */}
+      } catch (_) {
+        /* Preserve the write failure. */
+      }
       rethrow;
     }
   }
 
   static Future<List<ForumSite>> loadCustomSites() async {
     final prefs = await SharedPreferences.getInstance();
-    final hosts = prefs
+    final hosts =
+        prefs
             .getStringList(_customSiteHostsKey)
             ?.map(ForumNetworkConfig._normalizeHost)
             .nonNulls
-            .where((host) =>
-                !ForumNetworkConfig.sites.any((site) => site.host == host))
+            .where(
+              (host) =>
+                  !ForumNetworkConfig.sites.any((site) => site.host == host),
+            )
             .toList() ??
         const <String>[];
     return _unique(hosts).map(ForumSite.new).toList(growable: false);
@@ -464,7 +619,8 @@ class ForumNetworkSettings {
 
   static Future<List<String>> loadCustomDohUris() async {
     final prefs = await SharedPreferences.getInstance();
-    final values = prefs
+    final values =
+        prefs
             .getStringList(_customDohUrisKey)
             ?.map(ForumNetworkConfig._normalizeDohUri)
             .nonNulls
@@ -533,10 +689,7 @@ class ForumResolvedAddressStore {
   static Future<List<InternetAddress>> mergeAndSave(
     Iterable<InternetAddress> addresses,
   ) async {
-    final merged = _uniqueAddresses([
-      ...addresses,
-      ...await load(),
-    ]);
+    final merged = _uniqueAddresses([...addresses, ...await load()]);
     await save(merged);
     return merged;
   }
@@ -551,10 +704,7 @@ class ForumResolvedAddressStore {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_addressesKey, values);
-    await prefs.setInt(
-      _savedAtKey,
-      DateTime.now().millisecondsSinceEpoch,
-    );
+    await prefs.setInt(_savedAtKey, DateTime.now().millisecondsSinceEpoch);
   }
 
   static List<InternetAddress> _parseAddresses(List<String> values) {
@@ -607,8 +757,8 @@ class DohResolver {
     required DohProvider provider,
     HttpClient? client,
     this.timeout = const Duration(seconds: 5),
-  })  : endpoint = provider.endpoint,
-        _client = client;
+  }) : endpoint = provider.endpoint,
+       _client = client;
 
   DohResolver.custom({
     required this.endpoint,
@@ -628,12 +778,11 @@ class DohResolver {
     if (cached != null && cached.isNotEmpty) return cached;
 
     final records = await _queryJson(normalized, 1);
-    final resolved =
-        records.isNotEmpty ? records : await _queryDnsMessage(normalized, 1);
+    final resolved = records.isNotEmpty
+        ? records
+        : await _queryDnsMessage(normalized, 1);
     if (resolved.isEmpty) {
-      throw SocketException(
-        'DoH did not return A records',
-      );
+      throw SocketException('DoH did not return A records');
     }
 
     _cache[normalized] = resolved;
@@ -644,10 +793,7 @@ class DohResolver {
     final client = _client ?? HttpClient();
     try {
       final uri = endpoint.replace(
-        queryParameters: {
-          'name': host,
-          'type': '$type',
-        },
+        queryParameters: {'name': host, 'type': '$type'},
       );
       final request = await client.getUrl(uri).timeout(timeout);
       request.headers.set(HttpHeaders.acceptHeader, 'application/dns-json');
@@ -695,8 +841,9 @@ class DohResolver {
       final request = await client.getUrl(uri).timeout(timeout);
       request.headers.set(HttpHeaders.acceptHeader, 'application/dns-message');
       final response = await request.close().timeout(timeout);
-      final bytes = await response.fold<List<int>>(
-          <int>[], (buffer, data) => buffer..addAll(data)).timeout(timeout);
+      final bytes = await response
+          .fold<List<int>>(<int>[], (buffer, data) => buffer..addAll(data))
+          .timeout(timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return const [];
       }
@@ -789,11 +936,13 @@ class DohResolver {
 
 HttpClient createForumHttpClient(ForumNetworkConfig config) {
   final client = createUnroutedHttpClient();
-  if (config.proxy != null) {
+  if (config.mode == ForumNetworkMode.proxy) {
+    if (config.proxy == null) throw const FormatException('请先配置代理');
     configureForumProxy(client, config.proxy!);
     return client;
   }
   client.findProxy = (_) => 'DIRECT';
+  if (config.mode == ForumNetworkMode.native) return client;
 
   final resolvers = {
     for (final provider in DohProvider.values)
@@ -813,8 +962,9 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
 
   client.connectionFactory = (uri, proxyHost, proxyPort) {
     final result = Completer<Socket>();
-    final cancelledError =
-        const SocketException('Connection attempt cancelled');
+    final cancelledError = const SocketException(
+      'Connection attempt cancelled',
+    );
     ConnectionTask<Socket>? activeTask;
     Socket? activeSocket;
     var cancelled = false;
@@ -853,16 +1003,18 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
 
     Future<Socket> connect() async {
       if (proxyHost != null || proxyPort != null) {
-        return attempt(() => Socket.startConnect(
-              proxyHost ?? uri.host,
-              proxyPort ?? uri.port,
-            ));
+        return attempt(
+          () =>
+              Socket.startConnect(proxyHost ?? uri.host, proxyPort ?? uri.port),
+        );
       }
 
       final fixedAddress = config.fixedInternetAddress;
       if (fixedAddress != null) {
-        return attempt(() => Socket.startConnect(fixedAddress, uri.port),
-            upgradeTls: true);
+        return attempt(
+          () => Socket.startConnect(fixedAddress, uri.port),
+          upgradeTls: true,
+        );
       }
 
       if (config.dohEnabled) {
@@ -874,8 +1026,9 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
             for (final address in addresses) {
               try {
                 return await attempt(
-                    () => Socket.startConnect(address, uri.port),
-                    upgradeTls: true);
+                  () => Socket.startConnect(address, uri.port),
+                  upgradeTls: true,
+                );
               } catch (_) {
                 if (cancelled) rethrow;
                 // Try the next custom DoH address before falling back.
@@ -894,8 +1047,9 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
             for (final address in addresses) {
               try {
                 return await attempt(
-                    () => Socket.startConnect(address, uri.port),
-                    upgradeTls: true);
+                  () => Socket.startConnect(address, uri.port),
+                  upgradeTls: true,
+                );
               } catch (_) {
                 if (cancelled) rethrow;
                 // Try the next DoH address, then the next DoH provider.
@@ -921,8 +1075,10 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
       );
       for (final address in cachedAddresses) {
         try {
-          return await attempt(() => Socket.startConnect(address, uri.port),
-              upgradeTls: true);
+          return await attempt(
+            () => Socket.startConnect(address, uri.port),
+            upgradeTls: true,
+          );
         } catch (_) {
           if (cancelled) rethrow;
           // Try the next persisted address, then surface the system DNS failure.
@@ -932,23 +1088,30 @@ HttpClient createForumHttpClient(ForumNetworkConfig config) {
       throw systemError;
     }
 
-    unawaited(connect().then((socket) {
-      if (result.isCompleted) {
-        socket.destroy();
-      } else {
-        result.complete(socket);
-      }
-    }, onError: (Object error, StackTrace stack) {
-      if (!result.isCompleted) result.completeError(error, stack);
-    }));
-    return Future.value(ConnectionTask.fromSocket(result.future, () {
-      if (cancelled || result.isCompleted) return;
-      cancelled = true;
-      activeTask?.cancel();
-      activeSocket?.destroy();
-      // shortcut: public TLS upgrades may linger; destroy late sockets until the SDK supports cancellation.
-      result.completeError(cancelledError);
-    }));
+    unawaited(
+      connect().then(
+        (socket) {
+          if (result.isCompleted) {
+            socket.destroy();
+          } else {
+            result.complete(socket);
+          }
+        },
+        onError: (Object error, StackTrace stack) {
+          if (!result.isCompleted) result.completeError(error, stack);
+        },
+      ),
+    );
+    return Future.value(
+      ConnectionTask.fromSocket(result.future, () {
+        if (cancelled || result.isCompleted) return;
+        cancelled = true;
+        activeTask?.cancel();
+        activeSocket?.destroy();
+        // shortcut: public TLS upgrades may linger; destroy late sockets until the SDK supports cancellation.
+        result.completeError(cancelledError);
+      }),
+    );
   };
   return client;
 }
