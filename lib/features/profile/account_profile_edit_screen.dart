@@ -754,6 +754,11 @@ class _SystemAvatarSheetState extends State<_SystemAvatarSheet> {
           future: _future,
           builder: (context, snapshot) {
             final data = snapshot.data;
+            final last = data == null
+                ? null
+                : _more.pages.isEmpty
+                    ? data
+                    : _more.pages.last;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -777,22 +782,23 @@ class _SystemAvatarSheetState extends State<_SystemAvatarSheet> {
                           : _pages(data),
                 ),
                 // 自动接续 reads on below the grid instead.
+                // It turns from the last page shown, appended ones included.
                 if (!_more.continuous || data == null)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       TextButton(
-                        onPressed: data?.previousPage == null
+                        onPressed: last?.previousPage == null
                             ? null
-                            : () => _go(data!.previousPage!),
+                            : () => _go(last!.previousPage!),
                         child: const Text('上一页'),
                       ),
-                      Text(data == null ? '' : '第 ${data.page} 页',
+                      Text(last == null ? '' : '第 ${last.page} 页',
                           style: theme.textTheme.bodySmall),
                       TextButton(
-                        onPressed: data?.nextPage == null
+                        onPressed: last?.nextPage == null
                             ? null
-                            : () => _go(data!.nextPage!),
+                            : () => _go(last!.nextPage!),
                         child: const Text('下一页'),
                       ),
                     ],

@@ -412,6 +412,14 @@ void main() {
       await toEnd(tester);
       expect(repo.avatarReads, [1, 2, 3]);
       expect(find.text('论坛未给出下一页，页数未能确认', skipOffstage: false), findsOneWidget);
+      // Back to 手动翻页, the pages stay and it turns from page 3, the last.
+      await LoadingPreferences.save(LoadingDomain.avatars, LoadingMode.manual);
+      await tester.pumpAndSettle();
+      expect(repo.avatarReads, [1, 2, 3]);
+      TextButton turn(String label) =>
+          tester.widget<TextButton>(find.widgetWithText(TextButton, label));
+      expect(turn('下一页').onPressed, isNull);
+      expect(turn('上一页').onPressed, isNotNull);
       // A picture of an appended page is chosen like any other.
       await tester.tap(find.byTooltip('p3-29.gif'));
       await tester.pumpAndSettle();
