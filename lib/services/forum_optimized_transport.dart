@@ -34,7 +34,7 @@ class ForumOptimizedTransport {
   late final List<DohResolver> _resolvers;
   final _connections = <ForumConnectionRace>{};
   final _cooldown = <String, DateTime>{};
-  final _resolverCooldown = <DohResolver, DateTime>{};
+  final _resolverCooldown = <(String, DohResolver), DateTime>{};
   bool _closed = false;
 
   Future<ConnectionTask<Socket>> connect(
@@ -143,7 +143,7 @@ class ForumOptimizedTransport {
     void launch() {
       if (cancelled) return;
       while (next < _resolvers.length &&
-          (_resolverCooldown[_resolvers[next]]?.isAfter(DateTime.now()) ??
+          (_resolverCooldown[(host, _resolvers[next])]?.isAfter(DateTime.now()) ??
               false)) {
         next++;
       }
@@ -163,10 +163,14 @@ class ForumOptimizedTransport {
               onError: (Object _) {},
               onDone: () {
                 active--;
-                if (!received)
-                  _resolverCooldown[resolver] = DateTime.now().add(
+                if (!received) {
+                  if (_resolverCooldown.length >= 256) {
+                    _resolverCooldown.remove(_resolverCooldown.keys.first);
+                  }
+                  _resolverCooldown[(host, resolver)] = DateTime.now().add(
                     const Duration(seconds: 5),
                   );
+                }
                 if (!cancelled) launch();
               },
             ),

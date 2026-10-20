@@ -205,10 +205,7 @@ class ForumNetworkConfig {
       final uri = Uri.tryParse(value);
       if (uri == null ||
           uri.userInfo.isNotEmpty ||
-          uri.hasPort ||
-          uri.hasQuery ||
-          uri.hasFragment ||
-          (uri.path.isNotEmpty && uri.path != '/')) return null;
+          uri.hasPort) return null;
       value = uri.host;
     }
     if (value.isEmpty ||

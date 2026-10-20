@@ -6,6 +6,13 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('site URL normalization strips paths but rejects authority ambiguity', () {
+    expect(ForumNetworkConfig.normalizeHost('https://Example-Plus.net/index.php?x=1#anchor'), 'example-plus.net');
+    expect(ForumNetworkConfig.normalizeHost('https://user@evil.invalid/index.php'), isNull);
+    expect(ForumNetworkConfig.normalizeHost('https://example-plus.net:8080/index.php'), isNull);
+    expect(ForumNetworkConfig.normalizeHost('example-plus.net/path'), isNull);
+  });
+
   test(
     'v2 preserves independent site, mode and offline custom candidates',
     () async {

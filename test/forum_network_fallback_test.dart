@@ -142,12 +142,19 @@ void main() {
         'application',
         'dns-message',
       );
-      request.response.add(
-        dnsReply(query, [
-          dnsRecord('localhost', 1, [104, 21, 43, 10]),
-          dnsRecord('localhost', 1, [172, 67, 215, 174]),
-        ]),
-      );
+      final labels = <String>[];
+      for (var offset = 12; query[offset] != 0;) {
+        final length = query[offset++];
+        labels.add(ascii.decode(query.sublist(offset, offset + length)));
+        offset += length;
+      }
+      final host = labels.join('.');
+      request.response.add(host == 'missing.fixture.invalid'
+          ? dnsReply(query, [], status: 3)
+          : dnsReply(query, [
+              dnsRecord(host, 1, [104, 21, 43, 10]),
+              dnsRecord(host, 1, [172, 67, 215, 174]),
+            ]));
       request.response.close();
     });
     try {
@@ -173,6 +180,20 @@ void main() {
       await resolver.close(force: true);
     }
   }
+
+  test('an authoritative negative host does not cool down unrelated hosts', () async {
+    final server = await HttpServer.bind(InternetAddress('127.0.0.2'), 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) {
+      request.response.write('healthy unrelated host');
+      request.response.close();
+    });
+    await withClient(_SocketRoutes(), (client) async {
+      await expectLater(client.getUrl(Uri.http('missing.fixture.invalid:${server.port}', '/')), throwsA(isA<SocketException>()));
+      final response = await (await client.getUrl(Uri.http('api.github.com:${server.port}', '/'))).close();
+      expect(await utf8.decoder.bind(response).join(), 'healthy unrelated host');
+    });
+  });
 
   test('refused resolved address falls through to a working address', () async {
     final server = await HttpServer.bind(InternetAddress('127.0.0.2'), 0);
