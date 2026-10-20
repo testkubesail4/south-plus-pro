@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +19,8 @@ class _Repo extends ForumRepository {
   // Later pages repeat page 1's rows.
   bool repeats = false;
   int pageCount = 3;
+  // While set, page 3 stays on its way.
+  Completer<void>? holdPage3;
 
   @override
   ValueListenable<int> get sessionEpoch => epoch;
@@ -55,6 +59,7 @@ class _Repo extends ForumRepository {
   Future<FavoriteCollections> fetchFavoriteCollectionsPage(
       {String? categoryId, int page = 1}) async {
     calls.add('${categoryId ?? 'all'}:$page');
+    if (page == 3) await holdPage3?.future;
     return _page(categoryId, page);
   }
 
@@ -145,6 +150,55 @@ void main() {
     expect(entries.map((e) => e.id), ['305']);
     expect(entries.every((e) => snapshot.items.any((i) => identical(i, e))),
         isTrue);
+  });
+
+  testWidgets('turning to 自动接续 at the end waits for the next scroll',
+      (tester) async {
+    final repo = await pump(tester);
+    await toEnd(tester);
+    await LoadingPreferences.save(
+        LoadingDomain.favorites, LoadingMode.continuous);
+    await tester.pumpAndSettle();
+    expect(repo.calls, ['all:1']);
+
+    // The next scroll near the end reads on.
+    await tester.drag(find.byType(ListView), const Offset(0, 300));
+    await tester.pumpAndSettle();
+    expect(repo.calls, ['all:1', 'all:2']);
+  });
+
+  testWidgets('a page read before a write is not appended after it',
+      (tester) async {
+    await LoadingPreferences.save(
+        LoadingDomain.favorites, LoadingMode.continuous);
+    final hold = Completer<void>();
+    final repo = await pump(tester, repo: _Repo()..holdPage3 = hold);
+    // Page 3 stays on its way, its spinner turning: no settling from here.
+    Future<void> settle() => tester.pump(const Duration(seconds: 1));
+    for (var i = 0; i < 2; i++) {
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await settle();
+    }
+    expect(repo.calls, ['all:1', 'all:2', 'all:3']);
+
+    await tester.tap(key('favorite-select-start'));
+    await settle();
+    final row = key('favorite-select:205');
+    await tester.ensureVisible(row);
+    await settle();
+    await tester.tap(row);
+    await settle();
+    await tester.tap(key('favorite-remove-selected'));
+    await settle();
+    await tester.tap(find.widgetWithText(FilledButton, '取消收藏').last);
+    await tester.pumpAndSettle();
+    expect(repo.removed.single.$1.page, 2);
+
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Fav 300', skipOffstage: false), findsNothing);
+    expect(find.text('第 3 页', skipOffstage: false), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
   testWidgets('自动接续 pauses after two pages of repeated rows', (tester) async {

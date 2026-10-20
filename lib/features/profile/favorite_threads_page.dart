@@ -128,13 +128,17 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
       LoadingMode.continuous;
 
   // The footer follows the mode; a page already on its way still lands.
+  // 自动接续 starts at the next scroll to the end, never by itself.
   void _onLoadingModeChanged() {
-    if (!mounted) return;
-    setState(() {});
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+    if (mounted) setState(() {});
   }
 
+  // Moves with every write and every clearing of [_more]: a page read
+  // before it is dropped.
+  int _moreGeneration = 0;
+
   void _clearMore() {
+    _moreGeneration++;
     _more.clear();
     _loadingMore = false;
     _moreError = null;
@@ -178,8 +182,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     if (!mounted ||
         !_continuous ||
         _nextPage == null ||
-        _loading ||
-        _error != null ||
+        _locked ||
         _scan != null ||
         _loadingMore ||
         _moreError != null ||
@@ -196,8 +199,9 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     final next = _nextPage;
     final data = _data;
     if (next == null || data == null || _loadingMore) return;
-    // Any load, write or session change moves this on: the answer is dropped.
+    // Any load, write or session change moves these on: the answer is dropped.
     final epoch = _epoch;
+    final generation = _moreGeneration;
     final view = _view;
     setState(() {
       _loadingMore = true;
@@ -206,7 +210,9 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     try {
       final page = await widget.repository
           .fetchFavoriteCollectionsPage(categoryId: view, page: next);
-      if (!mounted || epoch != _epoch) return;
+      if (!mounted || epoch != _epoch || generation != _moreGeneration) {
+        return;
+      }
       // Category numbers can shift on the forum: under another name this is
       // another category's page, so the list is read again from the start.
       if (page.categoryId != view ||
@@ -226,7 +232,9 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
         WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
       }
     } catch (error) {
-      if (!mounted || epoch != _epoch) return;
+      if (!mounted || epoch != _epoch || generation != _moreGeneration) {
+        return;
+      }
       setState(() {
         _loadingMore = false;
         _moreError = error;
@@ -446,7 +454,12 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     final labelBefore =
         viewBefore == null ? null : _labelOf(snapshot, viewBefore);
     final messenger = ScaffoldMessenger.of(context);
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      // A page on its way was read before the write: it is not appended.
+      _moreGeneration++;
+      _loadingMore = false;
+    });
     final FavoriteCollectionMutation result;
     try {
       result = await run(snapshot);
