@@ -207,6 +207,36 @@ void main() {
       }
     });
   }
+
+  for (final expire in [false, true]) {
+    test(
+        'legacy leading-dot cookie is ${expire ? 'expired' : 'replaced'} by Set-Cookie',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'forum_session_cookies_v1': jsonEncode({
+          'session;.fixture.invalid;/': {
+            'name': 'session',
+            'value': 'synthetic-old',
+            'domain': '.fixture.invalid',
+            'path': '/',
+          }
+        })
+      });
+      responseCookies = [
+        expire
+            ? 'session=; Domain=.fixture.invalid; Path=/; Max-Age=0'
+            : 'session=synthetic-new; Domain=.fixture.invalid; Path=/'
+      ];
+      final origin = client('fixture.invalid');
+      await origin.getOnce('/before');
+      expect(requests.last.$3, 'session=synthetic-old');
+      await origin.getOnce('/seed');
+      await origin.getOnce('/after');
+      expect(requests.last.$3, expire ? isNull : 'session=synthetic-new');
+      await client('fixture.invalid').getOnce('/reloaded');
+      expect(requests.last.$3, expire ? isNull : 'session=synthetic-new');
+    });
+  }
 }
 
 class _RealHttp extends HttpOverrides {}
