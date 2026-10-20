@@ -14,6 +14,7 @@ String nativeFavoriteHtml(
     String token = 'fixture-token',
     String? filter,
     int pageCount = 1,
+    int page = 1,
     bool missingTable = false}) {
   const escape = HtmlEscape(HtmlEscapeMode.attribute);
   String e(String value) => escape.convert(value);
@@ -41,7 +42,7 @@ ${visible.map((row) => '''<tr><th><a href="read.php?tid-${row.tid}.html">Synthet
       '<option value="${i + 1}">${e(categories[i])}</option>'
   ].join()}</select>
 <input type="radio" name="job" value="clear">&nbsp;删除 <input class="btn" type="button" name="chkall" value="全 选" onclick="CheckAll(this.form)"><input class="btn" type="submit" value="提 交"></form>
-${pageCount == 1 ? '' : '<ul class="pages"><li class="pagesone">Pages: 1&nbsp; / $pageCount</li></ul>'}
+${pageCount == 1 ? '' : '<ul class="pages"><li class="pagesone">Pages: $page&nbsp; / $pageCount</li></ul>'}
 </div></div></body></html>''';
 }
 

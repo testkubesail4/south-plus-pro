@@ -794,14 +794,16 @@ class ForumRepository {
   }
 
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
-    final path = _pmParser.requireRoute(
+    final target = _pmParser.requireRoute(
       pagePath ?? 'message.php?action-${box.wireName}.html',
       {box.wireName},
-    ).path;
+    );
     final session = _pmSession();
-    final response = await _requestPm(session, path);
-    final page =
-        _parsePm(response, (document) => _pmParser.parseBox(document, box));
+    final response = await _requestPm(session, target.path);
+    final page = _parsePm(
+        response,
+        (document) => _pmParser.parseBox(document, box,
+            currentPage: int.tryParse(target.fields['page'] ?? '') ?? 1));
     for (final message in page.messages) {
       _pmSessions[message] = session;
     }
@@ -922,8 +924,9 @@ class ForumRepository {
     final response = await _requestPm(_pmSession(), target.path);
     return _parsePm(
         response,
-        (document) =>
-            _pmParser.parseChatlog(document, target.fields['withuid']!));
+        (document) => _pmParser.parseChatlog(
+            document, target.fields['withuid']!,
+            currentPage: int.tryParse(target.fields['page'] ?? '') ?? 1));
   }
 
   Future<bool> restoreSession() async {
@@ -2807,6 +2810,11 @@ class ForumRepository {
 
   Future<FavoriteCollections> fetchFavoriteCollections({String? categoryId}) =>
       _favoritesService.fetchFavoriteCollections(categoryId: categoryId);
+
+  Future<FavoriteCollections> fetchFavoriteCollectionsPage(
+          {String? categoryId, int page = 1}) =>
+      _favoritesService.fetchFavoriteCollections(
+          categoryId: categoryId, page: page);
 
   FullScan<FavoriteSearchHit> scanFavorites({
     String? categoryId,

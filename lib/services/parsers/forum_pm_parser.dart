@@ -155,7 +155,8 @@ class ForumPmParser {
     return null;
   }
 
-  ForumPmPage parseBox(dom.Document document, ForumPmBox box) {
+  ForumPmPage parseBox(dom.Document document, ForumPmBox box,
+      {int currentPage = 1}) {
     final messages = <ForumPmSummary>[];
     for (final row in document.querySelectorAll('tr')) {
       dom.Element? titleLink;
@@ -219,11 +220,14 @@ class ForumPmParser {
     if (messages.isEmpty && !hasHeader) {
       throw const ForumRequestException(ForumRequestKind.server, '没有识别到私讯列表');
     }
+    final links = pageLinks(document, {box.wireName});
     return ForumPmPage(
         box: box,
         messages: List.unmodifiable(messages),
-        pageLinks: pageLinks(document, {box.wireName}),
-        hasUnread: hasUnread(document));
+        pageLinks: links,
+        hasUnread: hasUnread(document),
+        currentPage: currentPage,
+        nextPagePath: _nextPage(links, currentPage, {box.wireName}));
   }
 
   ForumPmRoute requireDetail(ForumPmSummary message) {
@@ -410,7 +414,8 @@ class ForumPmParser {
     return ForumPmActionResult(message: '操作完成', refreshPath: refresh);
   }
 
-  ForumPmChatlog parseChatlog(dom.Document document, String withuid) {
+  ForumPmChatlog parseChatlog(dom.Document document, String withuid,
+      {int currentPage = 1}) {
     final table = document.querySelector('table.set-table2');
     final form =
         document.querySelector('input[name="action"][value="dellog"]')?.parent;
@@ -455,10 +460,13 @@ class ForumPmParser {
       final target = route(link.attributes['href'], {'write'});
       if (target?.fields['touid'] == withuid) compose = target!.path;
     }
+    final links = pageLinks(document, {'chatlog'}, withuid: withuid);
     return ForumPmChatlog(
         records: List.unmodifiable(records),
         composePath: compose,
-        pageLinks: pageLinks(document, {'chatlog'}, withuid: withuid));
+        pageLinks: links,
+        currentPage: currentPage,
+        nextPagePath: _nextPage(links, currentPage, {'chatlog'}));
   }
 
   String plainText(dom.Element element) {
@@ -532,6 +540,16 @@ class ForumPmParser {
       links.add(ForumPmPageLink(label: clean(link.text), path: candidate.path));
     }
     return List.unmodifiable(links);
+  }
+
+  String? _nextPage(
+      List<ForumPmPageLink> links, int currentPage, Set<String> actions) {
+    for (final link in links) {
+      if (route(link.path, actions)?.fields['page'] == '${currentPage + 1}') {
+        return link.path;
+      }
+    }
+    return null;
   }
 
   bool? hasUnread(dom.Document document) {

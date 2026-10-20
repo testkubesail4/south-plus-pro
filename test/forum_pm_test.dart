@@ -28,9 +28,40 @@ void main() {
     expect(page.messages.last.detailPath,
         'message.php?action-readpub-mid-701.html');
     expect(page.hasUnread, true);
+    expect(page.currentPage, 1);
+    expect(page.nextPagePath, 'message.php?action-receivebox-page-2.html');
     expect(page.pageLinks.map((l) => (l.label, l.path)), [
       ('下一页', 'message.php?action-receivebox-page-2.html'),
     ]);
+  });
+
+  test('box continuation metadata follows only the observed consecutive page',
+      () async {
+    final client = _PmClient()
+      ..responses.addAll([
+        _inbox.replaceAll('receivebox-page-2', 'receivebox-page-3'),
+        _inbox,
+        _inbox.replaceAll('receivebox-page-2', 'receivebox-page-4'),
+      ]);
+    final repository = ForumRepository(client: client);
+    final second = await repository.fetchPmBox(ForumPmBox.inbox,
+        pagePath: 'message.php?action=receivebox&page=2');
+    expect(second.currentPage, 2);
+    expect(second.nextPagePath, 'message.php?action-receivebox-page-3.html');
+    final third = await repository.fetchPmBox(ForumPmBox.inbox,
+        pagePath: second.nextPagePath);
+    expect(third.currentPage, 3);
+    expect(third.nextPagePath, isNull, reason: 'previous links are not next');
+    final first = await repository.fetchPmBox(ForumPmBox.inbox);
+    expect(first.currentPage, 1);
+    expect(first.nextPagePath, isNull,
+        reason: 'do not invent missing page two or skip to page four');
+    expect(client.getPaths, [
+      'message.php?action=receivebox&page=2',
+      'message.php?action-receivebox-page-3.html',
+      'message.php?action-receivebox.html',
+    ]);
+    expect(client.posts, isEmpty);
   });
 
   test(
@@ -536,6 +567,9 @@ void main() {
     expect(log.records.single.time, '2020-01-01 10:00');
     expect(log.records.single.content, 'Fixture history\nsecond line');
     expect(log.composePath, 'message.php?action-write-touid-901.html');
+    expect(log.currentPage, 1);
+    expect(
+        log.nextPagePath, 'message.php?action-chatlog-withuid-901-page-2.html');
     expect(log.pageLinks.map((l) => l.path),
         ['message.php?action-chatlog-withuid-901-page-2.html']);
     expect(client.posts, isEmpty);
@@ -543,6 +577,31 @@ void main() {
         repository.fetchPmChatlog('message.php?action=dellog&withuid=901'),
         throwsA(isA<ForumRequestException>()));
     expect(client.getPaths, ['message.php?action-chatlog-withuid-901.html']);
+  });
+
+  test('chatlog continuation keeps the peer and never guesses a missing next',
+      () async {
+    final client = _PmClient()
+      ..responses.addAll([
+        _chatlog.replaceAll('withuid-901-page-2', 'withuid-901-page-3'),
+        _chatlog.replaceAll('withuid-902-page-2', 'withuid-902-page-4'),
+      ]);
+    final repository = ForumRepository(client: client);
+    final second = await repository
+        .fetchPmChatlog('message.php?action=chatlog&withuid=901&page=2');
+    expect(second.currentPage, 2);
+    expect(second.nextPagePath,
+        'message.php?action-chatlog-withuid-901-page-3.html');
+    final third = await repository.fetchPmChatlog(second.nextPagePath!);
+    expect(third.currentPage, 3);
+    expect(third.nextPagePath, isNull);
+    expect(third.pageLinks.map((link) => link.path),
+        ['message.php?action-chatlog-withuid-901-page-2.html']);
+    expect(client.getPaths, [
+      'message.php?action=chatlog&withuid=901&page=2',
+      'message.php?action-chatlog-withuid-901-page-3.html',
+    ]);
+    expect(client.posts, isEmpty);
   });
 }
 

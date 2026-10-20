@@ -53,11 +53,15 @@ class ForumPmPage {
     required this.messages,
     this.pageLinks = const [],
     this.hasUnread,
+    this.currentPage = 1,
+    this.nextPagePath,
   });
   final ForumPmBox box;
   final List<ForumPmSummary> messages;
   final List<ForumPmPageLink> pageLinks;
   final bool? hasUnread;
+  final int currentPage;
+  final String? nextPagePath;
 }
 
 class ForumPmDetail {
@@ -131,10 +135,14 @@ class ForumPmChatlog {
     required this.records,
     this.pageLinks = const [],
     this.composePath,
+    this.currentPage = 1,
+    this.nextPagePath,
   });
   final List<ForumPmChatRecord> records;
   final List<ForumPmPageLink> pageLinks;
   final String? composePath;
+  final int currentPage;
+  final String? nextPagePath;
 }
 
 class ForumPmActionResult {

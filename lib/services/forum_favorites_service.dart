@@ -26,13 +26,16 @@ class ForumFavoritesService {
   bool _writing = false;
 
   Future<FavoriteCollections> fetchFavoriteCollections(
-      {String? categoryId}) async {
+      {String? categoryId, int page = 1}) async {
     if (categoryId != null && !RegExp(r'^(?:0|[1-9]\d*)$').hasMatch(categoryId))
       _invalid('分类无效，请刷新');
+    if (page < 1) _invalid('页码无效');
     final client = _client();
     final epoch = _epoch();
     return _publish(
-        await _read(client, epoch, categoryId: categoryId), client, epoch);
+        await _read(client, epoch, categoryId: categoryId, page: page),
+        client,
+        epoch);
   }
 
   FullScan<FavoriteSearchHit> scanFavorites({
@@ -151,7 +154,8 @@ class ForumFavoritesService {
       _invalid('不能删除这个分类');
     _writing = true;
     try {
-      final fresh = await _read(context.client, context.epoch);
+      final fresh = await _read(context.client, context.epoch,
+          page: snapshot.categoryId == null ? snapshot.page : 1);
       final target =
           intended == null ? null : _resolve(intended, fresh.collections);
       if (job == 'addtype') {
@@ -179,7 +183,8 @@ class ForumFavoritesService {
             .toList();
         if (current.isEmpty && !fresh.complete) {
           current = (await _read(context.client, context.epoch,
-                  categoryId: resolved.id))
+                  categoryId: resolved.id,
+                  page: snapshot.categoryId == null ? 1 : snapshot.page))
               .collections
               .items
               .where((item) => item.id == entry.id)
@@ -389,14 +394,17 @@ class ForumFavoritesService {
   }
 
   Future<ForumFavoritesPage> _read(ForumClient client, int epoch,
-      {String? categoryId}) async {
+      {String? categoryId, int page = 1}) async {
     _check(client, epoch);
     final response = await client.getForm(
-        'u.php?action=favor${categoryId == null ? '' : '&type=$categoryId'}',
+        'u.php?action=favor${categoryId == null ? '' : '&type=$categoryId'}${page == 1 ? '' : '&page=$page'}',
         requireCurrentSession: () => _check(client, epoch),
         followRedirects: false);
     _check(client, epoch);
-    return _parser.parse(response, client.baseUri, categoryId: categoryId);
+    final parsed =
+        _parser.parse(response, client.baseUri, categoryId: categoryId);
+    if (parsed.collections.page != page) _invalid('无法确认收藏分页，请刷新后重试');
+    return parsed;
   }
 
   FavoriteCollections _publish(

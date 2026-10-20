@@ -42,6 +42,71 @@ void main() {
   });
 
   test(
+      'page reads validate native page identity before publishing capabilities',
+      () async {
+    final client = NativeFavoriteClient()..pageCount = 3;
+    final repo = repository(client);
+    await expectLater(repo.fetchFavoriteCollectionsPage(page: 0), _invalid);
+    await expectLater(
+        repo.fetchFavoriteCollectionsPage(categoryId: '1&job=clear', page: 2),
+        _invalid);
+    expect(client.reads, isEmpty);
+    await expectLater(repo.fetchFavoriteCollectionsPage(page: 2), _invalid);
+    expect(client.reads.single.toString(), 'u.php?action=favor&page=2');
+    client.pageTransform = (html) => html.replaceFirst('Pages: 1', 'Pages: 2');
+    final page =
+        await repo.fetchFavoriteCollectionsPage(categoryId: '1', page: 2);
+    expect((page.page, page.pageCount, page.categoryId), (2, 3, '1'));
+    expect(client.reads.last.toString(), 'u.php?action=favor&type=1&page=2');
+    expect(page.items.single.id, '502');
+    expect(client.writes, isEmpty);
+  });
+
+  for (final category in [null, '1']) {
+    test(
+        'page-two ${category == null ? 'all' : 'folder'} selection keeps its '
+        'original capability and revalidates the source page before one write',
+        () async {
+      final client = NativeFavoriteClient()
+        ..rows.add((id: '503', tid: '703', category: 'A'));
+      client.pageTransform = (_) {
+        final query = client.reads.last.queryParameters;
+        final page = int.parse(query['page'] ?? '1');
+        final filter = query['type'];
+        final rows = filter == '2'
+            ? client.rows
+            : client.rows
+                .where((row) => page == 2 ? row.id == '503' : row.id != '503')
+                .toList();
+        return nativeFavoriteHtml(
+            categories: client.categories,
+            rows: rows,
+            filter: filter,
+            token: 'token-${client.tokenNumber}',
+            pageCount: filter == '2' ? 1 : 2,
+            page: page);
+      };
+      final repo = repository(client);
+      final first = await repo.fetchFavoriteCollections(categoryId: category);
+      final second = await repo.fetchFavoriteCollectionsPage(
+          categoryId: category, page: 2);
+      await expectLater(
+          repo.moveFavorites(second, [first.items.first], '2'), _invalid);
+      expect(client.writes, isEmpty);
+      final result = await repo.moveFavorites(second, second.items, '2');
+      expect(result.status, FavoriteMutationStatus.confirmed);
+      expect(_values(client, 'selid[]'), ['503']);
+      expect(client.writes, hasLength(1));
+      expect(client.reads.where((uri) => uri.queryParameters['page'] == '2'),
+          hasLength(2),
+          reason: 'load and pre-write source revalidation');
+      await expectLater(repo.moveFavorites(first, first.items, '2'), _invalid);
+      expect(client.writes, hasLength(1),
+          reason: 'one write retires all pages');
+    });
+  }
+
+  test(
       'creation confirms fresh unique names even when a data-triggered transport exception follows the write',
       () async {
     for (final name in ['操作完成', '收藏成功', '请求过于频繁', 'A  B']) {
