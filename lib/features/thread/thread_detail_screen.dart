@@ -1073,7 +1073,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     if (!mounted) return;
     // Another account's purchases are not this one's.
     _favoriteFlow.value++;
-    _find.stop();
+    // Nor a find keyword typed in it: an open 帖内查找 sheet empties.
+    _find.reset();
     // The page is read afresh, from its top.
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     setState(() {
@@ -1133,7 +1134,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           authorFilterName:
               _authorFilterActive ? _authorFilterName ?? '该作者' : null,
           createScan: () => widget.repository.scanThread(
-            _detail!.thread,
+            detail.thread,
             _find.keyword,
             loaded: _loadedPages,
             rules: widget.repository.blocking.notifier.value,

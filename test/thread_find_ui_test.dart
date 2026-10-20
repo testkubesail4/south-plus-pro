@@ -83,6 +83,21 @@ void main() {
     expect(find.text('搜索范围：已加载内容'), findsOneWidget);
   });
 
+  testWidgets('another session empties an open sheet\'s keyword at once',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await openFind(tester, 'private needle');
+    expect(find.text('private needle'), findsOneWidget);
+
+    repository.session.value++;
+    await tester.pump();
+    expect(find.textContaining('private needle', skipOffstage: false),
+        findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('private needle', skipOffstage: false),
+        findsNothing);
+  });
+
   testWidgets('a hit on a repeated post opens the floor where it shows',
       (tester) async {
     await LoadingPreferences.load();
@@ -229,7 +244,8 @@ void main() {
     await tester.tap(find.text('开始搜索'));
     await tester.pumpAndSettle();
     expect(repository.scans, isEmpty);
-    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+    // The keyword went with the session.
+    expect(find.text('needle'), findsNothing);
   });
 
   testWidgets('a floor blocked while the sheet is open leaves its hits',
