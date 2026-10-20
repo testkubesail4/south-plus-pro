@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../models/forum_friend_models.dart';
 import '../../models/forum_models.dart';
 import '../../models/user_content_query.dart';
 import '../../services/external_link_launcher.dart';
@@ -26,6 +27,7 @@ import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_image_viewer.dart';
 import '../thread/thread_render_models.dart';
+import 'friends_screen.dart';
 
 part 'user_profile_widgets.dart';
 
@@ -73,6 +75,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   // and this session.
   String? _loginName;
   bool _lookingUp = false;
+  bool _addingFriend = false;
   // Bumped whenever loaded data stops belonging to what is shown, so late
   // results are dropped.
   int _lookupEpoch = 0;
@@ -84,6 +87,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   void initState() {
     super.initState();
     widget.repository.sessionEpoch.addListener(_onSessionChanged);
+    widget.repository.accountIdentity.addListener(_onIdentityChanged);
     _loadProfile();
   }
 
@@ -95,20 +99,33 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _notes = UserNoteController(widget.repository);
     oldWidget.repository.sessionEpoch.removeListener(_onSessionChanged);
     widget.repository.sessionEpoch.addListener(_onSessionChanged);
+    oldWidget.repository.accountIdentity.removeListener(_onIdentityChanged);
+    widget.repository.accountIdentity.addListener(_onIdentityChanged);
     _onSessionChanged();
   }
 
   @override
   void dispose() {
     widget.repository.sessionEpoch.removeListener(_onSessionChanged);
+    widget.repository.accountIdentity.removeListener(_onIdentityChanged);
     _notes.dispose();
     super.dispose();
   }
+
+  // The own UID decides between 加为好友 and 好友, and marks own feed rows.
+  void _onIdentityChanged() {
+    if (mounted) setState(() {});
+  }
+
+  String? get _selfUid => widget.repository.isLoggedIn
+      ? widget.repository.accountIdentity.value?.uid
+      : null;
 
   void _forgetLoginName() {
     _lookupEpoch++;
     _loginName = null;
     _lookingUp = false;
+    _addingFriend = false;
   }
 
   // No automatic reload: the session may still be switching, and a request
@@ -151,6 +168,51 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       return null;
     }
   }
+
+  Future<void> _addFriend(UserProfile profile) async {
+    if (_addingFriend) return;
+    final epoch = _lookupEpoch;
+    final messenger = ScaffoldMessenger.of(context);
+    bool stale() => !mounted || epoch != _lookupEpoch;
+    void toast(String text) => messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+    setState(() => _addingFriend = true);
+    try {
+      var result = await widget.repository.addFriend(profile.uid.trim());
+      if (stale()) return;
+      final request = result.request;
+      if (result.status == ForumFriendAddStatus.verificationRequired &&
+          request != null) {
+        setState(() => _addingFriend = false);
+        final message = await showFriendRequestSheet(context,
+            name: profile.displayName,
+            prompt: request.prompt,
+            maxLength: request.maxLength);
+        if (message == null || stale()) return;
+        setState(() => _addingFriend = true);
+        result = await widget.repository
+            .confirmFriendRequest(request, message: message);
+        if (stale()) return;
+      }
+      toast(switch (result.status) {
+        ForumFriendAddStatus.added => '已加为好友',
+        ForumFriendAddStatus.pending => '已发送好友请求，等待对方验证',
+        // The forum's own words: a refusal, a level limit or an error page.
+        _ => result.message.trim().isEmpty
+            ? '论坛没有确认添加结果'
+            : result.message.trim(),
+      });
+    } catch (error) {
+      if (!stale()) toast('加好友失败：${forumErrorText(error)}');
+    } finally {
+      if (!stale()) setState(() => _addingFriend = false);
+    }
+  }
+
+  void _openFriends() => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => FriendsScreen(repository: widget.repository),
+      ));
 
   Future<void> _searchByUser(String uid) async {
     final epoch = _lookupEpoch;
@@ -364,6 +426,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     final detailsFuture = _detailsFuture;
                     final uid = profile.uid.trim();
                     final hasUid = RegExp(r'^[1-9]\d*$').hasMatch(uid);
+                    final selfUid = _selfUid;
                     // No entry fade: content, cached or fresh, shows at once.
                     return NestedScrollView(
                       headerSliverBuilder: (context, _) => [
@@ -397,6 +460,16 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                 onCopyLoginName: _copyLoginName,
                                 onSearchByUser:
                                     hasUid ? () => _searchByUser(uid) : null,
+                                // Only with a known own UID, so the forum's
+                                // own page never offers adding oneself.
+                                onAddFriend: hasUid &&
+                                        selfUid != null &&
+                                        selfUid != uid
+                                    ? () => _addFriend(profile)
+                                    : null,
+                                addingFriend: _addingFriend,
+                                onOpenFriends:
+                                    hasUid && selfUid == uid ? _openFriends : null,
                               ),
                             ),
                           ),
@@ -409,6 +482,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             onRefresh: _refresh,
                             child: _OverviewTab(
                               profile: profile,
+                              selfUid: selfUid,
                               details: detailsFuture,
                               repository: widget.repository,
                             ),

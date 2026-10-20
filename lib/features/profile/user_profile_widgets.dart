@@ -17,6 +17,9 @@ class _ProfileHeader extends StatelessWidget {
     this.note,
     this.tags = const [],
     this.onEditNote,
+    this.onAddFriend,
+    this.addingFriend = false,
+    this.onOpenFriends,
   });
 
   final UserProfile profile;
@@ -29,6 +32,9 @@ class _ProfileHeader extends StatelessWidget {
   final VoidCallback? onShowLoginName;
   final ValueChanged<String>? onCopyLoginName;
   final VoidCallback? onSearchByUser;
+  final VoidCallback? onAddFriend;
+  final bool addingFriend;
+  final VoidCallback? onOpenFriends;
 
   @override
   Widget build(BuildContext context) {
@@ -152,6 +158,22 @@ class _ProfileHeader extends StatelessWidget {
                     icon: Icons.mail_outline,
                     label: '发短消息',
                     onTap: onMessage,
+                  ),
+                if (onAddFriend != null)
+                  Semantics(
+                    label: addingFriend ? '正在加好友' : null,
+                    child: _ActionButton(
+                      icon: Icons.person_add_alt_outlined,
+                      label: '加为好友',
+                      busy: addingFriend,
+                      onTap: addingFriend ? null : onAddFriend,
+                    ),
+                  ),
+                if (onOpenFriends != null)
+                  _ActionButton(
+                    icon: Icons.people_outline,
+                    label: '好友',
+                    onTap: onOpenFriends,
                   ),
                 if (onSearchByUser != null)
                   _ActionButton(
@@ -589,11 +611,15 @@ class _OverviewTab extends StatelessWidget {
     required this.profile,
     required this.details,
     required this.repository,
+    this.selfUid,
   });
 
   final UserProfile profile;
   final Future<UserProfile>? details;
   final ForumRepository repository;
+
+  /// The signed-in user's UID: their own feed mixes in friends' events.
+  final String? selfUid;
 
   @override
   Widget build(BuildContext context) {
@@ -619,12 +645,14 @@ class _OverviewTab extends StatelessWidget {
               return _TextPanel(title: '动态加载失败', text: '${snapshot.error}');
             }
             final loaded = snapshot.data!;
+            final own = selfUid != null && profile.uid.trim() == selfUid;
             return Column(
               children: [
                 _ActivitySection(
-                  title: '个人动态',
+                  title: own ? '动态' : '个人动态',
                   items: loaded.homeActivities,
                   repository: repository,
+                  feedOwnerUid: own ? selfUid : null,
                 ),
                 const SizedBox(height: 14),
                 _ActivitySection(
@@ -747,11 +775,15 @@ class _ActivitySection extends StatelessWidget {
     required this.title,
     required this.items,
     required this.repository,
+    this.feedOwnerUid,
   });
 
   final String title;
   final List<UserActivityItem> items;
   final ForumRepository repository;
+
+  /// Set on the signed-in user's own feed, where friends' events mix in.
+  final String? feedOwnerUid;
 
   @override
   Widget build(BuildContext context) {
@@ -760,60 +792,105 @@ class _ActivitySection extends StatelessWidget {
       title: title,
       child: Column(
         children: items
-            .map((item) => _ActivityTile(item: item, repository: repository))
+            .map((item) => _ActivityTile(
+                item: item,
+                repository: repository,
+                feedOwnerUid: feedOwnerUid))
             .toList(),
       ),
     );
   }
 }
 
+/// One feed event: a thread event opens the thread; a friendship event
+/// ('A 和 B 成为了好友') has no thread and opens the other person instead.
 class _ActivityTile extends StatelessWidget {
-  const _ActivityTile({required this.item, required this.repository});
+  const _ActivityTile({
+    required this.item,
+    required this.repository,
+    this.feedOwnerUid,
+  });
 
   final UserActivityItem item;
   final ForumRepository repository;
+  final String? feedOwnerUid;
+
+  /// '我' for the feed owner; others by their forum name.
+  String _name(String? name, String? uid) =>
+      uid != null && uid == feedOwnerUid ? '我' : (name ?? '').trim();
+
+  void _push(BuildContext context, Widget screen) =>
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final url = item.url;
+    final actor = _name(item.author, item.authorUid);
+    final target = _name(item.targetName, item.targetUid);
+    final social = url == null && target.isNotEmpty;
+    // The person who is not the feed owner; the actor when both are others.
+    final personUrl = item.targetUid != null && item.targetUid != feedOwnerUid
+        ? item.targetUrl
+        : item.authorUrl;
+    final VoidCallback? onTap = url != null
+        ? () => _push(
+              context,
+              ThreadDetailScreen(
+                thread: ForumThread(
+                  title: item.title,
+                  url: url,
+                  replies: 0,
+                  section: '用户动态',
+                  author: item.author,
+                  lastPost: item.date,
+                ),
+                repository: repository,
+              ),
+            )
+        : social && personUrl != null
+            ? () => _push(
+                  context,
+                  UserProfileScreen(userUrl: personUrl, repository: repository),
+                )
+            : null;
+    // Who did it only matters where friends' events mix in.
+    final verb = item.action ?? '动态';
+    final headline = feedOwnerUid != null && actor.isNotEmpty
+        ? '$actor $verb'
+        : verb;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ThreadDetailScreen(
-            thread: ForumThread(
-              title: item.title,
-              url: item.url,
-              replies: 0,
-              section: '用户动态',
-              author: item.author,
-              lastPost: item.date,
-            ),
-            repository: repository,
-          ),
-        ),
-      ),
+      onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.bolt_outlined, size: 18, color: AppColors.textMuted),
+            Icon(social ? Icons.people_outline : Icons.bolt_outlined,
+                size: 18, color: AppColors.textMuted),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.action ?? '动态',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
+                  if (social)
+                    Text(
+                      '${actor.isEmpty ? '有人' : actor} 和 $target 成为了好友',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodyMedium,
+                    )
+                  else ...[
+                    Text(headline, style: textTheme.bodySmall),
+                    const SizedBox(height: 3),
+                    Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodyMedium,
+                    ),
+                  ],
                   if (item.date != null)
                     Text(
                       item.date!,

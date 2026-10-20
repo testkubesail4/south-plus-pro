@@ -14,6 +14,7 @@ import 'account_profile_edit_screen.dart';
 import 'blocking_settings_screen.dart';
 import 'forum_preferences_screen.dart';
 import 'forum_tasks_screen.dart';
+import 'friends_screen.dart';
 import 'settings_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -187,6 +188,12 @@ class _AccountScreenState extends State<AccountScreen> {
                     icon: Icons.forum_outlined,
                     title: const Text('我的回复'),
                     onTap: () => _openProfile(UserProfileTab.posts),
+                  ),
+                  AppRow(
+                    icon: Icons.people_outline,
+                    title: const Text('好友'),
+                    onTap: () =>
+                        _push(FriendsScreen(repository: widget.repository)),
                   ),
                 ],
                 AppRow(
