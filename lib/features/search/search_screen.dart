@@ -7,6 +7,7 @@ import '../../services/forum_blocking_settings.dart';
 import '../../services/forum_repository.dart';
 import '../../services/forum_request_exception.dart';
 import '../../services/forum_search_preferences.dart';
+import '../../services/forum_url_resolver.dart';
 import '../../services/loading_preferences.dart';
 import '../../services/search_board_hierarchy.dart';
 import '../../theme/app_theme.dart';
@@ -180,9 +181,18 @@ class _SearchScreenState extends State<SearchScreen> {
 
   ForumSearchPage? get _lastPage => _more.isEmpty ? _page : _more.last;
 
-  static String _threadKey(ForumThread thread) =>
-      RegExp(r'(?:tid[=-]|/t)(\d+)').firstMatch(thread.url)?.group(1) ??
-      thread.url;
+  /// A result's thread, when its address names a valid one; a result
+  /// without one is never taken for a repeat.
+  String? _threadKey(ForumThread thread) =>
+      ForumUrlResolver(baseUri: widget.repository.networkConfig.baseUri)
+          .tidFromUrl(thread.url);
+
+  /// A page with no rows still turns: the forum may link pages around it.
+  static bool _hasPages(ForumSearchPage page) =>
+      page.threads.isNotEmpty ||
+      page.nextPagePath != null ||
+      page.previousPagePath != null ||
+      page.pageLinks.isNotEmpty;
 
   void _maybeLoadMore() {
     final next = _lastPage?.nextPagePath;
@@ -218,11 +228,17 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted || id != _requestId || session != _session) return;
       final seen = {
         for (final shown in [_page!, ..._more])
-          for (final thread in shown.threads) _threadKey(thread),
+          for (final thread in shown.threads)
+            if (_threadKey(thread) case final key?) key,
       };
+      bool unseen(ForumThread thread) {
+        final key = _threadKey(thread);
+        return key == null || seen.add(key);
+      }
+
       final fresh = [
         for (final thread in page.threads)
-          if (seen.add(_threadKey(thread))) thread,
+          if (unseen(thread)) thread,
       ];
       final rules = repository.blocking.notifier.value;
       final added = fresh.any((thread) => !rules.isThreadBlocked(thread));
@@ -464,7 +480,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _page = page;
         _clearMore();
         _searching = false;
-        if (page.threads.isNotEmpty) _editing = false;
+        if (_hasPages(page)) _editing = false;
       });
       // An answered search counts, even with no results.
       if (keyword.isNotEmpty) {
@@ -727,7 +743,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             ),
                     ),
                   ),
-                  if (page != null && page.threads.isNotEmpty) ...[
+                  if (page != null && _hasPages(page)) ...[
                     // A result list fades in, over the one it replaces or the
                     // spinner. Blocked authors' results disappear as soon as
                     // a rule changes.
@@ -764,6 +780,20 @@ class _SearchScreenState extends State<SearchScreen> {
                                       ),
                                     ),
                                   ),
+                                  if (page.threads.isEmpty)
+                                    SliverToBoxAdapter(
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: AppSpace.lg),
+                                        child: Text(
+                                          '本页没有结果',
+                                          textAlign: TextAlign.center,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                      ),
+                                    ),
                                   _resultRows(shown(page)),
                                   for (final more in _more) ...[
                                     SliverToBoxAdapter(
@@ -882,12 +912,23 @@ class _SearchScreenState extends State<SearchScreen> {
     final page = _lastPage!;
     final previous = page.previousPagePath;
     final next = page.nextPagePath;
+    // The forum's next link is the nearest page it lists, not always the
+    // one after: its number only where a page link names it.
+    int? numberOf(String? path) => path == null
+        ? null
+        : page.pageLinks.where((l) => l.path == path).firstOrNull?.page;
+    final nextNumber = numberOf(next);
+    final previousNumber = numberOf(previous);
     final error = _error;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PageEndFooter(
-          next: next == null ? null : page.currentPage + 1,
+          next: next == null ? null : nextNumber ?? 0,
+          nextNumbered: nextNumber != null,
+          // Only the page count says the last page is reached.
+          endConfirmed:
+              (page.totalPages ?? page.currentPage + 1) <= page.currentPage,
           manual: !_continuous,
           loading: _loadingMore,
           failed: _moreError != null,
@@ -923,7 +964,7 @@ class _SearchScreenState extends State<SearchScreen> {
               final current = page.currentPage;
               final int total = page.totalPages ??
                   page.pageLinks.fold<int>(
-                    next == null ? current : current + 1,
+                    next == null ? current : nextNumber ?? current + 1,
                     (last, link) => math.max(last, link.page),
                   );
               return ForumPager(
@@ -932,12 +973,15 @@ class _SearchScreenState extends State<SearchScreen> {
                 onSelected: _searching
                     ? null
                     : (number) {
-                        final path = switch (number - current) {
-                              1 => next,
-                              -1 => previous,
-                              _ => null,
-                            } ??
-                            page.pathForPage(number);
+                        // A neighbour link counts where no page link
+                        // numbers it otherwise.
+                        bool leadsTo(int? linked, int side) =>
+                            number == (linked ?? current + side);
+                        final path = next != null && leadsTo(nextNumber, 1)
+                            ? next
+                            : previous != null && leadsTo(previousNumber, -1)
+                                ? previous
+                                : page.pathForPage(number);
                         if (path != null) _openPage(path);
                       },
               );

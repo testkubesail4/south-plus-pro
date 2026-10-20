@@ -48,6 +48,8 @@ class PageEndFooter extends StatelessWidget {
     this.paused = false,
     this.nextLabel,
     this.onRefresh,
+    this.nextNumbered = true,
+    this.endConfirmed = true,
   });
 
   final int? next;
@@ -66,15 +68,24 @@ class PageEndFooter extends StatelessWidget {
   /// Offered after the last page, where new rows may still arrive.
   final VoidCallback? onRefresh;
 
+  /// Whether [next] is the page's real number; otherwise it is only
+  /// 下一页, wherever the forum's link leads.
+  final bool nextNumbered;
+
+  /// Whether the page count confirms there is no [next]; otherwise the
+  /// forum only gave no link to one, and the end is not claimed.
+  final bool endConfirmed;
+
   @override
   Widget build(BuildContext context) {
     final page = next;
+    final name = nextNumbered ? '第 $page 页' : '下一页';
     final muted = Theme.of(context).textTheme.bodySmall;
     final Widget child;
     if (loading) {
       child = Semantics(
         liveRegion: true,
-        label: page == null ? '正在加载' : '正在加载第 $page 页',
+        label: page == null ? '正在加载' : '正在加载$name',
         child: const SizedBox.square(
           dimension: 24,
           child: CircularProgressIndicator(strokeWidth: 2),
@@ -85,8 +96,8 @@ class PageEndFooter extends StatelessWidget {
         children: [
           Text(
               error == null
-                  ? '第 $page 页加载失败'
-                  : '第 $page 页加载失败：${forumErrorText(error)}',
+                  ? '$name加载失败'
+                  : '$name加载失败：${forumErrorText(error)}',
               textAlign: TextAlign.center,
               style: muted),
           TextButton.icon(
@@ -96,6 +107,9 @@ class PageEndFooter extends StatelessWidget {
           ),
         ],
       );
+    } else if (page == null && !endConfirmed) {
+      child =
+          Text('论坛未给出下一页，页数未能确认', textAlign: TextAlign.center, style: muted);
     } else if (page == null) {
       final refresh = onRefresh;
       child = Column(
@@ -115,7 +129,7 @@ class PageEndFooter extends StatelessWidget {
           Text('后续页面的内容已被过滤或重复', textAlign: TextAlign.center, style: muted),
           TextButton(
             onPressed: onNext,
-            child: Text(nextLabel ?? '继续加载第 $page 页'),
+            child: Text(nextLabel ?? '继续加载$name'),
           ),
         ],
       );
@@ -124,14 +138,14 @@ class PageEndFooter extends StatelessWidget {
         key: const ValueKey('page-end-next'),
         onPressed: onNext,
         icon: const Icon(Icons.arrow_forward, size: 18),
-        label: Text(nextLabel ?? '下一页 · 第 $page 页'),
+        label: Text(nextLabel ?? (nextNumbered ? '下一页 · $name' : name)),
       );
     } else {
       // Continuous, idle: the next page loads on reaching here; the button
       // covers a list too short to scroll.
       child = TextButton(
         onPressed: onNext,
-        child: Text(nextLabel ?? '加载第 $page 页'),
+        child: Text(nextLabel ?? '加载$name'),
       );
     }
     return Padding(
