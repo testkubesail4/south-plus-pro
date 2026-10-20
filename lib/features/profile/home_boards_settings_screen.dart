@@ -6,6 +6,7 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/home_reading_preferences.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/grouped_list.dart';
 import '../common/content_width.dart';
 import 'favorite_collections_sheets.dart';
@@ -172,6 +173,10 @@ class _HomeBoardsSettingsScreenState extends State<HomeBoardsSettingsScreen> {
           children: [
             Text('隐藏只缩短首页。\n最近、搜索、收藏和我的版块里依然可以进入。', style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: AppSpace.lg),
+            // The settings fade in over the spinner.
+            AppSwitcher(
+              id: sections != null && prefs != null ? 'settings' : _error != null ? 'error' : 'loading',
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (_error != null)
               ListTile(title: const Text('加载失败'), trailing: TextButton(onPressed: _load, child: const Text('重试'))),
             if (_error == null && (sections == null || prefs == null))
@@ -230,6 +235,8 @@ class _HomeBoardsSettingsScreenState extends State<HomeBoardsSettingsScreen> {
                 },
               ),
             ],
+              ]),
+            ),
           ],
         ),
       ),

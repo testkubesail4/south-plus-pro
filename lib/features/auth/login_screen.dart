@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/brand_mark.dart';
 
@@ -250,26 +251,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: AppSpace.md),
                   FutureBuilder<LoginChallenge?>(
                     future: _challengeFuture,
+                    // The captcha fades in over the spinner, a new one too.
                     builder: (context, snapshot) {
                       final challengeLoadError = _challengeLoadError;
-                      if (challengeLoadError != null && !snapshot.hasData) {
-                        return _ChallengeError(
-                          message: challengeLoadError,
-                          onRetry: _refreshChallenge,
-                        );
-                      }
-                      if (!snapshot.hasData) {
-                        return const SizedBox(
-                          height: 56,
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-                      return _CaptchaField(
-                        bytes: snapshot.data!.captchaBytes,
-                        controller: _captcha,
-                        enabled: !_loading,
-                        onRefresh: _refreshChallenge,
-                        onSubmit: _submit,
+                      final failed =
+                          challengeLoadError != null && !snapshot.hasData;
+                      return AppSwitcher(
+                        id: failed ? 'error' : snapshot.data ?? 'loading',
+                        child: challengeLoadError != null && !snapshot.hasData
+                            ? _ChallengeError(
+                                message: challengeLoadError,
+                                onRetry: _refreshChallenge,
+                              )
+                            : !snapshot.hasData
+                                ? const SizedBox(
+                                    height: 56,
+                                    child: Center(
+                                        child: CircularProgressIndicator()),
+                                  )
+                                : _CaptchaField(
+                                    bytes: snapshot.data!.captchaBytes,
+                                    controller: _captcha,
+                                    enabled: !_loading,
+                                    onRefresh: _refreshChallenge,
+                                    onSubmit: _submit,
+                                  ),
                       );
                     },
                   ),

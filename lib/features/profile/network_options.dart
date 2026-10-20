@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../services/forum_network_config.dart';
 import '../../services/forum_network_probe.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import 'proxy_form.dart';
@@ -155,8 +156,12 @@ class ProbeLabel extends StatelessWidget {
   final ProbeReading? reading;
   final bool pending;
 
+  // A result fades in over 测速中.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppSwitcher(
+      id: (reading?.success, reading?.label, pending), child: _label(context));
+
+  Widget _label(BuildContext context) {
     final theme = Theme.of(context);
     final reading = this.reading;
     if (reading == null) {

@@ -6,6 +6,7 @@ import '../../models/forum_account_models.dart';
 import '../../services/forum_repository.dart';
 import '../../services/loading_preferences.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../common/grouped_list.dart';
@@ -645,6 +646,7 @@ class _AvatarSectionState extends State<_AvatarSection> {
     final theme = Theme.of(context);
     final mode = _modeOf(_c.form, _c.value('facetype'));
     final (picture, caption) = _preview(mode);
+    final rows = _modeRows(mode);
     return AppGroup(
       label: '头像',
       dividerIndent: AppSpace.lg,
@@ -660,7 +662,20 @@ class _AvatarSectionState extends State<_AvatarSection> {
           ),
         ),
         NativeFieldRow(controller: _c, name: 'facetype'),
-        ..._modeRows(mode),
+        // Another mode's rows cross-fade in.
+        if (rows.isNotEmpty)
+          AppSwitcher(
+            id: mode,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (i, row) in rows.indexed) ...[
+                  if (i > 0) const Divider(indent: AppSpace.lg),
+                  row,
+                ],
+              ],
+            ),
+          ),
       ],
     );
   }

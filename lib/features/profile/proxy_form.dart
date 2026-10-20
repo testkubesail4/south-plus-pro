@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/forum_network_config.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 
 /// "SOCKS5 [::1]:1080"-style summary; credentials are never included.
 String proxyLabel(ForumProxy proxy) {
@@ -176,10 +177,14 @@ class _ProxyFormState extends State<ProxyForm> {
             ),
           ],
           const SizedBox(height: 8),
-          Text(
-            '使用代理时，所有请求都经由代理发送，网络优化与加密解析会关闭。'
-            '${_type == ForumProxyType.http ? 'HTTP 代理的用户名和密码以明文发送给代理，请只使用可信任的代理。' : ''}',
-            style: Theme.of(context).textTheme.bodySmall,
+          // The note for the chosen type cross-fades in.
+          AppSwitcher(
+            id: _type == ForumProxyType.http,
+            child: Text(
+              '使用代理时，所有请求都经由代理发送，网络优化与加密解析会关闭。'
+              '${_type == ForumProxyType.http ? 'HTTP 代理的用户名和密码以明文发送给代理，请只使用可信任的代理。' : ''}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
           const SizedBox(height: 14),
           // While saving, a spinner joins the label (DESIGN §6).
