@@ -19,6 +19,8 @@ class _Repo extends ForumRepository {
   // Later pages repeat page 1's rows.
   bool repeats = false;
   int pageCount = 3;
+  // Pages after the first do not say how many there are.
+  bool laterCountUnknown = false;
   // While set, page 3 stays on its way.
   Completer<void>? holdPage3;
   // Categories made here.
@@ -34,7 +36,7 @@ class _Repo extends ForumRepository {
 
   FavoriteCollections _page(String? category, int page) => FavoriteCollections(
         page: page,
-        pageCount: pageCount,
+        pageCount: laterCountUnknown && page > 1 ? null : pageCount,
         categoryId: category,
         categories: [
           const FavoriteCategory(id: '0', label: '默认分类'),
@@ -226,6 +228,18 @@ void main() {
     expect(find.text('Fav 300', skipOffstage: false), findsNothing);
     expect(find.text('第 3 页', skipOffstage: false), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('a page without its count does not claim to be the last',
+      (tester) async {
+    await pump(tester, repo: _Repo()..laterCountUnknown = true);
+    await toEnd(tester);
+    await tester.tap(key('page-end-next'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('页数未能确认'), findsOneWidget);
+    await toEnd(tester);
+    expect(find.text('已到最后一页'), findsNothing);
+    expect(find.text('论坛未给出下一页，页数未能确认'), findsOneWidget);
   });
 
   testWidgets('a row chosen on page 3 moves to a category made on the way',

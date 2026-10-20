@@ -1106,6 +1106,7 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                                 data.page > 1))
                           PageEndFooter(
                             next: _nextPage,
+                            endConfirmed: _lastPage?.pageCount != null,
                             manual: !_continuous,
                             loading: _loadingMore,
                             failed: _moreError != null,
