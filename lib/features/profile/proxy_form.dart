@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../services/forum_network_config.dart';
 import '../../theme/app_theme.dart';
-import '../common/content_width.dart';
 
 /// "SOCKS5 [::1]:1080"-style summary; credentials are never included.
 String proxyLabel(ForumProxy proxy) {
@@ -195,60 +194,6 @@ class _ProxyFormState extends State<ProxyForm> {
             label: Text(widget.submitLabel),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Shown at startup when the saved proxy cannot be used: fix it, or turn
-/// it off deliberately. The app never falls back to a direct connection.
-class ProxyRepairScreen extends StatelessWidget {
-  const ProxyRepairScreen({
-    super.key,
-    required this.onSaveProxy,
-    required this.onDisableProxy,
-  });
-
-  final Future<void> Function(ForumProxy proxy) onSaveProxy;
-  final Future<void> Function() onDisableProxy;
-
-  Future<void> _confirmDisable(BuildContext context) async {
-    if (!await confirmDisableProxy(context)) return;
-    try {
-      await onDisableProxy();
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('停用代理失败，请稍后重试')),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('代理设置无法使用')),
-      body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.symmetric(
-            horizontal:
-                appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
-            vertical: 20,
-          ),
-          children: [
-            Text(
-              '保存的代理设置无效，为避免绕过代理直接连接，已暂停所有网络请求。请重新填写代理，或明确停用代理。',
-              style: TextStyle(color: AppColors.text, height: 1.45),
-            ),
-            const SizedBox(height: 18),
-            ProxyForm(submitLabel: '保存并重试', onSubmit: onSaveProxy),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: () => _confirmDisable(context),
-              child: const Text('停用代理，改为直接连接'),
-            ),
-          ],
-        ),
       ),
     );
   }

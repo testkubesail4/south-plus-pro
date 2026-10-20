@@ -4,7 +4,8 @@ import 'package:flutter/services.dart';
 import 'features/common/forum_link_opener.dart';
 import 'features/home/home_shell.dart';
 import 'features/profile/network_setup_flow_screen.dart';
-import 'features/profile/proxy_form.dart';
+import 'features/profile/network_repair_screen.dart';
+import 'features/profile/network_settings_screen.dart';
 import 'models/forum_models.dart';
 import 'services/forum_incoming_link_service.dart';
 import 'services/forum_network_config.dart';
@@ -218,13 +219,12 @@ class _SessionGateState extends State<SessionGate> {
 
         if (snapshot.hasError) {
           if (_repository == null) {
-            return ProxyRepairScreen(
-              onSaveProxy: (proxy) async {
-                await ForumNetworkSettings.saveProxy(proxy);
-                if (mounted) _retry();
-              },
-              onDisableProxy: () async {
-                await ForumNetworkSettings.disableProxy();
+            return NetworkRepairScreen(
+              message: snapshot.error is FormatException
+                  ? (snapshot.error as FormatException).message
+                  : null,
+              onRepaired: () async {
+                await ForumNetworkSetupStore.reset();
                 if (mounted) _retry();
               },
             );
@@ -232,19 +232,23 @@ class _SessionGateState extends State<SessionGate> {
           return _SessionError(
             message: '${snapshot.error}',
             onRetry: _retry,
-            onContinue: _repository == null
-                ? null
-                : () {
-                    setState(() {
-                      _restoreFuture = Future<_SessionGateResult>.value(
-                        _SessionGateResult(
-                          repository: _repository!,
-                          needsNetworkSetup: false,
-                          restored: false,
-                        ),
-                      );
-                    });
-                  },
+            onNetworkSettings: () async {
+              await Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => NetworkSettingsScreen(repository: _repository!),
+              ));
+              if (mounted) _retry();
+            },
+            onContinue: () {
+              setState(() {
+                _restoreFuture = Future<_SessionGateResult>.value(
+                  _SessionGateResult(
+                    repository: _repository!,
+                    needsNetworkSetup: false,
+                    restored: false,
+                  ),
+                );
+              });
+            },
           );
         }
 
@@ -255,7 +259,7 @@ class _SessionGateState extends State<SessionGate> {
         if (result == null) {
           return NetworkSetupFlowScreen(
             repository: snapshot.requireData.repository,
-            allowSkip: true,
+            firstRun: true,
             onFinished: () async {
               if (!mounted) return;
               setState(() {
@@ -387,12 +391,14 @@ class _SessionError extends StatelessWidget {
   const _SessionError({
     required this.message,
     required this.onRetry,
+    required this.onNetworkSettings,
     required this.onContinue,
   });
 
   final String message;
   final VoidCallback onRetry;
-  final VoidCallback? onContinue;
+  final VoidCallback onNetworkSettings;
+  final VoidCallback onContinue;
 
   @override
   Widget build(BuildContext context) {
@@ -418,11 +424,17 @@ class _SessionError extends StatelessWidget {
                   label: const Text('重试'),
                 ),
                 const SizedBox(height: 10),
-                if (onContinue != null)
-                  OutlinedButton(
-                    onPressed: onContinue,
-                    child: const Text('先浏览公开内容'),
-                  ),
+                // Works offline: the settings are local.
+                OutlinedButton.icon(
+                  onPressed: onNetworkSettings,
+                  icon: const Icon(Icons.public_outlined),
+                  label: const Text('网络设置'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton(
+                  onPressed: onContinue,
+                  child: const Text('先浏览公开内容'),
+                ),
               ],
             ),
           ),

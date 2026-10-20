@@ -1,9 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../services/forum_network_config.dart';
 import '../../services/forum_network_probe.dart';
@@ -11,1209 +8,489 @@ import '../../services/forum_network_setup_store.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../common/content_width.dart';
+import '../common/grouped_list.dart';
+import 'network_options.dart';
 import 'proxy_form.dart';
 
-enum _SetupStep {
-  mode,
-  proxy,
-  encrypted,
-  entrance,
-  route,
-  summary,
-}
+enum _Step { mode, proxy, optimize, site, confirm }
 
+/// The network guide: connection mode, its details, the entrance, then a
+/// summary. Nothing waits on the network, so it also works offline; the
+/// defaults (optimized, south-plus.net, IPv6 off) need only 下一步.
 class NetworkSetupFlowScreen extends StatefulWidget {
   const NetworkSetupFlowScreen({
     super.key,
     required this.repository,
-    this.allowSkip = false,
+    this.firstRun = false,
     this.onFinished,
+    this.probe = const ForumNetworkProbe(),
   });
 
   final ForumRepository repository;
-  final bool allowSkip;
+
+  /// At first run there is nothing to close back to.
+  final bool firstRun;
   final Future<void> Function()? onFinished;
+  final ForumNetworkProbe probe;
 
   @override
   State<NetworkSetupFlowScreen> createState() => _NetworkSetupFlowScreenState();
 }
 
 class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
-  final ForumNetworkProbe _probe =
-      const ForumNetworkProbe(timeout: Duration(seconds: 6));
   late ForumNetworkConfig _draft = widget.repository.networkConfig;
-  final Map<DohProvider, DohProbeResult> _dohResults = {};
-  final Map<String, ForumSiteProbeResult> _siteResults = {};
-  final Map<String, ForumAddressProbeResult> _addressResults = {};
-  ForumSiteProbeResult? _dynamicRouteResult;
-  List<InternetAddress> _cachedAddresses = const [];
-  late _SetupStep _step =
-      widget.allowSkip ? _SetupStep.mode : _SetupStep.encrypted;
-  late bool _optimizeEnabled = widget.allowSkip ? _draft.dohEnabled : true;
-  late bool _useProxy = widget.allowSkip && _draft.proxy != null;
-  int _probeRunId = 0;
-  bool _probing = false;
+
+  // Kept apart from the draft: proxy mode is only valid once a proxy exists.
+  late ForumNetworkMode _mode = _draft.mode;
+  _Step _step = _Step.mode;
   bool _saving = false;
+
+  /// The summary's connection test of the result.
+  final _check = SingleCheck();
 
   @override
   void initState() {
     super.initState();
-    if (!widget.allowSkip) {
-      _draft = _draft.copyWith(dohEnabled: true, clearFixedAddress: true);
-    }
-    unawaited(_loadCachedAddresses());
-    WidgetsBinding.instance.addPostFrameCallback((_) => _probeCurrentStep());
+    _check.addListener(() => setState(() {}));
   }
 
-  List<_SetupStep> get _steps {
-    return _SetupFlowPlan.steps(
-      allowSkip: widget.allowSkip,
-      optimizeEnabled: _optimizeEnabled,
-      useProxy: _useProxy,
-    );
+  @override
+  void dispose() {
+    _check.dispose();
+    super.dispose();
   }
 
-  int get _stepIndex => _steps.indexOf(_step);
+  List<_Step> get _steps => [
+        _Step.mode,
+        if (_mode == ForumNetworkMode.proxy) _Step.proxy,
+        if (_mode == ForumNetworkMode.optimized) _Step.optimize,
+        _Step.site,
+        _Step.confirm,
+      ];
 
-  Future<void> _loadCachedAddresses() async {
-    final addresses = await ForumResolvedAddressStore.load();
-    if (!mounted) return;
-    setState(() => _cachedAddresses = addresses);
-  }
+  ForumNetworkConfig get _result => _draft.copyWith(mode: _mode);
 
-  Future<void> _probeCurrentStep() async {
-    final runId = ++_probeRunId;
-    setState(() => _probing = true);
-    switch (_step) {
-      case _SetupStep.mode:
-      case _SetupStep.proxy:
-        break;
-      case _SetupStep.encrypted:
-        await _probeEncrypted(runId);
-      case _SetupStep.entrance:
-        await _probeEntrance(runId);
-      case _SetupStep.route:
-        await _probeRoute(runId);
-      case _SetupStep.summary:
-        break;
-    }
-    if (!mounted || runId != _probeRunId) return;
-    setState(() => _probing = false);
-  }
+  bool get _canContinue =>
+      !_saving && (_step != _Step.proxy || _draft.proxy != null);
 
-  Future<void> _probeEncrypted(int runId) async {
-    final results = await Future.wait(
-      DohProvider.values.map(
-        (provider) async => MapEntry(provider, await _probe.testDoh(provider)),
-      ),
-    );
-    if (!mounted || runId != _probeRunId) return;
-
-    final addresses = results.expand((entry) => entry.value.addresses);
-    if (addresses.isNotEmpty) {
-      final cached = await ForumResolvedAddressStore.mergeAndSave(addresses);
-      if (mounted && runId == _probeRunId) {
-        _cachedAddresses = cached;
-      }
-    }
-
-    if (!mounted || runId != _probeRunId) return;
-    setState(() {
-      for (final entry in results) {
-        _dohResults[entry.key] = entry.value;
-      }
-    });
-  }
-
-  Future<void> _probeEntrance(int runId) async {
-    final results = await Future.wait(
-      ForumNetworkConfig.sites.map(
-        (site) => _probe.testSite(
-          site,
-          dohEnabled: _draft.dohEnabled,
-          dohProvider: _draft.dohProvider,
-          customDohUri: _draft.normalizedCustomDohUri,
-          fixedAddress: null,
-        ),
-      ),
-    );
-    if (!mounted || runId != _probeRunId) return;
-    setState(() {
-      for (final result in results) {
-        _siteResults[result.site.host] = result;
-      }
-    });
-  }
-
-  Future<void> _probeRoute(int runId) async {
-    await _loadCachedAddresses();
-    final dynamicResult = await _probe.testSite(
-      _draft.site,
-      dohEnabled: _draft.dohEnabled,
-      dohProvider: _draft.dohProvider,
-      customDohUri: _draft.normalizedCustomDohUri,
-      fixedAddress: null,
-    );
-    final addressResults = await Future.wait(
-      _cachedAddresses
-          .map((address) => _probe.testAddress(_draft.site, address)),
-    );
-    if (!mounted || runId != _probeRunId) return;
-    setState(() {
-      _dynamicRouteResult = dynamicResult;
-      for (final result in addressResults) {
-        _addressResults[result.address.address] = result;
-      }
-    });
-  }
-
-  void _selectEncrypted(bool enabled, [DohProvider? provider]) {
-    setState(() {
-      _optimizeEnabled = enabled;
-      _draft = _draft.copyWith(
-        dohEnabled: enabled,
-        dohProvider: provider ?? _draft.dohProvider,
-        clearFixedAddress: true,
-      );
-    });
-  }
-
-  void _selectMode({required bool optimize}) {
-    setState(() {
-      _optimizeEnabled = optimize;
-      _useProxy = false;
-      _draft = _draft.copyWith(
-        dohEnabled: optimize,
-        clearFixedAddress: true,
-        clearProxy: true,
-      );
-      _step = optimize ? _SetupStep.encrypted : _SetupStep.entrance;
-    });
-    unawaited(_probeCurrentStep());
-  }
-
-  // A proxy replaces network optimization; the model also clears DoH.
-  void _selectProxyMode() {
-    setState(() {
-      _useProxy = true;
-      _optimizeEnabled = false;
-      _step = _SetupStep.proxy;
-    });
-  }
-
-  void _selectSite(ForumSite site) {
-    setState(() => _draft = _draft.copyWith(site: site));
-  }
-
-  void _selectRoute(String? fixedAddress) {
-    setState(() {
-      _draft = fixedAddress == null
-          ? _draft.copyWith(clearFixedAddress: true)
-          : _draft.copyWith(fixedAddress: fixedAddress);
-    });
-  }
-
-  void _goBack() {
+  void _go(int delta) {
     final steps = _steps;
-    final index = steps.indexOf(_step);
-    if (index <= 0) {
+    final index = steps.indexOf(_step) + delta;
+    if (index < 0) {
       Navigator.of(context).maybePop();
       return;
     }
-    setState(() => _step = steps[index - 1]);
-    unawaited(_probeCurrentStep());
-  }
-
-  Future<void> _goNext() async {
-    if (_step == _SetupStep.summary) {
-      await _finish(skipped: false);
+    if (index >= steps.length) {
+      unawaited(_finish());
       return;
     }
-    final steps = _steps;
-    final index = steps.indexOf(_step);
-    setState(() => _step = steps[(index + 1).clamp(0, steps.length - 1)]);
-    unawaited(_probeCurrentStep());
+    setState(() => _step = steps[index]);
+    if (_step == _Step.confirm) _runCheck();
   }
 
-  // Skipping means no optimization and no proxy: a plain direct setup.
-  Future<void> _skip() async {
-    _draft = _draft.copyWith(
-      dohEnabled: false,
-      clearFixedAddress: true,
-      clearCustomDohUri: true,
-      clearProxy: true,
-    );
-    await _finish(skipped: true);
+  void _update(ForumNetworkConfig config) => setState(() => _draft = config);
+
+  void _runCheck() {
+    final config = _result;
+    _check.run((cancellation) async => ProbeReading.site(
+        await widget.probe.testConfig(config, cancellation: cancellation)));
   }
 
-  Future<void> _finish({required bool skipped}) async {
+  Future<void> _finish() async {
     if (_saving) return;
+    // Its connections must not outlive the config they tested.
+    _check.reset();
     setState(() => _saving = true);
     try {
-      await widget.repository.updateNetworkConfig(_draft);
-      await ForumNetworkSetupStore.markCompleted(
-        choice: skipped
-            ? ForumNetworkSetupChoice.skip
-            : _useProxy
-                ? ForumNetworkSetupChoice.proxy
-                : _optimizeEnabled
-                    ? ForumNetworkSetupChoice.optimize
-                    : ForumNetworkSetupChoice.skip,
-      );
+      await widget.repository.updateNetworkConfig(_result);
+      await ForumNetworkSetupStore.markCompleted();
       await widget.onFinished?.call();
-      if (!mounted) return;
-      if (Navigator.of(context).canPop()) {
-        Navigator.of(context).pop(!skipped);
-      }
+      if (mounted && !widget.firstRun) Navigator.of(context).pop(true);
+    } on FormatException catch (error) {
+      _showError('无法保存：${error.message}');
     } catch (_) {
-      // Setup stays incomplete and retryable; the error may carry proxy
-      // credentials, so it is never shown.
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('保存网络设置失败，请重试')),
-      );
+      // The setup stays incomplete and retryable; a raw error may carry
+      // proxy credentials, so it is never shown.
+      _showError('保存网络设置失败，请重试');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final stepMeta = _step.meta;
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
+    final steps = _steps;
+    final index = steps.indexOf(_step);
+    final gutter = appGutter(MediaQuery.sizeOf(context).width, AppWidths.form);
+    final (title, subtitle) = _copy(_step);
+    return PopScope(
+      canPop: !widget.firstRun && index == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && index > 0 && !_saving) _go(-1);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: widget.firstRun
+              ? null
+              : IconButton(
+                  tooltip: '关闭',
+                  onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close),
+                ),
+          title: Text('网络设置 · ${index + 1}/${steps.length}'),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(3),
+            child: LinearProgressIndicator(
+              value: (index + 1) / steps.length,
+              minHeight: 3,
+              backgroundColor: AppColors.inkSoft,
+            ),
+          ),
+        ),
+        body: ListView(
+          padding:
+              EdgeInsets.fromLTRB(gutter, AppSpace.xl, gutter, AppSpace.xl),
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: Row(
-                children: [
-                  if (widget.allowSkip)
-                    TextButton(
-                      onPressed: _saving ? null : _skip,
-                      child: const Text('跳过'),
-                    )
-                  else
-                    IconButton(
-                      tooltip: '关闭',
-                      onPressed:
-                          _saving ? null : () => Navigator.of(context).pop(),
-                      icon: Icon(Icons.close),
-                    ),
-                  const Spacer(),
-                  _ProbeBadge(
-                    probing: _probing,
-                    onTap: _probing ? null : _probeCurrentStep,
-                  ),
-                ],
-              ),
+            Semantics(
+              header: true,
+              child:
+                  Text(title, style: Theme.of(context).textTheme.headlineSmall),
             ),
-            Expanded(
-              child: ListView(
-                padding: EdgeInsets.fromLTRB(
-                    appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
-                    8,
-                    appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
-                    18),
-                children: [
-                  const _SignalHeroVisual(),
-                  const SizedBox(height: 16),
-                  _SegmentedProgress(
-                    current: _steps.indexOf(_step),
-                    total: _steps.length,
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    stepMeta.title,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.08),
-                  const SizedBox(height: 8),
-                  Text(
-                    stepMeta.subtitle,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppColors.textMuted,
-                          height: 1.45,
-                        ),
-                  ),
-                  const SizedBox(height: 20),
-                  PageTransitionSwitcher(
-                    duration: 320.ms,
-                    reverse: false,
-                    transitionBuilder:
-                        (child, primaryAnimation, secondaryAnimation) {
-                      return SharedAxisTransition(
-                        animation: primaryAnimation,
-                        secondaryAnimation: secondaryAnimation,
-                        transitionType: SharedAxisTransitionType.horizontal,
-                        fillColor: Colors.transparent,
-                        child: child,
-                      );
-                    },
-                    child: KeyedSubtree(
-                      key: ValueKey(_step),
-                      child: _buildStepContent(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _BottomBar(
-              backLabel: _stepIndex <= 0 ? '关闭' : '上一步',
-              nextLabel: _step == _SetupStep.summary ? '开始使用' : '下一步',
-              saving: _saving,
-              onBack: _saving ? null : _goBack,
-              onNext:
-                  _saving || (_step == _SetupStep.proxy && _draft.proxy == null)
-                      ? null
-                      : _goNext,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStepContent() {
-    switch (_step) {
-      case _SetupStep.mode:
-        return _buildModeStep();
-      case _SetupStep.proxy:
-        return ProxyForm(
-          initial: _draft.proxy,
-          submitLabel: '使用此代理',
-          onSubmit: (proxy) async {
-            setState(() => _draft = _draft.copyWith(proxy: proxy));
-            await _goNext();
-          },
-        );
-      case _SetupStep.encrypted:
-        return _buildEncryptedStep();
-      case _SetupStep.entrance:
-        return _buildEntranceStep();
-      case _SetupStep.route:
-        return _buildRouteStep();
-      case _SetupStep.summary:
-        return _buildSummaryStep();
-    }
-  }
-
-  Widget _buildEncryptedStep() {
-    final providers = [...DohProvider.values]..sort(
-        (a, b) => _ProbeReading.compare(
-          _ProbeReading.fromDoh(_dohResults[a]),
-          _ProbeReading.fromDoh(_dohResults[b]),
-        ),
-      );
-    final fastest =
-        providers.where((item) => _dohResults[item]?.success == true);
-    final fastestProvider = fastest.isEmpty ? null : fastest.first;
-
-    return Column(
-      children: [
-        ...providers.indexed.map((entry) {
-          final index = entry.$1;
-          final provider = entry.$2;
-          final result = _dohResults[provider];
-          final status = _ProbeStatus.fromDoh(result, probing: _probing);
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _SetupOptionCard(
-              icon: Icons.bolt_outlined,
-              title: '解析线路 ${index + 1}',
-              subtitle: '自动探测可用性与响应速度。',
-              selected: _draft.dohProvider == provider,
-              fastest: provider == fastestProvider,
-              statusLabel: status.label,
-              success: status.success,
-              onTap: () => _selectEncrypted(true, provider),
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildModeStep() {
-    return Column(
-      children: [
-        _SetupOptionCard(
-          icon: Icons.auto_fix_high_outlined,
-          title: '开启网络优化',
-          subtitle: '自动探测解析线路、访问入口和专属线路。',
-          selected: _optimizeEnabled && !_useProxy,
-          recommended: true,
-          onTap: () => _selectMode(optimize: true),
-        ),
-        const SizedBox(height: 12),
-        _SetupOptionCard(
-          icon: Icons.vpn_lock_outlined,
-          title: '使用代理',
-          subtitle: '所有请求经由你的 HTTP、HTTPS 或 SOCKS5 代理发送。',
-          selected: _useProxy,
-          statusLabel: _useProxy ? '已选择' : null,
-          onTap: _selectProxyMode,
-        ),
-        const SizedBox(height: 12),
-        _SetupOptionCard(
-          icon: Icons.router_outlined,
-          title: '系统默认解析',
-          subtitle: '能够直接访问，无需网络优化。',
-          selected: !_optimizeEnabled && !_useProxy,
-          statusLabel: !_optimizeEnabled && !_useProxy ? '已选择' : null,
-          onTap: () => _selectMode(optimize: false),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEntranceStep() {
-    final sites = [...ForumNetworkConfig.sites]..sort(
-        (a, b) => _ProbeReading.compare(
-          _ProbeReading.fromSite(_siteResults[a.host]),
-          _ProbeReading.fromSite(_siteResults[b.host]),
-        ),
-      );
-    final fastest =
-        sites.where((item) => _siteResults[item.host]?.success == true);
-    final fastestSite = fastest.isEmpty ? null : fastest.first;
-
-    return Column(
-      children: sites.map((site) {
-        final result = _siteResults[site.host];
-        final status = _ProbeStatus.fromSite(result, probing: _probing);
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: _SetupOptionCard(
-            icon: Icons.public_outlined,
-            title: site.host,
-            subtitle: '当前访问域名',
-            selected: _draft.site == site,
-            fastest: site == fastestSite,
-            statusLabel: status.label,
-            success: status.success,
-            onTap: () => _selectSite(site),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildRouteStep() {
-    final dynamicResult = _dynamicRouteResult;
-    final dynamicStatus =
-        _ProbeStatus.fromSite(dynamicResult, probing: _probing);
-    final addresses = [..._cachedAddresses]..sort(
-        (a, b) => _compareAddress(
-          _addressResults[a.address],
-          _addressResults[b.address],
-        ),
-      );
-    final fastestAddresses = addresses
-        .where((item) => _addressResults[item.address]?.success == true);
-    final fastestAddress =
-        fastestAddresses.isEmpty ? null : fastestAddresses.first;
-
-    return Column(
-      children: [
-        _SetupOptionCard(
-          icon: Icons.sync_alt,
-          title: '智能优选（推荐）',
-          subtitle: '让当前网络自动选择连接路径，适合大多数情况。',
-          selected: _draft.fixedAddress == null,
-          recommended: true,
-          fastest: dynamicResult?.success == true &&
-              _isDynamicFastest(dynamicResult, fastestAddress),
-          statusLabel: dynamicStatus.label,
-          success: dynamicStatus.success,
-          onTap: () => _selectRoute(null),
-        ),
-        const SizedBox(height: 12),
-        if (addresses.isEmpty)
-          const _SetupEmptyState()
-        else
-          ...addresses.indexed.map((entry) {
-            final index = entry.$1;
-            final address = entry.$2;
-            final result = _addressResults[address.address];
-            final status = _ProbeStatus.fromAddress(result, probing: _probing);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _SetupOptionCard(
-                icon: Icons.cable_outlined,
-                title: ForumNetworkConfig.routeLabelForAddress(
-                  address.address,
-                  index + 1,
-                ),
-                subtitle: '已完成线路探测。',
-                selected: _draft.fixedAddress == address.address,
-                fastest: address == fastestAddress &&
-                    !_isDynamicFastest(dynamicResult, fastestAddress),
-                statusLabel: status.label,
-                success: status.success,
-                onTap: () => _selectRoute(address.address),
-              ),
-            );
-          }),
-      ],
-    );
-  }
-
-  Widget _buildSummaryStep() {
-    final fixedAddress = _draft.fixedAddress;
-    final proxy = _draft.proxy;
-    if (proxy != null) {
-      return Column(
-        children: [
-          _SummaryPanel(
-            rows: [
-              _SummaryRow(label: '连接方式', value: proxyLabel(proxy)),
-              _SummaryRow(label: '访问入口', value: _draft.site.host),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const _ConfidencePanel(
-            title: '连接方案已准备好',
-            subtitle: '所有请求都会经由代理发送，代理不可用时不会改为直接连接。',
-          ),
-        ],
-      );
-    }
-    return Column(
-      children: [
-        _SummaryPanel(
-          rows: [
-            _SummaryRow(
-              label: '解析方式',
-              value: _draft.dohEnabled ? '智能加密解析' : '系统默认解析',
-            ),
-            _SummaryRow(
-              label: '访问入口',
-              value: _draft.site.host,
-            ),
-            _SummaryRow(
-              label: '线路策略',
-              value: fixedAddress == null
-                  ? '智能优选（推荐）'
-                  : ForumNetworkConfig.routeLabelForAddress(fixedAddress, 1),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _ConfidencePanel(
-          title: '连接方案已准备好',
-          subtitle:
-              fixedAddress == null ? '应用会按当前网络环境自动选择连接路径。' : '当前会优先使用你选择的专属线路。',
-        ),
-      ],
-    );
-  }
-
-  bool _isDynamicFastest(
-    ForumSiteProbeResult? dynamicResult,
-    InternetAddress? fastestAddress,
-  ) {
-    if (dynamicResult?.success != true) return false;
-    if (fastestAddress == null) return true;
-    final addressResult = _addressResults[fastestAddress.address];
-    if (addressResult?.success != true) return true;
-    return dynamicResult!.elapsed <= addressResult!.elapsed;
-  }
-
-  int _compareAddress(ForumAddressProbeResult? a, ForumAddressProbeResult? b) =>
-      _ProbeReading.compare(
-        _ProbeReading.fromAddress(a),
-        _ProbeReading.fromAddress(b),
-      );
-}
-
-class _SetupFlowPlan {
-  const _SetupFlowPlan._();
-
-  static List<_SetupStep> steps({
-    required bool allowSkip,
-    required bool optimizeEnabled,
-    required bool useProxy,
-  }) {
-    if (!allowSkip) {
-      return const [
-        _SetupStep.encrypted,
-        _SetupStep.entrance,
-        _SetupStep.route,
-        _SetupStep.summary,
-      ];
-    }
-    if (useProxy) {
-      return const [_SetupStep.mode, _SetupStep.proxy, _SetupStep.summary];
-    }
-    if (!optimizeEnabled) {
-      return const [
-        _SetupStep.mode,
-        _SetupStep.entrance,
-        _SetupStep.summary,
-      ];
-    }
-    return const [
-      _SetupStep.mode,
-      _SetupStep.encrypted,
-      _SetupStep.entrance,
-      _SetupStep.route,
-      _SetupStep.summary,
-    ];
-  }
-}
-
-extension _SetupStepMeta on _SetupStep {
-  _StepMeta get meta {
-    switch (this) {
-      case _SetupStep.mode:
-        return const _StepMeta(
-          '网络优化',
-          '如果当前网络能直接访问，可以只选择访问入口。',
-        );
-      case _SetupStep.proxy:
-        return const _StepMeta(
-          '设置代理',
-          '所有请求都将经由你的代理发送，网络优化会关闭。',
-        );
-      case _SetupStep.encrypted:
-        return const _StepMeta(
-          '加密解析',
-          '正在为你探测更稳定的解析线路。',
-        );
-      case _SetupStep.entrance:
-        return const _StepMeta(
-          '访问入口',
-          '选择你喜欢的入口，或是更快的入口。',
-        );
-      case _SetupStep.route:
-        return const _StepMeta(
-          '线路选择',
-          '智能优选适合大多数情况，专属线路适合备用。',
-        );
-      case _SetupStep.summary:
-        return const _StepMeta(
-          '连接就绪',
-          '这是即将应用的连接方案。',
-        );
-    }
-  }
-}
-
-class _StepMeta {
-  const _StepMeta(this.title, this.subtitle);
-
-  final String title;
-  final String subtitle;
-}
-
-class _ProbeReading {
-  const _ProbeReading({required this.success, this.elapsed});
-
-  factory _ProbeReading.fromDoh(DohProbeResult? result) {
-    return _ProbeReading(success: result?.success, elapsed: result?.elapsed);
-  }
-
-  factory _ProbeReading.fromSite(ForumSiteProbeResult? result) {
-    return _ProbeReading(success: result?.success, elapsed: result?.elapsed);
-  }
-
-  factory _ProbeReading.fromAddress(ForumAddressProbeResult? result) {
-    return _ProbeReading(success: result?.success, elapsed: result?.elapsed);
-  }
-
-  final bool? success;
-  final Duration? elapsed;
-
-  static int compare(_ProbeReading a, _ProbeReading b) {
-    if (a.success == true && b.success != true) return -1;
-    if (a.success != true && b.success == true) return 1;
-    if (a.success == true && b.success == true) {
-      return a.elapsed!.compareTo(b.elapsed!);
-    }
-    return 0;
-  }
-}
-
-class _ProbeStatus {
-  const _ProbeStatus({this.label, this.success});
-
-  factory _ProbeStatus.fromDoh(
-    DohProbeResult? result, {
-    required bool probing,
-  }) {
-    return _ProbeStatus.fromValues(
-      success: result?.success,
-      latencyLabel: result?.latencyLabel,
-      message: result?.message,
-      probing: probing,
-    );
-  }
-
-  factory _ProbeStatus.fromSite(
-    ForumSiteProbeResult? result, {
-    required bool probing,
-  }) {
-    return _ProbeStatus.fromValues(
-      success: result?.success,
-      latencyLabel: result?.latencyLabel,
-      message: result?.message,
-      probing: probing,
-    );
-  }
-
-  factory _ProbeStatus.fromAddress(
-    ForumAddressProbeResult? result, {
-    required bool probing,
-  }) {
-    return _ProbeStatus.fromValues(
-      success: result?.success,
-      latencyLabel: result?.latencyLabel,
-      message: result?.message,
-      probing: probing,
-    );
-  }
-
-  factory _ProbeStatus.fromValues({
-    required bool? success,
-    required String? latencyLabel,
-    required String? message,
-    required bool probing,
-  }) {
-    if (success == null) {
-      return _ProbeStatus(label: probing ? '测速中' : null);
-    }
-    return _ProbeStatus(
-      label: success ? latencyLabel : message,
-      success: success,
-    );
-  }
-
-  final String? label;
-  final bool? success;
-}
-
-class _SignalHeroVisual extends StatelessWidget {
-  const _SignalHeroVisual();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 150,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 132,
-            height: 132,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.surface,
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                ...List.generate(3, (index) {
-                  return Container(
-                    width: 58 + index * 28,
-                    height: 58 + index * 28,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: AppColors.brand.withValues(
-                          alpha: 0.18 - index * 0.035,
-                        ),
-                        width: 1.4,
-                      ),
-                    ),
-                  )
-                      .animate(
-                        onPlay: (controller) => controller.repeat(),
-                        delay: (index * 180).ms,
-                      )
-                      .scale(
-                        begin: const Offset(0.88, 0.88),
-                        end: const Offset(1.06, 1.06),
-                        duration: 1800.ms,
-                        curve: Curves.easeInOut,
-                      )
-                      .fade(
-                        begin: 0.8,
-                        end: 0.28,
-                        duration: 1800.ms,
-                      );
-                }),
-                Container(
-                  width: 54,
-                  height: 54,
-                  decoration: BoxDecoration(
-                    color: AppColors.brand,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.hub_outlined,
-                    color: AppColors.onBrand,
-                    size: 28,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 420.ms).scale(
-          begin: const Offset(0.96, 0.96),
-          end: const Offset(1, 1),
-          curve: Curves.easeOutCubic,
-        );
-  }
-}
-
-class _ProbeBadge extends StatelessWidget {
-  const _ProbeBadge({required this.probing, required this.onTap});
-
-  final bool probing;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        customBorder: const StadiumBorder(),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: 220.ms,
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpace.md, vertical: AppSpace.sm),
-          decoration: ShapeDecoration(
-            color: AppColors.successSoft,
-            shape: const StadiumBorder(),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox.square(
-                dimension: 8,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: AppColors.success,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 7),
-              Text(
-                probing ? '线路探测中' : '重新测速',
+            const SizedBox(height: AppSpace.sm),
+            Text(subtitle,
                 style: Theme.of(context)
                     .textTheme
-                    .labelMedium!
-                    .copyWith(color: AppColors.text),
-              ),
-            ],
-          ),
+                    .bodyMedium
+                    ?.copyWith(color: AppColors.textMuted, height: 1.45)),
+            const SizedBox(height: AppSpace.xl),
+            AnimatedSwitcher(
+              duration: AppMotion.medium,
+              switchInCurve: AppMotion.enter,
+              switchOutCurve: AppMotion.exit,
+              child: KeyedSubtree(key: ValueKey(_step), child: _content()),
+            ),
+          ],
+        ),
+        bottomNavigationBar: _BottomBar(
+          gutter: gutter,
+          backLabel: index == 0 ? null : '上一步',
+          nextLabel: _step == _Step.confirm ? '开始使用' : '下一步',
+          saving: _saving,
+          onBack: _saving ? null : () => _go(-1),
+          onNext: _canContinue ? () => _go(1) : null,
         ),
       ),
     );
   }
-}
 
-class _SegmentedProgress extends StatelessWidget {
-  const _SegmentedProgress({required this.current, required this.total});
+  (String, String) _copy(_Step step) => switch (step) {
+        _Step.mode => ('选择连接方式', '三种方式只会同时使用一种，之后可在「设置 › 网络连接」随时更改。'),
+        _Step.proxy => ('填写代理', '所有请求都会经由这个代理发送。'),
+        _Step.optimize => ('网络优化', '选择加密 DNS 服务。不确定时保持默认即可，后台测速不影响继续。'),
+        _Step.site => ('访问入口', '入口是要访问的论坛域名，与连接方式各自独立。'),
+        _Step.confirm => ('确认设置', '下面是即将保存的设置。'),
+      };
 
-  final int current;
-  final int total;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: List.generate(total, (index) {
-        final active = index <= current;
-        return Expanded(
-          child: AnimatedContainer(
-            duration: 240.ms,
-            height: 5,
-            margin: EdgeInsets.only(right: index == total - 1 ? 0 : 6),
-            decoration: BoxDecoration(
-              color: active ? AppColors.brand : AppColors.inkSoft,
-              borderRadius: BorderRadius.circular(999),
-            ),
+  Widget _content() => switch (_step) {
+        _Step.mode => _modeStep(),
+        _Step.proxy => _proxyStep(),
+        _Step.optimize => _optimizeStep(),
+        // The proxy step comes first, so a proxy result is always valid here.
+        _Step.site => SiteChoiceList(
+            config: _result,
+            probe: widget.probe,
+            onSelected: (site) => _update(_draft.copyWith(site: site)),
           ),
-        );
-      }),
+        _Step.confirm => _confirmStep(),
+      };
+
+  Widget _modeStep() {
+    return Column(
+      children: [
+        for (final mode in const [
+          ForumNetworkMode.optimized,
+          ForumNetworkMode.native,
+          ForumNetworkMode.proxy,
+        ]) ...[
+          _ModeCard(
+            mode: mode,
+            selected: _mode == mode,
+            recommended: mode == ForumNetworkMode.optimized,
+            onTap: () => setState(() => _mode = mode),
+          ),
+          const SizedBox(height: AppSpace.md),
+        ],
+      ],
+    );
+  }
+
+  Widget _proxyStep() {
+    final proxy = _draft.proxy;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (proxy != null) ...[
+          AppGroup(children: [
+            AppRow(
+              icon: Icons.check_circle_outline,
+              title: Text(proxyLabel(proxy)),
+              subtitle: const Text('将使用此代理，可在下方修改'),
+              enabled: true,
+            ),
+          ]),
+          const SizedBox(height: AppSpace.lg),
+        ],
+        ProxyForm(
+          initial: proxy,
+          submitLabel: '使用此代理',
+          onSubmit: (proxy) async {
+            _update(_draft.copyWith(proxy: proxy));
+            _go(1);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _optimizeStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DohChoiceList(
+          config: _result,
+          probe: widget.probe,
+          onChanged: _update,
+        ),
+        const SizedBox(height: AppSpace.lg),
+        AppGroup(children: [
+          Ipv6Row(
+            value: _draft.ipv6Enabled,
+            onChanged: (value) => _update(_draft.copyWith(ipv6Enabled: value)),
+          ),
+        ]),
+      ],
+    );
+  }
+
+  Widget _confirmStep() {
+    final config = _result;
+    final optimized = config.mode == ForumNetworkMode.optimized;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppGroup(children: [
+          AppRow(
+            icon: networkModeIcon(config.mode),
+            title: const Text('连接方式'),
+            value: networkModeLabel(config.mode),
+            enabled: true,
+          ),
+          if (config.mode == ForumNetworkMode.proxy)
+            AppRow(
+              icon: Icons.dns_outlined,
+              title: const Text('代理服务器'),
+              value: proxyLabel(config.proxy!),
+              enabled: true,
+            ),
+          if (optimized) ...[
+            AppRow(
+              icon: Icons.shield_outlined,
+              title: const Text('加密 DNS'),
+              value: dohLabel(config),
+              enabled: true,
+            ),
+            AppRow(
+              icon: Icons.looks_6_outlined,
+              title: const Text('IPv6'),
+              value: config.ipv6Enabled ? '开启' : '关闭',
+              enabled: true,
+            ),
+          ],
+          AppRow(
+            icon: Icons.language,
+            title: const Text('访问入口'),
+            value: config.site.host,
+            enabled: true,
+          ),
+          if (optimized)
+            AppRow(
+              icon: Icons.pin_drop_outlined,
+              title: const Text('目标地址'),
+              subtitle: const Text('可选，为当前入口指定优先尝试的 IP'),
+              value: hostAddressesLabel(config),
+              onTap: _saving
+                  ? null
+                  : () async {
+                      final updated = await HostAddressesPage.open(
+                          context, _draft,
+                          probe: widget.probe);
+                      if (updated == null || !mounted) return;
+                      _update(updated);
+                      _runCheck();
+                    },
+            ),
+        ]),
+        const SizedBox(height: AppSpace.lg),
+        _CheckPanel(
+          check: _check,
+          onRetry: _saving ? null : _runCheck,
+        ),
+      ],
     );
   }
 }
 
-class _SetupOptionCard extends StatelessWidget {
-  const _SetupOptionCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
+class _ModeCard extends StatelessWidget {
+  const _ModeCard({
+    required this.mode,
     required this.selected,
+    required this.recommended,
     required this.onTap,
-    this.statusLabel,
-    this.success,
-    this.recommended = false,
-    this.fastest = false,
   });
 
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final String? statusLabel;
-  final bool? success;
+  final ForumNetworkMode mode;
   final bool selected;
   final bool recommended;
-  final bool fastest;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = selected ? AppColors.brand : Colors.transparent;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: 220.ms,
-          constraints: const BoxConstraints(minHeight: 84),
-          padding: const EdgeInsets.all(AppSpace.md),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: borderColor, width: 1.5),
-          ),
-          child: Row(
-            children: [
-              _SetupIcon(icon: icon, selected: selected),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (fastest || recommended || statusLabel != null) ...[
-                      const SizedBox(height: 5),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          if (fastest)
-                            const _MiniPill(label: '最快', positive: true),
-                          if (recommended)
-                            const _MiniPill(label: '推荐', positive: true),
-                          if (statusLabel != null)
-                            _MiniPill(
-                              label: statusLabel!,
-                              positive: success ?? true,
-                            ),
-                        ],
-                      ),
-                    ],
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Icon(
-                selected ? Icons.check_circle : Icons.circle_outlined,
-                color: selected ? AppColors.brand : AppColors.textFaint,
-                size: 22,
-              ),
-            ],
+    final theme = Theme.of(context);
+    return Semantics(
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      button: true,
+      child: Material(
+        color: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: BorderSide(
+            color: selected ? AppColors.brand : AppColors.border,
+            width: selected ? 1.5 : 1,
           ),
         ),
-      ),
-    ).animate().fadeIn(duration: 260.ms).slideY(begin: 0.04);
-  }
-}
-
-class _SetupIcon extends StatelessWidget {
-  const _SetupIcon({required this.icon, required this.selected});
-
-  final IconData icon;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: 220.ms,
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: selected ? AppColors.brandSoft : AppColors.inkSoft,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(
-        icon,
-        color: selected ? AppColors.brand : AppColors.textMuted,
-        size: 20,
-      ),
-    );
-  }
-}
-
-class _MiniPill extends StatelessWidget {
-  const _MiniPill({required this.label, required this.positive});
-
-  final String label;
-  final bool positive;
-
-  @override
-  Widget build(BuildContext context) {
-    final color =
-        positive ? AppColors.success : Theme.of(context).colorScheme.error;
-    final background = positive ? AppColors.successSoft : AppColors.inkSoft;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 22, maxWidth: 96),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        decoration: ShapeDecoration(
-          color: background,
-          shape: const StadiumBorder(),
-        ),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style:
-              Theme.of(context).textTheme.labelMedium!.copyWith(color: color),
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupEmptyState extends StatelessWidget {
-  const _SetupEmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.lg),
-      decoration: appSurface(context),
-      child: Row(
-        children: [
-          const _SetupIcon(icon: Icons.route_outlined, selected: false),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '暂时没有可用的专属线路，使用智能优选即可。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryPanel extends StatelessWidget {
-  const _SummaryPanel({required this.rows});
-
-  final List<_SummaryRow> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.lg),
-      decoration: appSurface(context),
-      child: Column(
-        children: rows.map((row) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 7),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpace.lg),
             child: Row(
-              children: [
-                Text(
-                  row.label,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const Spacer(),
-                Flexible(
-                  child: Text(
-                    row.value,
-                    textAlign: TextAlign.right,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-}
-
-class _SummaryRow {
-  const _SummaryRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-}
-
-class _ConfidencePanel extends StatelessWidget {
-  const _ConfidencePanel({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.successSoft,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-      ),
-      child: Row(
-        children: [
-          SizedBox.square(
-            dimension: 46,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.success,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.done, color: AppColors.surface),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 4),
-                Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                Icon(networkModeIcon(mode),
+                    color: selected ? AppColors.brand : AppColors.textMuted),
+                const SizedBox(width: AppSpace.lg),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: AppSpace.sm,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(networkModeLabel(mode),
+                              style: theme.textTheme.titleMedium),
+                          if (recommended)
+                            Text('推荐',
+                                style: theme.textTheme.labelMedium
+                                    ?.copyWith(color: AppColors.brand)),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpace.xs),
+                      Text(networkModeDescription(mode),
+                          style: theme.textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppSpace.md),
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  color: selected ? AppColors.brand : AppColors.textFaint,
+                ),
               ],
             ),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The one connection test of the summary. It never gates 开始使用.
+class _CheckPanel extends StatelessWidget {
+  const _CheckPanel({required this.check, required this.onRetry});
+
+  final SingleCheck check;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final checking = check.testing;
+    final result = check.reading;
+    final (icon, color, text) = checking
+        ? (null, AppColors.textMuted, '正在用这组设置测试连接…')
+        : result == null
+            ? (Icons.help_outline, AppColors.textMuted, '未能完成测试。')
+            : result.success
+                ? (
+                    Icons.check_circle_outline,
+                    AppColors.success,
+                    '刚才的测试请求成功（${result.label}）。'
+                        '这只说明当下可以连上，之后网络变化时可能不同。'
+                  )
+                : (
+                    Icons.error_outline,
+                    theme.colorScheme.error,
+                    '测试未通过：${result.label}。'
+                        '仍可开始使用，之后在「设置 › 网络连接」调整。'
+                  );
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        decoration: BoxDecoration(
+          color: AppColors.inkSoft,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (icon == null)
+              const SizedBox.square(
+                dimension: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(icon, color: color, size: 20),
+            const SizedBox(width: AppSpace.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(text, style: theme.textTheme.bodyMedium),
+                  if (!checking)
+                    TextButton(
+                      style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          alignment: Alignment.centerLeft),
+                      onPressed: onRetry,
+                      child: const Text('重新测试'),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1221,6 +498,7 @@ class _ConfidencePanel extends StatelessWidget {
 
 class _BottomBar extends StatelessWidget {
   const _BottomBar({
+    required this.gutter,
     required this.backLabel,
     required this.nextLabel,
     required this.saving,
@@ -1228,7 +506,8 @@ class _BottomBar extends StatelessWidget {
     required this.onNext,
   });
 
-  final String backLabel;
+  final double gutter;
+  final String? backLabel;
   final String nextLabel;
   final bool saving;
   final VoidCallback? onBack;
@@ -1239,27 +518,24 @@ class _BottomBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Container(
-        padding: EdgeInsets.fromLTRB(
-            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
-            12,
-            appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
-            14),
+        padding: EdgeInsets.fromLTRB(gutter, AppSpace.md, gutter, AppSpace.md),
         decoration: BoxDecoration(
           color: AppColors.surface,
           border: Border(top: BorderSide(color: AppColors.border)),
         ),
         child: Row(
           children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: onBack,
-                child: Text(backLabel),
+            if (backLabel != null) ...[
+              Expanded(
+                child:
+                    OutlinedButton(onPressed: onBack, child: Text(backLabel!)),
               ),
-            ),
-            const SizedBox(width: 12),
+              const SizedBox(width: AppSpace.md),
+            ],
             Expanded(
               child: FilledButton.icon(
                 onPressed: onNext,
+                // While saving, a spinner joins the label (DESIGN §6).
                 icon: saving
                     ? const SizedBox.square(
                         dimension: 16,

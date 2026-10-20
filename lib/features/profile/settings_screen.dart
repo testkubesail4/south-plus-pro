@@ -20,6 +20,7 @@ import '../home/quick_list_settings_screen.dart';
 import 'forum_preferences_screen.dart';
 import 'home_boards_settings_screen.dart';
 import 'local_user_annotations_screen.dart';
+import 'network_options.dart';
 import 'network_settings_screen.dart';
 import 'network_setup_flow_screen.dart';
 
@@ -430,8 +431,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     AppRow(
                       icon: Icons.public_outlined,
                       title: const Text('连接设置'),
-                      subtitle: Text('${networkConfig.site.host} · '
-                          '${networkConfig.dohEnabled ? '加密解析' : '系统解析'}'),
+                      subtitle:
+                          Text('${networkModeLabel(networkConfig.mode)} · '
+                              '${networkConfig.site.host}'),
                       onTap: _openNetworkSettings,
                     ),
                   ],
