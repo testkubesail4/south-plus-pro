@@ -21,6 +21,10 @@ class _Repo extends ForumRepository {
   int pageCount = 3;
   // While set, page 3 stays on its way.
   Completer<void>? holdPage3;
+  // Categories made here.
+  final made = <FavoriteCategory>[];
+  final moved =
+      <(FavoriteCollections, List<FavoriteCollectionEntry>, String)>[];
 
   @override
   ValueListenable<int> get sessionEpoch => epoch;
@@ -35,7 +39,9 @@ class _Repo extends ForumRepository {
         categories: [
           const FavoriteCategory(id: '0', label: '默认分类'),
           FavoriteCategory(id: '1', label: page == 1 ? '资料' : laterLabel),
+          ...made,
         ],
+        canCreate: true,
         items: [
           for (var i = 0; i < 10; i++)
             FavoriteCollectionEntry(
@@ -72,6 +78,27 @@ class _Repo extends ForumRepository {
         status: FavoriteMutationStatus.confirmed,
         message: 'ok',
         collections: _page(snapshot.categoryId, snapshot.page));
+  }
+
+  // As the forum answers: the list of everything, from its first page.
+  @override
+  Future<FavoriteCollectionMutation> createFavoriteCategory(
+      FavoriteCollections snapshot, String name) async {
+    made.add(FavoriteCategory(id: '${2 + made.length}', label: name));
+    return FavoriteCollectionMutation(
+        status: FavoriteMutationStatus.confirmed,
+        message: 'ok',
+        collections: _page(null, 1));
+  }
+
+  @override
+  Future<FavoriteCollectionMutation> moveFavorites(FavoriteCollections snapshot,
+      List<FavoriteCollectionEntry> entries, String categoryId) async {
+    moved.add((snapshot, entries, categoryId));
+    return FavoriteCollectionMutation(
+        status: FavoriteMutationStatus.confirmed,
+        message: 'ok',
+        collections: _page(null, snapshot.page));
   }
 }
 
@@ -199,6 +226,39 @@ void main() {
     expect(find.text('Fav 300', skipOffstage: false), findsNothing);
     expect(find.text('第 3 页', skipOffstage: false), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets('a row chosen on page 3 moves to a category made on the way',
+      (tester) async {
+    final repo = await pump(tester);
+    for (var i = 0; i < 2; i++) {
+      await toEnd(tester);
+      await tester.tap(key('page-end-next'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(key('favorite-select-start'));
+    await tester.pumpAndSettle();
+    await tester.tap(key('favorite-select:305'));
+    await tester.pumpAndSettle();
+    await tester.tap(key('favorite-move'));
+    await tester.pumpAndSettle();
+    await tester.tap(key('favorite-move-new'));
+    await tester.pumpAndSettle();
+    await tester.enterText(key('favorite-category-name'), '新分类');
+    await tester.pump();
+    await tester.tap(key('favorite-category-create'));
+    await tester.pumpAndSettle();
+    // The answer is page 1 of everything: page 3 is read again for 305.
+    expect(repo.calls.last, 'all:3');
+    expect(find.text('部分所选主题不在当前页，请重新选择'), findsNothing);
+
+    await tester.tap(key('favorite-move-to:2'));
+    await tester.pumpAndSettle();
+    final (snapshot, entries, target) = repo.moved.single;
+    expect(snapshot.page, 3);
+    expect(entries.map((e) => e.id), ['305']);
+    expect(identical(entries.single, snapshot.items[5]), isTrue);
+    expect(target, '2');
   });
 
   testWidgets('自动接续 pauses after two pages of repeated rows', (tester) async {

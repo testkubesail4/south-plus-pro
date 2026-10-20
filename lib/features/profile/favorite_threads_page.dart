@@ -610,24 +610,40 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     // result, a failed read or a session change; and a deleted source stays
     // in 全部.
     final viewLabel = _view == null ? null : _labelOf(_data, _view);
-    Future<void> restoreView() async {
-      if (!categoryChanged || viewLabel == null || _view != null) return;
-      if (!mounted ||
-          session != widget.repository.sessionEpoch.value ||
-          _locked) return;
-      final named = [
-        for (final c in _data!.categories)
-          if (c.label == viewLabel) c,
-      ];
-      if (named.length != 1) return;
+    // The page the rows were chosen on, read again after such an answer.
+    final sourcePage = _pageOf[entries.first.id]?.page ?? _data!.page;
+    bool current() =>
+        mounted && session == widget.repository.sessionEpoch.value && !_locked;
+    Future<void> rereadSource() async {
+      String? view;
+      if (viewLabel != null) {
+        final named = [
+          for (final c in _data!.categories)
+            if (c.label == viewLabel) c,
+        ];
+        // A deleted source stays in 全部.
+        if (named.length == 1) view = named.single.id;
+      }
       await _load(
-          view: named.single.id,
-          keep: wasSelecting ? Set.of(_selected) : const {});
+          view: view,
+          page: view == null && viewLabel != null ? 1 : sourcePage,
+          keep: wasSelecting ? Set.of(pending.keys) : const {});
     }
 
-    while (mounted &&
-        session == widget.repository.sessionEpoch.value &&
-        !_locked) {
+    Future<void> restoreView() async {
+      if (!categoryChanged || viewLabel == null || _view != null) return;
+      if (!current()) return;
+      await rereadSource();
+    }
+
+    while (current()) {
+      // After a category change the answer is another page: the chosen rows
+      // are found again on their own page, read anew.
+      if (categoryChanged &&
+          pending.keys.any((id) => !_items.any((entry) => entry.id == id))) {
+        await rereadSource();
+        if (!current()) return;
+      }
       final data = _data!;
       final rebound = <FavoriteCollectionEntry>[];
       for (final request in pending.entries) {
