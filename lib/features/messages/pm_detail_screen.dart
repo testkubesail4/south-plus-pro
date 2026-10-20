@@ -8,11 +8,12 @@ import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
+import '../common/session_bound.dart';
 import '../thread/thread_rich_content.dart';
 import 'pm_compose_screen.dart';
 
 /// Returns the server result so the box can follow its refresh destination.
-class PmDetailScreen extends StatefulWidget {
+class PmDetailScreen extends StatelessWidget {
   const PmDetailScreen({
     super.key,
     required this.repository,
@@ -23,10 +24,24 @@ class PmDetailScreen extends StatefulWidget {
   final ForumPmSummary message;
 
   @override
-  State<PmDetailScreen> createState() => _PmDetailScreenState();
+  Widget build(BuildContext context) => SessionBound(
+        repository: repository,
+        title: '短消息',
+        child: _PmDetailView(repository: repository, message: message),
+      );
 }
 
-class _PmDetailScreenState extends State<PmDetailScreen> {
+class _PmDetailView extends StatefulWidget {
+  const _PmDetailView({required this.repository, required this.message});
+
+  final ForumRepository repository;
+  final ForumPmSummary message;
+
+  @override
+  State<_PmDetailView> createState() => _PmDetailViewState();
+}
+
+class _PmDetailViewState extends State<_PmDetailView> {
   late Future<ForumPmDetail> _future = _fetch();
   bool _busy = false;
 
@@ -34,8 +49,8 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
       widget.repository.fetchPmDetail(widget.message);
 
   void _retry() => setState(() {
-    _future = _fetch();
-  });
+        _future = _fetch();
+      });
 
   Future<void> _openCompose(String path) async {
     final result = await Navigator.of(context).push<ForumPmActionResult>(
@@ -106,16 +121,17 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
       String label,
       VoidCallback onTap, {
       Color? color,
-    }) => PopupMenuItem(
-      value: onTap,
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(width: AppSpace.md),
-          Text(label, style: TextStyle(color: color)),
-        ],
-      ),
-    );
+    }) =>
+        PopupMenuItem(
+          value: onTap,
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: AppSpace.md),
+              Text(label, style: TextStyle(color: color)),
+            ],
+          ),
+        );
     return [
       if (detail.forwardPath case final path?)
         item(Icons.forward_outlined, '转发', () => _openCompose(path)),
@@ -182,31 +198,32 @@ class _PmDetailScreenState extends State<PmDetailScreen> {
                     onRetry: _retry,
                   )
                 : detail == null
-                ? const ThreadDetailSkeleton()
-                : ListView(
-                    padding: _readingPadding(context),
-                    children: [
-                      _PmMessageCard(
-                        repository: widget.repository,
-                        sender: detail.sender,
-                        title: detail.title,
-                        time: detail.time,
-                        content: detail.content,
-                        segments: detail.segments,
-                      ),
-                      if (detail.replyPath case final path?) ...[
-                        const SizedBox(height: AppSpace.md),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: FilledButton.icon(
-                            onPressed: _busy ? null : () => _openCompose(path),
-                            icon: const Icon(Icons.reply_outlined),
-                            label: const Text('回复'),
+                    ? const ThreadDetailSkeleton()
+                    : ListView(
+                        padding: _readingPadding(context),
+                        children: [
+                          _PmMessageCard(
+                            repository: widget.repository,
+                            sender: detail.sender,
+                            title: detail.title,
+                            time: detail.time,
+                            content: detail.content,
+                            segments: detail.segments,
                           ),
-                        ),
-                      ],
-                    ],
-                  ),
+                          if (detail.replyPath case final path?) ...[
+                            const SizedBox(height: AppSpace.md),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: FilledButton.icon(
+                                onPressed:
+                                    _busy ? null : () => _openCompose(path),
+                                icon: const Icon(Icons.reply_outlined),
+                                label: const Text('回复'),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
           ),
         );
       },
@@ -220,7 +237,7 @@ EdgeInsets _readingPadding(BuildContext context) {
   return EdgeInsets.fromLTRB(side, AppSpace.md, side, AppSpace.xl);
 }
 
-class PmChatlogScreen extends StatefulWidget {
+class PmChatlogScreen extends StatelessWidget {
   const PmChatlogScreen({
     super.key,
     required this.repository,
@@ -231,10 +248,24 @@ class PmChatlogScreen extends StatefulWidget {
   final String path;
 
   @override
-  State<PmChatlogScreen> createState() => _PmChatlogScreenState();
+  Widget build(BuildContext context) => SessionBound(
+        repository: repository,
+        title: '通信记录',
+        child: _PmChatlogView(repository: repository, path: path),
+      );
 }
 
-class _PmChatlogScreenState extends State<PmChatlogScreen> {
+class _PmChatlogView extends StatefulWidget {
+  const _PmChatlogView({required this.repository, required this.path});
+
+  final ForumRepository repository;
+  final String path;
+
+  @override
+  State<_PmChatlogView> createState() => _PmChatlogViewState();
+}
+
+class _PmChatlogViewState extends State<_PmChatlogView> {
   late String _path = widget.path;
   late Future<ForumPmChatlog> _future = _fetch();
 

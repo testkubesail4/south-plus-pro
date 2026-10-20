@@ -7,23 +7,39 @@ import '../../services/forum_request_exception.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
+import '../common/session_bound.dart';
 import '../editor/windcode_preview.dart';
 import '../editor/windcode_toolbar.dart';
 
 /// Writes, replies, forwards or edits a message through a server compose form.
 /// [path] is the server entry (reply/forward/edit/profile link); null opens a
 /// blank message. Returns the accepted server result and refresh destination.
-class PmComposeScreen extends StatefulWidget {
+class PmComposeScreen extends StatelessWidget {
   const PmComposeScreen({super.key, required this.repository, this.path});
 
   final ForumRepository repository;
   final String? path;
 
+  // The draft belongs to the account that wrote it.
   @override
-  State<PmComposeScreen> createState() => _PmComposeScreenState();
+  Widget build(BuildContext context) => SessionBound(
+        repository: repository,
+        title: '短消息',
+        child: _PmComposeView(repository: repository, path: path),
+      );
 }
 
-class _PmComposeScreenState extends State<PmComposeScreen> {
+class _PmComposeView extends StatefulWidget {
+  const _PmComposeView({required this.repository, this.path});
+
+  final ForumRepository repository;
+  final String? path;
+
+  @override
+  State<_PmComposeView> createState() => _PmComposeViewState();
+}
+
+class _PmComposeViewState extends State<_PmComposeView> {
   late Future<ForumPmCompose> _future = _fetch();
   final _recipient = TextEditingController();
   final _title = TextEditingController();
@@ -109,12 +125,12 @@ class _PmComposeScreenState extends State<PmComposeScreen> {
             onPressed: _submitting
                 ? null
                 : () => showWindCodePreview(
-              context,
-              title: _title.text,
-              source: _body.text,
-              baseUri: widget.repository.networkConfig.baseUri,
-
-            ),
+                      context,
+                      title: _title.text,
+                      source: _body.text,
+                      baseUri: widget.repository.networkConfig.baseUri,
+                      closeOn: widget.repository.sessionEpoch,
+                    ),
             icon: const Icon(Icons.visibility_outlined),
           ),
         ],

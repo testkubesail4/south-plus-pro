@@ -238,6 +238,7 @@ class _ThreadComposeScreenState extends State<ThreadComposeScreen> {
         title: _title.text,
         source: _content.text,
         baseUri: widget.repository.networkConfig.baseUri,
+        closeOn: widget.repository.sessionEpoch,
       );
 
   @override

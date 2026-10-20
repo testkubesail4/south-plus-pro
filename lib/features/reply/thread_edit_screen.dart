@@ -170,6 +170,7 @@ class _ThreadEditScreenState extends State<ThreadEditScreen> {
                           title: _title.text,
                           source: _content.text,
                           baseUri: widget.repository.networkConfig.baseUri,
+                          closeOn: widget.repository.sessionEpoch,
                         ),
                 icon: const Icon(Icons.visibility_outlined),
               ),

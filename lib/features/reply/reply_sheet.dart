@@ -172,7 +172,9 @@ class ReplyComposerState extends State<ReplyComposer> {
                         ),
                         const SizedBox(width: 4),
                         Icon(
-                          _editingTitle ? Icons.expand_less : Icons.edit_outlined,
+                          _editingTitle
+                              ? Icons.expand_less
+                              : Icons.edit_outlined,
                           size: 16,
                           color: AppColors.textFaint,
                         ),
@@ -186,11 +188,12 @@ class ReplyComposerState extends State<ReplyComposer> {
                 onPressed: _submitting
                     ? null
                     : () => showWindCodePreview(
-                  context,
-                  title: _title.text,
-                  source: _content.text,
-                  baseUri: widget.repository.networkConfig.baseUri,
-                ),
+                          context,
+                          title: _title.text,
+                          source: _content.text,
+                          baseUri: widget.repository.networkConfig.baseUri,
+                          closeOn: widget.repository.sessionEpoch,
+                        ),
                 color: AppColors.textMuted,
                 icon: const Icon(Icons.visibility_outlined),
               ),
@@ -237,7 +240,8 @@ class ReplyComposerState extends State<ReplyComposer> {
                   const SizedBox(height: 8),
                   Text(
                     _error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
                 ],
                 const SizedBox(height: 8),
@@ -260,8 +264,7 @@ class ReplyComposerState extends State<ReplyComposer> {
                               height: 18,
                               // The button's own foreground, like its label.
                               child: Builder(
-                                builder: (context) =>
-                                    CircularProgressIndicator(
+                                builder: (context) => CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: IconTheme.of(context).color,
                                 ),
