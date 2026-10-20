@@ -347,6 +347,100 @@ void main() {
         reason: 'A form must not send using the now-active B cookies');
   });
 
+  for (final boundary in ['identity', 'friends']) {
+    test('stale $boundary response cannot replace B cookies during login',
+        () async {
+      final loginReceived = Completer<void>();
+      final releaseLogin = Completer<void>();
+      final readReceived = Completer<void>();
+      final releaseRead = Completer<void>();
+      addTearDown(() {
+        if (!releaseLogin.isCompleted) releaseLogin.complete();
+        if (!releaseRead.isCompleted) releaseRead.complete();
+      });
+      var logins = 0;
+      String? observedCookie;
+      String header(String owner) => '''<html><head>
+<script>var verifyhash = 'fxToken1';</script></head><body>
+<div id="user-login"><a href="u.php">Synthetic $owner</a></div>
+<div id="menu_profile"><div class="ul2">
+<a href="u.php?action-show-uid-${owner == 'A' ? '901' : '903'}.html">资料</a>
+</div></div></body></html>''';
+      server.listen((request) async {
+        await request.drain<void>();
+        request.response.headers.contentType = ContentType.html;
+        if (request.uri.path == '/login.php') {
+          final owner = ++logins == 1 ? 'A' : 'B';
+          if (owner == 'B') {
+            loginReceived.complete();
+            await releaseLogin.future;
+          }
+          request.response.headers.add(
+              HttpHeaders.setCookieHeader, 'winduser=synthetic-$owner; Path=/');
+          request.response.write(header(owner));
+        } else if (request.uri.path == '/index.php' ||
+            request.uri.path == '/u.php') {
+          final held = boundary == 'identity'
+              ? request.uri.path == '/index.php'
+              : request.uri.path == '/u.php';
+          if (held) {
+            readReceived.complete();
+            await releaseRead.future;
+            request.response.headers.add(HttpHeaders.setCookieHeader,
+                'winduser=synthetic-stale-A; Path=/');
+          }
+          request.response.write(request.uri.path == '/index.php'
+              ? header('A')
+              : '''<form method="post" action="u.php?action=friend">
+<input type="hidden" name="uid" value="901">
+<input type="hidden" name="verify" value="synthetic-A">
+<input type="hidden" name="job" value="delete"></form>''');
+        } else if (request.uri.path == '/echo') {
+          observedCookie = request.headers.value(HttpHeaders.cookieHeader);
+        } else {
+          request.response.statusCode = HttpStatus.notFound;
+        }
+        await request.response.close();
+      });
+      final repository = ForumRepository(client: client);
+      addTearDown(repository.clearSession);
+      expect(
+          await repository.login(
+              username: 'Synthetic A', password: 'fixture', captcha: 'fixture'),
+          isTrue);
+      final switching = repository.login(
+          username: 'Synthetic B', password: 'fixture', captcha: 'fixture');
+      await loginReceived.future.timeout(const Duration(seconds: 5));
+      // Both operations start after B's epoch bump, before its identity arrives.
+      final reading = boundary == 'identity'
+          ? repository.ensureAccountIdentity()
+          : repository.fetchFriends();
+      final outcome =
+          reading.then<Object?>((_) => null, onError: (Object error) => error);
+      await readReceived.future.timeout(const Duration(seconds: 5));
+      releaseLogin.complete();
+      expect(await switching, isTrue);
+      expect(repository.currentUsername, 'Synthetic B');
+      expect((await store.loadCookies()).values.map((cookie) => cookie.value),
+          ['synthetic-B']);
+      releaseRead.complete();
+      final error = await outcome;
+      final persisted = await store.loadCookies();
+      await client.getOnce('echo');
+      expect([
+        ...persisted.values.map((cookie) => cookie.value),
+        observedCookie,
+      ], [
+        'synthetic-B',
+        'winduser=synthetic-B'
+      ], reason: 'stale A cookies must never replace B in memory or storage');
+      expect(
+          error,
+          isA<ForumRequestException>().having(
+              (error) => error.kind, 'kind', ForumRequestKind.loginRequired));
+    });
+  }
+
   for (final method in ['GET', 'POST']) {
     test(
         'stale account $method response cannot replace or persist account B cookies',
