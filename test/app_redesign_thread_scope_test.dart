@@ -250,15 +250,12 @@ void main() {
     expect(oldQuery, findsWidgets);
     final semantics = tester.ensureSemantics();
     try {
+      await tester.pump();
+      expect(find.semantics.byValue(privateQuery).evaluate(), isNotEmpty);
       repository.changeOwner('fixture-owner-b');
       await tester.pump();
       expect(oldQuery, findsNothing);
-      expect(
-          find.descendant(
-              of: sheet,
-              matching: find.bySemanticsLabel(RegExp(privateQuery)),
-              skipOffstage: false),
-          findsNothing);
+      expect(find.semantics.byValue(privateQuery).evaluate(), isEmpty);
       await tester.pumpAndSettle();
       if (sheet.evaluate().isEmpty) {
         await _recover(tester);
