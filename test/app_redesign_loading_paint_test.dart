@@ -80,6 +80,9 @@ Future<void> _mount(
   ThemeMode mode, {
   bool reduce = false,
 }) async {
+  final previousMode = AppThemeController.themeMode;
+  addTearDown(() => AppThemeController.notifier.value = previousMode);
+  AppThemeController.notifier.value = mode;
   tester.view.physicalSize = const Size(320, 800);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
