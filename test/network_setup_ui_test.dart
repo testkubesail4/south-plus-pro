@@ -115,6 +115,19 @@ void main() {
       expect(repo.saved, hasLength(1));
     });
 
+    testWidgets('leaving the summary cancels its connection test',
+        (tester) async {
+      final probe = _Probe();
+      await pumpGuide(tester, probe: probe);
+      for (var i = 0; i < 3; i++) {
+        await tapText(tester, '下一步');
+      }
+      final summaryTest = probe.checks.last!;
+      expect(summaryTest.isCancelled, isFalse);
+      await tapText(tester, '上一步');
+      expect(summaryTest.isCancelled, isTrue);
+    });
+
     testWidgets('proxy mode needs a proxy, then saves proxy mode',
         (tester) async {
       final repo = await pumpGuide(tester);

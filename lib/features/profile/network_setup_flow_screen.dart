@@ -85,7 +85,12 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
       return;
     }
     setState(() => _step = steps[index]);
-    if (_step == _Step.confirm) _runCheck();
+    // The summary's test only describes the summary; leaving it ends it.
+    if (_step == _Step.confirm) {
+      _runCheck();
+    } else {
+      _check.reset();
+    }
   }
 
   void _update(ForumNetworkConfig config) => setState(() => _draft = config);
