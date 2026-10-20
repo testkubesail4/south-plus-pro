@@ -38,6 +38,10 @@ Future<void> showWindCodePreview(
     context: context,
     isScrollControlled: true,
     builder: (context) {
+      // Closed before its first frame: it goes once that frame is built.
+      if (sheet == null && closed.value) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => close());
+      }
       sheet = context;
       final theme = Theme.of(context);
       return ValueListenableBuilder<bool>(
