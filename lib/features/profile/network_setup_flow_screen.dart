@@ -176,7 +176,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
                     ?.copyWith(color: AppColors.textMuted, height: 1.45)),
             const SizedBox(height: AppSpace.xl),
             AnimatedSwitcher(
-              duration: AppMotion.medium,
+              duration: AppMotion.of(context, AppMotion.medium),
               switchInCurve: AppMotion.enter,
               switchOutCurve: AppMotion.exit,
               child: KeyedSubtree(key: ValueKey(_step), child: _content()),

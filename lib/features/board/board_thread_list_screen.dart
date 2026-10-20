@@ -9,6 +9,7 @@ import '../../services/perf_trace.dart';
 import '../../services/forum_repository.dart';
 import '../../services/home_reading_preferences.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/forum_pager.dart';
 import '../common/forum_title_text.dart';
@@ -652,16 +653,23 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                 ),
               ),
             )),
-          if (items == null)
-            padded(const SliverToBoxAdapter(child: _BoardThreadListSkeleton()))
-          else if (items.isEmpty)
-            padded(SliverToBoxAdapter(
-              child: _EmptyTopics(inSubBoards: subBoards.isNotEmpty),
-            ))
-          else if (wall)
-            ..._wallSlivers(items, content).map(padded)
-          else
-            padded(_listSliver(items)),
+          // A new page, order or filter fades in over the one it replaces.
+          AppSliverReveal(
+            id: (_gen, items == null, wall),
+            sliver: SliverMainAxisGroup(slivers: [
+              if (items == null)
+                padded(
+                    const SliverToBoxAdapter(child: _BoardThreadListSkeleton()))
+              else if (items.isEmpty)
+                padded(SliverToBoxAdapter(
+                  child: _EmptyTopics(inSubBoards: subBoards.isNotEmpty),
+                ))
+              else if (wall)
+                ..._wallSlivers(items, content).map(padded)
+              else
+                padded(_listSliver(items)),
+            ]),
+          ),
           if (page != null && items != null && items.isNotEmpty)
             padded(SliverToBoxAdapter(
               child: _BoardMoreFooter(

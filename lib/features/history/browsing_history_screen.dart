@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../../services/browsing_history_filter.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/thread_row.dart';
@@ -236,50 +237,58 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
         ),
         body: FutureBuilder<List<BrowsingHistoryEntry>>(
           future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return AsyncErrorView(
-                title: '浏览历史加载失败',
-                message: '${snapshot.error}',
-                onRetry: _refresh,
-              );
-            }
+          // Loading, the list and each date filter fade into one another;
+          // typing a keyword filters in place.
+          builder: (context, snapshot) => AppSwitcher(
+              id: snapshot.hasError
+                  ? 'error'
+                  : snapshot.data == null
+                      ? 'loading'
+                      : (_year, _month, _day),
+              child: Builder(builder: (context) {
+                if (snapshot.hasError) {
+                  return AsyncErrorView(
+                    title: '浏览历史加载失败',
+                    message: '${snapshot.error}',
+                    onRetry: _refresh,
+                  );
+                }
 
-            final items = snapshot.data;
-            if (items == null) {
-              return const ThreadListSkeleton(itemCount: 6);
-            }
-            _items = items;
-            final query = _searchOpen ? _query.text.trim() : '';
-            final shown = query.isEmpty && !_dated
-                ? items
-                : filterBrowsingHistory(items,
-                    keyword: query, year: _year, month: _month, day: _day);
+                final items = snapshot.data;
+                if (items == null) {
+                  return const ThreadListSkeleton(itemCount: 6);
+                }
+                _items = items;
+                final query = _searchOpen ? _query.text.trim() : '';
+                final shown = query.isEmpty && !_dated
+                    ? items
+                    : filterBrowsingHistory(items,
+                        keyword: query, year: _year, month: _month, day: _day);
 
-            return RefreshIndicator(
-              color: AppColors.brand,
-              onRefresh: _refresh,
-              child: items.isEmpty
-                  ? _EmptyHistory(onBrowseHome: widget.onBrowseHome)
-                  : shown.isEmpty
-                      ? ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior.onDrag,
-                          children: [
-                            EmptyStateView(
-                              icon: Icons.manage_search_outlined,
-                              title: '没有符合的浏览记录',
-                              message: _dated
-                                  ? '$_dateLabel没有符合的本机记录，清除日期可查看全部 ${items.length} 条。'
-                                  : '已在全部 ${items.length} 条本机记录的标题、作者和版块中查找。',
-                            ),
-                          ],
-                        )
-                      : _historyList(shown,
-                          counted: query.isNotEmpty || _dated),
-            );
-          },
+                return RefreshIndicator(
+                  color: AppColors.brand,
+                  onRefresh: _refresh,
+                  child: items.isEmpty
+                      ? _EmptyHistory(onBrowseHome: widget.onBrowseHome)
+                      : shown.isEmpty
+                          ? ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              children: [
+                                EmptyStateView(
+                                  icon: Icons.manage_search_outlined,
+                                  title: '没有符合的浏览记录',
+                                  message: _dated
+                                      ? '$_dateLabel没有符合的本机记录，清除日期可查看全部 ${items.length} 条。'
+                                      : '已在全部 ${items.length} 条本机记录的标题、作者和版块中查找。',
+                                ),
+                              ],
+                            )
+                          : _historyList(shown,
+                              counted: query.isNotEmpty || _dated),
+                );
+              })),
         ),
       ),
     );

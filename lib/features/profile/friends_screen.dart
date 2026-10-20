@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_friend_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
@@ -58,8 +59,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
     super.dispose();
   }
 
-  Future<ForumFriendPage> _fetch(bool pending) => widget.repository
-      .fetchFriends(pending: pending, page: _pages[pending]!);
+  Future<ForumFriendPage> _fetch(bool pending) =>
+      widget.repository.fetchFriends(pending: pending, page: _pages[pending]!);
 
   // No automatic reload: the session may still be switching cookies.
   void _onSessionChanged() {
@@ -239,10 +240,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
                               : ' ${waiting.items.length}';
                       return SegmentedButton<bool>(
                         segments: [
-                          const ButtonSegment(
-                              value: false, label: Text('好友')),
-                          ButtonSegment(
-                              value: true, label: Text('待验证$count')),
+                          const ButtonSegment(value: false, label: Text('好友')),
+                          ButtonSegment(value: true, label: Text('待验证$count')),
                         ],
                         showSelectedIcon: false,
                         selected: {_pending},
@@ -255,91 +254,100 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ),
               Divider(height: 1, color: AppColors.border),
               Expanded(
+                  child: AppSwitcher(
+                direction: _pending ? 1 : -1,
                 child: FutureBuilder<ForumFriendPage>(
                   key: ValueKey(_pending),
                   future: _futures[_pending],
-                  builder: (context, snapshot) {
-                    if (_sessionChanged) {
-                      return AsyncErrorView(
-                        title: '登录状态已变化',
-                        message: '之前加载的好友已隐藏，重试将按当前账号重新加载。',
-                        onRetry: _reloadAll,
-                      );
-                    }
-                    // A replaced request never shows the previous answer.
-                    if (snapshot.connectionState != ConnectionState.done) {
-                      return const ThreadListSkeleton(itemCount: 6);
-                    }
-                    if (snapshot.hasError) {
-                      return AsyncErrorView(
-                        title: _pending ? '待验证列表加载失败' : '好友列表加载失败',
-                        message: forumErrorText(snapshot.error),
-                        onRetry: _reloadAll,
-                      );
-                    }
-                    final page = snapshot.data!;
-                    return RefreshIndicator(
-                      color: AppColors.brand,
-                      onRefresh: _reloadAll,
-                      child: ListView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.only(
-                            top: AppSpace.md, bottom: AppSpace.xxl),
-                        children: [
-                          if (page.items.isEmpty)
-                            EmptyStateView(
-                              icon: _pending
-                                  ? Icons.how_to_reg_outlined
-                                  : Icons.people_outline,
-                              title: _pending ? '没有待验证的请求' : '还没有好友',
-                              message: _pending
-                                  ? null
-                                  : '在其他用户的资料页点「加为好友」',
-                            )
-                          else if (_pending)
-                            AppGroup(
-                              description:
-                                  '仅接受：对方的好友列表加上你，你的列表不加对方。',
-                              dividerIndent: AppSpace.lg,
-                              children: [
-                                for (final friend in page.items)
-                                  _RequestRow(
-                                    friend: friend,
-                                    busy: _busy.contains(friend.uid),
-                                    onOpen: () => _openProfile(friend),
-                                    onRespond: (response) =>
-                                        _respond(page, friend, response),
-                                  ),
-                              ],
-                            )
-                          else
-                            AppGroup(
-                              dividerIndent: 72,
-                              children: [
-                                for (final friend in page.items)
-                                  _FriendRow(
-                                    friend: friend,
-                                    busy: _busy.contains(friend.uid),
-                                    onOpen: () => _openProfile(friend),
-                                    onDelete: () => _delete(page, friend),
-                                  ),
-                              ],
-                            ),
-                          if (page.pageCount > 1)
-                            Padding(
-                              padding: const EdgeInsets.only(top: AppSpace.md),
-                              child: ForumPager(
-                                current: page.page,
-                                total: page.pageCount,
-                                onSelected: _openPage,
+                  // A session change hides the old account's rows at once.
+                  builder: (context, snapshot) => _sessionChanged
+                      ? AsyncErrorView(
+                          title: '登录状态已变化',
+                          message: '之前加载的好友已隐藏，重试将按当前账号重新加载。',
+                          onRetry: _reloadAll,
+                        )
+                      : AppSwitcher(
+                          id: snapshot.connectionState != ConnectionState.done
+                              ? 'loading'
+                              : snapshot.hasError
+                                  ? 'error'
+                                  : 'list',
+                          child: Builder(builder: (context) {
+                            // A replaced request never shows the previous answer.
+                            if (snapshot.connectionState !=
+                                ConnectionState.done) {
+                              return const ThreadListSkeleton(itemCount: 6);
+                            }
+                            if (snapshot.hasError) {
+                              return AsyncErrorView(
+                                title: _pending ? '待验证列表加载失败' : '好友列表加载失败',
+                                message: forumErrorText(snapshot.error),
+                                onRetry: _reloadAll,
+                              );
+                            }
+                            final page = snapshot.data!;
+                            return RefreshIndicator(
+                              color: AppColors.brand,
+                              onRefresh: _reloadAll,
+                              child: ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.only(
+                                    top: AppSpace.md, bottom: AppSpace.xxl),
+                                children: [
+                                  if (page.items.isEmpty)
+                                    EmptyStateView(
+                                      icon: _pending
+                                          ? Icons.how_to_reg_outlined
+                                          : Icons.people_outline,
+                                      title: _pending ? '没有待验证的请求' : '还没有好友',
+                                      message:
+                                          _pending ? null : '在其他用户的资料页点「加为好友」',
+                                    )
+                                  else if (_pending)
+                                    AppGroup(
+                                      description: '仅接受：对方的好友列表加上你，你的列表不加对方。',
+                                      dividerIndent: AppSpace.lg,
+                                      children: [
+                                        for (final friend in page.items)
+                                          _RequestRow(
+                                            friend: friend,
+                                            busy: _busy.contains(friend.uid),
+                                            onOpen: () => _openProfile(friend),
+                                            onRespond: (response) => _respond(
+                                                page, friend, response),
+                                          ),
+                                      ],
+                                    )
+                                  else
+                                    AppGroup(
+                                      dividerIndent: 72,
+                                      children: [
+                                        for (final friend in page.items)
+                                          _FriendRow(
+                                            friend: friend,
+                                            busy: _busy.contains(friend.uid),
+                                            onOpen: () => _openProfile(friend),
+                                            onDelete: () =>
+                                                _delete(page, friend),
+                                          ),
+                                      ],
+                                    ),
+                                  if (page.pageCount > 1)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                          top: AppSpace.md),
+                                      child: ForumPager(
+                                        current: page.page,
+                                        total: page.pageCount,
+                                        onSelected: _openPage,
+                                      ),
+                                    ),
+                                ],
                               ),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
+                            );
+                          })),
                 ),
-              ),
+              )),
             ],
           ),
         ),
@@ -598,13 +606,12 @@ Future<String?> showFriendRequestSheet(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => _FriendRequestSheet(
-          name: name, prompt: prompt, maxLength: maxLength),
+      builder: (context) =>
+          _FriendRequestSheet(name: name, prompt: prompt, maxLength: maxLength),
     );
 
 class _FriendRequestSheet extends StatefulWidget {
-  const _FriendRequestSheet(
-      {required this.name, this.prompt, this.maxLength});
+  const _FriendRequestSheet({required this.name, this.prompt, this.maxLength});
 
   final String name;
   final String? prompt;
@@ -635,8 +642,7 @@ class _FriendRequestSheetState extends State<_FriendRequestSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('向 ${widget.name} 发送好友请求',
-              style: theme.textTheme.titleMedium),
+          Text('向 ${widget.name} 发送好友请求', style: theme.textTheme.titleMedium),
           const SizedBox(height: AppSpace.xs),
           Text(prompt.isEmpty ? '对方开启了好友验证，通过后才会成为好友。' : prompt,
               style: theme.textTheme.bodySmall),
@@ -652,7 +658,8 @@ class _FriendRequestSheetState extends State<_FriendRequestSheet> {
           const SizedBox(height: AppSpace.lg),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(_text.text.trim()),
-            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+            style:
+                FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
             child: const Text('发送请求'),
           ),
         ],

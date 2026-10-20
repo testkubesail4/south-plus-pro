@@ -554,7 +554,8 @@ void main() {
     final repo = await pump(tester);
     repo.boardGate = Completer();
     await tapVisible(tester, find.text('筛选条件'));
-    await tester.pump();
+    // The panel opens over AppMotion.medium.
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.ensureVisible(find.text('版块'));
     await tester.tap(find.text('版块'));
     await tester.pump(const Duration(milliseconds: 500));

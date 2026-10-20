@@ -4,6 +4,7 @@ import '../../models/forum_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 
@@ -24,6 +25,8 @@ class ForumTasksScreen extends StatefulWidget {
 
 class _ForumTasksScreenState extends State<ForumTasksScreen> {
   late ForumTaskStatus _status = widget.initialStatus;
+  // Which way the last status change moved along the segments.
+  int _slide = 0;
   late Future<List<ForumTask>> _future = _load();
   final Set<String> _runningIds = {};
   var _quickClaiming = false;
@@ -98,6 +101,7 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
   Future<void> _setStatus(ForumTaskStatus status) async {
     if (status == _status) return;
     setState(() {
+      _slide = (status.index - _status.index).sign;
       _status = status;
       _future = _load();
     });
@@ -178,71 +182,80 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
                 ),
               ),
               Expanded(
+                  child: AppSwitcher(
+                direction: _slide,
                 child: FutureBuilder<List<ForumTask>>(
+                  key: ValueKey(_status),
                   future: _future,
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return AsyncErrorView(
-                        title: '任务加载失败',
-                        message: '${snapshot.error}',
-                        onRetry: _refresh,
-                      );
-                    }
-                    if (!snapshot.hasData) {
-                      return const ThreadListSkeleton(itemCount: 4);
-                    }
+                  builder: (context, snapshot) => AppSwitcher(
+                      id: snapshot.hasError
+                          ? 'error'
+                          : snapshot.hasData
+                              ? 'list'
+                              : 'loading',
+                      child: Builder(builder: (context) {
+                        if (snapshot.hasError) {
+                          return AsyncErrorView(
+                            title: '任务加载失败',
+                            message: '${snapshot.error}',
+                            onRetry: _refresh,
+                          );
+                        }
+                        if (!snapshot.hasData) {
+                          return const ThreadListSkeleton(itemCount: 4);
+                        }
 
-                    final tasks = snapshot.data!;
-                    return RefreshIndicator(
-                      color: AppColors.brand,
-                      onRefresh: _refresh,
-                      child: tasks.isEmpty
-                          ? ListView(
-                              padding:
-                                  EdgeInsets.fromLTRB(gutter, 24, gutter, 28),
-                              children: [
-                                EmptyStateView(
-                                  title: _emptyTitle(_status),
-                                  message: _emptyMessage(_status),
-                                  icon: Icons.task_alt_outlined,
-                                ),
-                              ],
-                            )
-                          : ListView.separated(
-                              padding:
-                                  EdgeInsets.fromLTRB(gutter, 0, gutter, 28),
-                              itemCount: tasks.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                final task = tasks[index];
-                                final state = _claimedState(task);
-                                final claimed =
-                                    task.isCoolingDown || state != null;
-                                final hours = (task.cooldownThreshold ??
-                                        state?.cooldownThreshold)
-                                    ?.inHours;
-                                return _TaskCard(
-                                  task: task,
-                                  running: task.id != null &&
-                                      _runningIds.contains(task.id),
-                                  onRun: task.canRun && !claimed
-                                      ? () => _runTask(task)
-                                      : null,
-                                  claimed: claimed,
-                                  thresholdHours: hours,
-                                  stateUnknown:
-                                      _status == ForumTaskStatus.available &&
+                        final tasks = snapshot.data!;
+                        return RefreshIndicator(
+                          color: AppColors.brand,
+                          onRefresh: _refresh,
+                          child: tasks.isEmpty
+                              ? ListView(
+                                  padding: EdgeInsets.fromLTRB(
+                                      gutter, 24, gutter, 28),
+                                  children: [
+                                    EmptyStateView(
+                                      title: _emptyTitle(_status),
+                                      message: _emptyMessage(_status),
+                                      icon: Icons.task_alt_outlined,
+                                    ),
+                                  ],
+                                )
+                              : ListView.separated(
+                                  padding: EdgeInsets.fromLTRB(
+                                      gutter, 0, gutter, 28),
+                                  itemCount: tasks.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 10),
+                                  itemBuilder: (context, index) {
+                                    final task = tasks[index];
+                                    final state = _claimedState(task);
+                                    final claimed =
+                                        task.isCoolingDown || state != null;
+                                    final hours = (task.cooldownThreshold ??
+                                            state?.cooldownThreshold)
+                                        ?.inHours;
+                                    return _TaskCard(
+                                      task: task,
+                                      running: task.id != null &&
+                                          _runningIds.contains(task.id),
+                                      onRun: task.canRun && !claimed
+                                          ? () => _runTask(task)
+                                          : null,
+                                      claimed: claimed,
+                                      thresholdHours: hours,
+                                      stateUnknown: _status ==
+                                              ForumTaskStatus.available &&
                                           !claimed &&
                                           !task.canRun,
-                                  onRefreshState: _refresh,
-                                );
-                              },
-                            ),
-                    );
-                  },
+                                      onRefreshState: _refresh,
+                                    );
+                                  },
+                                ),
+                        );
+                      })),
                 ),
-              ),
+              )),
             ],
           );
         }),

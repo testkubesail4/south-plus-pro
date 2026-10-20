@@ -711,9 +711,9 @@ class _DetailsTab extends StatelessWidget {
           );
         }
         return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
+          duration: AppMotion.of(context, AppMotion.medium),
+          switchInCurve: AppMotion.enter,
+          switchOutCurve: AppMotion.exit,
           child: KeyedSubtree(
             key: ValueKey(snapshot.data!.uid),
             child: builder(context, snapshot.data!),
@@ -793,9 +793,7 @@ class _ActivitySection extends StatelessWidget {
       child: Column(
         children: items
             .map((item) => _ActivityTile(
-                item: item,
-                repository: repository,
-                feedOwnerUid: feedOwnerUid))
+                item: item, repository: repository, feedOwnerUid: feedOwnerUid))
             .toList(),
       ),
     );
@@ -856,9 +854,8 @@ class _ActivityTile extends StatelessWidget {
             : null;
     // Who did it only matters where friends' events mix in.
     final verb = item.action ?? '动态';
-    final headline = feedOwnerUid != null && actor.isNotEmpty
-        ? '$actor $verb'
-        : verb;
+    final headline =
+        feedOwnerUid != null && actor.isNotEmpty ? '$actor $verb' : verb;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,

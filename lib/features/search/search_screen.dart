@@ -9,6 +9,7 @@ import '../../services/forum_request_exception.dart';
 import '../../services/forum_search_preferences.dart';
 import '../../services/search_board_hierarchy.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
@@ -614,72 +615,76 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                   if (page != null && page.threads.isNotEmpty) ...[
                     // Blocked authors' results disappear as soon as a rule changes.
-                    ValueListenableBuilder<BlockingRules>(
-                      valueListenable: widget.repository.blocking.notifier,
-                      builder: (context, rules, _) {
-                        final shown = [
-                          for (final thread in page.threads)
-                            if (!rules.isThreadBlocked(thread)) thread,
-                        ];
-                        return SliverPadding(
-                          // A fresh list per page, so old row offsets can't shift it.
-                          key: ObjectKey(page),
-                          padding: EdgeInsets.fromLTRB(gutter, 4, gutter, 16),
-                          sliver: SliverMainAxisGroup(
-                            slivers: [
-                              SliverToBoxAdapter(
-                                child: Padding(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(4, 0, 4, 8),
-                                  child: Text(
-                                    [
-                                      if (page.total != null)
-                                        '共 ${page.total} 条结果',
-                                      '第 ${page.currentPage} 页',
-                                    ].join(' · '),
-                                    style:
-                                        Theme.of(context).textTheme.bodySmall,
+                    AppSliverReveal(
+                        id: page,
+                        sliver: ValueListenableBuilder<BlockingRules>(
+                          valueListenable: widget.repository.blocking.notifier,
+                          builder: (context, rules, _) {
+                            final shown = [
+                              for (final thread in page.threads)
+                                if (!rules.isThreadBlocked(thread)) thread,
+                            ];
+                            return SliverPadding(
+                              // A fresh list per page, so old row offsets can't shift it.
+                              key: ObjectKey(page),
+                              padding:
+                                  EdgeInsets.fromLTRB(gutter, 4, gutter, 16),
+                              sliver: SliverMainAxisGroup(
+                                slivers: [
+                                  SliverToBoxAdapter(
+                                    child: Padding(
+                                      padding:
+                                          const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                                      child: Text(
+                                        [
+                                          if (page.total != null)
+                                            '共 ${page.total} 条结果',
+                                          '第 ${page.currentPage} 页',
+                                        ].join(' · '),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              DecoratedSliver(
-                                decoration: appSurface(context),
-                                sliver: SliverList.separated(
-                                  itemCount: shown.length,
-                                  separatorBuilder: (_, __) =>
-                                      const Divider(indent: AppSpace.lg),
-                                  itemBuilder: (context, index) =>
-                                      ForumThreadRow(
-                                    title: shown[index].title,
-                                    titleStyle: shown[index].titleStyle,
-                                    // Board first: results span boards.
-                                    meta: [
-                                      if (shown[index].section.isNotEmpty)
-                                        shown[index].section,
-                                      if (shown[index].author
-                                          case final author?)
-                                        author,
-                                      if (shown[index].lastPost
-                                          case final last?)
-                                        last,
-                                      '${shown[index].replies} 回复',
-                                    ],
-                                    onTap: () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => ThreadDetailScreen(
-                                          thread: shown[index],
-                                          repository: widget.repository,
+                                  DecoratedSliver(
+                                    decoration: appSurface(context),
+                                    sliver: SliverList.separated(
+                                      itemCount: shown.length,
+                                      separatorBuilder: (_, __) =>
+                                          const Divider(indent: AppSpace.lg),
+                                      itemBuilder: (context, index) =>
+                                          ForumThreadRow(
+                                        title: shown[index].title,
+                                        titleStyle: shown[index].titleStyle,
+                                        // Board first: results span boards.
+                                        meta: [
+                                          if (shown[index].section.isNotEmpty)
+                                            shown[index].section,
+                                          if (shown[index].author
+                                              case final author?)
+                                            author,
+                                          if (shown[index].lastPost
+                                              case final last?)
+                                            last,
+                                          '${shown[index].replies} 回复',
+                                        ],
+                                        onTap: () => Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => ThreadDetailScreen(
+                                              thread: shown[index],
+                                              repository: widget.repository,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
+                                ],
                               ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                            );
+                          },
+                        )),
                     SliverPadding(
                       padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 24),
                       sliver: SliverToBoxAdapter(child: _buildPager(page)),
@@ -881,59 +886,70 @@ class _SearchScreenState extends State<SearchScreen> {
             }
           },
         ),
-        if (_filtersOpen) ...[
-          _SectionLabel(
-            '匹配方式',
-            action: _match == _prefs.defaultMatch
-                ? null
-                : _SetDefaultButton(onPressed: _saveDefaultMatch),
+        AnimatedSize(
+          duration: AppMotion.of(context, AppMotion.medium),
+          curve: AppMotion.move,
+          alignment: Alignment.topCenter,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_filtersOpen) ...[
+                _SectionLabel(
+                  '匹配方式',
+                  action: _match == _prefs.defaultMatch
+                      ? null
+                      : _SetDefaultButton(onPressed: _saveDefaultMatch),
+                ),
+                _ChoiceWrap<ForumSearchMatch>(
+                  labels: _matchLabels,
+                  selected: _match,
+                  onSelected: (value) => setState(() {
+                    _match = value;
+                    _matchTouched = true;
+                  }),
+                ),
+                const SizedBox(height: 12),
+                _PickerTile(
+                  label: '版块',
+                  value: _boardLabel,
+                  icon: Icons.dashboard_outlined,
+                  onTap: _pickBoard,
+                ),
+                const SizedBox(height: 8),
+                _PickerTile(
+                  label: '时间范围',
+                  value: _timeLabels[_time]!,
+                  icon: Icons.schedule_outlined,
+                  onTap: _pickTime,
+                  trailing: _time == _prefs.defaultTime
+                      ? null
+                      : _SetDefaultButton(onPressed: _saveDefaultTime),
+                ),
+                const SizedBox(height: 12),
+                const _SectionLabel('排序'),
+                _ChoiceWrap<ForumThreadOrder>(
+                  labels: _orderLabels,
+                  selected: _order,
+                  onSelected: (value) => setState(() => _order = value),
+                ),
+                const SizedBox(height: 8),
+                _ChoiceWrap<bool>(
+                  labels: const {false: '降序', true: '升序'},
+                  selected: _ascending,
+                  onSelected: (value) => setState(() => _ascending = value),
+                ),
+                CheckboxListTile(
+                  value: _digest,
+                  onChanged: (value) =>
+                      setState(() => _digest = value ?? false),
+                  title: const Text('只搜精华帖'),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ],
           ),
-          _ChoiceWrap<ForumSearchMatch>(
-            labels: _matchLabels,
-            selected: _match,
-            onSelected: (value) => setState(() {
-              _match = value;
-              _matchTouched = true;
-            }),
-          ),
-          const SizedBox(height: 12),
-          _PickerTile(
-            label: '版块',
-            value: _boardLabel,
-            icon: Icons.dashboard_outlined,
-            onTap: _pickBoard,
-          ),
-          const SizedBox(height: 8),
-          _PickerTile(
-            label: '时间范围',
-            value: _timeLabels[_time]!,
-            icon: Icons.schedule_outlined,
-            onTap: _pickTime,
-            trailing: _time == _prefs.defaultTime
-                ? null
-                : _SetDefaultButton(onPressed: _saveDefaultTime),
-          ),
-          const SizedBox(height: 12),
-          const _SectionLabel('排序'),
-          _ChoiceWrap<ForumThreadOrder>(
-            labels: _orderLabels,
-            selected: _order,
-            onSelected: (value) => setState(() => _order = value),
-          ),
-          const SizedBox(height: 8),
-          _ChoiceWrap<bool>(
-            labels: const {false: '降序', true: '升序'},
-            selected: _ascending,
-            onSelected: (value) => setState(() => _ascending = value),
-          ),
-          CheckboxListTile(
-            value: _digest,
-            onChanged: (value) => setState(() => _digest = value ?? false),
-            title: const Text('只搜精华帖'),
-            controlAffinity: ListTileControlAffinity.leading,
-            contentPadding: EdgeInsets.zero,
-          ),
-        ],
+        ),
         if (_formError != null) ...[
           const SizedBox(height: 4),
           Text(_formError!, style: TextStyle(color: theme.colorScheme.error)),

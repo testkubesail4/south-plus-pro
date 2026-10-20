@@ -9,6 +9,7 @@ import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
+import '../common/app_switcher.dart';
 import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
@@ -50,6 +51,8 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
 
   /// The category asked for; null is every favourite.
   String? _view;
+  // Which way the last category change moved along the chips.
+  int _slide = 0;
 
   /// Moves on every load and every session change; a reply for an older
   /// value is dropped.
@@ -203,7 +206,11 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     // Category numbers can shift on the forum; the name tells which one this is.
     final asked = view == null ? null : _labelOf(_data, view);
     final epoch = ++_epoch;
+    // 全部 comes first, then the categories in the forum's order.
+    int place(String? id) =>
+        id == null ? -1 : _data?.categories.indexWhere((c) => c.id == id) ?? -1;
     setState(() {
+      _slide = (place(view) - place(_view)).sign;
       _loading = true;
       _error = null;
       _view = view;
@@ -838,7 +845,20 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
                           ),
                         ],
                         const SizedBox(height: 8),
-                        body,
+                        AppSwitcher(
+                          id: _view,
+                          direction: _slide,
+                          child: AppSwitcher(
+                            id: _error != null
+                                ? 'error'
+                                : data == null || _loading
+                                    ? 'loading'
+                                    : scan != null
+                                        ? 'scan'
+                                        : 'list',
+                            child: body,
+                          ),
+                        ),
                       ],
                     );
                   },

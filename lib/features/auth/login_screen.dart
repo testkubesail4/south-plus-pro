@@ -61,7 +61,7 @@ class LoginPrompt extends StatelessWidget {
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, ForumRepository? repository})
-    : repository = repository;
+      : repository = repository;
 
   final ForumRepository? repository;
 
@@ -297,7 +297,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       minimumSize: const Size.fromHeight(48),
                     ),
                     child: AnimatedSwitcher(
-                      duration: AppMotion.short,
+                      duration: AppMotion.of(context, AppMotion.short),
                       child: _loading
                           ? const _LoadingButtonLabel()
                           : const Text('登录'),

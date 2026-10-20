@@ -6,6 +6,7 @@ import '../../services/forum_repository.dart';
 import '../../services/tag_color_store.dart';
 import '../../services/tag_vocabulary.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../common/user_note.dart';
@@ -294,57 +295,73 @@ class _LocalUserAnnotationsScreenState
                             padding: EdgeInsets.all(24),
                             child: Center(child: CircularProgressIndicator())),
                       const SizedBox(height: AppSpace.md),
-                      if (_tab == 0) ...[
-                        if (_tagFilter != null)
-                          ListTile(
-                              leading: const Icon(Icons.arrow_back),
-                              title: Text('标签：${labelOf(_tagFilter!)}'),
-                              onTap: () => setState(() => _tagFilter = null)),
-                        if (users.isEmpty && !_annotations.isLoading && !failed)
-                          const Center(
-                              child: Padding(
-                                  padding: EdgeInsets.all(24),
-                                  child: Text('暂无标记'))),
-                        if (users.isNotEmpty)
-                          AppGroup(children: [
-                            for (final uid in users)
-                              _userRow(uid,
-                                  editable: !_annotations.isLoading && !failed),
-                          ]),
-                      ] else ...[
-                        if (tagEntries.isEmpty &&
-                            !_annotations.isLoading &&
-                            !failed)
-                          const Center(
-                              child: Padding(
-                                  padding: EdgeInsets.all(24),
-                                  child: Text('暂无标签'))),
-                        if (tagEntries.isNotEmpty)
-                          AppGroup(children: [
-                            for (final entry in tagEntries)
-                              AppRow(
-                                  title: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: UserTagCapsule(tag: entry.label)),
-                                  value: '${entry.userCount} 位用户',
-                                  trailing: IconButton(
-                                    key: ValueKey(
-                                        'tag-color-button:${entry.label}'),
-                                    tooltip: '设置「${entry.label}」的颜色',
-                                    onPressed: failed
-                                        ? null
-                                        : () => _pickColor(entry.label),
-                                    icon: const Icon(Icons.palette_outlined),
-                                  ),
-                                  onTap: () => setState(() {
-                                        _tab = 0;
-                                        _tagFilter = entry.label.toLowerCase();
-                                      })),
-                          ]),
-                        const SizedBox(height: AppSpace.md),
-                        Text('点开标签查看用户；调色板设置颜色；在用户上编辑可增删标签',
-                            style: Theme.of(context).textTheme.bodySmall),
-                      ],
+                      AppSwitcher(
+                        id: _tab,
+                        direction: _tab == 0 ? -1 : 1,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (_tab == 0) ...[
+                              if (_tagFilter != null)
+                                ListTile(
+                                    leading: const Icon(Icons.arrow_back),
+                                    title: Text('标签：${labelOf(_tagFilter!)}'),
+                                    onTap: () =>
+                                        setState(() => _tagFilter = null)),
+                              if (users.isEmpty &&
+                                  !_annotations.isLoading &&
+                                  !failed)
+                                const Center(
+                                    child: Padding(
+                                        padding: EdgeInsets.all(24),
+                                        child: Text('暂无标记'))),
+                              if (users.isNotEmpty)
+                                AppGroup(children: [
+                                  for (final uid in users)
+                                    _userRow(uid,
+                                        editable:
+                                            !_annotations.isLoading && !failed),
+                                ]),
+                            ] else ...[
+                              if (tagEntries.isEmpty &&
+                                  !_annotations.isLoading &&
+                                  !failed)
+                                const Center(
+                                    child: Padding(
+                                        padding: EdgeInsets.all(24),
+                                        child: Text('暂无标签'))),
+                              if (tagEntries.isNotEmpty)
+                                AppGroup(children: [
+                                  for (final entry in tagEntries)
+                                    AppRow(
+                                        title: Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: UserTagCapsule(
+                                                tag: entry.label)),
+                                        value: '${entry.userCount} 位用户',
+                                        trailing: IconButton(
+                                          key: ValueKey(
+                                              'tag-color-button:${entry.label}'),
+                                          tooltip: '设置「${entry.label}」的颜色',
+                                          onPressed: failed
+                                              ? null
+                                              : () => _pickColor(entry.label),
+                                          icon: const Icon(
+                                              Icons.palette_outlined),
+                                        ),
+                                        onTap: () => setState(() {
+                                              _tab = 0;
+                                              _tagFilter =
+                                                  entry.label.toLowerCase();
+                                            })),
+                                ]),
+                              const SizedBox(height: AppSpace.md),
+                              Text('点开标签查看用户；调色板设置颜色；在用户上编辑可增删标签',
+                                  style: Theme.of(context).textTheme.bodySmall),
+                            ],
+                          ],
+                        ),
+                      ),
                     ],
                   ));
             },
