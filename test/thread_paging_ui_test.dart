@@ -146,6 +146,38 @@ void main() {
     expect(find.text('已到最后一页'), findsOneWidget);
   });
 
+  testWidgets('empty pages stop following on even as the page count grows',
+      (tester) async {
+    await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.continuous);
+    final repository = _Repository()..emptyGrowing = true;
+    await pumpThread(tester, repository: repository);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -20000));
+    await tester.pumpAndSettle();
+    await jumpToEnd(tester);
+    await tester.pump(const Duration(seconds: 5));
+
+    // One scroll, then at most two pages that add nothing.
+    expect(repository.pages, [1, 2, 3]);
+    expect(find.text('继续加载第 4 页'), findsOneWidget);
+  });
+
+  testWidgets('floors without a site id are kept, never taken for repeats',
+      (tester) async {
+    await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.continuous);
+    final repository = _Repository()
+      ..totalPages = 2
+      ..repeats = true
+      ..unnumbered = true;
+    await pumpThread(tester, repository: repository);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -20000));
+    await tester.pumpAndSettle();
+    await jumpToEnd(tester);
+
+    expect(repository.pages, [1, 2]);
+    // Same author and time as page 1's floors, yet page 2's rows stay.
+    expect(find.text('again 30', findRichText: true), findsOneWidget);
+  });
+
   testWidgets('the page picker opens the chosen page', (tester) async {
     final repository = await pumpThread(tester);
     await tester.tap(find.byTooltip('跳转'));
@@ -278,6 +310,10 @@ class _Repository extends ForumRepository {
   int totalPages = 3;
   // Every later page repeats page 1's floors, as when the thread moved.
   bool repeats = false;
+  // Later pages carry no post id: nothing proves a repeat.
+  bool unnumbered = false;
+  // Later pages come back empty while the site keeps reporting one more.
+  bool emptyGrowing = false;
   final sentTitles = <String>[];
 
   @override
@@ -310,15 +346,19 @@ class _Repository extends ForumRepository {
     return ThreadDetail(
       thread: _thread,
       body: page == 1 ? 'opening body' : '',
-      pagination: ThreadPagination(currentPage: page, totalPages: totalPages),
+      pagination: ThreadPagination(
+          currentPage: page, totalPages: emptyGrowing ? page + 1 : totalPages),
       replies: [
-        for (var floor = first + 1; floor <= first + 30; floor++)
-          ThreadReply(
-            author: 'user$floor',
-            content: 'reply $floor',
-            floor: 'B${floor}F',
-            replyTitle: '回 $floor楼(user$floor) 的帖子',
-          ),
+        if (!emptyGrowing || page == 1)
+          for (var floor = first + 1; floor <= first + 30; floor++)
+            ThreadReply(
+              author: 'user$floor',
+              content: '${unnumbered && page > 1 ? 'again' : 'reply'} $floor',
+              floor: 'B${floor}F',
+              postId: unnumbered && page > 1 ? null : '${9000 + floor}',
+              postedAt: '2026-01-01 12:00',
+              replyTitle: '回 $floor楼(user$floor) 的帖子',
+            ),
       ],
     );
   }

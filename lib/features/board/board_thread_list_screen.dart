@@ -107,7 +107,23 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 
   // The epoch moves before the repository adopts a new origin, so the final
   // scope is read one microtask later.
-  void _onSessionSignal() => scheduleMicrotask(_syncScope);
+  late int _epoch = widget.repository.sessionEpoch.value;
+  late String? _user = widget.repository.sessionUser.value;
+
+  void _onSessionSignal() {
+    final repository = widget.repository;
+    if (repository.sessionEpoch.value != _epoch ||
+        repository.sessionUser.value != _user) {
+      _epoch = repository.sessionEpoch.value;
+      _user = repository.sessionUser.value;
+      // Another account's topics leave the screen in this frame, and its
+      // pages are never followed on: the board starts again at page 1.
+      _shown = null;
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      _reload(page: 1).ignore();
+    }
+    scheduleMicrotask(_syncScope);
+  }
 
   void _syncScope() {
     final scope = widget.repository.localPreferenceAccount;

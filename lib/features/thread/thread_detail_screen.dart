@@ -453,13 +453,12 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _loadMore();
   }
 
-  /// The site's own id for a floor, when it has one; floors without one are
-  /// never taken for repeats.
+  /// The site's numeric post id, which names one reply across this
+  /// thread's pages. Replies without one are never taken for repeats: floor
+  /// labels, quote links and author/time do not prove the same post.
   static String? _nativeKey(ThreadReply reply) {
-    final quote = reply.quoteUrl;
-    if (quote != null && quote.isNotEmpty) return quote;
-    final floor = reply.floor;
-    return floor != null && floor.isNotEmpty ? floor : null;
+    final id = reply.postId;
+    return id != null && RegExp(r'^[1-9]\d*$').hasMatch(id) ? id : null;
   }
 
   void _addRenderModels(ThreadDetail detail, {String idPrefix = ''}) {

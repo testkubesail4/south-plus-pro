@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +32,7 @@ class _Repo extends ForumRepository {
   final answerAs = <int, (int, int)>{};
   var wall = false;
   var subBoards = const <ForumBoard>[];
+  var prefix = '';
 
   @override
   Future<ForumThreadPage> fetchBoardThreadPage(
@@ -58,7 +60,7 @@ class _Repo extends ForumRepository {
         ),
         for (var i = 0; i < 14; i++)
           ForumThread(
-            title: '${order.name} p$shownPage t$i',
+            title: '$prefix${order.name} p$shownPage t$i',
             url:
                 'https://south-plus.net/read.php?tid-${shownPage * 100 + i}.html',
             replies: i,
@@ -72,6 +74,18 @@ class _Repo extends ForumRepository {
       subBoards: page == 1 ? subBoards : const [],
     );
   }
+}
+
+/// A repository whose signed-in account the test switches.
+class _SessionRepo extends _Repo {
+  final owner = ValueNotifier<String?>('fixture-a');
+  final epoch = ValueNotifier<int>(0);
+
+  @override
+  ValueListenable<String?> get sessionUser => owner;
+
+  @override
+  ValueListenable<int> get sessionEpoch => epoch;
 }
 
 Future<void> _pump(WidgetTester tester, _Repo repo) async {
@@ -276,6 +290,31 @@ void main() {
     expect(_pages(repo).take(2), [1, 2]);
     expect(await _count(tester, '第 2 页'), 1);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('another account drops the loaded pages at once and restarts',
+      (tester) async {
+    final repo = _SessionRepo()..prefix = 'A ';
+    await _pump(tester, repo);
+    await _toBottom(tester);
+    final asked = _pages(repo).length;
+    expect(asked, greaterThan(1), reason: 'A has pages appended');
+
+    repo
+      ..prefix = 'B '
+      ..gates[1] = Completer<void>();
+    repo.owner.value = 'fixture-b';
+    repo.epoch.value++;
+    await tester.pump();
+    expect(
+        find.textContaining('A lastPost', skipOffstage: false), findsNothing);
+
+    repo.gates[1]!.complete();
+    await tester.pumpAndSettle();
+    expect(_pages(repo).skip(asked), [1]);
+    expect(find.text('B lastPost p1 t0'), findsOneWidget);
+    expect(
+        find.textContaining('A lastPost', skipOffstage: false), findsNothing);
   });
 
   testWidgets('a single page never asks for more or claims an end',
