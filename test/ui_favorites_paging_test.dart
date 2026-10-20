@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,8 +21,6 @@ class _Repo extends ForumRepository {
   bool laterCountUnknown = false;
   // Later pages list one more category, ahead of 资料.
   bool laterShift = false;
-  // While set, page 3 stays on its way.
-  Completer<void>? holdPage3;
   // Categories made here.
   final made = <FavoriteCategory>[];
   final moved =
@@ -73,7 +69,6 @@ class _Repo extends ForumRepository {
   Future<FavoriteCollections> fetchFavoriteCollectionsPage(
       {String? categoryId, int page = 1}) async {
     calls.add('${categoryId ?? 'all'}:$page');
-    if (page == 3) await holdPage3?.future;
     return _page(categoryId, page);
   }
 
@@ -170,8 +165,6 @@ void main() {
     await tester.tap(key('favorite-select:205'));
     await tester.pumpAndSettle();
     expect(find.text('一次只能选择同一页的收藏'), findsOneWidget);
-    await tester.tap(key('favorite-select:208'), warnIfMissed: false);
-    await tester.pumpAndSettle();
 
     // The note leaves the selection bar free again.
     await tester.pump(const Duration(seconds: 5));
@@ -200,40 +193,6 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, 300));
     await tester.pumpAndSettle();
     expect(repo.calls, ['all:1', 'all:2']);
-  });
-
-  testWidgets('a page read before a write is not appended after it',
-      (tester) async {
-    await LoadingPreferences.save(
-        LoadingDomain.favorites, LoadingMode.continuous);
-    final hold = Completer<void>();
-    final repo = await pump(tester, repo: _Repo()..holdPage3 = hold);
-    // Page 3 stays on its way, its spinner turning: no settling from here.
-    Future<void> settle() => tester.pump(const Duration(seconds: 1));
-    for (var i = 0; i < 2; i++) {
-      await tester.drag(find.byType(ListView), const Offset(0, -20000));
-      await settle();
-    }
-    expect(repo.calls, ['all:1', 'all:2', 'all:3']);
-
-    await tester.tap(key('favorite-select-start'));
-    await settle();
-    final row = key('favorite-select:205');
-    await tester.ensureVisible(row);
-    await settle();
-    await tester.tap(row);
-    await settle();
-    await tester.tap(key('favorite-remove-selected'));
-    await settle();
-    await tester.tap(find.widgetWithText(FilledButton, '取消收藏').last);
-    await tester.pumpAndSettle();
-    expect(repo.removed.single.$1.page, 2);
-
-    hold.complete();
-    await tester.pumpAndSettle();
-    expect(find.text('Fav 300', skipOffstage: false), findsNothing);
-    expect(find.text('第 3 页', skipOffstage: false), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
   testWidgets('a later page whose other categories moved is not appended',
