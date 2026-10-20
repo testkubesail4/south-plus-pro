@@ -20,8 +20,8 @@ class AppTabHeader extends StatelessWidget {
 
   final String title;
 
-  /// A note after the title, e.g. how many rows are loaded; wraps below it
-  /// when the row runs out of room.
+  /// A note after the title, e.g. how many rows are loaded; under the title
+  /// row, full width, at large text sizes.
   final String? subtitle;
 
   /// Before the title, e.g. the account avatar.
@@ -70,27 +70,51 @@ class AppTabHeader extends StatelessWidget {
         ),
       );
     }
-    final note = subtitle;
+    final note = subtitle == null
+        ? null
+        : Text(subtitle!, style: theme.textTheme.bodySmall);
+    // Same breakpoint as the home lists: past 1.3× the note would be
+    // squeezed between the title and the actions.
+    final inline = MediaQuery.textScalerOf(context).scale(1) <= 1.3;
     return SafeArea(
       bottom: false,
       child: AppContentWidth(
         maxWidth: maxWidth,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: height),
-          child: Row(
-            children: [
-              if (note == null)
-                Expanded(
-                  child: Align(alignment: Alignment.centerLeft, child: heading),
-                )
-              else ...[
-                heading,
-                const SizedBox(width: AppSpace.sm),
-                Expanded(child: Text(note, style: theme.textTheme.bodySmall)),
-              ],
-              ...actions,
-            ],
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: height),
+              child: Row(
+                children: [
+                  if (note == null || !inline)
+                    Expanded(
+                      child: Align(
+                          alignment: Alignment.centerLeft, child: heading),
+                    )
+                  else ...[
+                    heading,
+                    const SizedBox(width: AppSpace.sm),
+                    Expanded(child: note),
+                  ],
+                  // 48px on every platform, desktop included.
+                  for (final action in actions)
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minWidth: kMinInteractiveDimension,
+                        minHeight: kMinInteractiveDimension,
+                      ),
+                      child: action,
+                    ),
+                ],
+              ),
+            ),
+            if (note != null && !inline)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                child: note,
+              ),
+          ],
         ),
       ),
     );
