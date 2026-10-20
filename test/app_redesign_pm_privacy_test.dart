@@ -154,4 +154,40 @@ void main() {
         reason: 'Resolving the old future must not repopulate private content');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'logout removes a private compose preview from its separate modal route',
+      (tester) async {
+    const draft = 'fixture-owner-a modal-only private draft';
+    final repository = _PrivacyRepository('fixture-owner-a');
+    await _open(tester, repository, _Surface.compose);
+    await tester.enterText(find.byType(TextField).at(2), draft);
+    await tester.tap(find.byTooltip('预览'));
+    await tester.pumpAndSettle();
+    final sheet = find.byType(DraggableScrollableSheet, skipOffstage: false);
+    final privatePreview = find.descendant(
+        of: sheet,
+        matching:
+            find.textContaining(draft, findRichText: true, skipOffstage: false),
+        skipOffstage: false);
+    expect(sheet, findsOneWidget);
+    expect(privatePreview, findsWidgets,
+        reason:
+            'Only the separate preview is measured, not the compose below it');
+    final semantics = tester.ensureSemantics();
+    try {
+      repository.changeOwner(null);
+      await tester.pump();
+      expect(privatePreview, findsNothing);
+      expect(
+          find.descendant(
+              of: sheet,
+              matching: find.bySemanticsLabel(RegExp(draft)),
+              skipOffstage: false),
+          findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
 }
