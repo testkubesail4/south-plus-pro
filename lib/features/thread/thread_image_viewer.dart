@@ -270,6 +270,10 @@ class _ThreadImageViewerState extends State<ThreadImageViewer> {
 
   void _goTo(int index) {
     if (index < 0 || index >= widget.images.length) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pages.jumpToPage(index);
+      return;
+    }
     _pages.animateToPage(
       index,
       duration: const Duration(milliseconds: 220),

@@ -419,11 +419,9 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 
   Future<void> _scrollToTop() async {
     if (!mounted || !_scrollController.hasClients) return;
-    await _scrollController.animateTo(
-      0,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
+    await AppMotion.scroll(context, _scrollController.position, 0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic);
   }
 
   Future<void> _openComposer() async {

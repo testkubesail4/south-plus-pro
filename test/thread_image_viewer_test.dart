@@ -132,6 +132,19 @@ void main() {
     });
   });
 
+  testWidgets('reduced motion turns to the next image at once', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await tester.runAsync(() async {
+      await openViewer(tester);
+      await tester.tap(find.byTooltip('下一张'));
+      await tester.pump();
+      expect(find.text('3 / 3'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
   testWidgets('a repeated image opens its own occurrence and link',
       (tester) async {
     await tester.runAsync(() async {

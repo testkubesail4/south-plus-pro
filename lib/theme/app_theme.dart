@@ -258,6 +258,22 @@ abstract final class AppMotion {
   /// [duration], or none when the platform asks for reduced motion.
   static Duration of(BuildContext context, Duration duration) =>
       MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
+
+  /// Scrolls [position] to [offset] over [duration], or at once when the
+  /// platform asks for reduced motion.
+  static Future<void> scroll(
+    BuildContext context,
+    ScrollPosition position,
+    double offset, {
+    Duration duration = medium,
+    Curve curve = Curves.easeOut,
+  }) async {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      position.jumpTo(offset);
+      return;
+    }
+    await position.animateTo(offset, duration: duration, curve: curve);
+  }
 }
 
 /// The app's card surface: radius 16, a soft shadow in light mode, no border.

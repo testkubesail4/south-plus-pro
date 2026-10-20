@@ -1084,7 +1084,7 @@ class _SkeletonBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: .45, end: .9),
-      duration: const Duration(milliseconds: 850),
+      duration: AppMotion.of(context, const Duration(milliseconds: 850)),
       curve: Curves.easeInOut,
       builder: (context, value, _) {
         return Opacity(

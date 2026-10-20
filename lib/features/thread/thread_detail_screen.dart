@@ -302,11 +302,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
         _revealAnchor();
       } else if (scrollToTop && _scrollController.hasClients) {
-        await _scrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-        );
+        await AppMotion.scroll(context, _scrollController.position, 0,
+            duration: const Duration(milliseconds: 220));
       }
     } catch (error) {
       if (!mounted || runId != _loadRunId) return;
@@ -487,11 +484,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   /// First floor: the opening post on page 1.
   Future<void> _jumpToFirst() async {
     if (_detail?.pagination.currentPage == 1) {
-      await _scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOut,
-      );
+      if (!_scrollController.hasClients) return;
+      await AppMotion.scroll(context, _scrollController.position, 0,
+          duration: const Duration(milliseconds: 240));
       return;
     }
     final url = widget.repository.firstThreadPageUrl(_thread);
@@ -523,20 +518,15 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     if (!_scrollController.hasClients) return;
     final position = _scrollController.position;
     if (top) {
-      await position.animateTo(
-        0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+      await AppMotion.scroll(context, position, 0,
+          duration: const Duration(milliseconds: 300));
       return;
     }
     // The lazy list's end grows as rows on the way get laid out.
     for (var i = 0; i < 8 && position.pixels < position.maxScrollExtent; i++) {
-      await position.animateTo(
-        position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+      if (!mounted) return;
+      await AppMotion.scroll(context, position, position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300));
     }
     // ...or shrinks once they have: settle on the real end, not past it.
     if (position.pixels > position.maxScrollExtent) {
@@ -1978,42 +1968,45 @@ class _ComposerDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.bottomCenter,
-      child: Offstage(
-        offstage: !open,
-        // The dock shares the posts' reading width.
-        child: Center(
-          heightFactor: 1,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: maxHeight,
-              maxWidth: AppWidths.reading,
+    final dock = Offstage(
+      offstage: !open,
+      // The dock shares the posts' reading width.
+      child: Center(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: maxHeight,
+            maxWidth: AppWidths.reading,
+          ),
+          // Raised (DESIGN §5 level 1); in dark a border, not a shadow,
+          // lifts it, and its fields keep the surfaceTint contrast.
+          child: Material(
+            color: AppColors.surface,
+            surfaceTintColor: Colors.transparent,
+            elevation: dark ? 0 : 3,
+            shape: RoundedRectangleBorder(
+              side:
+                  dark ? BorderSide(color: AppColors.border) : BorderSide.none,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppRadius.xl),
+              ),
             ),
-            // Raised (DESIGN §5 level 1); in dark a border, not a shadow,
-            // lifts it, and its fields keep the surfaceTint contrast.
-            child: Material(
-              color: AppColors.surface,
-              surfaceTintColor: Colors.transparent,
-              elevation: dark ? 0 : 3,
-              shape: RoundedRectangleBorder(
-                side: dark
-                    ? BorderSide(color: AppColors.border)
-                    : BorderSide.none,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(AppRadius.xl),
-                ),
-              ),
-              child: SafeArea(
-                top: false,
-                child: SingleChildScrollView(child: child),
-              ),
+            child: SafeArea(
+              top: false,
+              child: SingleChildScrollView(child: child),
             ),
           ),
         ),
       ),
+    );
+    // Reduced motion opens it at once: a zero-duration AnimatedSize dirties
+    // itself in its own layout.
+    if (MediaQuery.disableAnimationsOf(context)) return dock;
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.bottomCenter,
+      child: dock,
     );
   }
 }
