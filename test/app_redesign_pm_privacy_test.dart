@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/editor/windcode_toolbar.dart';
 import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
 import 'package:south_plus_rewrite/features/messages/pm_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
@@ -190,6 +191,43 @@ void main() {
     } finally {
       semantics.dispose();
     }
+  });
+
+  testWidgets('a font picker cannot write into a retired PM editor',
+      (tester) async {
+    final repository = _PrivacyRepository('fixture-owner-a');
+    await _open(tester, repository, _Surface.compose);
+    expect(find.textContaining('fixture-owner-a'), findsWidgets);
+    await tester.ensureVisible(find.byType(WindCodeToolbar));
+    if (find.byTooltip('字号').evaluate().isEmpty) {
+      final more = find.byTooltip('更多');
+      expect(more.hitTestable(), findsOneWidget);
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('字号'));
+    } else {
+      await tester.tap(find.byTooltip('字号'));
+    }
+    await tester.pumpAndSettle();
+    final choice = find.text('5');
+    expect(choice.hitTestable(), findsOneWidget);
+    repository.changeOwner('fixture-owner-b');
+    await tester.pump();
+    expect(find.textContaining('fixture-owner-a', skipOffstage: false),
+        findsNothing,
+        reason:
+            'The editor must actually retire before the old picker returns');
+    await tester.pumpAndSettle();
+    if (choice.evaluate().isNotEmpty) {
+      expect(choice.hitTestable(), findsOneWidget);
+      await tester.tap(choice);
+    }
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull,
+        reason:
+            'A separate picker cannot write to the disposed editor controller');
+    expect(find.textContaining('fixture-owner-a', skipOffstage: false),
+        findsNothing);
   });
 
   testWidgets(
