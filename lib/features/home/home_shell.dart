@@ -16,6 +16,7 @@ import '../../services/home_reading_preferences.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
+import '../common/app_switcher.dart';
 import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/brand_mark.dart';
@@ -230,7 +231,10 @@ class _HomeShellState extends State<HomeShell> {
                       VerticalDivider(width: 1, color: AppColors.border),
                     ],
                     // Keyed so resizing across breakpoints keeps every tab.
-                    Expanded(key: const ValueKey('pages'), child: pages),
+                    Expanded(
+                      key: const ValueKey('pages'),
+                      child: _TabReveal(index: _index, child: pages),
+                    ),
                   ],
                 ),
                 bottomNavigationBar: rail
@@ -257,6 +261,63 @@ class _HomeShellState extends State<HomeShell> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Brings a newly selected tab in: it fades up from 65% (never through
+/// blank) and rises 12px. The tab left is hidden at once, so only one is
+/// ever visible or tappable; a new account or session swaps in place.
+class _TabReveal extends StatefulWidget {
+  const _TabReveal({required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  State<_TabReveal> createState() => _TabRevealState();
+}
+
+class _TabRevealState extends State<_TabReveal>
+    with SingleTickerProviderStateMixin {
+  late final _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+    value: 1,
+  );
+  late final _curve =
+      CurvedAnimation(parent: _controller, curve: AppMotion.enter);
+
+  @override
+  void didUpdateWidget(covariant _TabReveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index == widget.index) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.value = 1;
+    } else {
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _curve,
+      child: widget.child,
+      builder: (context, child) => Opacity(
+        opacity: 0.65 + 0.35 * _curve.value,
+        child: Transform.translate(
+          offset: Offset(0, 12 * (1 - _curve.value)),
+          child: child,
+        ),
+      ),
     );
   }
 }

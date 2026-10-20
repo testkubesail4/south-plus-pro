@@ -24,14 +24,18 @@ class MessagesScreen extends StatelessWidget {
           child: Semantics(
             label: unread ? '$label，有未读' : label,
             child: ExcludeSemantics(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label),
-                  const SizedBox(width: 2),
-                  Badge(isLabelVisible: unread),
-                ],
+              // Very large text shrinks the label to its half of the bar.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label),
+                    const SizedBox(width: 2),
+                    Badge(isLabelVisible: unread),
+                  ],
+                ),
               ),
             ),
           ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/forum_pm_models.dart';
 import '../../services/forum_repository.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
@@ -32,6 +33,8 @@ class PmBoxScreen extends StatefulWidget {
 
 class _PmBoxScreenState extends State<PmBoxScreen> {
   ForumPmBox _box = ForumPmBox.inbox;
+  // Which way the last box change moved along 收件箱 · 发件箱 · 跟踪.
+  int _slide = 0;
   String? _pagePath;
   late Future<ForumPmPage> _future;
 
@@ -76,6 +79,7 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
   void _selectBox(ForumPmBox box) {
     if (box == _box) return;
     setState(() {
+      _slide = (box.index - _box.index).sign;
       _box = box;
       _pagePath = null;
       _future = _fetch();
@@ -168,29 +172,34 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
               ),
               Divider(height: 1, color: AppColors.border),
               Expanded(
-                child: FutureBuilder<ForumPmPage>(
-                  future: _future,
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return AsyncErrorView(
-                        title: '短消息加载失败',
-                        message: forumErrorText(snapshot.error),
-                        onRetry: _refresh,
-                      );
-                    }
-                    if (!snapshot.hasData) {
-                      return const ThreadListSkeleton(itemCount: 6);
-                    }
-                    return RefreshIndicator(
-                      color: AppColors.brand,
-                      onRefresh: _refresh,
-                      child: _PmList(
-                        page: snapshot.data!,
-                        onOpen: _openMessage,
-                        onPage: _openPage,
-                      ),
-                    );
-                  },
+                child: AppSwitcher(
+                  direction: _slide,
+                  child: FutureBuilder<ForumPmPage>(
+                    key: ValueKey(_box),
+                    future: _future,
+                    builder: (context, snapshot) => AppSwitcher(
+                      child: snapshot.hasError
+                          ? AsyncErrorView(
+                              key: const ValueKey('error'),
+                              title: '短消息加载失败',
+                              message: forumErrorText(snapshot.error),
+                              onRetry: _refresh,
+                            )
+                          : !snapshot.hasData
+                              ? const ThreadListSkeleton(
+                                  key: ValueKey('loading'), itemCount: 6)
+                              : RefreshIndicator(
+                                  key: const ValueKey('list'),
+                                  color: AppColors.brand,
+                                  onRefresh: _refresh,
+                                  child: _PmList(
+                                    page: snapshot.data!,
+                                    onOpen: _openMessage,
+                                    onPage: _openPage,
+                                  ),
+                                ),
+                    ),
+                  ),
                 ),
               ),
             ],

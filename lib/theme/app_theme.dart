@@ -254,6 +254,10 @@ abstract final class AppMotion {
   static const Curve enter = Curves.easeOutCubic;
   static const Curve exit = Curves.easeInCubic;
   static const Curve move = Curves.easeInOutCubic;
+
+  /// [duration], or none when the platform asks for reduced motion.
+  static Duration of(BuildContext context, Duration duration) =>
+      MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
 }
 
 /// The app's card surface: radius 16, a soft shadow in light mode, no border.

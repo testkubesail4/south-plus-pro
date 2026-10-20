@@ -332,7 +332,11 @@ class _MyBoardsState extends State<_MyBoards> {
                   setState(() => _chosen = value.first),
             ),
           ),
-          content,
+          AppSwitcher(
+            id: tab,
+            direction: tab == _MyBoardsTab.pinned ? -1 : 1,
+            child: content,
+          ),
         ],
       ),
     );
