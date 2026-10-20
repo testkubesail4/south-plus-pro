@@ -1623,11 +1623,14 @@ class _ContentTabState extends State<_ContentTab>
     final ready = !filtered || result != null;
     return NotificationListener<ScrollEndNotification>(
       onNotification: (notification) {
+        // 自动接续 reads on as the list ends; 手动翻页 waits for 加载更多.
         if (notification.depth == 0 &&
             notification.metrics.extentAfter < 240 &&
             items.isNotEmpty &&
             scan == null &&
-            _canContinue) {
+            _canContinue &&
+            LoadingPreferences.modeFor(LoadingDomain.userContent) ==
+                LoadingMode.continuous) {
           _advance();
         }
         return false;

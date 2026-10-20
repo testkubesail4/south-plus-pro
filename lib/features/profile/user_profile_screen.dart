@@ -8,6 +8,7 @@ import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
+import '../../services/loading_preferences.dart';
 import '../../services/user_content_sort.dart';
 import '../../services/user_display_name_store.dart';
 import '../../theme/app_theme.dart';
@@ -88,6 +89,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     super.initState();
     widget.repository.sessionEpoch.addListener(_onSessionChanged);
     widget.repository.accountIdentity.addListener(_onIdentityChanged);
+    if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
     _loadProfile();
   }
 
@@ -199,9 +201,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         ForumFriendAddStatus.added => '已加为好友',
         ForumFriendAddStatus.pending => '已发送好友请求，等待对方验证',
         // The forum's own words: a refusal, a level limit or an error page.
-        _ => result.message.trim().isEmpty
-            ? '论坛没有确认添加结果'
-            : result.message.trim(),
+        _ =>
+          result.message.trim().isEmpty ? '论坛没有确认添加结果' : result.message.trim(),
       });
     } catch (error) {
       if (!stale()) toast('加好友失败：${forumErrorText(error)}');
@@ -462,14 +463,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                     hasUid ? () => _searchByUser(uid) : null,
                                 // Only with a known own UID, so the forum's
                                 // own page never offers adding oneself.
-                                onAddFriend: hasUid &&
-                                        selfUid != null &&
-                                        selfUid != uid
-                                    ? () => _addFriend(profile)
-                                    : null,
+                                onAddFriend:
+                                    hasUid && selfUid != null && selfUid != uid
+                                        ? () => _addFriend(profile)
+                                        : null,
                                 addingFriend: _addingFriend,
-                                onOpenFriends:
-                                    hasUid && selfUid == uid ? _openFriends : null,
+                                onOpenFriends: hasUid && selfUid == uid
+                                    ? _openFriends
+                                    : null,
                               ),
                             ),
                           ),
