@@ -396,6 +396,39 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    testWidgets('two native duplicate pages pause until explicit resume',
+        (tester) async {
+      final repo = await open(tester, LoadingMode.manual);
+      repo
+        ..avatarPages = 4
+        ..duplicateAvatarPages = true;
+      await LoadingPreferences.save(
+          LoadingDomain.avatars, LoadingMode.continuous);
+      await tester.pumpAndSettle();
+      expect(repo.avatarReads, [1]);
+      await toEnd(tester);
+      expect(repo.avatarReads, [1, 2, 3]);
+      final resume = find.text('继续加载第 4 页');
+      await toEnd(tester);
+      expect(repo.avatarReads, [1, 2, 3],
+          reason: 'Two pages with no fresh picture stop automatic reads');
+      expect(find.text('后续页面的内容已被过滤或重复'), findsOneWidget);
+      await tester.ensureVisible(resume);
+      await tester.pumpAndSettle();
+      expect(resume.hitTestable(), findsOneWidget);
+      await tester.tap(resume);
+      await tester.pumpAndSettle();
+      expect(repo.avatarReads, [1, 2, 3, 4]);
+      final picture = find.byTooltip('p4-0.gif');
+      expect(picture, findsOneWidget);
+      expect(find.text('后续页面的内容已被过滤或重复'), findsNothing);
+      await tester.ensureVisible(picture);
+      await tester.pumpAndSettle();
+      expect(picture.hitTestable(), findsOneWidget);
+      await tester.tap(picture);
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('自动接续 appends on a scroll, each picture once', (tester) async {
       final repo = await open(tester, LoadingMode.manual);
       await LoadingPreferences.save(
@@ -833,6 +866,7 @@ class _ProfileRepo extends ForumRepository {
   /// System avatar pages: one picture, or this many pages of 30 where
   /// each page after the first repeats the first picture of the one before.
   int avatarPages = 1;
+  bool duplicateAvatarPages = false;
   final avatarReads = <int>[];
 
   @override
@@ -844,16 +878,19 @@ class _ProfileRepo extends ForumRepository {
         ForumAccountOption(value: 'a1.gif', label: 'a1.gif'),
       ]);
     }
+    final picturePage =
+        duplicateAvatarPages && (page == 2 || page == 3) ? 1 : page;
     return ForumAccountAvatarPage(
       page: page,
       nextPage: page < avatarPages ? page + 1 : null,
       previousPage: page > 1 ? page - 1 : null,
       options: [
-        if (page > 1)
+        if (page > 1 && !duplicateAvatarPages)
           ForumAccountOption(
               value: 'p${page - 1}-0.gif', label: 'p${page - 1}-0.gif'),
         for (var i = 0; i < 30; i++)
-          ForumAccountOption(value: 'p$page-$i.gif', label: 'p$page-$i.gif'),
+          ForumAccountOption(
+              value: 'p$picturePage-$i.gif', label: 'p$picturePage-$i.gif'),
       ],
     );
   }
