@@ -366,13 +366,22 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
               controller: _scroll,
               padding: _readingPadding(context),
               children: [
-                if (chatlog.records.isEmpty)
+                // Empty as a whole only when the forum has no other page.
+                if (chatlog.records.isEmpty &&
+                    pages.length == 1 &&
+                    next == null &&
+                    chatlog.currentPage <= 1)
                   const EmptyStateView(
                     icon: Icons.forum_outlined,
                     title: '暂无通信记录',
                   ),
                 for (final (i, page) in pages.indexed) ...[
                   if (i > 0) PageBoundary(page: page.currentPage),
+                  if (page.records.isEmpty &&
+                      (pages.length > 1 ||
+                          next != null ||
+                          chatlog.currentPage > 1))
+                    const PageEmptyNote('本页没有通信记录'),
                   for (final record in page.records)
                     if (!MorePages.repeats(seen, record.id)) ...[
                       _PmMessageCard(

@@ -311,11 +311,14 @@ class _PmList extends StatelessWidget {
       ];
       if (i > 0) children.add(PageBoundary(page: shown.currentPage));
       if (messages.isEmpty) {
-        if (i == 0) {
+        // No footer: the forum has no other page, so the box is empty.
+        if (footer == null) {
           children.add(const EmptyStateView(
             icon: Icons.mark_email_read_outlined,
             title: '暂无消息',
           ));
+        } else if (shown.messages.isEmpty) {
+          children.add(const PageEmptyNote('本页没有消息'));
         }
       } else if (shown.box == ForumPmBox.inbox) {
         // The inbox page holds both groups; split them without reordering.

@@ -10,6 +10,8 @@ import 'package:south_plus_rewrite/services/loading_preferences.dart';
 class _Repo extends ForumRepository {
   final pages = <int>[];
   final deleted = <(ForumFriendPage, List<ForumFriend>)>[];
+  // Page 1 lists no one, though the forum counts 3 pages.
+  bool emptyFirst = false;
 
   @override
   Future<ForumFriendPage> fetchFriends(
@@ -19,7 +21,7 @@ class _Repo extends ForumRepository {
       pending: pending,
       page: page,
       pageCount: pending ? 1 : 3,
-      items: pending
+      items: pending || (emptyFirst && page == 1)
           ? const []
           : [
               for (var i = 0; i < 4; i++)
@@ -41,14 +43,15 @@ class _Repo extends ForumRepository {
 }
 
 void main() {
-  Future<_Repo> pump(WidgetTester tester, LoadingMode mode) async {
+  Future<_Repo> pump(WidgetTester tester, LoadingMode mode,
+      {bool emptyFirst = false}) async {
     SharedPreferences.setMockInitialValues({});
     await LoadingPreferences.load();
     await LoadingPreferences.save(LoadingDomain.friends, mode);
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repo = _Repo();
+    final repo = _Repo()..emptyFirst = emptyFirst;
     await tester.pumpWidget(MaterialApp(home: FriendsScreen(repository: repo)));
     await tester.pumpAndSettle();
     return repo;
@@ -68,6 +71,16 @@ void main() {
     expect(repo.pages, [1, 2]);
     expect(find.text('Friend 200'), findsOneWidget);
     expect(find.text('Friend 100', skipOffstage: false), findsNothing);
+  });
+
+  testWidgets('自动接续 shows later friends under an empty first page',
+      (tester) async {
+    final repo = await pump(tester, LoadingMode.continuous, emptyFirst: true);
+    await toEnd(tester);
+    expect(repo.pages.take(2), [1, 2]);
+    expect(find.text('还没有好友'), findsNothing);
+    expect(find.text('本页没有好友', skipOffstage: false), findsOneWidget);
+    expect(find.text('Friend 200', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('自动接续 appends; a row is removed with the page it came on',

@@ -398,7 +398,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                 padding: const EdgeInsets.only(
                                     top: AppSpace.md, bottom: AppSpace.xxl),
                                 children: [
-                                  if (page.items.isEmpty)
+                                  // Empty as a whole only when the forum has
+                                  // no other page; else per page.
+                                  if (page.items.isEmpty &&
+                                      page.page <= 1 &&
+                                      page.pageCount <= 1)
                                     EmptyStateView(
                                       icon: _pending
                                           ? Icons.how_to_reg_outlined
@@ -411,7 +415,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                     for (final (i, (shown, friends))
                                         in pages.indexed) ...[
                                       if (i > 0) PageBoundary(page: shown.page),
-                                      if (friends.isEmpty)
+                                      if (shown.items.isEmpty)
+                                        PageEmptyNote(
+                                            _pending ? '本页没有请求' : '本页没有好友')
+                                      else if (friends.isEmpty)
                                         const SizedBox.shrink()
                                       else if (_pending)
                                         AppGroup(

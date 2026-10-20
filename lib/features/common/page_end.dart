@@ -29,6 +29,23 @@ class PageBoundary extends StatelessWidget {
   }
 }
 
+/// One empty page of a list that has others: only this page is empty.
+class PageEmptyNote extends StatelessWidget {
+  const PageEmptyNote(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Text(text,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall),
+    );
+  }
+}
+
 /// What a paged list shows under its last row, the same in every list:
 /// the page loading, a failed page to retry, the next page to load, or the
 /// end. [next] is the page a tap loads; null once the last page is shown.

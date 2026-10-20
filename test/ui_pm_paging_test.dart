@@ -21,6 +21,8 @@ ForumPmSummary _message(String id) => ForumPmSummary(
 
 class _Repo extends ForumRepository {
   final paths = <String?>[];
+  // Page 1 holds no message, yet links page 2.
+  bool emptyFirst = false;
 
   @override
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
@@ -28,7 +30,10 @@ class _Repo extends ForumRepository {
     return pagePath == null
         ? ForumPmPage(
             box: box,
-            messages: [for (var i = 0; i < 12; i++) _message('${100 + i}')],
+            messages: [
+              if (!emptyFirst)
+                for (var i = 0; i < 12; i++) _message('${100 + i}'),
+            ],
             nextPagePath: _next,
           )
         : ForumPmPage(
@@ -40,14 +45,15 @@ class _Repo extends ForumRepository {
 }
 
 void main() {
-  Future<_Repo> pump(WidgetTester tester, LoadingMode mode) async {
+  Future<_Repo> pump(WidgetTester tester, LoadingMode mode,
+      {bool emptyFirst = false}) async {
     SharedPreferences.setMockInitialValues({});
     await LoadingPreferences.load();
     await LoadingPreferences.save(LoadingDomain.pm, mode);
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repo = _Repo();
+    final repo = _Repo()..emptyFirst = emptyFirst;
     await tester.pumpWidget(MaterialApp(home: PmBoxScreen(repository: repo)));
     await tester.pumpAndSettle();
     return repo;
@@ -67,6 +73,17 @@ void main() {
     expect(repo.paths, [null, _next]);
     expect(find.text('Message 200'), findsOneWidget);
     expect(find.text('Message 100', skipOffstage: false), findsNothing);
+  });
+
+  testWidgets('an empty first page with a next one is not an empty box',
+      (tester) async {
+    final repo = await pump(tester, LoadingMode.continuous, emptyFirst: true);
+    expect(find.text('暂无消息'), findsNothing);
+    expect(find.text('本页没有消息'), findsOneWidget);
+    await toEnd(tester);
+    expect(repo.paths, [null, _next]);
+    expect(find.text('Message 200'), findsOneWidget);
+    expect(find.text('暂无消息'), findsNothing);
   });
 
   testWidgets('自动接续 appends the next page, a repeated message once',
