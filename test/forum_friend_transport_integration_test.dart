@@ -79,7 +79,7 @@ void main() {
     release.complete();
     await rejected;
     expect(sentCookie, 'winduser=synthetic-A');
-    final persisted = await ForumSessionStore().loadCookies();
+    final persisted = await ForumSessionStore(origin: fixture.client.baseUri).loadCookies();
     expect(persisted.values.map((cookie) => cookie.value), ['synthetic-B']);
     await fixture.client.getOnce('fixture-echo');
     expect(fixture.echoCookie, 'winduser=synthetic-B');
