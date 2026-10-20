@@ -285,7 +285,9 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
   // The page the list starts with, once read.
   ForumPmChatlog? _first;
   int _reads = 0;
-  final _scroll = ScrollController();
+  // One per page shown alone: a page still fading out keeps its own.
+  var _scroll = ScrollController();
+  final _leftScrolls = <ScrollController>[];
   late final _more = MorePages<ForumPmChatlog>(
     fetch: widget.repository.fetchPmChatlog,
     nextOf: (page) => page.nextPagePath,
@@ -308,6 +310,9 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
   void dispose() {
     LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
     _scroll.dispose();
+    for (final scroll in _leftScrolls) {
+      scroll.dispose();
+    }
     super.dispose();
   }
 
@@ -337,6 +342,8 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
   void _load([String? path]) {
     setState(() {
       if (path != null) _path = path;
+      _leftScrolls.add(_scroll..removeListener(_maybeLoadMore));
+      _scroll = ScrollController()..addListener(_maybeLoadMore);
       _future = _fetch();
     });
   }

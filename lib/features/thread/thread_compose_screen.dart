@@ -229,22 +229,31 @@ class _ThreadComposeScreenState extends State<_ThreadComposeView> {
   }
 
   Future<bool> _confirmBounty(BountyInput bounty) async {
+    // The terms are this account's: another one empties the dialog at once,
+    // while the page behind closes it.
+    final session = widget.repository.sessionEpoch;
+    final generation = session.value;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('发布悬赏帖？'),
-        content: Text(bounty.terms.join('\n')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const ValueKey('compose-bounty-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text('确认发布并扣除 ${bounty.charge} ${bounty.currency}'),
-          ),
-        ],
+      builder: (context) => ValueListenableBuilder<int>(
+        valueListenable: session,
+        builder: (context, epoch, dialog) =>
+            epoch == generation ? dialog! : const SizedBox.shrink(),
+        child: AlertDialog(
+          title: const Text('发布悬赏帖？'),
+          content: Text(bounty.terms.join('\n')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const ValueKey('compose-bounty-confirm'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('确认发布并扣除 ${bounty.charge} ${bounty.currency}'),
+            ),
+          ],
+        ),
       ),
     );
     return confirmed == true;
