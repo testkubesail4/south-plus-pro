@@ -527,6 +527,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       if (!mounted) return;
       await AppMotion.scroll(context, position, position.maxScrollExtent,
           duration: const Duration(milliseconds: 300));
+      // A jump (reduced motion) lands at once: the rows it brings in are
+      // laid out, and the end known, only after the next frame.
+      await WidgetsBinding.instance.endOfFrame;
     }
     // ...or shrinks once they have: settle on the real end, not past it.
     if (position.pixels > position.maxScrollExtent) {

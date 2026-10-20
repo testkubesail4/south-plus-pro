@@ -66,6 +66,20 @@ void main() {
     expect(repository.pages, [1]);
   });
 
+  testWidgets('reduced motion: 到底部 reaches the end of uneven floors',
+      (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await pumpThread(tester,
+        autoLoad: false, repository: _FakeRepository(uneven: true));
+    await jump(tester, '到底部');
+    await tester.pumpAndSettle();
+    final position = list(tester);
+    expect(position.pixels, position.maxScrollExtent);
+    expect(find.text('B30F'), findsOneWidget);
+  });
+
   testWidgets('a wheel turn at the very end appends the next page',
       (tester) async {
     final repository = await pumpThread(tester);
@@ -365,10 +379,14 @@ void main() {
 }
 
 class _FakeRepository extends ForumRepository {
-  _FakeRepository({this.totalPages = 3, this.twoSales = false});
+  _FakeRepository(
+      {this.totalPages = 3, this.twoSales = false, this.uneven = false});
 
   final int totalPages;
   final bool twoSales;
+
+  /// Every fifth floor is long, so the lazy list's end moves as it lays out.
+  final bool uneven;
   bool delayBuys = false;
   final purchased = <String>{};
   final heldPurchases = <String, Completer<ReplyResult>>{};
@@ -427,7 +445,7 @@ class _FakeRepository extends ForumRepository {
                 ? twoSales && purchased.length == 2
                     ? 'unlocked both purchases'
                     : 'unlocked paid content'
-                : 'reply body $floor ' * 6,
+                : 'reply body $floor ' * (uneven && floor % 5 == 0 ? 80 : 6),
             floor: 'B${floor}F',
             saleBoxes: floor == 31
                 ? [
