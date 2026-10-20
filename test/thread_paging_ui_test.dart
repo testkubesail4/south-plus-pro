@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -178,6 +179,27 @@ void main() {
     expect(find.text('again 30', findRichText: true), findsOneWidget);
   });
 
+  testWidgets('another session drops the pages and the draft in one frame',
+      (tester) async {
+    final repository =
+        await pumpThread(tester, repository: _Repository()..viewer = 'A ');
+    expect(find.text('A reply 1', findRichText: true), findsOneWidget);
+    await tester.tap(find.byTooltip('写回复'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'A unsent draft');
+
+    repository.epoch.value++;
+    repository.viewer = 'B ';
+    await tester.pump();
+    expect(find.textContaining('A ', findRichText: true, skipOffstage: false),
+        findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(find.text('B reply 1', findRichText: true), findsOneWidget);
+    expect(find.textContaining('A ', findRichText: true, skipOffstage: false),
+        findsNothing);
+  });
+
   testWidgets('the page picker opens the chosen page', (tester) async {
     final repository = await pumpThread(tester);
     await tester.tap(find.byTooltip('跳转'));
@@ -314,6 +336,13 @@ class _Repository extends ForumRepository {
   bool unnumbered = false;
   // Later pages come back empty while the site keeps reporting one more.
   bool emptyGrowing = false;
+
+  // Whose view of the thread the site answers with.
+  final epoch = ValueNotifier<int>(0);
+  var viewer = '';
+
+  @override
+  ValueListenable<int> get sessionEpoch => epoch;
   final sentTitles = <String>[];
 
   @override
@@ -342,6 +371,7 @@ class _Repository extends ForumRepository {
     int page = 1,
   }) async {
     pages.add(page);
+    final sentAs = viewer;
     final first = repeats ? 0 : (page - 1) * 30;
     return ThreadDetail(
       thread: _thread,
@@ -353,7 +383,8 @@ class _Repository extends ForumRepository {
           for (var floor = first + 1; floor <= first + 30; floor++)
             ThreadReply(
               author: 'user$floor',
-              content: '${unnumbered && page > 1 ? 'again' : 'reply'} $floor',
+              content:
+                  '$sentAs${unnumbered && page > 1 ? 'again' : 'reply'} $floor',
               floor: 'B${floor}F',
               postId: unnumbered && page > 1 ? null : '${9000 + floor}',
               postedAt: '2026-01-01 12:00',

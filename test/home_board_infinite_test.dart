@@ -42,6 +42,8 @@ class _Repo extends ForumRepository {
     ForumBoardFilter? filter,
   }) async {
     requests.add((page, order));
+    // The session a request is sent in, as a client would carry it.
+    final sentAs = prefix;
     await gates[page]?.future;
     if (failing.contains(page)) {
       throw const ForumRepositoryException('fixture failure');
@@ -60,7 +62,7 @@ class _Repo extends ForumRepository {
         ),
         for (var i = 0; i < 14; i++)
           ForumThread(
-            title: '$prefix${order.name} p$shownPage t$i',
+            title: '$sentAs${order.name} p$shownPage t$i',
             url:
                 'https://south-plus.net/read.php?tid-${shownPage * 100 + i}.html',
             replies: i,
@@ -310,6 +312,27 @@ void main() {
         find.textContaining('A lastPost', skipOffstage: false), findsNothing);
 
     repo.gates[1]!.complete();
+    await tester.pumpAndSettle();
+    expect(_pages(repo).skip(asked), [1]);
+    expect(find.text('B lastPost p1 t0'), findsOneWidget);
+    expect(
+        find.textContaining('A lastPost', skipOffstage: false), findsNothing);
+  });
+
+  testWidgets('a new session for the same account restarts once it settles',
+      (tester) async {
+    final repo = _SessionRepo()..prefix = 'A ';
+    await _pump(tester, repo);
+    await _toBottom(tester);
+    final asked = _pages(repo).length;
+
+    // The repository announces the new session before it moves its client.
+    repo.epoch.value++;
+    repo.prefix = 'B ';
+    await tester.pump();
+    expect(
+        find.textContaining('A lastPost', skipOffstage: false), findsNothing);
+
     await tester.pumpAndSettle();
     expect(_pages(repo).skip(asked), [1]);
     expect(find.text('B lastPost p1 t0'), findsOneWidget);

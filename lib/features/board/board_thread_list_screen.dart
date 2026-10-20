@@ -88,6 +88,8 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   void initState() {
     super.initState();
     _future = _fetchPage(_page);
+    _epoch = widget.repository.sessionEpoch.value;
+    _user = widget.repository.sessionUser.value;
     _scrollController.addListener(_maybeLoadMore);
     LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
     if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
@@ -107,8 +109,11 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
 
   // The epoch moves before the repository adopts a new origin, so the final
   // scope is read one microtask later.
-  late int _epoch = widget.repository.sessionEpoch.value;
-  late String? _user = widget.repository.sessionUser.value;
+  // The session the shown topics were read in; set in initState, before
+  // any change can be heard.
+  late int _epoch;
+  late String? _user;
+  bool _restartQueued = false;
 
   void _onSessionSignal() {
     final repository = widget.repository;
@@ -116,11 +121,29 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         repository.sessionUser.value != _user) {
       _epoch = repository.sessionEpoch.value;
       _user = repository.sessionUser.value;
-      // Another account's topics leave the screen in this frame, and its
-      // pages are never followed on: the board starts again at page 1.
-      _shown = null;
+      // Another session's topics leave the screen in this frame and are
+      // never followed on: nothing is shown until page 1 is read again.
+      setState(() {
+        _gen++;
+        _shown = null;
+        _more.clear();
+        _moreTotal = null;
+        _loadingMore = false;
+        _moreFailed = false;
+        _emptyRun = 0;
+        _page = 1;
+        _future = Completer<ForumThreadPage>().future;
+      });
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
-      _reload(page: 1).ignore();
+      // The repository moves its client after announcing the change; read
+      // once that has settled, and once for both signals.
+      if (!_restartQueued) {
+        _restartQueued = true;
+        scheduleMicrotask(() {
+          _restartQueued = false;
+          if (mounted) _reload(page: 1).ignore();
+        });
+      }
     }
     scheduleMicrotask(_syncScope);
   }

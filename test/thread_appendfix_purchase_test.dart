@@ -98,6 +98,8 @@ class _Repo extends ForumRepository {
   }) async {
     pages.add(page);
     final tailLine = tail;
+    // Bought for the account the request was sent as.
+    final open = unlocked;
     if (fetchGates.isNotEmpty) await fetchGates.removeAt(0).future;
     final tall = [ThreadContentSegment.text(_lines('floor', 25))];
     final paid = _floor(
@@ -105,7 +107,7 @@ class _Repo extends ForumRepository {
       5,
       [
         ThreadContentSegment.text(_lines('intro', lines)),
-        if (unlocked) ...[
+        if (open) ...[
           ThreadContentSegment.quote([
             ThreadContentSegment.text(
               nativeHeader ? '售价 1 SP币 header line' : 'announcement',
@@ -118,7 +120,7 @@ class _Repo extends ForumRepository {
           const ThreadContentSegment.saleBox(_box),
         ThreadContentSegment.text(tailLine),
       ],
-      boxes: unlocked ? const [] : const [_box],
+      boxes: open ? const [] : const [_box],
     );
     final replies = boxOnPage2
         ? (page == 1
@@ -323,7 +325,9 @@ void main() {
     await tester.pump();
     expect(repo.buys, 1);
 
-    // Another account takes over while the paid page is still loading.
+    // Another account, which has not bought it, takes over while the paid
+    // page is still loading; the page is read again for that account.
+    repo.unlocked = false;
     repo.epoch.value++;
     await tester.pump();
     gate.complete();

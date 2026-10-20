@@ -64,7 +64,7 @@ class ThreadDetailScreen extends StatefulWidget {
 
 class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   final _scrollController = ScrollController();
-  final _replyKey = GlobalKey<ReplyComposerState>();
+  var _replyKey = GlobalKey<ReplyComposerState>();
   final Set<String> _buyingSaleBoxes = <String>{};
   // Sale box buy path -> what the last purchase attempt left inside the box.
   Map<String, ThreadSaleBoxNotice> _saleBoxNotices = const {};
@@ -451,6 +451,18 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _loadMoreFailed = false;
     _emptyRun = 0;
     _loadMore();
+  }
+
+  /// The loaded reply shown for [reply]: the first with its post id.
+  ThreadReply _canonical(ThreadReply reply) {
+    final key = _nativeKey(reply);
+    if (key == null) return reply;
+    for (final page in _loadedPages) {
+      for (final shown in page.replies) {
+        if (_nativeKey(shown) == key) return shown;
+      }
+    }
+    return reply;
   }
 
   /// The site's numeric post id, which names one reply across this
@@ -1027,23 +1039,27 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       _loadingQuoteDrafts.add(quoteUrl);
     });
 
+    final epoch = widget.repository.sessionEpoch.value;
+    String text;
+    Object? failure;
     try {
       final draft = await widget.repository.fetchQuoteDraft(reply);
-      if (!mounted) return;
-      _replyKey.currentState?.insertContent(
-        draft == null || draft.isEmpty ? _localQuoteDraft(reply) : '$draft\n',
-      );
+      text =
+          draft == null || draft.isEmpty ? _localQuoteDraft(reply) : '$draft\n';
     } catch (error) {
-      if (!mounted) return;
-      _replyKey.currentState?.insertContent(_localQuoteDraft(reply));
+      failure = error;
+      text = _localQuoteDraft(reply);
+    }
+    // A quote taken in another session never enters this one's reply.
+    if (!mounted || widget.repository.sessionEpoch.value != epoch) return;
+    setState(() {
+      _loadingQuoteDrafts.remove(quoteUrl);
+    });
+    _replyKey.currentState?.insertContent(text);
+    if (failure != null) {
       _messenger.showSnackBar(
-        SnackBar(content: Text('引用加载失败，已使用本地引用：$error')),
+        SnackBar(content: Text('引用加载失败，已使用本地引用：$failure')),
       );
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        _loadingQuoteDrafts.remove(quoteUrl);
-      });
     }
     _openComposer();
   }
@@ -1058,12 +1074,35 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     // Another account's purchases are not this one's.
     _favoriteFlow.value++;
     _find.stop();
+    // The page is read afresh, from its top.
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
     setState(() {
       _favoriteBusy = false;
       // Another account's favorite is not this one's.
       _favoriteOverrides.clear();
       _revealedPosts.clear();
       _saleBoxNotices = const {};
+      // Nor its pages (bought content included) or an unsent reply: they
+      // leave in this frame, and answers still on their way are dropped.
+      _loadRunId++;
+      _detail = null;
+      _morePages.clear();
+      _loading = true;
+      _loadError = null;
+      _loadingMore = false;
+      _loadMoreFailed = false;
+      _emptyRun = 0;
+      _composerOpen = false;
+      // A new composer: the old one's draft goes with its state.
+      _replyKey = GlobalKey<ReplyComposerState>();
+      _loadingQuoteDrafts.clear();
+      _anchorTarget = null;
+      _recomputeDetailRenderState();
+    });
+    // The repository moves its client after announcing the change; read
+    // the same page again once that has settled.
+    scheduleMicrotask(() {
+      if (mounted && _detail == null) _loadPage(_page);
     });
   }
 
@@ -1114,8 +1153,10 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     final page = _loadedPages
         .where((page) => page.pagination.currentPage == hit.page)
         .firstOrNull;
-    final target =
+    final found =
         page == null || anchor == null ? null : _anchorTargetIn(page, anchor);
+    // A floor repeated on a later page shows only where it first appeared.
+    final target = found is ThreadReply ? _canonical(found) : found;
     if (target != null) {
       setState(() {
         _anchorTarget = target;

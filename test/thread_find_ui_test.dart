@@ -8,6 +8,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/full_scan.dart';
+import 'package:south_plus_rewrite/services/loading_preferences.dart';
 import 'package:south_plus_rewrite/services/thread_search.dart';
 
 // Synthetic fixtures only: fictional host, tid, pids, uids and authors.
@@ -16,11 +17,11 @@ const _url = 'https://south-plus.net/read.php?tid-7.html';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  Future<_Repo> pumpThread(WidgetTester tester) async {
+  Future<_Repo> pumpThread(WidgetTester tester, {_Repo? repository}) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repository = _Repo();
+    repository ??= _Repo();
     await tester.pumpWidget(MaterialApp(
       home: ThreadDetailScreen(
         repository: repository,
@@ -80,6 +81,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(scan.disposed, isTrue);
     expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+  });
+
+  testWidgets('a hit on a repeated post opens the floor where it shows',
+      (tester) async {
+    await LoadingPreferences.load();
+    await LoadingPreferences.save(LoadingDomain.thread, LoadingMode.continuous);
+    final repository =
+        await pumpThread(tester, repository: _Repo()..repeatPost = true);
+    await tester.tap(find.text('加载第 2 页'));
+    await tester.pumpAndSettle();
+    // Page 2 adds nothing new, so page 3 follows on, then it pauses.
+    final read = List.of(repository.pages);
+    expect(read.take(2), [1, 2]);
+
+    await openFind(tester, 'needle');
+    await tester.tap(find.textContaining('第 2 页').last);
+    await tester.pumpAndSettle();
+    expect(repository.pages, read, reason: 'no page is read again');
+    expect(find.text('未找到指定楼层，已显示所在页'), findsNothing);
+    expect(
+      find.textContaining('near needle', findRichText: true).hitTestable(),
+      findsOneWidget,
+    );
   });
 
   testWidgets('the two modes say their cost; 全部页面 asks before any request',
@@ -369,6 +393,8 @@ class _Repo extends ForumRepository {
   final pages = <int>[];
   final scans = <_Scan>[];
   final session = ValueNotifier<int>(0);
+  // Page 2 repeats page 1's post, as when the thread moved while reading.
+  bool repeatPost = false;
 
   @override
   ValueListenable<int> get sessionEpoch => session;
@@ -389,14 +415,17 @@ class _Repo extends ForumRepository {
   Future<ThreadDetail> fetchThreadDetail(ForumThread thread,
       {int page = 1}) async {
     pages.add(page);
+    if (repeatPost) page = 1;
+    final shownPage = pages.last;
     final text = page == 1 ? 'near needle' : 'far needle';
     return ThreadDetail(
       thread: const ForumThread(
           title: 'find', url: _url, replies: 60, section: 'synthetic'),
       body: '',
-      pagination: ThreadPagination(currentPage: page, totalPages: 3),
+      pagination: ThreadPagination(currentPage: shownPage, totalPages: 3),
       replies: [
         ThreadReply(
+          postId: repeatPost ? '101' : null,
           author: page == 1 ? 'near' : 'far',
           authorUrl:
               'https://south-plus.net/u.php?action-show-uid-${page}01.html',
