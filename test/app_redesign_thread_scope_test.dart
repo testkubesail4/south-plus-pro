@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
+import 'package:south_plus_rewrite/features/thread/thread_find.dart';
 import 'package:south_plus_rewrite/features/thread/thread_floor_actions.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/loading_preferences.dart';
@@ -220,5 +221,58 @@ void main() {
         tester.widget<TextField>(find.byType(TextField).last).controller!.text,
         'fixture-owner-b unsent draft');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a pushed find sheet forgets its private query before searching the new scope',
+      (tester) async {
+    const privateQuery = 'fixture-owner-a private find phrase';
+    final repository = _ScopedThreadRepository();
+    await _open(tester, repository);
+    Future<void> openFind() async {
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('帖内查找'));
+      await tester.pumpAndSettle();
+    }
+
+    await openFind();
+    final sheet = find.byType(ThreadFindSheet, skipOffstage: false);
+    Finder field() =>
+        find.descendant(of: sheet, matching: find.byType(TextField));
+    final oldQuery = find.descendant(
+        of: sheet,
+        matching: find.textContaining(privateQuery,
+            findRichText: true, skipOffstage: false),
+        skipOffstage: false);
+    await tester.enterText(field(), privateQuery);
+    await tester.pumpAndSettle();
+    expect(oldQuery, findsWidgets);
+    final semantics = tester.ensureSemantics();
+    try {
+      repository.changeOwner('fixture-owner-b');
+      await tester.pump();
+      expect(oldQuery, findsNothing);
+      expect(
+          find.descendant(
+              of: sheet,
+              matching: find.bySemanticsLabel(RegExp(privateQuery)),
+              skipOffstage: false),
+          findsNothing);
+      await tester.pumpAndSettle();
+      if (sheet.evaluate().isEmpty) {
+        await _recover(tester);
+        await openFind();
+      }
+      expect(tester.widget<TextField>(field()).controller!.text, isEmpty);
+      await tester.enterText(field(), 'fixture-owner-b');
+      await tester.pumpAndSettle();
+      expect(find.descendant(of: sheet, matching: find.textContaining('第 1 页')),
+          findsWidgets);
+      expect(oldQuery, findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
   });
 }
