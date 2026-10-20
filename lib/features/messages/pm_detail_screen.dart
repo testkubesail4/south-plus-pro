@@ -362,25 +362,24 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
             final last = pages.last;
             final next = last.nextPagePath;
             final seen = <String>{};
+            // Any page link the forum showed means there are other pages.
+            final paged = next != null ||
+                pages.length > 1 ||
+                chatlog.currentPage > 1 ||
+                pages.any((page) => page.pageLinks.isNotEmpty);
             return ListView(
               controller: _scroll,
               padding: _readingPadding(context),
               children: [
                 // Empty as a whole only when the forum has no other page.
-                if (chatlog.records.isEmpty &&
-                    pages.length == 1 &&
-                    next == null &&
-                    chatlog.currentPage <= 1)
+                if (chatlog.records.isEmpty && !paged)
                   const EmptyStateView(
                     icon: Icons.forum_outlined,
                     title: '暂无通信记录',
                   ),
                 for (final (i, page) in pages.indexed) ...[
                   if (i > 0) PageBoundary(page: page.currentPage),
-                  if (page.records.isEmpty &&
-                      (pages.length > 1 ||
-                          next != null ||
-                          chatlog.currentPage > 1))
+                  if (page.records.isEmpty && paged)
                     const PageEmptyNote('本页没有通信记录'),
                   for (final record in page.records)
                     if (!MorePages.repeats(seen, record.id)) ...[
@@ -395,9 +394,11 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
                       const SizedBox(height: 10),
                     ],
                 ],
-                if (next != null || pages.length > 1 || chatlog.currentPage > 1)
+                if (paged)
                   PageEndFooter(
                     next: next == null ? null : last.currentPage + 1,
+                    // The forum gives no page count, so no end is claimed.
+                    endConfirmed: false,
                     manual: !_more.continuous,
                     loading: _more.loading,
                     failed: _more.error != null,
@@ -410,12 +411,13 @@ class _PmChatlogViewState extends State<_PmChatlogView> {
                             ? () => _load(next)
                             : () => _more.retry(chatlog, _scroll),
                   ),
-                if (chatlog.pageLinks.isNotEmpty || chatlog.composePath != null)
+                // The links of the last page read, so none leads back.
+                if (last.pageLinks.isNotEmpty || chatlog.composePath != null)
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      for (final link in chatlog.pageLinks)
+                      for (final link in last.pageLinks)
                         OutlinedButton(
                           onPressed: () => _load(link.path),
                           child: Text(link.label),

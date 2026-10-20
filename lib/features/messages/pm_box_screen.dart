@@ -262,11 +262,17 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
   Widget? _footer(ForumPmPage first) {
     final last = _more.pages.isEmpty ? first : _more.pages.last;
     final next = last.nextPagePath;
-    if (next == null && _more.pages.isEmpty && first.currentPage <= 1) {
+    // Any page link the forum showed means there are other pages.
+    if (next == null &&
+        _more.pages.isEmpty &&
+        first.currentPage <= 1 &&
+        first.pageLinks.isEmpty) {
       return null;
     }
     return PageEndFooter(
       next: next == null ? null : last.currentPage + 1,
+      // The forum gives no page count, so no end is claimed.
+      endConfirmed: false,
       manual: !_more.continuous,
       loading: _more.loading,
       failed: _more.error != null,
@@ -302,7 +308,8 @@ class _PmList extends StatelessWidget {
   Widget build(BuildContext context) {
     // Unread shows as dots on the tabs and rows, so no banner.
     final children = <Widget>[];
-    final page = pages.first;
+    // The links of the last page read, so none leads back.
+    final page = pages.last;
     final seen = <String>{};
     for (final (i, shown) in pages.indexed) {
       final messages = [

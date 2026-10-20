@@ -23,13 +23,22 @@ class _Repo extends ForumRepository {
   final paths = <String?>[];
   // Page 1 holds no message, yet links page 2.
   bool emptyFirst = false;
+  // Page 1 holds no message and links page 4 only, not page 2.
+  bool sparse = false;
 
   @override
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
     paths.add(pagePath);
+    if (sparse) {
+      return ForumPmPage(box: box, messages: const [], pageLinks: const [
+        ForumPmPageLink(
+            label: '4', path: 'message.php?action-receivebox-page-4.html'),
+      ]);
+    }
     return pagePath == null
         ? ForumPmPage(
             box: box,
+            pageLinks: const [ForumPmPageLink(label: '下一页', path: _next)],
             messages: [
               if (!emptyFirst)
                 for (var i = 0; i < 12; i++) _message('${100 + i}'),
@@ -39,6 +48,11 @@ class _Repo extends ForumRepository {
         : ForumPmPage(
             box: box,
             currentPage: 2,
+            pageLinks: const [
+              ForumPmPageLink(
+                  label: '上一页',
+                  path: 'message.php?action-receivebox-page-1.html'),
+            ],
             messages: [_message('111'), _message('200')],
           );
   }
@@ -46,14 +60,16 @@ class _Repo extends ForumRepository {
 
 void main() {
   Future<_Repo> pump(WidgetTester tester, LoadingMode mode,
-      {bool emptyFirst = false}) async {
+      {bool emptyFirst = false, bool sparse = false}) async {
     SharedPreferences.setMockInitialValues({});
     await LoadingPreferences.load();
     await LoadingPreferences.save(LoadingDomain.pm, mode);
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repo = _Repo()..emptyFirst = emptyFirst;
+    final repo = _Repo()
+      ..emptyFirst = emptyFirst
+      ..sparse = sparse;
     await tester.pumpWidget(MaterialApp(home: PmBoxScreen(repository: repo)));
     await tester.pumpAndSettle();
     return repo;
@@ -95,6 +111,23 @@ void main() {
     expect(find.text('第 2 页'), findsOneWidget);
     expect(find.text('Message 200'), findsOneWidget);
     expect(find.text('Message 111', skipOffstage: false), findsOneWidget);
-    expect(find.text('已到最后一页'), findsOneWidget);
+    // No next page, but no page count either: the end is not claimed.
+    expect(find.text('已到最后一页'), findsNothing);
+    expect(find.text('论坛未给出下一页，页数未能确认'), findsOneWidget);
+    // The page links are page 2's: page 1's 下一页 would lead back to 2.
+    expect(find.widgetWithText(OutlinedButton, '下一页'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, '上一页'), findsOneWidget);
+  });
+
+  testWidgets('an empty page linking only page 4 is neither empty nor the end',
+      (tester) async {
+    final repo = await pump(tester, LoadingMode.continuous, sparse: true);
+    await toEnd(tester);
+    expect(repo.paths, [null]);
+    expect(find.text('暂无消息'), findsNothing);
+    expect(find.text('本页没有消息'), findsOneWidget);
+    expect(find.text('已到最后一页'), findsNothing);
+    expect(find.text('论坛未给出下一页，页数未能确认'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '4'), findsOneWidget);
   });
 }
