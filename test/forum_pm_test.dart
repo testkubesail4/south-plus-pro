@@ -375,7 +375,9 @@ void main() {
     final fresh = await repository.fetchPmCompose(
         path: 'message.php?action-write-edmid-801.html');
     final fabricated = ForumPmCompose(
-        actionPath: fresh.actionPath, fields: fresh.fields, isEdit: fresh.isEdit);
+        actionPath: fresh.actionPath,
+        fields: fresh.fields,
+        isEdit: fresh.isEdit);
     await expectLater(
         repository.submitPm(
             compose: fabricated,
@@ -417,6 +419,36 @@ void main() {
     }
     expect(client.getPaths, hasLength(before));
     expect(client.posts, isEmpty);
+  });
+
+  test('a PM read begun during login cannot settle under a new identity',
+      () async {
+    final client = _PmClient()..responses.add(_inbox);
+    final repository = ForumRepository(client: client);
+    await repository.submitLogin(
+        username: 'synthetic-A',
+        password: 'synthetic-password',
+        captcha: 'synthetic-captcha',
+        fields: {});
+    expect(repository.currentUsername, 'synthetic-A');
+    client.loginGate = Completer<void>();
+    client.responseGate = Completer<void>();
+    final login = repository.submitLogin(
+        username: 'synthetic-B',
+        password: 'synthetic-password',
+        captcha: 'synthetic-captcha',
+        fields: {});
+    await client.loginReached.future;
+    final pending = repository.fetchPmBox(ForumPmBox.inbox);
+    await client.reachedGate.future;
+    client.loginGate!.complete();
+    await login;
+    expect(repository.currentUsername, 'synthetic-B');
+    client.responseGate!.complete();
+    await expectLater(
+        pending,
+        throwsA(isA<ForumRequestException>().having(
+            (error) => error.kind, 'kind', ForumRequestKind.loginRequired)));
   });
 
   test('in-flight PM reads cannot publish into a replacement session',
@@ -489,6 +521,8 @@ class _PmClient extends ForumClient {
   bool loggedIn = true;
   Completer<void>? responseGate;
   final reachedGate = Completer<void>();
+  Completer<void>? loginGate;
+  final loginReached = Completer<void>();
 
   @override
   bool get isLoggedIn => loggedIn;
@@ -526,7 +560,14 @@ class _PmClient extends ForumClient {
   Future<String> getOnce(String path) => get(path);
 
   @override
-  Future<String> post(String path, Map<String, String> form) => get(path);
+  Future<String> post(String path, Map<String, String> form) async {
+    if (path != 'login.php') return get(path);
+    if (loginGate != null) {
+      loginReached.complete();
+      await loginGate!.future;
+    }
+    return '<div id="user-login"><a href="u.php">${form['pwuser']}</a></div>';
+  }
 
   @override
   Future<void> clearSession() async {

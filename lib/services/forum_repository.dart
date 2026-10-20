@@ -45,7 +45,7 @@ import 'parsers/thread_transaction_parser.dart';
 import 'parsers/thread_edit_form_parser.dart';
 import 'parsers/user_profile_parser.dart';
 
-typedef _PmSession = ({ForumClient client, int epoch});
+typedef _PmSession = ({ForumClient client, int epoch, String? username});
 
 typedef _ProfileDetailsData = ({
   List<UserActivityItem> homeActivities,
@@ -668,7 +668,12 @@ class ForumRepository {
       throw const ForumRequestException(
           ForumRequestKind.invalidInput, '私讯页面已失效，请重新打开');
     }
-    final session = saved ?? (client: _client, epoch: _sessionEpoch.value);
+    final session = saved ??
+        (
+          client: _client,
+          epoch: _sessionEpoch.value,
+          username: currentUsername
+        );
     _checkPmSession(session);
     return session;
   }
@@ -676,7 +681,8 @@ class ForumRepository {
   void _checkPmSession(_PmSession session) {
     if (!isLoggedIn ||
         !identical(session.client, _client) ||
-        session.epoch != _sessionEpoch.value) {
+        session.epoch != _sessionEpoch.value ||
+        session.username != currentUsername) {
       throw const ForumRequestException(
           ForumRequestKind.loginRequired, '登录状态已改变，请重新打开私讯');
     }
