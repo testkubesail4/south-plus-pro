@@ -243,7 +243,7 @@ class _LocalConfig extends ForumNetworkConfig {
   const _LocalConfig(this.baseUri)
       : super(
             site: const ForumSite('fixture.invalid'),
-            dohEnabled: false,
+            mode: ForumNetworkMode.native,
             dohProvider: ForumNetworkConfig.defaultProvider);
   @override
   final Uri baseUri;

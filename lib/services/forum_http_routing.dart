@@ -11,7 +11,6 @@ class ForumHttpRouting {
     site: ForumNetworkConfig.defaultSite,
     mode: ForumNetworkMode.native,
   );
-  static bool get proxyEnabled => _config.mode == ForumNetworkMode.proxy;
   static final _clients = <_RoutedClient>{};
   static final _transports = <SecurityContext?, ForumOptimizedTransport>{};
 
@@ -30,15 +29,6 @@ class ForumHttpRouting {
       client.invalidate();
     }
   }
-
-  static void updateProxy(ForumProxy? proxy) => updateConfig(
-        _config.copyWith(
-          mode:
-              proxy == null ? ForumNetworkMode.native : ForumNetworkMode.proxy,
-          proxy: proxy,
-          clearProxy: proxy == null,
-        ),
-      );
 }
 
 class ForumHttpOverrides extends HttpOverrides {

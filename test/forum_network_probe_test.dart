@@ -6,10 +6,12 @@ import 'package:south_plus_rewrite/services/forum_http_routing.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_network_probe.dart';
 
+import 'support/forum_route_fixture.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
-  tearDown(() => ForumHttpRouting.updateProxy(null));
+  tearDown(() => selectProxyTestRoute(null));
   for (final status in [200, 403, 429]) {
     test(
       'isolated native probe reports HTTP $status without changing active proxy or retrying',
@@ -31,7 +33,7 @@ void main() {
           request.response.write('fixture');
           request.response.close();
         });
-        ForumHttpRouting.updateProxy(
+        selectProxyTestRoute(
           ForumProxy(
             type: ForumProxyType.http,
             host: 'proxy.fixture.invalid',
@@ -52,7 +54,7 @@ void main() {
           expect(result.statusCode, status);
           expect(result.success, status == 200);
           expect(hits, 1);
-          expect(ForumHttpRouting.proxyEnabled, isTrue);
+          await expectProxyTestRoute('proxy.fixture.invalid');
           expect(await ForumNetworkSettings.load(), before);
         } finally {
           await server.close(force: true);

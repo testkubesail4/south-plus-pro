@@ -16,13 +16,12 @@ void main() {
           password: 'synthetic-secret');
       final config = ForumNetworkConfig(
         site: ForumNetworkConfig.defaultSite,
-        dohEnabled: true,
+        mode: ForumNetworkMode.proxy,
         dohProvider: ForumNetworkConfig.defaultProvider,
         hostAddresses: const {'south-plus.net': ['104.21.43.10']},
         customDohUri: 'https://dns.fixture.invalid/query',
         proxy: proxy,
       );
-      expect(config.dohEnabled, isFalse);
       expect(config.mode, ForumNetworkMode.proxy);
       expect(config.hostAddresses['south-plus.net'], ['104.21.43.10']);
       expect(config.customDohUri, 'https://dns.fixture.invalid/query');
@@ -96,15 +95,14 @@ void main() {
         {'forum_network_proxy_v1': '{invalid'});
     final proxy = ForumProxy(
         type: ForumProxyType.http, host: 'proxy.invalid', port: 8080);
-    await ForumNetworkSettings.saveProxy(proxy);
+    await ForumNetworkSettings.save(ForumNetworkConfig(site: ForumNetworkConfig.defaultSite, mode: ForumNetworkMode.proxy, proxy: proxy));
     final loaded = await ForumNetworkSettings.load();
     expect(loaded.proxy, proxy);
-    expect(loaded.dohEnabled, isFalse);
-    await ForumNetworkSettings.disableProxy();
+    expect(loaded.mode, ForumNetworkMode.proxy);
+    await ForumNetworkSettings.save(loaded.copyWith(mode: ForumNetworkMode.native, clearProxy: true));
     final direct = await ForumNetworkSettings.load();
     expect(direct.proxy, isNull);
-    expect(direct.dohEnabled, isFalse);
-    expect(direct.fixedAddress, isNull);
+    expect(direct.mode, ForumNetworkMode.native);
     expect(
         ForumProxy.validationError(
             type: ForumProxyType.http, host: 'proxy.invalid', port: 0),

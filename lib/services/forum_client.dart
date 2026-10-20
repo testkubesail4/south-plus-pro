@@ -52,7 +52,7 @@ class ForumClient {
   })  : config = config ??
             const ForumNetworkConfig(
               site: ForumNetworkConfig.defaultSite,
-              dohEnabled: true,
+              mode: ForumNetworkMode.optimized,
               dohProvider: ForumNetworkConfig.defaultProvider,
             ),
         _sessionStore = sessionStore,
@@ -66,7 +66,7 @@ class ForumClient {
               config ??
                   const ForumNetworkConfig(
                     site: ForumNetworkConfig.defaultSite,
-                    dohEnabled: true,
+                    mode: ForumNetworkMode.optimized,
                     dohProvider: ForumNetworkConfig.defaultProvider,
                   ),
             );

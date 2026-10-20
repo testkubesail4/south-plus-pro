@@ -12,19 +12,22 @@ void main() {
   setUpAll(() => SecurityContext.defaultContext
       .setTrustedCertificates('test/support/proxy_fixture_cert.pem'));
 
-  Future<void> withClient(Future<void> Function(HttpClient) action) async {
+  Future<void> withClient(
+    Future<void> Function(HttpClient) action, {
+    ForumNetworkConfig config = const ForumNetworkConfig(
+        site: ForumSite('localhost'),
+        mode: ForumNetworkMode.optimized,
+        hostAddresses: {
+          'localhost': ['127.0.0.2', '127.0.0.1']
+        }),
+  }) async {
     final fixture =
         await DohWireFixture.start((query) => dnsReply(query, [], status: 3));
     try {
       await HttpOverrides.runWithHttpOverrides(() async {
         // Constructor-only loopback candidates exercise real transport ownership;
         // the production saved-config public-IP validator remains unchanged.
-        final client = createForumHttpClient(const ForumNetworkConfig(
-            site: ForumSite('localhost'),
-            mode: ForumNetworkMode.optimized,
-            hostAddresses: {
-              'localhost': ['127.0.0.2', '127.0.0.1']
-            }));
+        final client = createForumHttpClient(config);
         try {
           await action(client);
         } finally {
@@ -62,6 +65,38 @@ void main() {
       expect(hits, 1);
     } finally {
       await server.close(force: true);
+    }
+  });
+
+  test(
+      'optimized never borrows another hostname IP or falls back to system DNS',
+      () async {
+    final context = SecurityContext()
+      ..useCertificateChain('test/support/proxy_fixture_cert.pem')
+      ..usePrivateKey('test/support/proxy_fixture_key.pem');
+    final origin =
+        await HttpServer.bindSecure(InternetAddress.loopbackIPv4, 0, context);
+    var hits = 0;
+    origin.listen((request) {
+      hits++;
+      request.response.close();
+    });
+    try {
+      await withClient((client) async {
+        await expectLater(
+            client.getUrl(Uri.https('localhost:${origin.port}', '/')),
+            throwsA(isA<SocketException>()));
+      },
+          config: const ForumNetworkConfig(
+              site: ForumSite('other.invalid'),
+              mode: ForumNetworkMode.optimized,
+              hostAddresses: {
+                'other.invalid': ['127.0.0.1']
+              }));
+      expect(hits, 0,
+          reason: 'localhost is reachable but has no applicable IP candidate');
+    } finally {
+      await origin.close(force: true);
     }
   });
 

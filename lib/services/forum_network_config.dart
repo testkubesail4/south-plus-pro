@@ -135,21 +135,14 @@ enum ForumNetworkMode { native, optimized, proxy }
 class ForumNetworkConfig {
   const ForumNetworkConfig({
     required this.site,
-    ForumNetworkMode? mode,
-    bool? dohEnabled,
+    this.mode = ForumNetworkMode.optimized,
     this.dohProvider = defaultProvider,
     this.ipv6Enabled = false,
     this.dohBootstrapAddresses = const [],
     this.hostAddresses = const {},
-    this.fixedAddress,
     this.customDohUri,
     this.proxy,
-  }) : mode = mode ??
-            (proxy != null
-                ? ForumNetworkMode.proxy
-                : dohEnabled == false && fixedAddress == null
-                    ? ForumNetworkMode.native
-                    : ForumNetworkMode.optimized);
+  });
 
   static const defaultSite = ForumSite('south-plus.net');
   static const defaultProvider = DohProvider.cmliuCloudflare;
@@ -175,37 +168,16 @@ class ForumNetworkConfig {
   final List<String> dohBootstrapAddresses;
   final Map<String, List<String>> hostAddresses;
   final ForumProxy? proxy;
-  // Transitional UI compatibility; never a cross-host route or persisted IP pool.
-  final String? fixedAddress;
-  InternetAddress? get fixedInternetAddress =>
-      InternetAddress.tryParse(fixedAddress ?? '');
-  bool get dohEnabled => mode == ForumNetworkMode.optimized;
   Uri get baseUri => site.baseUri;
-  Uri get dohEndpoint => Uri.parse(normalizedCustomDohUri ?? dohProvider.uri);
-  String get dohLabel =>
-      normalizedCustomDohUri == null ? dohProvider.label : '自定义加密 DNS';
-  String? get normalizedCustomDohUri => normalizeDohUri(customDohUri ?? '');
-  static const routeLabels = <String, String>{};
-  static List<InternetAddress> defaultRouteAddresses() =>
-      builtInHostAddresses(defaultSite.host).map(InternetAddress.new).toList();
-  static String routeLabelForAddress(String address, int index) => address;
 
   static List<String> builtInHostAddresses(String host) =>
       forumHostFallback[host.toLowerCase()] ?? const [];
-  List<String> fallbackAddressesFor(String host) => List.unmodifiable({
-        ...?hostAddresses[host.toLowerCase()],
-        if (host.toLowerCase() == site.host && fixedAddress != null)
-          fixedAddress!,
-        ...builtInHostAddresses(host),
-      });
 
   static String? normalizeHost(String value) {
     value = value.trim().toLowerCase();
     if (value.startsWith('https://') || value.startsWith('http://')) {
       final uri = Uri.tryParse(value);
-      if (uri == null ||
-          uri.userInfo.isNotEmpty ||
-          uri.hasPort) return null;
+      if (uri == null || uri.userInfo.isNotEmpty || uri.hasPort) return null;
       value = uri.host;
     }
     if (value.isEmpty ||
@@ -332,22 +304,15 @@ class ForumNetworkConfig {
     ForumProxy? proxy,
     bool clearProxy = false,
     bool clearCustomDohUri = false,
-    bool? dohEnabled,
-    String? fixedAddress,
-    bool clearFixedAddress = false,
   }) =>
       ForumNetworkConfig(
         site: site ?? this.site,
         mode: mode ??
             (proxy != null
                 ? ForumNetworkMode.proxy
-                : dohEnabled != null
-                    ? (dohEnabled
-                        ? ForumNetworkMode.optimized
-                        : ForumNetworkMode.native)
-                    : clearProxy && this.mode == ForumNetworkMode.proxy
-                        ? ForumNetworkMode.native
-                        : this.mode),
+                : clearProxy && this.mode == ForumNetworkMode.proxy
+                    ? ForumNetworkMode.native
+                    : this.mode),
         dohProvider: dohProvider ?? this.dohProvider,
         ipv6Enabled: ipv6Enabled ?? this.ipv6Enabled,
         customDohUri:
@@ -356,25 +321,19 @@ class ForumNetworkConfig {
             dohBootstrapAddresses ?? this.dohBootstrapAddresses,
         hostAddresses: hostAddresses ?? this.hostAddresses,
         proxy: clearProxy ? null : proxy ?? this.proxy,
-        fixedAddress:
-            clearFixedAddress ? null : fixedAddress ?? this.fixedAddress,
       );
   static ForumSite siteForHost(String? host) =>
       ForumSite(normalizeHost(host ?? '') ?? defaultSite.host);
   String get _identity => jsonEncode(toJson());
   @override
   bool operator ==(Object other) =>
-      other is ForumNetworkConfig &&
-      _identity == other._identity &&
-      fixedAddress == other.fixedAddress;
+      other is ForumNetworkConfig && _identity == other._identity;
   @override
-  int get hashCode => Object.hash(_identity, fixedAddress);
+  int get hashCode => _identity.hashCode;
 }
 
 enum DohProvider {
   cmliuCloudflare(label: 'cmliu', uri: 'https://doh.cm.edu.kg/CMLiussss'),
-  // Removed from defaults and migration; retained until the existing UI migrates.
-  doh090227Sb(label: '090227 SB-query', uri: 'https://doh.090227.xyz/SB-query'),
   cloudflareGateway(
     label: 'Cloudflare Gateway',
     uri: 'https://frd4wvnobp.cloudflare-gateway.com/dns-query',
@@ -386,7 +345,7 @@ enum DohProvider {
   final String uri;
   Uri get endpoint => Uri.parse(uri);
   static DohProvider fromName(String? name) =>
-      values.where((p) => p.name == name && p != doh090227Sb).firstOrNull ??
+      values.where((p) => p.name == name).firstOrNull ??
       ForumNetworkConfig.defaultProvider;
 }
 
@@ -444,29 +403,6 @@ class ForumNetworkSettings {
     );
   }
 
-  static Future<ForumNetworkConfig> _repairBase() async {
-    try {
-      return await load();
-    } on FormatException {
-      final prefs = await SharedPreferences.getInstance();
-      return ForumNetworkConfig(
-        site: ForumNetworkConfig.siteForHost(
-          prefs.getString('forum_network_site_host_v1'),
-        ),
-      );
-    }
-  }
-
-  static Future<void> saveProxy(ForumProxy proxy) async => save(
-        (await _repairBase())
-            .copyWith(mode: ForumNetworkMode.proxy, proxy: proxy),
-      );
-  static Future<void> disableProxy() async => save(
-        (await _repairBase()).copyWith(
-          mode: ForumNetworkMode.native,
-          clearProxy: true,
-        ),
-      );
   static Future<void> _checkedWrite(
     SharedPreferences prefs,
     Future<bool> write,
@@ -523,16 +459,6 @@ class ForumNetworkSettings {
     await _checkedWrite(prefs, prefs.setStringList(_customDohKey, values));
     return values;
   }
-}
-
-// Transitional UI read-only candidates; the transport never uses a global IP cache.
-class ForumResolvedAddressStore {
-  static Future<List<InternetAddress>> load() async =>
-      ForumNetworkConfig.defaultRouteAddresses();
-  static Future<List<InternetAddress>> mergeAndSave(
-    Iterable<InternetAddress> addresses,
-  ) async =>
-      List.unmodifiable(addresses);
 }
 
 HttpClient createForumHttpClient(ForumNetworkConfig config) =>

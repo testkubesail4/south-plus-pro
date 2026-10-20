@@ -74,7 +74,7 @@ class ForumRepository {
               config: config ??
                   const ForumNetworkConfig(
                     site: ForumNetworkConfig.defaultSite,
-                    dohEnabled: true,
+                    mode: ForumNetworkMode.optimized,
                     dohProvider: ForumNetworkConfig.defaultProvider,
                   ),
             ),
@@ -82,7 +82,7 @@ class ForumRepository {
             client?.config ??
             const ForumNetworkConfig(
               site: ForumNetworkConfig.defaultSite,
-              dohEnabled: true,
+              mode: ForumNetworkMode.optimized,
               dohProvider: ForumNetworkConfig.defaultProvider,
             ),
         _urls = ForumUrlResolver(

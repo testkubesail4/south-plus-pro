@@ -57,7 +57,7 @@ void main() {
       final client = HttpOverrides.runWithHttpOverrides(
           () => createForumHttpClient(ForumNetworkConfig(
                 site: const ForumSite('fixture.invalid'),
-                dohEnabled: true,
+                mode: ForumNetworkMode.proxy,
                 dohProvider: ForumNetworkConfig.defaultProvider,
                 proxy: ForumProxy(
                     type: ForumProxyType.socks5,

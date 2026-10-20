@@ -117,7 +117,7 @@ void main() {
       } else {
         await repository.updateNetworkConfig(ForumNetworkConfig(
           site: ForumNetworkConfig.sites.last,
-          dohEnabled: false,
+          mode: ForumNetworkMode.native,
           dohProvider: ForumNetworkConfig.defaultProvider,
         ));
       }

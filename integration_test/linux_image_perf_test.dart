@@ -33,7 +33,7 @@ void main() {
     final repository = ForumRepository(
       config: const ForumNetworkConfig(
         site: _FixtureSite(),
-        dohEnabled: false,
+        mode: ForumNetworkMode.native,
         dohProvider: ForumNetworkConfig.defaultProvider,
       ),
     );

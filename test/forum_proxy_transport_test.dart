@@ -14,6 +14,8 @@ import 'package:south_plus_rewrite/services/forum_proxy_connection.dart';
 import 'package:south_plus_rewrite/services/update_checker.dart';
 import 'package:south_plus_rewrite/services/whats_link_preview_service.dart';
 
+import 'support/forum_route_fixture.dart';
+
 final _png = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
 
@@ -27,7 +29,7 @@ void main() {
     directory = await Directory.systemTemp.createTemp('proxy_fixture_');
   });
   tearDown(() async {
-    ForumHttpRouting.updateProxy(null);
+    selectProxyTestRoute(null);
     await fixture.close();
     await directory.delete(recursive: true);
   });
@@ -48,10 +50,10 @@ void main() {
             port: fixture.proxy.port,
             username: 'fixture',
             password: 'synthetic-secret');
-        ForumHttpRouting.updateProxy(proxy);
+        selectProxyTestRoute(proxy);
         final client = _ForumClient(ForumNetworkConfig(
           site: const ForumSite('fixture.invalid'),
-          dohEnabled: true,
+          mode: ForumNetworkMode.proxy,
           dohProvider: ForumNetworkConfig.defaultProvider,
           proxy: proxy,
         ));
@@ -133,14 +135,14 @@ void main() {
 
       try {
         await request();
-        ForumHttpRouting.updateProxy(ForumProxy(
+        selectProxyTestRoute(ForumProxy(
             type: ForumProxyType.http,
             host: '127.0.0.1',
             port: fixture.proxy.port));
         await request();
         expect(fixture.directPorts, hasLength(2));
         expect(fixture.proxyHits.single.$1, 'localhost:${fixture.direct.port}');
-        ForumHttpRouting.updateProxy(null);
+        selectProxyTestRoute(null);
         expect(client.userAgent, 'Fixture agent');
         expect(client.connectionTimeout, const Duration(seconds: 2));
         await request();
@@ -156,7 +158,7 @@ void main() {
     final client = HttpOverrides.runWithHttpOverrides(
         () => createForumHttpClient(ForumNetworkConfig(
               site: const ForumSite('fixture.invalid'),
-              dohEnabled: true,
+              mode: ForumNetworkMode.proxy,
               dohProvider: ForumNetworkConfig.defaultProvider,
               proxy: ForumProxy(
                   type: ForumProxyType.http,
@@ -181,7 +183,7 @@ void main() {
       () async {
     fixture.requireAuth = true;
     await HttpOverrides.runWithHttpOverrides(() async {
-      ForumHttpRouting.updateProxy(ForumProxy(
+      selectProxyTestRoute(ForumProxy(
           type: ForumProxyType.http,
           host: '127.0.0.1',
           port: fixture.proxy.port,
@@ -240,7 +242,7 @@ void main() {
     fixture = await _ProxyFixture.start(secureProxy: true);
     fixture.requireAuth = true;
     await HttpOverrides.runWithHttpOverrides(() async {
-      ForumHttpRouting.updateProxy(ForumProxy(
+      selectProxyTestRoute(ForumProxy(
           type: ForumProxyType.https,
           host: 'localhost',
           port: fixture.proxy.port,
@@ -269,7 +271,7 @@ void main() {
     await fixture.close();
     fixture = await _ProxyFixture.start(secureProxy: true);
     await HttpOverrides.runWithHttpOverrides(() async {
-      ForumHttpRouting.updateProxy(ForumProxy(
+      selectProxyTestRoute(ForumProxy(
           type: ForumProxyType.https,
           host: '127.0.0.1',
           port: fixture.proxy.port));
@@ -291,7 +293,7 @@ void main() {
     final port = unused.port;
     await unused.close();
     await HttpOverrides.runWithHttpOverrides(() async {
-      ForumHttpRouting.updateProxy(
+      selectProxyTestRoute(
           ForumProxy(type: ForumProxyType.http, host: '127.0.0.1', port: port));
       final client = HttpClient()
         ..connectionTimeout = const Duration(seconds: 1);

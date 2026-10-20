@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'forum_connection_race.dart';
-import 'forum_http_routing.dart';
 import 'forum_network_config.dart';
 import 'forum_raw_socket.dart';
 
@@ -217,56 +215,6 @@ class ForumNetworkProbe {
       resolver.close();
     }
   }
-
-  // Transitional callers use the same isolated v2 probe, never global routing.
-  Future<ForumSiteProbeResult> testSite(
-    ForumSite site, {
-    required bool dohEnabled,
-    required DohProvider dohProvider,
-    String? customDohUri,
-    String? fixedAddress,
-  }) =>
-      fixedAddress != null
-          ? _testAddress(site, InternetAddress(fixedAddress))
-          : testConfig(
-              ForumNetworkConfig(
-                site: site,
-                mode: dohEnabled
-                    ? ForumNetworkMode.optimized
-                    : ForumNetworkMode.native,
-                dohProvider: dohProvider,
-                customDohUri: customDohUri,
-              ),
-            );
-
-  Future<ForumSiteProbeResult> _testAddress(
-    ForumSite site,
-    InternetAddress address,
-  ) {
-    final client = createUnroutedHttpClient();
-    client.findProxy = (_) => 'DIRECT';
-    client.connectionFactory = (uri, _, __) async {
-      final race = ForumConnectionRace(uri, timeout: timeout);
-      race.add([address]);
-      race.finishAdding();
-      return ConnectionTask.fromSocket(race.socket, race.cancel);
-    };
-    return _testClient(site, client);
-  }
-
-  Future<ForumAddressProbeResult> testAddress(
-    ForumSite site,
-    InternetAddress address,
-  ) async {
-    final result = await _testAddress(site, address);
-    return ForumAddressProbeResult(
-      address: address,
-      elapsed: result.elapsed,
-      success: result.success,
-      message: result.message,
-      statusCode: result.statusCode,
-    );
-  }
 }
 
 class ForumSiteProbeResult {
@@ -301,20 +249,4 @@ class DohProbeResult {
   String get latencyLabel => success ? '${elapsed.inMilliseconds} ms' : '-';
   String get addressesLabel =>
       addresses.map((address) => address.address).join(', ');
-}
-
-class ForumAddressProbeResult {
-  const ForumAddressProbeResult({
-    required this.address,
-    required this.elapsed,
-    required this.success,
-    required this.message,
-    this.statusCode,
-  });
-  final InternetAddress address;
-  final Duration elapsed;
-  final bool success;
-  final String message;
-  final int? statusCode;
-  String get latencyLabel => success ? '${elapsed.inMilliseconds} ms' : '-';
 }

@@ -290,7 +290,7 @@ void main() {
     final repository = await open(tester);
     repository.config = const ForumNetworkConfig(
       site: ForumSite('first.invalid'),
-      dohEnabled: false,
+      mode: ForumNetworkMode.native,
       dohProvider: ForumNetworkConfig.defaultProvider,
     );
     repository.sections = [

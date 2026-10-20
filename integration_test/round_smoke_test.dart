@@ -30,7 +30,7 @@ class _FixtureSite extends ForumSite {
 
 const _config = ForumNetworkConfig(
   site: _FixtureSite(),
-  dohEnabled: false,
+  mode: ForumNetworkMode.native,
   dohProvider: ForumNetworkConfig.defaultProvider,
 );
 const _thread = ForumThread(

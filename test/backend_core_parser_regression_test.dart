@@ -408,7 +408,7 @@ class _ScopeClient extends ForumClient {
       : super(
             config: ForumNetworkConfig(
           site: site,
-          dohEnabled: false,
+          mode: ForumNetworkMode.native,
           dohProvider: ForumNetworkConfig.defaultProvider,
         ));
 

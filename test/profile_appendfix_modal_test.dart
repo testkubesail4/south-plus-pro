@@ -14,7 +14,7 @@ import 'package:south_plus_rewrite/services/user_note_store.dart';
 // write can be held while the session scope changes under the open sheet.
 const _customConfig = ForumNetworkConfig(
   site: ForumSite('first.invalid'),
-  dohEnabled: false,
+  mode: ForumNetworkMode.native,
   dohProvider: ForumNetworkConfig.defaultProvider,
 );
 

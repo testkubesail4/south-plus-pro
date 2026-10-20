@@ -140,7 +140,7 @@ void main() {
       final loaded = await ForumNetworkSettings.load();
 
       expect(loaded.site.host, 'blue-plus.net');
-      expect(loaded.dohEnabled, false);
+      expect(loaded.mode, ForumNetworkMode.native);
       expect(loaded.dohProvider, DohProvider.tiarap);
       expect(loaded.hostAddresses['blue-plus.net'], ['104.21.62.119']);
     },
@@ -153,7 +153,7 @@ void main() {
 
       const config = ForumNetworkConfig(
         site: ForumSite('example.com'),
-        dohEnabled: true,
+        mode: ForumNetworkMode.optimized,
         dohProvider: DohProvider.cloudflareGateway,
         customDohUri: 'https://dns.example.com/dns-query',
       );
@@ -163,11 +163,6 @@ void main() {
 
       expect(loaded.site.host, 'example.com');
       expect(loaded.customDohUri, 'https://dns.example.com/dns-query');
-      expect(
-        loaded.normalizedCustomDohUri,
-        'https://dns.example.com/dns-query',
-      );
-      expect(loaded.dohLabel, '自定义加密 DNS');
     },
   );
 

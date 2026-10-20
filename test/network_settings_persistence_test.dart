@@ -2,9 +2,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
-import 'package:south_plus_rewrite/services/forum_http_routing.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+
+import 'support/forum_route_fixture.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -37,7 +38,7 @@ void main() {
     });
   });
   tearDown(() {
-    ForumHttpRouting.updateProxy(null);
+    selectProxyTestRoute(null);
     SharedPreferences.resetStatic();
     messenger.setMockMethodCallHandler(channel, null);
   });
@@ -53,9 +54,10 @@ void main() {
           host: 'proxy.fixture.invalid',
           port: 8080,
         );
-        Future<void> save() => disable
-            ? ForumNetworkSettings.disableProxy()
-            : ForumNetworkSettings.saveProxy(proxy);
+        Future<void> save() => ForumNetworkSettings.save(ForumNetworkConfig(
+            site: ForumNetworkConfig.defaultSite,
+            mode: disable ? ForumNetworkMode.native : ForumNetworkMode.proxy,
+            proxy: disable ? null : proxy));
         reject = true;
         await expectLater(save(), throwsA(isA<Exception>()));
         expect(persisted, before);
@@ -100,14 +102,14 @@ void main() {
         expect(repository.networkConfig, original);
         expect(repository.sessionEpoch.value, epoch);
         expect(client.closed, isFalse);
-        expect(ForumHttpRouting.proxyEnabled, isTrue);
+        await expectProxyTestRoute('proxy.fixture.invalid');
         expect(persisted, beforeDisk);
         expect(await ForumNetworkSettings.load(), original);
         reject = false;
         await repository.updateNetworkConfig(requested);
         expect(repository.networkConfig, requested);
         expect(client.closed, isTrue);
-        expect(ForumHttpRouting.proxyEnabled, isFalse);
+        await expectProxyTestRoute(null);
         expect(requested.proxy, original.proxy);
         await (await SharedPreferences.getInstance()).reload();
         expect(await ForumNetworkSettings.load(), requested);

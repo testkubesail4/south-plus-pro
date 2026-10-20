@@ -651,7 +651,7 @@ void main() {
       final repo = await pump(tester, screen: (repo) {
         repo.config = const ForumNetworkConfig(
             site: ForumSite('search-fixture.invalid'),
-            dohEnabled: false,
+            mode: ForumNetworkMode.native,
             dohProvider: ForumNetworkConfig.defaultProvider);
         final base = repo.networkConfig.baseUri;
         repo.boards = [options[0], options[1], options[2], options[3]];

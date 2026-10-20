@@ -35,7 +35,7 @@ class _FixtureSite extends ForumSite {
 
 const _config = ForumNetworkConfig(
   site: _FixtureSite(),
-  dohEnabled: false,
+  mode: ForumNetworkMode.native,
   dohProvider: ForumNetworkConfig.defaultProvider,
 );
 const _pinnedTitle = '置顶阅读指南：本地收藏、用户备注与长标题换行的完整阅读示例';

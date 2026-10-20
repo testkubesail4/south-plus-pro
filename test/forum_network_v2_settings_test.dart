@@ -6,10 +6,19 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('site URL normalization strips paths but rejects authority ambiguity', () {
-    expect(ForumNetworkConfig.normalizeHost('https://Example-Plus.net/index.php?x=1#anchor'), 'example-plus.net');
-    expect(ForumNetworkConfig.normalizeHost('https://user@evil.invalid/index.php'), isNull);
-    expect(ForumNetworkConfig.normalizeHost('https://example-plus.net:8080/index.php'), isNull);
+  test('site URL normalization strips paths but rejects authority ambiguity',
+      () {
+    expect(
+        ForumNetworkConfig.normalizeHost(
+            'https://Example-Plus.net/index.php?x=1#anchor'),
+        'example-plus.net');
+    expect(
+        ForumNetworkConfig.normalizeHost('https://user@evil.invalid/index.php'),
+        isNull);
+    expect(
+        ForumNetworkConfig.normalizeHost(
+            'https://example-plus.net:8080/index.php'),
+        isNull);
     expect(ForumNetworkConfig.normalizeHost('example-plus.net/path'), isNull);
   });
 
@@ -30,12 +39,14 @@ void main() {
       final loaded = await ForumNetworkSettings.load();
       expect(loaded, config);
       expect(loaded.copyWith(mode: ForumNetworkMode.native).site, config.site);
-      expect(loaded.fallbackAddressesFor('unrelated.example'), isEmpty);
-      expect(loaded.fallbackAddressesFor('blue-plus.net').take(2),
-          config.hostAddresses['blue-plus.net']);
-      expect(loaded.fallbackAddressesFor('blue-plus.net'), contains('172.67.223.131'));
-      final proxy = ForumProxy(type: ForumProxyType.socks5, host: 'localhost', port: 1080);
-      final dormant = loaded.copyWith(proxy: proxy).copyWith(mode: ForumNetworkMode.native);
+      expect(ForumNetworkConfig.builtInHostAddresses('unrelated.example'),
+          isEmpty);
+      expect(ForumNetworkConfig.builtInHostAddresses('blue-plus.net'),
+          contains('172.67.223.131'));
+      final proxy = ForumProxy(
+          type: ForumProxyType.socks5, host: 'localhost', port: 1080);
+      final dormant =
+          loaded.copyWith(proxy: proxy).copyWith(mode: ForumNetworkMode.native);
       expect(dormant.proxy, proxy);
       expect(dormant.hostAddresses, loaded.hostAddresses);
     },
@@ -47,6 +58,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'forum_network_site_host_v1': 'north-plus.net',
         'forum_network_doh_enabled_v1': true,
+        'forum_network_doh_provider_v1': 'doh090227Sb',
         'forum_network_fixed_address_v1': '104.18.26.110',
         'forum_network_proxy_v1':
             '{"type":"socks5","host":"localhost","port":1080}',
@@ -54,9 +66,11 @@ void main() {
       final config = await ForumNetworkSettings.load();
       expect(config.mode, ForumNetworkMode.proxy);
       expect(config.site.host, 'north-plus.net');
-      expect(config.fixedAddress, isNull);
+      expect(config.hostAddresses, isEmpty);
+      expect(config.dohProvider, ForumNetworkConfig.defaultProvider);
       expect(config.ipv6Enabled, isFalse);
-      await ForumNetworkSettings.disableProxy();
+      await ForumNetworkSettings.save(
+          config.copyWith(mode: ForumNetworkMode.native, clearProxy: true));
       final native = await ForumNetworkSettings.load();
       expect(native.mode, ForumNetworkMode.native);
       expect(native.site, config.site);

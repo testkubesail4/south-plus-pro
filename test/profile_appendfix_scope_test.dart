@@ -87,7 +87,7 @@ void main() {
 
     await repository.updateNetworkConfig(const ForumNetworkConfig(
       site: ForumSite('first.invalid'),
-      dohEnabled: false,
+      mode: ForumNetworkMode.native,
       dohProvider: ForumNetworkConfig.defaultProvider,
     ));
     expect(notes.noteFor('1'), isNull);
@@ -102,7 +102,7 @@ void main() {
 
     await repository.updateNetworkConfig(const ForumNetworkConfig(
       site: ForumNetworkConfig.defaultSite,
-      dohEnabled: false,
+      mode: ForumNetworkMode.native,
       dohProvider: ForumNetworkConfig.defaultProvider,
     ));
     await pumpEventQueue();
@@ -137,7 +137,7 @@ void main() {
 
     await repository.updateNetworkConfig(const ForumNetworkConfig(
       site: ForumSite('first.invalid'),
-      dohEnabled: false,
+      mode: ForumNetworkMode.native,
       dohProvider: ForumNetworkConfig.defaultProvider,
     ));
     await tester.pumpAndSettle();

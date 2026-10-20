@@ -311,7 +311,7 @@ void main() {
       (tester) async {
     ForumNetworkConfig origin(String host) => ForumNetworkConfig(
           site: ForumSite(host),
-          dohEnabled: false,
+          mode: ForumNetworkMode.native,
           dohProvider: ForumNetworkConfig.defaultProvider,
         );
     final repo = _Repo()

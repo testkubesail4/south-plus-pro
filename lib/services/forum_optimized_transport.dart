@@ -8,7 +8,8 @@ import 'forum_network_config.dart';
 /// A transport instance owns one configuration and its shared DNS lifetime.
 class ForumOptimizedTransport {
   ForumOptimizedTransport(this.config, {this.context}) {
-    final custom = config.normalizedCustomDohUri;
+    final custom =
+        ForumNetworkConfig.normalizeDohUri(config.customDohUri ?? '');
     _resolvers = [
       if (custom != null)
         DohResolver.custom(
@@ -21,12 +22,11 @@ class ForumOptimizedTransport {
         config.dohProvider,
         ...DohProvider.values.where((p) => p != config.dohProvider),
       ])
-        if (provider != DohProvider.doh090227Sb)
-          DohResolver(
-            provider: provider,
-            ipv6Enabled: config.ipv6Enabled,
-            context: context,
-          ),
+        DohResolver(
+          provider: provider,
+          ipv6Enabled: config.ipv6Enabled,
+          context: context,
+        ),
     ];
   }
   final ForumNetworkConfig config;
@@ -64,11 +64,7 @@ class ForumOptimizedTransport {
         if (--sources == 0) race.finishAdding();
       }
 
-      final user = <String>[
-        ...?config.hostAddresses[uri.host],
-        if (uri.host == config.site.host && config.fixedAddress != null)
-          config.fixedAddress!,
-      ];
+      final user = config.hostAddresses[uri.host] ?? const <String>[];
       final userTimer = Timer(const Duration(milliseconds: 450), () {
         race.add(_eligible(uri.host, user.map(InternetAddress.new)));
         done();
@@ -143,7 +139,8 @@ class ForumOptimizedTransport {
     void launch() {
       if (cancelled) return;
       while (next < _resolvers.length &&
-          (_resolverCooldown[(host, _resolvers[next])]?.isAfter(DateTime.now()) ??
+          (_resolverCooldown[(host, _resolvers[next])]
+                  ?.isAfter(DateTime.now()) ??
               false)) {
         next++;
       }
