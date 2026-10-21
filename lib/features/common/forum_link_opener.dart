@@ -88,7 +88,8 @@ Future<bool> openForumLink(
       ));
     case ForumBoardLinkTarget(:final category):
       // Link text can say anything; the board page names the board.
-      return push(BoardThreadListScreen(category: category, repository: repository));
+      return push(
+          BoardThreadListScreen(category: category, repository: repository));
     case final ForumAppPageLinkTarget target:
       // An account page stays in the app even when it cannot open: the
       // browser would show it with that browser's account, or reopen here.
@@ -160,8 +161,8 @@ Widget _appPage(
   ForumAppPageLinkTarget target,
 ) =>
     switch (page) {
-      ForumAppPage.friends => FriendsScreen(
-          repository: repository, initialPage: target.pageNumber),
+      ForumAppPage.friends =>
+        FriendsScreen(repository: repository, initialPage: target.pageNumber),
       ForumAppPage.friendRequests => FriendsScreen(
           repository: repository,
           initialPending: true,

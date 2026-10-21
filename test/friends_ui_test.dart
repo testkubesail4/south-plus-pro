@@ -48,8 +48,8 @@ class _Repo extends FakeProfileRepository {
           {bool forceReload = false}) async =>
       overview.copyWith(homeActivities: feed);
 
-  ForumFriendAddResult addResult =
-      const ForumFriendAddResult(status: ForumFriendAddStatus.added, message: '');
+  ForumFriendAddResult addResult = const ForumFriendAddResult(
+      status: ForumFriendAddStatus.added, message: '');
   final confirmed = <String>[];
 
   @override
@@ -111,8 +111,7 @@ void main() {
   }
 
   Future<void> openProfile(WidgetTester tester, _Repo repo) => pump(
-      tester,
-      UserProfileScreen(userUrl: repo.overview.url, repository: repo));
+      tester, UserProfileScreen(userUrl: repo.overview.url, repository: repo));
 
   group('profile', () {
     testWidgets('another user offers 加为好友; the own profile offers 好友',
@@ -192,9 +191,10 @@ void main() {
       expect(find.text('我 发表了主题'), findsOneWidget);
       await tester.tap(find.text('我 和 Bob 成为了好友'));
       await tester.pumpAndSettle();
-      final opened = tester.widget<UserProfileScreen>(
-          find.byType(UserProfileScreen).last);
-      expect(opened.userUrl, 'https://south-plus.net/u.php?action-show-uid-201.html');
+      final opened =
+          tester.widget<UserProfileScreen>(find.byType(UserProfileScreen).last);
+      expect(opened.userUrl,
+          'https://south-plus.net/u.php?action-show-uid-201.html');
     });
   });
 

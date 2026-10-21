@@ -85,7 +85,8 @@ class ForumClient {
   static final _storeGenerations = <String, int>{};
   static final _loginAttempts = <String, int>{};
   int get _cookieStoreGeneration => _storeGenerations[baseUri.host] ?? 0;
-  set _cookieStoreGeneration(int value) => _storeGenerations[baseUri.host] = value;
+  set _cookieStoreGeneration(int value) =>
+      _storeGenerations[baseUri.host] = value;
   int get _loginAttemptSequence => _loginAttempts[baseUri.host] ?? 0;
   set _loginAttemptSequence(int value) => _loginAttempts[baseUri.host] = value;
   int _cookieGeneration = 0;
@@ -109,8 +110,8 @@ class ForumClient {
     if (!previous.isCredentialCurrent(previous.credentialGeneration)) return;
     _cookies
       ..clear()
-      ..addEntries(previous._cookies.entries
-          .where((entry) => !entry.value.isExpired));
+      ..addEntries(
+          previous._cookies.entries.where((entry) => !entry.value.isExpired));
     _credentialGeneration = previous.credentialGeneration;
     _restoreFuture = Future<void>.value();
   }
@@ -885,8 +886,7 @@ class ForumClient {
         changed = true;
       }
     }
-    if (changed)
-      await _persistCookies(storeGeneration: storeGeneration);
+    if (changed) await _persistCookies(storeGeneration: storeGeneration);
   }
 
   ForumStoredCookie? _parseCookie(String header, Uri origin) {

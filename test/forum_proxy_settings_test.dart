@@ -7,7 +7,8 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   for (final type in ForumProxyType.values) {
-    test('${type.name} proxy persists dormant optimization without using it', () async {
+    test('${type.name} proxy persists dormant optimization without using it',
+        () async {
       final proxy = ForumProxy(
           type: type,
           host: 'proxy.fixture.invalid',
@@ -18,7 +19,9 @@ void main() {
         site: ForumNetworkConfig.defaultSite,
         mode: ForumNetworkMode.proxy,
         dohProvider: ForumNetworkConfig.defaultProvider,
-        hostAddresses: const {'south-plus.net': ['104.21.43.10']},
+        hostAddresses: const {
+          'south-plus.net': ['104.21.43.10']
+        },
         customDohUri: 'https://dns.fixture.invalid/query',
         proxy: proxy,
       );
@@ -95,11 +98,15 @@ void main() {
         {'forum_network_proxy_v1': '{invalid'});
     final proxy = ForumProxy(
         type: ForumProxyType.http, host: 'proxy.invalid', port: 8080);
-    await ForumNetworkSettings.save(ForumNetworkConfig(site: ForumNetworkConfig.defaultSite, mode: ForumNetworkMode.proxy, proxy: proxy));
+    await ForumNetworkSettings.save(ForumNetworkConfig(
+        site: ForumNetworkConfig.defaultSite,
+        mode: ForumNetworkMode.proxy,
+        proxy: proxy));
     final loaded = await ForumNetworkSettings.load();
     expect(loaded.proxy, proxy);
     expect(loaded.mode, ForumNetworkMode.proxy);
-    await ForumNetworkSettings.save(loaded.copyWith(mode: ForumNetworkMode.native, clearProxy: true));
+    await ForumNetworkSettings.save(
+        loaded.copyWith(mode: ForumNetworkMode.native, clearProxy: true));
     final direct = await ForumNetworkSettings.load();
     expect(direct.proxy, isNull);
     expect(direct.mode, ForumNetworkMode.native);
@@ -108,5 +115,4 @@ void main() {
             type: ForumProxyType.http, host: 'proxy.invalid', port: 0),
         isNotNull);
   });
-
 }

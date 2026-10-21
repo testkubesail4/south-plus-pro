@@ -9,12 +9,13 @@ import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../common/page_end.dart';
+import '../common/session_bound.dart';
 import '../common/thread_row.dart';
 import 'pm_compose_screen.dart';
 import 'pm_detail_screen.dart';
 import '../common/more_pages.dart';
 
-class PmBoxScreen extends StatefulWidget {
+class PmBoxScreen extends StatelessWidget {
   const PmBoxScreen({
     super.key,
     required this.repository,
@@ -31,10 +32,38 @@ class PmBoxScreen extends StatefulWidget {
   final bool embedded;
 
   @override
-  State<PmBoxScreen> createState() => _PmBoxScreenState();
+  Widget build(BuildContext context) {
+    final view = _PmBoxView(
+      repository: repository,
+      embedded: embedded,
+      initialPath: initialPath,
+    );
+    // The shell replaces embedded tabs itself; it owns the root route.
+    return embedded
+        ? view
+        : SessionBound(repository: repository, title: '短消息', child: view);
+  }
 }
 
-class _PmBoxScreenState extends State<PmBoxScreen> {
+class _PmBoxView extends StatefulWidget {
+  const _PmBoxView({
+    required this.repository,
+    required this.embedded,
+    this.initialPath,
+  });
+
+  final ForumRepository repository;
+  final bool embedded;
+  final String? initialPath;
+
+  @override
+  State<_PmBoxView> createState() => _PmBoxViewState();
+}
+
+String? _messageIdentity(ForumPmSummary message) =>
+    message.id.isEmpty ? null : '${message.type.name}:${message.id}';
+
+class _PmBoxViewState extends State<_PmBoxView> {
   ForumPmBox _box = ForumPmBox.inbox;
   // Which way the last box change moved along 收件箱 · 发件箱 · 跟踪.
   int _slide = 0;
@@ -43,13 +72,13 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
   // The page the list starts with, once read.
   ForumPmPage? _first;
   int _reads = 0;
-  final _scroll = ScrollController();
+  var _scroll = ScrollController();
+  final _leftScrolls = <ScrollController>[];
   late final _more = MorePages<ForumPmPage>(
     fetch: (path) => widget.repository.fetchPmBox(_box, pagePath: path),
     nextOf: (page) => page.nextPagePath,
     idsOf: (page) => [
-      for (final message in page.messages)
-        message.id.isEmpty ? null : message.id,
+      for (final message in page.messages) _messageIdentity(message),
     ],
     changed: () {
       if (mounted) setState(() {});
@@ -71,6 +100,9 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
   void dispose() {
     LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
     _scroll.dispose();
+    for (final scroll in _leftScrolls) {
+      scroll.dispose();
+    }
     super.dispose();
   }
 
@@ -83,6 +115,16 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
   }
 
   Future<ForumPmPage> _fetch() {
+    if (_reads > 0) {
+      // An outgoing list keeps its own position until it finishes fading.
+      _leftScrolls.removeWhere((scroll) {
+        if (scroll.hasClients) return false;
+        scroll.dispose();
+        return true;
+      });
+      _leftScrolls.add(_scroll..removeListener(_maybeLoadMore));
+      _scroll = ScrollController()..addListener(_maybeLoadMore);
+    }
     final read = ++_reads;
     _first = null;
     _more.reset();
@@ -220,20 +262,29 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
               ),
               Divider(height: 1, color: AppColors.border),
               Expanded(
-                child: AppSwitcher(
-                  direction: _slide,
-                  child: FutureBuilder<ForumPmPage>(
-                    key: ValueKey(_box),
-                    future: _future,
-                    builder: (context, snapshot) => AppSwitcher(
-                      child: snapshot.hasError
+                child: FutureBuilder<ForumPmPage>(
+                  future: _future,
+                  builder: (context, snapshot) {
+                    final waiting =
+                        snapshot.connectionState != ConnectionState.done;
+                    return AppSwitcher(
+                      id: (
+                        _box,
+                        waiting
+                            ? 'loading'
+                            : snapshot.hasError
+                                ? 'error'
+                                : snapshot.data
+                      ),
+                      direction: _slide,
+                      child: !waiting && snapshot.hasError
                           ? AsyncErrorView(
                               key: const ValueKey('error'),
                               title: '短消息加载失败',
                               message: forumErrorText(snapshot.error),
                               onRetry: _refresh,
                             )
-                          : !snapshot.hasData
+                          : waiting || !snapshot.hasData
                               ? const ThreadListSkeleton(
                                   key: ValueKey('loading'), itemCount: 6)
                               : RefreshIndicator(
@@ -248,8 +299,8 @@ class _PmBoxScreenState extends State<PmBoxScreen> {
                                     onPage: _openPage,
                                   ),
                                 ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -314,7 +365,7 @@ class _PmList extends StatelessWidget {
     for (final (i, shown) in pages.indexed) {
       final messages = [
         for (final m in shown.messages)
-          if (!MorePages.repeats(seen, m.id.isEmpty ? null : m.id)) m,
+          if (!MorePages.repeats(seen, _messageIdentity(m))) m,
       ];
       if (i > 0) children.add(PageBoundary(page: shown.currentPage));
       if (messages.isEmpty) {
