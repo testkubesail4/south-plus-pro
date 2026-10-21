@@ -14,33 +14,42 @@ void main() {
     (ForumBoardFilterKind.topicType, '-type-2'),
     (ForumBoardFilterKind.special, '-special-1'),
     (ForumBoardFilterKind.all, ''),
+    for (final days in [1, 2, 7, 30, 60, 90, 180, 365])
+      (ForumBoardFilterKind.range, '-search-$days'),
   ]) {
-    test(
-      'filtered $kind fetch composes paging/order and keeps active filter',
-      () async {
-        final client = _BoardClient('''$_boardHtml
+    for (final order in ForumThreadOrder.values) {
+      test(
+        'filtered $kind $suffix fetch composes paging/$order and keeps active filter',
+        () async {
+          final client = _BoardClient('''$_boardHtml
         <div class="pages"><b>2</b>
-          <a href="thread_new.php?fid-901$suffix-orderway-hits-asc-DESC-page-9.html">9</a>
+          <a href="thread_new.php?fid-901$suffix-orderway-${order.queryValue}-asc-DESC-page-9.html">9</a>
         </div>''');
-        final filter = ForumBoardFilter(
-          label: 'Fixture selection',
-          kind: kind,
-          url: 'https://south-plus.net/thread.php?fid-901$suffix.html#c',
-        );
-        final page = await ForumRepository(client: client).fetchBoardThreadPage(
-          _category,
-          page: 2,
-          order: ForumThreadOrder.hits,
-          filter: filter,
-        );
-        expect(client.paths, [
-          'thread_new.php?fid-901$suffix-orderway-hits-asc-DESC-page-2.html',
-        ]);
-        expect(page.activeFilter?.kind, kind);
-        expect(page.currentPage, 2);
-        expect(page.totalPages, 9);
-      },
-    );
+          final filter = ForumBoardFilter(
+            label: 'Fixture selection',
+            kind: kind,
+            url: 'https://south-plus.net/thread.php?fid-901$suffix.html#c',
+          );
+          final page =
+              await ForumRepository(client: client).fetchBoardThreadPage(
+            _category,
+            page: 2,
+            order: order,
+            filter: filter,
+          );
+          expect(client.paths, [
+            'thread_new.php?fid-901$suffix-orderway-${order.queryValue}-asc-DESC-page-2.html',
+          ]);
+          expect(page.activeFilter?.kind, kind);
+          if (kind == ForumBoardFilterKind.range) {
+            expect(page.activeFilter?.url,
+                'https://south-plus.net/thread.php?fid=901&search=${suffix.substring(8)}');
+          }
+          expect(page.currentPage, 2);
+          expect(page.totalPages, 9);
+        },
+      );
+    }
   }
 
   test(
@@ -61,6 +70,56 @@ void main() {
     },
   );
 
+  for (final url in [
+    'https://blue-plus.net/thread.php?fid=901&search=7',
+    'https://blue-plus.net/thread_new.php?fid-901-search-7-orderway-hits-asc-DESC-page-2.html',
+  ]) {
+    test('range deep link survives sorting and paging: $url', () async {
+      final client = _BoardClient(_boardHtml);
+      final page = await ForumRepository(client: client).fetchBoardThreadPage(
+        ForumCategory(name: 'Fixture board', slug: 'fid-901', url: url),
+        page: 3,
+        order: ForumThreadOrder.replies,
+      );
+      expect(client.paths, [
+        'thread_new.php?fid-901-search-7-orderway-replies-asc-DESC-page-3.html',
+      ]);
+      expect(page.activeFilter?.kind, ForumBoardFilterKind.range);
+      expect(page.activeFilter?.label, '1星期内的主题');
+    });
+  }
+
+  test('unfiltered URL ignores cosmetic selected one-day option', () async {
+    final page = await ForumRepository(client: _BoardClient(_boardHtml))
+        .fetchBoardThreadPage(const ForumCategory(
+      name: 'Fixture board',
+      slug: 'fid-901',
+      url: 'https://blue-plus.net/thread.php?fid-901.html',
+    ));
+    expect(page.activeFilter?.kind, ForumBoardFilterKind.all);
+  });
+
+  test('range-only empty page exposes digest without requiring a digest tab',
+      () async {
+    final page = await ForumRepository(
+      client: _BoardClient('''<form><select name="search">
+        <option value="365" selected>1年内的主题</option>
+        <option value="digest">本版精华区</option>
+        <option value="365">1年内的主题</option>
+      </select></form>'''),
+    ).fetchBoardThreadPage(_category,
+        filter: const ForumBoardFilter(
+          label: '',
+          url: 'thread.php?fid=901&search=digest',
+          kind: ForumBoardFilterKind.digest,
+        ));
+    expect(page.threads, isEmpty);
+    expect(page.filters, isEmpty);
+    expect(
+        page.rangeFilters.map((filter) => filter.label), ['本版精华区', '1年内的主题']);
+    expect(page.activeFilter?.label, '本版精华区');
+  });
+
   test(
     'empty filtered wall returns an empty page instead of a parse error',
     () async {
@@ -80,6 +139,7 @@ void main() {
       );
       expect(page.threads, isEmpty);
       expect(page.activeFilter?.label, '精华');
+      expect(page.rangeFilters, isEmpty);
       expect(page.hasNext, isFalse);
       expect(page.currentPage, 1);
       expect(page.totalPages, 1);
@@ -104,6 +164,12 @@ void main() {
         ('thread.php?fid-901-type-2.html', ForumBoardFilterKind.digest),
         ('thread.php?fid-901-search-unknown.html', ForumBoardFilterKind.digest),
         ('thread.php?fid-901-special-6.html', ForumBoardFilterKind.special),
+        for (final value in ['0', '-1', '3', '366', '01', '1.0', '7e0'])
+          ('thread.php?fid=901&search=$value', ForumBoardFilterKind.range),
+        ('thread.php?fid=901&search=7&type=2', ForumBoardFilterKind.range),
+        ('thread.php?fid=901&search=7&search=30', ForumBoardFilterKind.range),
+        ('thread.php?fid=999&search=7', ForumBoardFilterKind.range),
+        ('thread.php?fid=901&search=7', ForumBoardFilterKind.digest),
         (
           'thread.php?fid-901-type-2-action-delete.html',
           ForumBoardFilterKind.topicType,
@@ -157,6 +223,21 @@ void main() {
         page.filters[3].url,
         'https://south-plus.net/thread.php?fid-901-special-1.html',
       );
+      expect(page.rangeFilters.map((filter) => filter.label), [
+        '本版精华区',
+        '1天内的主题',
+        '2天内的主题',
+        '1星期内的主题',
+        '1个月内的主题',
+        '2个月内的主题',
+        '3个月内的主题',
+        '6个月内的主题',
+        '1年内的主题',
+      ]);
+      expect(page.rangeFilters.first.kind, ForumBoardFilterKind.digest);
+      expect(page.rangeFilters.first.url, page.filters[1].url);
+      expect(page.rangeFilters.skip(1).map((filter) => filter.kind),
+          everyElement(ForumBoardFilterKind.range));
       expect(page.activeFilter?.label, 'Fixture type');
     },
   );
@@ -225,6 +306,22 @@ const _boardHtml = '''
   <li><a href="thread.php?fid-999-type-4.html">Other board</a></li>
 </ul></div>
 <script>setCurrent('thread_type_2','thread_type_all','current');</script>
+<form method="post" action="thread.php?fid=901&amp;page=1">
+<select name="search">
+  <option value="1" selected>1天内的主题</option>
+  <option value="digest">本版精华区</option>
+  <option value="1">1天内的主题</option>
+  <option value="2">2天内的主题</option>
+  <option value="7">1星期内的主题</option>
+  <option value="30">1个月内的主题</option>
+  <option value="60">2个月内的主题</option>
+  <option value="90">3个月内的主题</option>
+  <option value="180">6个月内的主题</option>
+  <option value="365">1年内的主题</option>
+  <option value="0">Invalid</option>
+  <option value="3">Invalid</option>
+  <option value="7&amp;action=delete">Invalid</option>
+</select></form>
 <ul class="stream"><li class="dcsns-li">
   <span class="section-title"><a href="read.php?tid-701.html">Fixture topic</a></span>
   <span class="section-text">回复/人气：3/42

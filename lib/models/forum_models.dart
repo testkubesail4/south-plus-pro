@@ -302,7 +302,7 @@ class BrowsingHistoryEntry {
   final DateTime viewedAt;
 }
 
-enum ForumBoardFilterKind { all, digest, topicType, special }
+enum ForumBoardFilterKind { all, digest, topicType, special, range }
 
 class ForumBoardFilter {
   const ForumBoardFilter({
@@ -326,6 +326,7 @@ class ForumThreadPage {
     this.boardName,
     this.hasPictureWall = false,
     this.filters = const [],
+    this.rangeFilters = const [],
     this.activeFilter,
     this.parents = const [],
   });
@@ -338,6 +339,7 @@ class ForumThreadPage {
   final String? boardName;
   final bool hasPictureWall;
   final List<ForumBoardFilter> filters;
+  final List<ForumBoardFilter> rangeFilters;
   final ForumBoardFilter? activeFilter;
   final List<ForumCategory> parents;
 

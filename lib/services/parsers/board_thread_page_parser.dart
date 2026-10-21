@@ -55,6 +55,45 @@ class BoardThreadPageParser {
     return filters;
   }
 
+  List<ForumBoardFilter> parseRangeFilters(
+    dom.Document document,
+    ForumCategory category,
+    List<ForumBoardFilter> filters,
+  ) {
+    final fid = urls.fidFromCategory(category);
+    if (fid == null) return const [];
+    final ranges = <ForumBoardFilter>[];
+    final seen = <String>{};
+    // The first option is a cosmetic selection echo, sometimes duplicating a
+    // later option. Keep the last occurrence in the native option order.
+    for (final option
+        in document.querySelectorAll('select[name="search"] option').reversed) {
+      final value = option.attributes['value'] ?? '';
+      final label = _cleanText(option.text);
+      if (label.isEmpty || !seen.add(value)) continue;
+      final filter = urls.boardFilterFromUrl(
+        category,
+        label: label,
+        url: Uri(path: 'thread.php', queryParameters: {
+          'fid': fid,
+          'search': value,
+        }).toString(),
+      );
+      if (filter == null) continue;
+      final digest = filter.kind == ForumBoardFilterKind.digest
+          ? filters
+              .where((f) => f.kind == ForumBoardFilterKind.digest)
+              .firstOrNull
+          : null;
+      ranges.add(ForumBoardFilter(
+        label: label,
+        url: digest?.url ?? filter.url,
+        kind: filter.kind,
+      ));
+    }
+    return ranges.reversed.toList();
+  }
+
   ForumBoardFilter? parseActiveFilter(
     dom.Document document,
     ForumCategory category,

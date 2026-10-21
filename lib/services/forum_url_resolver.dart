@@ -518,8 +518,11 @@ class ForumUrlResolver {
     final key = selectors.single;
     final value = fields[key]!;
     if (key == 'search') {
-      return value == 'digest'
-          ? (kind: ForumBoardFilterKind.digest, suffix: '-search-digest')
+      if (value == 'digest') {
+        return (kind: ForumBoardFilterKind.digest, suffix: '-search-digest');
+      }
+      return {'1', '2', '7', '30', '60', '90', '180', '365'}.contains(value)
+          ? (kind: ForumBoardFilterKind.range, suffix: '-search-$value')
           : null;
     }
     if (!RegExp(r'^[1-9]\d*$').hasMatch(value)) return null;

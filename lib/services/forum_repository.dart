@@ -2433,16 +2433,22 @@ class ForumRepository {
       desktopDocument,
       category,
     );
-    final activeFilter = _boardThreadPageParser.parseActiveFilter(
+    final rangeFilters = _boardThreadPageParser.parseRangeFilters(
       desktopDocument,
       category,
       filters,
+    );
+    final activeFilter = _boardThreadPageParser.parseActiveFilter(
+      desktopDocument,
+      category,
+      [...filters, ...rangeFilters],
       requested: filter,
     );
     if (threads.isNotEmpty ||
         subBoards.isNotEmpty ||
         hasPictureWall ||
-        filters.isNotEmpty) {
+        filters.isNotEmpty ||
+        rangeFilters.isNotEmpty) {
       final pages = _boardThreadPageParser.wallPages(desktopDocument) ??
           (current: normalizedPage, total: normalizedPage);
       if (!identical(client, _client) || epoch != _sessionEpoch.value) {
@@ -2473,6 +2479,7 @@ class ForumRepository {
         hasPictureWall: hasPictureWall,
         parents: parents,
         filters: filters,
+        rangeFilters: rangeFilters,
         activeFilter: activeFilter,
       );
     }
