@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,6 +23,23 @@ ForumPmSummary _message(String id) => ForumPmSummary(
 
 class _Repo extends ForumRepository {
   final paths = <String?>[];
+  // Each box read waits for the next queued gate, if any.
+  final gates = <Completer<void>>[];
+
+  @override
+  Future<ForumPmDetail> fetchPmDetail(ForumPmSummary message) async =>
+      ForumPmDetail(
+          summary: message,
+          sender: message.peer,
+          title: message.title,
+          time: '',
+          content: 'body',
+          deletePath: 'message.php?action-del-delids-${message.id}.html');
+
+  @override
+  Future<ForumPmActionResult> deletePm(ForumPmSummary message,
+          {ForumPmDetail? detail}) async =>
+      const ForumPmActionResult(message: 'deleted');
   // Page 1 holds no message, yet links page 2.
   bool emptyFirst = false;
   // Page 1 holds no message and links page 4 only, not page 2.
@@ -29,6 +48,7 @@ class _Repo extends ForumRepository {
   @override
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
     paths.add(pagePath);
+    if (gates.isNotEmpty) await gates.removeAt(0).future;
     if (sparse) {
       return ForumPmPage(box: box, messages: const [], pageLinks: const [
         ForumPmPageLink(
@@ -117,6 +137,72 @@ void main() {
     // The page links are page 2's: page 1's 下一页 would lead back to 2.
     expect(find.widgetWithText(OutlinedButton, '下一页'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, '上一页'), findsOneWidget);
+  });
+
+  testWidgets('a message read on an appended page rereads only that page',
+      (tester) async {
+    final repo = await pump(tester, LoadingMode.continuous);
+    await toEnd(tester);
+    await toEnd(tester);
+    expect(repo.paths, [null, _next]);
+    final position =
+        tester.state<ScrollableState>(find.byType(Scrollable).last).position;
+    final offset = position.pixels;
+    await tester.tap(find.text('Message 200'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(repo.paths, [null, _next, _next]);
+    expect(find.text('Message 100', skipOffstage: false), findsOneWidget);
+    expect(find.text('Message 200'), findsOneWidget);
+    expect(
+        tester
+            .state<ScrollableState>(find.byType(Scrollable).last)
+            .position
+            .pixels,
+        offset);
+  });
+
+  testWidgets('a reread of a page a delete since dropped lands nowhere',
+      (tester) async {
+    final repo = await pump(tester, LoadingMode.continuous);
+    await toEnd(tester);
+    await toEnd(tester);
+    expect(repo.paths, [null, _next]);
+
+    // A delete rereads the box; its answer is held.
+    final action = Completer<void>();
+    repo.gates.add(action);
+    await tester.tap(find.text('Message 200'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+
+    // Reading the appended row again starts its page's reread, held too.
+    final read = Completer<void>();
+    repo.gates.add(read);
+    await tester.tap(find.text('Message 200'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(repo.paths, [null, _next, null, _next]);
+
+    // The delete's answer drops page 2; reading it on again stays pending.
+    // Its loading row spins, so only bounded frames from here.
+    repo.gates.add(Completer<void>());
+    action.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Message 200'), findsNothing);
+    read.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tester.takeException(), isNull);
+    expect(find.text('Message 200'), findsNothing);
   });
 
   testWidgets('an empty page linking only page 4 is neither empty nor the end',

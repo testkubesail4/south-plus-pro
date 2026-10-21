@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/forum_pm_models.dart';
@@ -72,6 +73,11 @@ class _PmBoxViewState extends State<_PmBoxView> {
   // The page the list starts with, once read.
   ForumPmPage? _first;
   int _reads = 0;
+  // The newest quiet read of each shown page (-1: the first, else the index
+  // of an appended one): only it lands. An accepted write retires them all,
+  // and an explicit load ([_reads]) retires everything quiet.
+  final _quiet = <int, int>{};
+  int _quietCount = 0;
   var _scroll = ScrollController();
   final _leftScrolls = <ScrollController>[];
   late final _more = MorePages<ForumPmPage>(
@@ -183,17 +189,23 @@ class _PmBoxViewState extends State<_PmBoxView> {
     });
   }
 
+  // Coming back keeps the list as left: no skeleton, no transition. Only what
+  // the visit changed on the site is read again, in place.
   Future<void> _openMessage(ForumPmSummary message) async {
+    var read = false;
     final result = await Navigator.of(context).push<ForumPmActionResult>(
       MaterialPageRoute(
         builder: (_) => PmDetailScreen(
           repository: widget.repository,
           message: message,
+          onRead: () => read = true,
         ),
       ),
     );
-    // Incoming detail and chatlog can change read state even after a failed action.
-    if (mounted) await _refresh(result);
+    if (!mounted) return;
+    if (result != null) return _afterAction(result);
+    // Reading an incoming message clears its unread mark on the site.
+    if (read && message.box == ForumPmBox.inbox) await _revalidate(message);
   }
 
   Future<void> _compose() async {
@@ -202,7 +214,82 @@ class _PmBoxViewState extends State<_PmBoxView> {
         builder: (_) => PmComposeScreen(repository: widget.repository),
       ),
     );
-    if (mounted && result != null) await _refresh(result);
+    if (mounted && result != null) await _afterAction(result);
+  }
+
+  /// Reads again the shown page holding [message] and swaps it in place; the
+  /// other pages and the scroll position stay, and a failure keeps the rows.
+  // shortcut: a chatlog read also clears rows on other loaded pages, which
+  // show it at the next refresh; refetch them all if that proves confusing.
+  Future<void> _revalidate(ForumPmSummary message) async {
+    final first = _first;
+    if (first == null) return;
+    final id = _messageIdentity(message);
+    bool holds(ForumPmPage page) => page.messages.any((m) =>
+        identical(m, message) || (id != null && _messageIdentity(m) == id));
+    // -1 is the first shown page.
+    final index = holds(first) ? -1 : _more.pages.indexWhere(holds);
+    if (index == -1 && !holds(first)) return;
+    final path = index < 0
+        ? _pagePath
+        : _more.nextOf(index == 0 ? first : _more.pages[index - 1]);
+    final reads = _reads;
+    final token = _quiet[index] = ++_quietCount;
+    final ForumPmPage page;
+    try {
+      page = await widget.repository.fetchPmBox(_box, pagePath: path);
+    } catch (_) {
+      return;
+    }
+    if (!mounted || reads != _reads || _quiet[index] != token) return;
+    if (index >= _more.pages.length) return;
+    setState(() {
+      if (index < 0) {
+        _showQuietly(page);
+      } else {
+        _more.pages[index] = page;
+      }
+    });
+  }
+
+  /// After an accepted write the box reads its page again, quietly unless the
+  /// site sends it to another box; the pages appended after it are dropped.
+  Future<void> _afterAction(ForumPmActionResult result) async {
+    final box = _box;
+    if (result.refreshPath case final path?) _openPath(path);
+    if (_box != box) {
+      _slide = (_box.index - box.index).sign;
+      return _refresh();
+    }
+    final reads = _reads;
+    final token = ++_quietCount;
+    _quiet
+      ..clear()
+      ..[-1] = token;
+    try {
+      final page =
+          await widget.repository.fetchPmBox(_box, pagePath: _pagePath);
+      if (!mounted || reads != _reads || _quiet[-1] != token) return;
+      setState(() {
+        _more.reset();
+        // Rereads begun since were of pages now gone.
+        _quiet.removeWhere((index, _) => index >= 0);
+        _showQuietly(page);
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+    } catch (error) {
+      if (!mounted || reads != _reads || _quiet[-1] != token) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('短消息刷新失败：${forumErrorText(error)}'),
+      ));
+    }
+  }
+
+  // A settled future: the list swaps its first page without a loading state,
+  // and the switcher id (the load generation) stays, so nothing animates.
+  void _showQuietly(ForumPmPage page) {
+    _first = page;
+    _future = SynchronousFuture(page);
   }
 
   @override
@@ -274,7 +361,7 @@ class _PmBoxViewState extends State<_PmBoxView> {
                             ? 'loading'
                             : snapshot.hasError
                                 ? 'error'
-                                : snapshot.data
+                                : _reads
                       ),
                       direction: _slide,
                       child: !waiting && snapshot.hasError

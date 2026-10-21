@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:south_plus_rewrite/features/common/async_state_view.dart';
+import 'package:south_plus_rewrite/features/common/thread_row.dart';
 import 'package:south_plus_rewrite/features/messages/pm_box_screen.dart';
 import 'package:south_plus_rewrite/features/messages/pm_compose_screen.dart';
 import 'package:south_plus_rewrite/features/messages/pm_detail_screen.dart';
@@ -388,6 +390,221 @@ void main() {
     expect(repository.submits, hasLength(1));
   });
 
+  group('coming back from a message', () {
+    const page2 = 'message.php?action-receivebox-page-2.html';
+    ForumPmSummary inbox(int i, {bool unread = true}) => ForumPmSummary(
+          box: ForumPmBox.inbox,
+          type: ForumPmType.personal,
+          id: '${300 + i}',
+          peer: 'peer-a',
+          title: 'inbox $i',
+          time: '',
+          unread: unread,
+          detailPath: 'message.php?action-read-mid-${300 + i}.html',
+        );
+    ForumPmDetail detailOf(ForumPmSummary message) => ForumPmDetail(
+          summary: message,
+          sender: message.peer,
+          title: message.title,
+          time: '',
+          content: 'body',
+          deletePath: 'message.php?action-del-delids-${message.id}.html',
+        );
+    // While the box answers, the old list stays alone on screen: no skeleton
+    // and no second list fading in or out.
+    void expectListAlone(WidgetTester tester) {
+      expect(
+          find.byType(ThreadListSkeleton, skipOffstage: false), findsNothing);
+      expect(
+          find.byType(RefreshIndicator, skipOffstage: false), findsOneWidget);
+    }
+
+    Future<_FakePmRepository> openBox(WidgetTester tester,
+        {String? initialPath, ForumPmSummary? open}) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repository = _FakePmRepository()
+        ..inboxMessages = [for (var i = 0; i < 20; i++) inbox(i)];
+      await tester.pumpWidget(MaterialApp(
+          home: PmBoxScreen(repository: repository, initialPath: initialPath)));
+      await tester.pumpAndSettle();
+      return repository;
+    }
+
+    testWidgets('a read inbox message refetches its own page in place',
+        (tester) async {
+      final repository = await openBox(tester, initialPath: page2);
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+      final offset = tester
+          .state<ScrollableState>(find.byType(Scrollable).last)
+          .position
+          .pixels;
+      final opened = repository.inboxMessages![8];
+      repository.detail = detailOf(opened);
+      await tester.tap(find.text('inbox 8'));
+      await tester.pumpAndSettle();
+
+      // The site now reports it read; its answer is held.
+      final gate = Completer<void>();
+      repository
+        ..inboxMessages = [
+          for (var i = 0; i < 20; i++) inbox(i, unread: i != 8),
+        ]
+        ..boxGates.add(gate);
+      await tester.pageBack();
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        expectListAlone(tester);
+      }
+      expect(repository.boxRequests, [
+        (ForumPmBox.inbox, page2),
+        (ForumPmBox.inbox, page2),
+      ]);
+      Finder dotOf(String title) => find.descendant(
+          of: find.ancestor(
+              of: find.text(title), matching: find.byType(ForumThreadRow)),
+          matching: find.byIcon(Icons.circle));
+      expect(dotOf('inbox 8'), findsOneWidget);
+
+      gate.complete();
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        expectListAlone(tester);
+      }
+      expect(dotOf('inbox 8'), findsNothing);
+      expect(dotOf('inbox 9'), findsOneWidget);
+      expect(
+          tester
+              .state<ScrollableState>(find.byType(Scrollable).last)
+              .position
+              .pixels,
+          offset);
+      expect(repository.detailCalls, 1);
+    });
+
+    for (final newestFirst in [false, true]) {
+      testWidgets(
+          'the latest of two quiet rereads stands (newest first: $newestFirst)',
+          (tester) async {
+        final repository = await openBox(tester);
+        Finder dot(String title) => find.descendant(
+            of: find.ancestor(
+                of: find.text(title), matching: find.byType(ForumThreadRow)),
+            matching: find.byIcon(Icons.circle));
+        Future<Completer<void>> read(int i, Set<int> readOnSite) async {
+          repository.detail = detailOf(repository.inboxMessages![i]);
+          await tester.tap(find.text('inbox $i'));
+          await tester.pumpAndSettle();
+          final gate = Completer<void>();
+          repository
+            ..inboxMessages = [
+              for (var j = 0; j < 20; j++)
+                inbox(j, unread: !readOnSite.contains(j)),
+            ]
+            ..boxGates.add(gate);
+          await tester.pageBack();
+          await tester.pumpAndSettle();
+          return gate;
+        }
+
+        final older = await read(0, {0});
+        final newer = await read(1, {0, 1});
+        for (final gate in newestFirst ? [newer, older] : [older, newer]) {
+          gate.complete();
+          await tester.pumpAndSettle();
+        }
+        expect(repository.boxRequests, hasLength(3));
+        expect(dot('inbox 0'), findsNothing);
+        expect(dot('inbox 1'), findsNothing);
+        expect(dot('inbox 2'), findsOneWidget);
+      });
+    }
+
+    testWidgets('a failed quiet refetch keeps the rows', (tester) async {
+      final repository = await openBox(tester);
+      repository.detail = detailOf(repository.inboxMessages!.first);
+      await tester.tap(find.text('inbox 0'));
+      await tester.pumpAndSettle();
+      repository.boxError = const ForumRequestException(
+          ForumRequestKind.network, 'Fixture failure');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(repository.boxRequests, hasLength(2));
+      expect(find.text('inbox 0'), findsOneWidget);
+      expect(find.text('短消息加载失败'), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('a failed detail and the sent boxes read nothing again',
+        (tester) async {
+      final repository = await openBox(tester)
+        ..detailFailure = true;
+      await tester.tap(find.text('inbox 0'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(repository.boxRequests, [(ForumPmBox.inbox, null)]);
+
+      repository
+        ..detailFailure = false
+        ..detail = detailOf(_tracked);
+      await tester.tap(find.text('跟踪'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('tracked title'));
+      await tester.pumpAndSettle();
+      expect(repository.detailCalls, 2);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(repository.boxRequests,
+          [(ForumPmBox.inbox, null), (ForumPmBox.scout, null)]);
+      expectListAlone(tester);
+    });
+
+    testWidgets('a delete rereads the box quietly and reports a failure',
+        (tester) async {
+      final repository = await openBox(tester);
+      repository.detail = detailOf(repository.inboxMessages!.first);
+      await tester.tap(find.text('inbox 0'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      repository.boxError = const ForumRequestException(
+          ForumRequestKind.network, 'Fixture failure');
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      await tester.pumpAndSettle();
+      expect(repository.deletes, 1);
+      expect(repository.boxRequests, hasLength(2));
+      // It follows the delete's own confirmation.
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('短消息刷新失败'), findsOneWidget);
+      expectListAlone(tester);
+    });
+
+    testWidgets('an answer after the account changed shows nothing',
+        (tester) async {
+      final repository = await openBox(tester);
+      repository.detail = detailOf(repository.inboxMessages!.first);
+      await tester.tap(find.text('inbox 0'));
+      await tester.pumpAndSettle();
+      final gate = Completer<void>();
+      repository.boxGates.add(gate);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      // The epoch moves at once; the client's own cleanup is not awaited.
+      repository.clearSession().ignore();
+      await tester.pump();
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('inbox', skipOffstage: false), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   testWidgets('profile message chip opens the server compose entry',
       (tester) async {
     final repository = _FakePmRepository();
@@ -415,6 +632,11 @@ class _FakePmRepository extends ForumRepository {
   final submits = <(String, String, String, bool)>[];
   final submitResult = Completer<ForumPmActionResult>();
   ForumPmDetail? detail;
+  bool detailFailure = false;
+  // Each box read waits for the next queued gate, if any, and answers with
+  // the inbox as it was when asked; [boxError] fails every read from now on.
+  final boxGates = <Completer<void>>[];
+  Object? boxError;
   bool editCompose = false;
   bool unreadFailure = false;
   List<ForumPmSummary>? inboxMessages;
@@ -428,10 +650,13 @@ class _FakePmRepository extends ForumRepository {
   @override
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
     boxRequests.add((box, pagePath));
+    final messages = inboxMessages;
+    if (boxGates.isNotEmpty) await boxGates.removeAt(0).future;
+    if (boxError case final error?) throw error;
     return switch (box) {
       ForumPmBox.inbox => ForumPmPage(
           box: ForumPmBox.inbox,
-          messages: inboxMessages ?? const [_broadcast, _personal],
+          messages: messages ?? const [_broadcast, _personal],
           pageLinks: [
             ForumPmPageLink(
                 label: '2', path: 'message.php?action-receivebox-page-2.html')
@@ -445,6 +670,10 @@ class _FakePmRepository extends ForumRepository {
   @override
   Future<ForumPmDetail> fetchPmDetail(ForumPmSummary message) async {
     detailCalls++;
+    if (detailFailure) {
+      throw const ForumRequestException(
+          ForumRequestKind.network, 'Fixture failure');
+    }
     return detail!;
   }
 

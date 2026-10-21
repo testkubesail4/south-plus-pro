@@ -22,24 +22,37 @@ class PmDetailScreen extends StatelessWidget {
     super.key,
     required this.repository,
     required this.message,
+    this.onRead,
   });
 
   final ForumRepository repository;
   final ForumPmSummary message;
 
+  /// Called each time the message itself loads, which reads it on the site.
+  final VoidCallback? onRead;
+
   @override
   Widget build(BuildContext context) => SessionBound(
         repository: repository,
         title: '短消息',
-        child: _PmDetailView(repository: repository, message: message),
+        child: _PmDetailView(
+          repository: repository,
+          message: message,
+          onRead: onRead,
+        ),
       );
 }
 
 class _PmDetailView extends StatefulWidget {
-  const _PmDetailView({required this.repository, required this.message});
+  const _PmDetailView({
+    required this.repository,
+    required this.message,
+    this.onRead,
+  });
 
   final ForumRepository repository;
   final ForumPmSummary message;
+  final VoidCallback? onRead;
 
   @override
   State<_PmDetailView> createState() => _PmDetailViewState();
@@ -50,7 +63,10 @@ class _PmDetailViewState extends State<_PmDetailView> {
   bool _busy = false;
 
   Future<ForumPmDetail> _fetch() =>
-      widget.repository.fetchPmDetail(widget.message);
+      widget.repository.fetchPmDetail(widget.message).then((detail) {
+        widget.onRead?.call();
+        return detail;
+      });
 
   void _retry() => setState(() {
         _future = _fetch();
