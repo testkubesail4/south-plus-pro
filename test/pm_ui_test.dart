@@ -420,7 +420,7 @@ void main() {
     }
 
     Future<_FakePmRepository> openBox(WidgetTester tester,
-        {String? initialPath, ForumPmSummary? open}) async {
+        {String? initialPath}) async {
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -537,7 +537,7 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
     });
 
-    testWidgets('a failed detail and the sent boxes read nothing again',
+    testWidgets('a failed detail and the outgoing boxes read nothing again',
         (tester) async {
       final repository = await openBox(tester)
         ..detailFailure = true;
@@ -547,19 +547,25 @@ void main() {
       await tester.pumpAndSettle();
       expect(repository.boxRequests, [(ForumPmBox.inbox, null)]);
 
-      repository
-        ..detailFailure = false
-        ..detail = detailOf(_tracked);
-      await tester.tap(find.text('跟踪'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('tracked title'));
-      await tester.pumpAndSettle();
-      expect(repository.detailCalls, 2);
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      expect(repository.boxRequests,
-          [(ForumPmBox.inbox, null), (ForumPmBox.scout, null)]);
-      expectListAlone(tester);
+      repository.detailFailure = false;
+      for (final (label, box) in [
+        ('发件箱', ForumPmBox.sendbox),
+        ('跟踪', ForumPmBox.scout),
+      ]) {
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        final asked = repository.boxRequests.length;
+        expect(repository.boxRequests.last, (box, null));
+        // The fake lists one outgoing row in either box.
+        repository.detail = detailOf(_tracked);
+        await tester.tap(find.text('tracked title'));
+        await tester.pumpAndSettle();
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        expect(repository.boxRequests, hasLength(asked), reason: label);
+        expectListAlone(tester);
+      }
+      expect(repository.detailCalls, 3);
     });
 
     testWidgets('a delete rereads the box quietly and reports a failure',

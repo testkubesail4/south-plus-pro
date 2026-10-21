@@ -266,21 +266,27 @@ class _PmBoxViewState extends State<_PmBoxView> {
     _quiet
       ..clear()
       ..[-1] = token;
+    ForumPmPage? page;
+    Object? failure;
     try {
-      final page =
-          await widget.repository.fetchPmBox(_box, pagePath: _pagePath);
-      if (!mounted || reads != _reads || _quiet[-1] != token) return;
-      setState(() {
-        _more.reset();
-        // Rereads begun since were of pages now gone.
-        _quiet.removeWhere((index, _) => index >= 0);
-        _showQuietly(page);
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+      page = await widget.repository.fetchPmBox(_box, pagePath: _pagePath);
     } catch (error) {
-      if (!mounted || reads != _reads || _quiet[-1] != token) return;
+      failure = error;
+    }
+    if (!mounted || reads != _reads) return;
+    setState(() {
+      // The write moved the rows after the first page, so they go however
+      // the reread ends, even when a newer reread of the first page has the
+      // last word; rereads of them, and pages appended since, go too. Until
+      // now they stayed on screen, so the list did not jump.
+      _more.reset();
+      _quiet.removeWhere((index, _) => index >= 0);
+      if (page != null && _quiet[-1] == token) _showQuietly(page);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
+    if (failure != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('短消息刷新失败：${forumErrorText(error)}'),
+        content: Text('短消息刷新失败：${forumErrorText(failure)}'),
       ));
     }
   }

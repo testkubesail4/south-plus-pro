@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/messages/pm_box_screen.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/services/loading_preferences.dart';
 
 // Synthetic messages only: 12 a page; page 2 repeats one row of page 1.
@@ -23,8 +24,10 @@ ForumPmSummary _message(String id) => ForumPmSummary(
 
 class _Repo extends ForumRepository {
   final paths = <String?>[];
-  // Each box read waits for the next queued gate, if any.
+  // Each box read waits for the next queued gate, if any, and fails if the
+  // gate is one of [failing].
   final gates = <Completer<void>>[];
+  final failing = <Completer<void>>{};
 
   @override
   Future<ForumPmDetail> fetchPmDetail(ForumPmSummary message) async =>
@@ -36,10 +39,16 @@ class _Repo extends ForumRepository {
           content: 'body',
           deletePath: 'message.php?action-del-delids-${message.id}.html');
 
+  // Deleted on the site: no later page holds them.
+  final deleted = <String>{};
+
   @override
   Future<ForumPmActionResult> deletePm(ForumPmSummary message,
-          {ForumPmDetail? detail}) async =>
-      const ForumPmActionResult(message: 'deleted');
+      {ForumPmDetail? detail}) async {
+    deleted.add(message.id);
+    return const ForumPmActionResult(message: 'deleted');
+  }
+
   // Page 1 holds no message, yet links page 2.
   bool emptyFirst = false;
   // Page 1 holds no message and links page 4 only, not page 2.
@@ -48,7 +57,14 @@ class _Repo extends ForumRepository {
   @override
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
     paths.add(pagePath);
-    if (gates.isNotEmpty) await gates.removeAt(0).future;
+    if (gates.isNotEmpty) {
+      final gate = gates.removeAt(0);
+      await gate.future;
+      if (failing.contains(gate)) {
+        throw const ForumRequestException(
+            ForumRequestKind.network, 'Fixture failure');
+      }
+    }
     if (sparse) {
       return ForumPmPage(box: box, messages: const [], pageLinks: const [
         ForumPmPageLink(
@@ -73,7 +89,10 @@ class _Repo extends ForumRepository {
                   label: '上一页',
                   path: 'message.php?action-receivebox-page-1.html'),
             ],
-            messages: [_message('111'), _message('200')],
+            messages: [
+              for (final id in ['111', '200'])
+                if (!deleted.contains(id)) _message(id),
+            ],
           );
   }
 }
@@ -204,6 +223,56 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Message 200'), findsNothing);
   });
+
+  for (final (readFirst, actionFails) in [
+    (false, false),
+    (true, false),
+    (false, true),
+    (true, true),
+  ]) {
+    testWidgets(
+        'a delete drops the appended pages though a later reread wins '
+        '(read answers first: $readFirst, reread fails: $actionFails)',
+        (tester) async {
+      final repo = await pump(tester, LoadingMode.continuous);
+      await toEnd(tester);
+      await toEnd(tester);
+
+      final action = Completer<void>();
+      repo.gates.add(action);
+      if (actionFails) repo.failing.add(action);
+      await tester.tap(find.text('Message 200'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      await tester.pumpAndSettle();
+
+      // A row of the first page is read meanwhile; its reread is held too.
+      final read = Completer<void>();
+      repo.gates.add(read);
+      await tester.tap(find.text('Message 111'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(repo.paths, [null, _next, null, null]);
+
+      for (final gate in readFirst ? [read, action] : [action, read]) {
+        gate.complete();
+        await tester.pumpAndSettle();
+      }
+      await toEnd(tester);
+      expect(find.text('Message 200', skipOffstage: false), findsNothing);
+      expect(find.text('Message 111', skipOffstage: false), findsOneWidget);
+      // Past the delete's own confirmation.
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('短消息刷新失败'),
+          actionFails ? findsOneWidget : findsNothing);
+    });
+  }
 
   testWidgets('an empty page linking only page 4 is neither empty nor the end',
       (tester) async {
