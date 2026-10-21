@@ -696,6 +696,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
               extent: _BoardToolbar.extentFor(context),
               child: _BoardToolbar(
                 filters: filters,
+                rangeFilters: shown?.rangeFilters ?? const [],
                 activeUrl: _activeFilterUrl,
                 onFilter: _changeFilter,
                 order: _order,

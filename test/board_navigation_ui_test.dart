@@ -42,9 +42,13 @@ final _type = _filter('Type one', ForumBoardFilterKind.topicType,
     'thread.php?fid-901-type-1.html');
 final _vote = _filter(
     '投票', ForumBoardFilterKind.special, 'thread.php?fid-901-special-1.html');
+final _week = _filter(
+    '1星期内的主题', ForumBoardFilterKind.range, 'thread.php?fid-901-search-7.html');
+final _digestRange = _filter('本版精华区', ForumBoardFilterKind.digest, _digest.url);
 
 class _Repo extends ForumRepository {
   final requests = <(String, int, ForumBoardFilter?)>[];
+  final orders = <ForumThreadOrder>[];
   ForumBoardFilter? deepLinkFilter;
 
   @override
@@ -55,6 +59,7 @@ class _Repo extends ForumRepository {
     ForumBoardFilter? filter,
   }) async {
     requests.add((category.slug, page, filter));
+    orders.add(order);
     if (category.slug == _hub.slug) {
       return ForumThreadPage(
         threads: [_topic('Hub notice', sticky: true)],
@@ -79,6 +84,7 @@ class _Repo extends ForumRepository {
       boardName: name,
       filters: [_all, _digest, _type, _vote],
       activeFilter: filter ?? deepLinkFilter ?? _all,
+      rangeFilters: name == 'Child A' ? [_digestRange, _week] : const [],
       hasPictureWall: name == 'Child A',
       parents: const [_hub],
     );
@@ -240,6 +246,90 @@ void main() {
     await tester.pumpAndSettle();
     expect(repo.requests.last, ('fid-901', 1, _all));
     expect(repo.requests.length, 4);
+  });
+
+  testWidgets('the native time range combines with sort and tabs',
+      (tester) async {
+    final repo = _Repo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    );
+    final range = find.byKey(const ValueKey('board-range-button'));
+    expect(find.descendant(of: range, matching: find.text('全部时间')),
+        findsOneWidget);
+
+    await tester.tap(find.byTooltip('下一页'));
+    await tester.pumpAndSettle();
+    await tester.tap(range);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1星期内的主题'));
+    await tester.pumpAndSettle();
+    expect(repo.requests.last, ('fid-901', 1, _week));
+    expect(find.descendant(of: range, matching: find.text('1星期内')),
+        findsOneWidget);
+    expect(_selected(tester, '全部'), isFalse);
+
+    // Sort keeps the range, as the site's next-page links do.
+    await tester.tap(find.byKey(const ValueKey('board-order-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('人气'));
+    await tester.pumpAndSettle();
+    expect(repo.requests.last, ('fid-901', 1, _week));
+    expect(repo.orders.last, ForumThreadOrder.hits);
+
+    // 本版精华区 is the 精华 tab.
+    await tester.tap(range);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本版精华区'));
+    await tester.pumpAndSettle();
+    expect(repo.requests.last.$3?.url, _digest.url);
+    expect(_selected(tester, '精华'), isTrue);
+
+    await tester.tap(range);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全部时间').last);
+    await tester.pumpAndSettle();
+    expect(repo.requests.last, ('fid-901', 1, _all));
+    expect(repo.orders.last, ForumThreadOrder.hits);
+    expect(_selected(tester, '全部'), isTrue);
+  });
+
+  testWidgets('a deep-linked range shows on the range button', (tester) async {
+    final repo = _Repo()..deepLinkFilter = _week;
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category: const ForumCategory(
+          name: '',
+          slug: 'fid-901',
+          url: 'https://south-plus.net/thread.php?fid-901-search-7.html',
+        ),
+        repository: repo,
+      ),
+    );
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('board-range-button')),
+            matching: find.text('1星期内')),
+        findsOneWidget);
+  });
+
+  testWidgets('boards without the native range select have no range button',
+      (tester) async {
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category:
+            ForumCategory(name: 'Child B', slug: 'fid-902', url: _url(902)),
+        repository: _Repo(),
+      ),
+    );
+    expect(find.byKey(const ValueKey('board-range-button')), findsNothing);
   });
 
   testWidgets('the pager picks any page from the shared page sheet',

@@ -495,11 +495,13 @@ class _SiblingPanel extends StatelessWidget {
   }
 }
 
-/// Filter tabs (全部 · 精华 · topic types | special types), then sort and the
-/// list/picture-wall switch. [wall] is null when the board has no wall.
+/// Filter tabs (全部 · 精华 · topic types | special types), then the native
+/// time range, sort and the list/picture-wall switch. [wall] is null when the
+/// board has no wall.
 class _BoardToolbar extends StatelessWidget {
   const _BoardToolbar({
     required this.filters,
+    required this.rangeFilters,
     required this.activeUrl,
     required this.onFilter,
     required this.order,
@@ -509,6 +511,7 @@ class _BoardToolbar extends StatelessWidget {
   });
 
   final List<ForumBoardFilter> filters;
+  final List<ForumBoardFilter> rangeFilters;
   final String? activeUrl;
   final ValueChanged<ForumBoardFilter> onFilter;
   final ForumThreadOrder order;
@@ -548,6 +551,9 @@ class _BoardToolbar extends StatelessWidget {
     if (tabs.isEmpty) {
       tabs.add(const _FilterTab(label: '全部主题', selected: true));
     }
+    final allTab =
+        filters.where((f) => f.kind == ForumBoardFilterKind.all).firstOrNull;
+    final range = rangeFilters.where((f) => f.url == activeUrl).firstOrNull;
     return Row(
       children: [
         Expanded(
@@ -565,6 +571,29 @@ class _BoardToolbar extends StatelessWidget {
             ),
           ),
         ),
+        // The site's own range select; 本版精华区 shares the 精华 tab's url.
+        if (rangeFilters.isNotEmpty)
+          PopupMenuButton<ForumBoardFilter>(
+            key: const ValueKey('board-range-button'),
+            tooltip: '时间范围',
+            initialValue: range ??
+                (activeUrl == null || activeUrl == allTab?.url ? allTab : null),
+            onSelected: onFilter,
+            itemBuilder: (context) => [
+              if (allTab != null)
+                PopupMenuItem(value: allTab, child: const Text('全部时间')),
+              for (final value in rangeFilters)
+                PopupMenuItem(value: value, child: Text(value.label)),
+            ],
+            child: _ToolbarMenuLabel(
+              icon: Icons.schedule,
+              label: range == null
+                  ? '全部时间'
+                  : range.label.replaceFirst(RegExp(r'的主题$'), ''),
+              active: range != null,
+              compact: compact,
+            ),
+          ),
         PopupMenuButton<ForumThreadOrder>(
           key: const ValueKey('board-order-button'),
           tooltip: '排序',
@@ -574,24 +603,10 @@ class _BoardToolbar extends StatelessWidget {
             for (final value in ForumThreadOrder.values)
               PopupMenuItem(value: value, child: Text(_orderLabel(value))),
           ],
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 48),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.sort, size: 18, color: AppColors.textMuted),
-                  if (!compact) ...[
-                    const SizedBox(width: 4),
-                    Text(
-                      _orderLabel(order),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ],
-              ),
-            ),
+          child: _ToolbarMenuLabel(
+            icon: Icons.sort,
+            label: _orderLabel(order),
+            compact: compact,
           ),
         ),
         if (wall != null)
@@ -605,6 +620,48 @@ class _BoardToolbar extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// A toolbar menu's face: its icon, and its current choice unless [compact].
+class _ToolbarMenuLabel extends StatelessWidget {
+  const _ToolbarMenuLabel({
+    required this.icon,
+    required this.label,
+    required this.compact,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool compact;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppColors.text : AppColors.textMuted;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            if (!compact) ...[
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: active ? AppColors.text : null,
+                      fontWeight: active ? FontWeight.w600 : null,
+                    ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
