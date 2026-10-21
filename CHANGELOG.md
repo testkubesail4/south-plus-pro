@@ -4,6 +4,7 @@ South Plus Pro keeps release notes in `docs/releases/`. The release workflow use
 
 ## Releases
 
+- [v0.1.24](docs/releases/v0.1.24.md)
 - [v0.1.23](docs/releases/v0.1.23.md)
 - [v0.1.22](docs/releases/v0.1.22.md)
 - [v0.1.21](docs/releases/v0.1.21.md)
