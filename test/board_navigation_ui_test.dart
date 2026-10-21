@@ -486,4 +486,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a small phone keeps room for the filter tabs', (tester) async {
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: _Repo()..deepLinkFilter = _week,
+      ),
+      size: const Size(320, 600),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('board-range-button')), findsOneWidget);
+    expect(
+        tester.getSize(find.byType(ShaderMask).first).width, greaterThan(120));
+  });
 }

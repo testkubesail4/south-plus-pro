@@ -528,8 +528,9 @@ class _BoardToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Large text keeps the width for the filter tabs.
-    final compact = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    // Large text and small phones keep the width for the filter tabs.
+    final compact = MediaQuery.textScalerOf(context).scale(1) > 1.3 ||
+        MediaQuery.sizeOf(context).width < 360;
     final tabs = <Widget>[];
     for (final (i, filter) in filters.indexed) {
       if (i > 0 &&
@@ -562,7 +563,7 @@ class _BoardToolbar extends StatelessWidget {
             blendMode: BlendMode.dstIn,
             shaderCallback: (rect) => LinearGradient(
               colors: const [Colors.black, Colors.black, Colors.transparent],
-              stops: [0, 1 - 40 / rect.width, 1],
+              stops: [0, math.max(0, 1 - 40 / rect.width), 1],
             ).createShader(rect),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
