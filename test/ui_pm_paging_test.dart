@@ -53,6 +53,8 @@ class _Repo extends ForumRepository {
   bool emptyFirst = false;
   // Page 1 holds no message and links page 4 only, not page 2.
   bool sparse = false;
+  // Whether page 1 names page 2 as next.
+  bool firstHasNext = true;
 
   @override
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
@@ -79,7 +81,7 @@ class _Repo extends ForumRepository {
               if (!emptyFirst)
                 for (var i = 0; i < 12; i++) _message('${100 + i}'),
             ],
-            nextPagePath: _next,
+            nextPagePath: firstHasNext ? _next : null,
           )
         : ForumPmPage(
             box: box,
@@ -273,6 +275,64 @@ void main() {
           actionFails ? findsOneWidget : findsNothing);
     });
   }
+
+  for (final olderFails in [false, true]) {
+    testWidgets(
+        'an older delete settling last leaves the newer one\'s pages '
+        '(its reread fails: $olderFails)', (tester) async {
+      final repo = await pump(tester, LoadingMode.continuous);
+      await toEnd(tester);
+      await toEnd(tester);
+      Future<void> delete(String title) async {
+        await tester.tap(find.text(title));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('更多'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('删除'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, '删除'));
+        await tester.pumpAndSettle();
+      }
+
+      final older = Completer<void>();
+      repo.gates.add(older);
+      if (olderFails) repo.failing.add(older);
+      await delete('Message 200');
+      // The newer delete's reread answers at once and page 2 reads on afresh.
+      await delete('Message 111');
+      await toEnd(tester);
+      expect(repo.paths, [null, _next, null, null, _next]);
+      expect(find.text('第 2 页'), findsOneWidget);
+
+      older.complete();
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+      expect(repo.paths, hasLength(5));
+      expect(find.text('第 2 页'), findsOneWidget);
+      expect(find.textContaining('短消息刷新失败'), findsNothing);
+    });
+  }
+
+  testWidgets('an appended page whose path is gone is not reread as page 1',
+      (tester) async {
+    final repo = await pump(tester, LoadingMode.continuous);
+    await toEnd(tester);
+    await toEnd(tester);
+    // Page 1, read again, no longer names page 2.
+    repo.firstHasNext = false;
+    await tester.tap(find.text('Message 111'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(repo.paths, [null, _next, null]);
+
+    await tester.tap(find.text('Message 200'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(repo.paths, [null, _next, null]);
+    expect(find.text('Message 200'), findsOneWidget);
+  });
 
   testWidgets('an empty page linking only page 4 is neither empty nor the end',
       (tester) async {

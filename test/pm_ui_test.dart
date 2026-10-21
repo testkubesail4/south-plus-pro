@@ -568,6 +568,47 @@ void main() {
       expect(repository.detailCalls, 3);
     });
 
+    for (final readFirst in [false, true]) {
+      testWidgets(
+          'a delete\'s reread stands over a later reread that failed '
+          '(read answers first: $readFirst)', (tester) async {
+        final repository = await openBox(tester);
+        final deleted = repository.inboxMessages!.first;
+        repository.detail = detailOf(deleted);
+        await tester.tap(find.text('inbox 0'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('更多'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('删除'));
+        await tester.pumpAndSettle();
+        final action = Completer<void>();
+        repository
+          ..inboxMessages = [for (var i = 1; i < 20; i++) inbox(i)]
+          ..boxGates.add(action);
+        await tester.tap(find.widgetWithText(FilledButton, '删除'));
+        await tester.pumpAndSettle();
+
+        repository.detail = detailOf(repository.inboxMessages!.first);
+        await tester.tap(find.text('inbox 1'));
+        await tester.pumpAndSettle();
+        final read = Completer<void>();
+        repository
+          ..boxGates.add(read)
+          ..failingGates.add(read);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        expect(find.text('inbox 0'), findsOneWidget);
+
+        for (final gate in readFirst ? [read, action] : [action, read]) {
+          gate.complete();
+          await tester.pumpAndSettle();
+        }
+        expect(find.text('inbox 0', skipOffstage: false), findsNothing);
+        expect(find.text('inbox 1'), findsOneWidget);
+        expectListAlone(tester);
+      });
+    }
+
     testWidgets('a delete rereads the box quietly and reports a failure',
         (tester) async {
       final repository = await openBox(tester);
@@ -589,6 +630,136 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('短消息刷新失败'), findsOneWidget);
       expectListAlone(tester);
+    });
+
+    for (final (label, box) in [
+      ('发件箱', ForumPmBox.sendbox),
+      ('跟踪', ForumPmBox.scout),
+    ]) {
+      testWidgets('a delete whose answer was lost rereads $label',
+          (tester) async {
+        final repository = await openBox(tester)
+          ..deleteLost = true;
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        repository.detail = detailOf(_tracked);
+        await tester.tap(find.text('tracked title'));
+        await tester.pumpAndSettle();
+        // Cancelling the confirmation writes nothing.
+        await tester.tap(find.byTooltip('更多'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('删除'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('更多'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('删除'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, '删除'));
+        await tester.pumpAndSettle();
+        expect(find.text('网络失败'), findsOneWidget);
+        final asked = repository.boxRequests.length;
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        expect(repository.boxRequests, hasLength(asked + 1));
+        expect(repository.boxRequests.last, (box, null));
+        expect(find.text('tracked title'), findsNothing);
+        expect(find.byType(ThreadListSkeleton), findsNothing);
+      });
+    }
+
+    testWidgets('a failed reread of a write\'s page keeps the shown page',
+        (tester) async {
+      final repository = await openBox(tester, initialPath: page2)
+        ..deleteRefreshPath = 'message.php?action=receivebox';
+      repository.detail = detailOf(repository.inboxMessages!.first);
+      await tester.tap(find.text('inbox 0'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      final action = Completer<void>();
+      repository
+        ..boxGates.add(action)
+        ..failingGates.add(action);
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      await tester.pumpAndSettle();
+      action.complete();
+      await tester.pumpAndSettle();
+      expect(repository.boxRequests.last,
+          (ForumPmBox.inbox, 'message.php?action=receivebox'));
+
+      // Page 2 still shows, so reading its row rereads page 2.
+      repository.detail = detailOf(repository.inboxMessages![1]);
+      await tester.tap(find.text('inbox 1'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(repository.boxRequests.last, (ForumPmBox.inbox, page2));
+    });
+
+    testWidgets('a late first load cannot replace a write\'s newer page',
+        (tester) async {
+      final repository = _FakePmRepository()..inboxMessages = [inbox(0)];
+      final initial = Completer<void>();
+      repository.boxGates.add(initial);
+      await tester
+          .pumpWidget(MaterialApp(home: PmBoxScreen(repository: repository)));
+      await tester.pump();
+      expect(find.byType(ThreadListSkeleton), findsOneWidget);
+
+      // A message sent meanwhile rereads the box, which now holds it.
+      repository.inboxMessages = [inbox(0), inbox(1)];
+      await tester.tap(find.byTooltip('写消息'));
+      await tester.pumpAndSettle();
+      final submit = find.byKey(const ValueKey('pm-submit-button'));
+      await tester.enterText(find.byType(TextField).at(0), '101');
+      await tester.enterText(find.byType(TextField).at(1), 'hello');
+      await tester.enterText(find.byType(TextField).at(2), 'body');
+      await tester.scrollUntilVisible(submit, 200,
+          scrollable: find
+              .descendant(
+                  of: find.byType(PmComposeScreen),
+                  matching: find.byType(Scrollable))
+              .first);
+      await tester.tap(submit);
+      await tester.pump();
+      repository.submitResult
+          .complete(const ForumPmActionResult(message: 'sent'));
+      await tester.pumpAndSettle();
+      expect(find.text('inbox 1'), findsOneWidget);
+
+      initial.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('inbox 1'), findsOneWidget);
+      // The page behind the list is the newer one: reading its new row
+      // rereads it.
+      repository.detail = detailOf(inbox(1));
+      final asked = repository.boxRequests.length;
+      await tester.tap(find.text('inbox 1'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(repository.boxRequests, hasLength(asked + 1));
+    });
+
+    testWidgets('an answer after a box switch lands nowhere', (tester) async {
+      final repository = await openBox(tester);
+      repository.detail = detailOf(repository.inboxMessages!.first);
+      await tester.tap(find.text('inbox 0'));
+      await tester.pumpAndSettle();
+      final gate = Completer<void>();
+      repository.boxGates.add(gate);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('跟踪'));
+      await tester.pumpAndSettle();
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('tracked title'), findsOneWidget);
+      expect(find.textContaining('inbox', skipOffstage: false), findsNothing);
     });
 
     testWidgets('an answer after the account changed shows nothing',
@@ -642,6 +813,7 @@ class _FakePmRepository extends ForumRepository {
   // Each box read waits for the next queued gate, if any, and answers with
   // the inbox as it was when asked; [boxError] fails every read from now on.
   final boxGates = <Completer<void>>[];
+  final failingGates = <Completer<void>>{};
   Object? boxError;
   bool editCompose = false;
   bool unreadFailure = false;
@@ -649,6 +821,9 @@ class _FakePmRepository extends ForumRepository {
   int detailCalls = 0;
   int unreadCalls = 0;
   int deletes = 0;
+  bool deleteLost = false;
+  String? deleteRefreshPath;
+  List<ForumPmSummary> outgoingMessages = const [_tracked];
 
   @override
   bool get isLoggedIn => true;
@@ -657,7 +832,14 @@ class _FakePmRepository extends ForumRepository {
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
     boxRequests.add((box, pagePath));
     final messages = inboxMessages;
-    if (boxGates.isNotEmpty) await boxGates.removeAt(0).future;
+    if (boxGates.isNotEmpty) {
+      final gate = boxGates.removeAt(0);
+      await gate.future;
+      if (failingGates.contains(gate)) {
+        throw const ForumRequestException(
+            ForumRequestKind.network, 'Fixture failure');
+      }
+    }
     if (boxError case final error?) throw error;
     return switch (box) {
       ForumPmBox.inbox => ForumPmPage(
@@ -669,7 +851,7 @@ class _FakePmRepository extends ForumRepository {
           ],
           hasUnread: true,
         ),
-      _ => ForumPmPage(box: box, messages: const [_tracked]),
+      _ => ForumPmPage(box: box, messages: outgoingMessages),
     };
   }
 
@@ -724,7 +906,14 @@ class _FakePmRepository extends ForumRepository {
     ForumPmDetail? detail,
   }) async {
     deletes++;
-    return const ForumPmActionResult(message: 'deleted');
+    if (deleteLost) {
+      // The site deleted it, but the answer never arrived.
+      outgoingMessages = const [];
+      throw const ForumRequestException(
+          ForumRequestKind.network, 'Fixture failure');
+    }
+    return ForumPmActionResult(
+        message: 'deleted', refreshPath: deleteRefreshPath);
   }
 
   @override

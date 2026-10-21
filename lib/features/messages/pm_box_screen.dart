@@ -73,11 +73,17 @@ class _PmBoxViewState extends State<_PmBoxView> {
   // The page the list starts with, once read.
   ForumPmPage? _first;
   int _reads = 0;
-  // The newest quiet read of each shown page (-1: the first, else the index
-  // of an appended one): only it lands. An accepted write retires them all,
-  // and an explicit load ([_reads]) retires everything quiet.
-  final _quiet = <int, int>{};
+  // Quiet rereads are numbered as they start. One lands on its page (-1: the
+  // first, else the index of an appended one) only if no later-started one
+  // has landed there, so newer data always wins and a newer reread that
+  // fails hides nothing. Rereads of appended pages numbered up to [_dropped]
+  // read pages a write has since dropped; an explicit load ([_reads])
+  // retires everything quiet.
+  final _landed = <int, int>{};
   int _quietCount = 0;
+  int _dropped = 0;
+  // The newest accepted write; an older one's reread settles to nothing.
+  int _actions = 0;
   var _scroll = ScrollController();
   final _leftScrolls = <ScrollController>[];
   late final _more = MorePages<ForumPmPage>(
@@ -134,8 +140,10 @@ class _PmBoxViewState extends State<_PmBoxView> {
     final read = ++_reads;
     _first = null;
     _more.reset();
+    final landed = _landed[-1];
     return widget.repository.fetchPmBox(_box, pagePath: _pagePath).then((page) {
-      if (mounted && read == _reads) {
+      // A write's reread may already have put a newer page in its place.
+      if (mounted && read == _reads && _landed[-1] == landed) {
         _first = page;
         // A page too short to scroll reads on by itself.
         WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
@@ -193,17 +201,20 @@ class _PmBoxViewState extends State<_PmBoxView> {
   // the visit changed on the site is read again, in place.
   Future<void> _openMessage(ForumPmSummary message) async {
     var read = false;
+    var wrote = false;
     final result = await Navigator.of(context).push<ForumPmActionResult>(
       MaterialPageRoute(
         builder: (_) => PmDetailScreen(
           repository: widget.repository,
           message: message,
           onRead: () => read = true,
+          onWrite: () => wrote = true,
         ),
       ),
     );
     if (!mounted) return;
-    if (result != null) return _afterAction(result);
+    // A write that failed may still have reached the site.
+    if (result != null || wrote) return _afterAction(result);
     // Reading an incoming message clears its unread mark on the site.
     if (read && message.box == ForumPmBox.inbox) await _revalidate(message);
   }
@@ -233,19 +244,24 @@ class _PmBoxViewState extends State<_PmBoxView> {
     final path = index < 0
         ? _pagePath
         : _more.nextOf(index == 0 ? first : _more.pages[index - 1]);
+    // No path is the first page, never an appended one's.
+    if (index >= 0 && path == null) return;
     final reads = _reads;
-    final token = _quiet[index] = ++_quietCount;
+    final token = ++_quietCount;
     final ForumPmPage page;
     try {
       page = await widget.repository.fetchPmBox(_box, pagePath: path);
     } catch (_) {
       return;
     }
-    if (!mounted || reads != _reads || _quiet[index] != token) return;
-    if (index >= _more.pages.length) return;
+    if (!mounted || reads != _reads || token < (_landed[index] ?? 0)) return;
+    if (index >= 0 && (token <= _dropped || index >= _more.pages.length)) {
+      return;
+    }
     setState(() {
+      _landed[index] = token;
       if (index < 0) {
-        _showQuietly(page);
+        _showQuietly(page, path);
       } else {
         _more.pages[index] = page;
       }
@@ -254,34 +270,38 @@ class _PmBoxViewState extends State<_PmBoxView> {
 
   /// After an accepted write the box reads its page again, quietly unless the
   /// site sends it to another box; the pages appended after it are dropped.
-  Future<void> _afterAction(ForumPmActionResult result) async {
-    final box = _box;
-    if (result.refreshPath case final path?) _openPath(path);
+  Future<void> _afterAction(ForumPmActionResult? result) async {
+    final (box, shownPath) = (_box, _pagePath);
+    if (result?.refreshPath case final path?) _openPath(path);
     if (_box != box) {
       _slide = (_box.index - box.index).sign;
       return _refresh();
     }
+    // The list keeps the page it shows until the site's answer replaces it.
+    final path = _pagePath;
+    _pagePath = shownPath;
     final reads = _reads;
+    final action = ++_actions;
     final token = ++_quietCount;
-    _quiet
-      ..clear()
-      ..[-1] = token;
     ForumPmPage? page;
     Object? failure;
     try {
-      page = await widget.repository.fetchPmBox(_box, pagePath: _pagePath);
+      page = await widget.repository.fetchPmBox(_box, pagePath: path);
     } catch (error) {
       failure = error;
     }
-    if (!mounted || reads != _reads) return;
+    if (!mounted || reads != _reads || action != _actions) return;
     setState(() {
       // The write moved the rows after the first page, so they go however
-      // the reread ends, even when a newer reread of the first page has the
-      // last word; rereads of them, and pages appended since, go too. Until
-      // now they stayed on screen, so the list did not jump.
+      // the reread ends, and so do rereads of them begun so far and pages
+      // appended since. Until now they stayed on screen: the list did not
+      // jump.
       _more.reset();
-      _quiet.removeWhere((index, _) => index >= 0);
-      if (page != null && _quiet[-1] == token) _showQuietly(page);
+      _dropped = _quietCount;
+      if (page != null && token > (_landed[-1] ?? 0)) {
+        _landed[-1] = token;
+        _showQuietly(page, path);
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
     if (failure != null) {
@@ -291,10 +311,12 @@ class _PmBoxViewState extends State<_PmBoxView> {
     }
   }
 
-  // A settled future: the list swaps its first page without a loading state,
-  // and the switcher id (the load generation) stays, so nothing animates.
-  void _showQuietly(ForumPmPage page) {
+  // A settled future: the list swaps its first page, read from [path],
+  // without a loading state, and the switcher id (the load generation)
+  // stays, so nothing animates.
+  void _showQuietly(ForumPmPage page, String? path) {
     _first = page;
+    _pagePath = path;
     _future = SynchronousFuture(page);
   }
 

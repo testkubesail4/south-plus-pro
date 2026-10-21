@@ -23,6 +23,7 @@ class PmDetailScreen extends StatelessWidget {
     required this.repository,
     required this.message,
     this.onRead,
+    this.onWrite,
   });
 
   final ForumRepository repository;
@@ -30,6 +31,10 @@ class PmDetailScreen extends StatelessWidget {
 
   /// Called each time the message itself loads, which reads it on the site.
   final VoidCallback? onRead;
+
+  /// Called as a confirmed write is sent, before its answer: one that fails
+  /// may still have reached the site.
+  final VoidCallback? onWrite;
 
   @override
   Widget build(BuildContext context) => SessionBound(
@@ -39,6 +44,7 @@ class PmDetailScreen extends StatelessWidget {
           repository: repository,
           message: message,
           onRead: onRead,
+          onWrite: onWrite,
         ),
       );
 }
@@ -48,11 +54,13 @@ class _PmDetailView extends StatefulWidget {
     required this.repository,
     required this.message,
     this.onRead,
+    this.onWrite,
   });
 
   final ForumRepository repository;
   final ForumPmSummary message;
   final VoidCallback? onRead;
+  final VoidCallback? onWrite;
 
   @override
   State<_PmDetailView> createState() => _PmDetailViewState();
@@ -119,6 +127,7 @@ class _PmDetailViewState extends State<_PmDetailView> {
     if (confirmed != true || !mounted || _busy) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
+    widget.onWrite?.call();
     try {
       final result = await action();
       messenger.showSnackBar(SnackBar(content: Text(result.message)));
