@@ -1,5 +1,6 @@
 import 'package:html/dom.dart' as dom;
 
+import '../../models/forum_models.dart';
 import '../../models/forum_pm_models.dart';
 import '../forum_network_config.dart';
 import '../forum_request_exception.dart';
@@ -20,6 +21,18 @@ class ForumPmParser {
 
   static final _positive = RegExp(r'^[1-9]\d*$');
   static final _token = RegExp(r'^[\w~-]+$');
+
+  String? _peerUid(dom.Element cell) {
+    final urls = ForumUrlResolver(baseUri: baseUri);
+    final uids = <String>{};
+    for (final link in cell.querySelectorAll('a[href]')) {
+      final target = urls.forumLinkTarget(link.attributes['href']!);
+      if (target is! ForumUserLinkTarget) continue;
+      final uid = urls.uidFromUrl(target.userUrl);
+      if (uid != null) uids.add(uid);
+    }
+    return uids.length == 1 ? uids.single : null;
+  }
 
   ForumPmRoute? route(String? href, Set<String> actions) {
     if (href == null || href.trim().isEmpty) return null;
@@ -174,8 +187,6 @@ class ForumPmParser {
       final titleIndex = cells.indexWhere((cell) => cell.contains(titleLink!));
       if (titleIndex < 1 || titleIndex + 1 >= cells.length) continue;
       final peerCell = cells[titleIndex - 1];
-      final peerHref =
-          peerCell.querySelector('a[href]')?.attributes['href'] ?? '';
       final id = detail.fields['mid']!;
       final type = switch (detail.action) {
         'readpub' => ForumPmType.broadcast,
@@ -198,7 +209,7 @@ class ForumPmParser {
         type: type,
         id: id,
         peer: clean(peerCell.text),
-        peerUid: RegExp(r'uid[-=]([1-9]\d*)').firstMatch(peerHref)?.group(1),
+        peerUid: _peerUid(peerCell),
         title: clean(titleLink.text),
         time: clean(cells[titleIndex + 1].text),
         unread: titleLink.classes.contains('b'),
@@ -261,6 +272,10 @@ class ForumPmParser {
         rows['时间'] == null) {
       throw const ForumRequestException(ForumRequestKind.server, '没有识别到私讯详情');
     }
+    final nativeUid = _peerUid(sender);
+    final peerUid = message.peerUid == null || message.peerUid == nativeUid
+        ? nativeUid
+        : null;
     String? reply, forward, edit, chatlog, unread, delete;
     for (final link in options.querySelectorAll('a[href]')) {
       final target =
@@ -293,8 +308,8 @@ class ForumPmParser {
           box: message.box,
           type: message.type,
           id: message.id,
-          peer: message.peer,
-          peerUid: message.peerUid,
+          peer: clean(sender.text),
+          peerUid: peerUid,
           title: clean(rows['标题']!.text),
           time: clean(rows['时间']!.text),
           unread: false,

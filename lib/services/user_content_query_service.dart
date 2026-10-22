@@ -264,7 +264,6 @@ class UserContentQueryService {
           continue;
         if (!seen.add(identity(item))) continue;
         yield item;
-        if (seen.length > maxScanResults) return;
       }
     }
 

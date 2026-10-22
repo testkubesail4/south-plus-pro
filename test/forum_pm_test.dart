@@ -129,6 +129,100 @@ void main() {
     expect(detail.summary.box, ForumPmBox.sendbox);
   });
 
+  for (final (href, expected) in [
+    ('u.php?action-show-uid-901.html', '901'),
+    ('u.php?action=show&uid=902', '902'),
+    ('https://blue-plus.net/u.php?action-show-uid-903.html', '903'),
+    ('u.php?action-show-uid-0.html', null),
+    ('u.php?action-show-uid--1.html', null),
+    ('https://example.invalid/u.php?action-show-uid-901.html', null),
+    ('read.php?tid=700&uid=901', null),
+    ('u.php?action=show&uid=901&uid=902', null),
+    ('u.php?action=logout&uid=901', null),
+  ]) {
+    test('PM list peer profiles require a native positive profile href: $href',
+        () async {
+      final client = _PmClient()
+        ..responses
+            .add(_inbox.replaceFirst('u.php?action-show-uid-901.html', href));
+      final page =
+          await ForumRepository(client: client).fetchPmBox(ForumPmBox.inbox);
+      expect(page.messages.first.peerUid, expected);
+      expect(page.messages.last.peerUid, isNull);
+    });
+  }
+
+  for (final (label, href, seed, expected) in [
+    ('rewrite', 'u.php?action-show-uid-901.html', null, '901'),
+    ('query', 'u.php?action=show&uid=902', null, '902'),
+    ('system', 'u.php?action-show-uid-0.html', null, null),
+    (
+      'foreign',
+      'https://example.invalid/u.php?action-show-uid-901.html',
+      null,
+      null
+    ),
+    ('thread-author-filter', 'read.php?tid=700&uid=901', null, null),
+    ('conflicting-seed', 'u.php?action-show-uid-901.html', '902', null),
+    ('matching-seed', 'u.php?action-show-uid-901.html', '901', '901'),
+    ('no-peer-link', null, null, null),
+    ('no-peer-link-with-seed', null, '901', null),
+  ]) {
+    for (final box in [ForumPmBox.inbox, ForumPmBox.sendbox]) {
+      test('direct PM detail resolves only the native peer cell: $label $box',
+          () async {
+        var response = _detail.replaceFirst(
+            '<a href="u.php?action-show-uid-901.html">Fixture peer</a>',
+            href == null ? 'Fixture peer' : '<a href="$href">Fixture peer</a>');
+        if (box == ForumPmBox.sendbox) {
+          response = response.replaceFirst('发件人:', '收件人:');
+        }
+        final client = _PmClient()..responses.add(response);
+        final message = ForumPmSummary(
+            box: box,
+            type: box == ForumPmBox.inbox
+                ? ForumPmType.personal
+                : ForumPmType.sent,
+            id: '701',
+            peer: '',
+            peerUid: seed,
+            title: '',
+            time: '',
+            detailPath: box == ForumPmBox.inbox
+                ? 'message.php?action-read-mid-701.html'
+                : 'message.php?action-readsnd-mid-701.html');
+        final detail =
+            await ForumRepository(client: client).fetchPmDetail(message);
+        expect(detail.summary.peer, 'Fixture peer');
+        expect(detail.summary.peerUid, expected);
+        expect(client.getPaths, hasLength(1));
+        expect(client.posts, isEmpty);
+      });
+    }
+  }
+
+  test('broadcast detail cannot acquire a peer from content or action links',
+      () async {
+    final response = _detail
+        .replaceFirst(
+            '<a href="u.php?action-show-uid-901.html">Fixture peer</a>',
+            'Fixture system')
+        .replaceFirst('First line',
+            '<a href="u.php?action-show-uid-904.html">content profile</a>');
+    final client = _PmClient()..responses.add(response);
+    final message = ForumPmSummary(
+        box: ForumPmBox.inbox,
+        type: ForumPmType.broadcast,
+        id: '701',
+        peer: '',
+        title: '',
+        time: '',
+        detailPath: 'message.php?action-readpub-mid-701.html');
+    final detail = await ForumRepository(client: client).fetchPmDetail(message);
+    expect(detail.summary.peerUid, isNull);
+    expect(detail.summary.peer, 'Fixture system');
+  });
+
   test(
       'compose reads server prefill and immutable hidden fields, including edit identity',
       () async {

@@ -361,7 +361,7 @@ void main() {
   });
 
   testWidgets(
-      'repeated-page content fails closed and the shared hit cap stops later requests',
+      'repeated pages fail closed while large valid favorites finish every page',
       (tester) async {
     final repeated = _Client()..repeatContent = true;
     final repo = ForumRepository(client: repeated);
@@ -379,20 +379,24 @@ void main() {
 
     final many = _Client()
       ..pageCount = 3
-      ..pageRows[1] = [_row(701)]
-      ..pageRows[2] = [for (var tid = 800; tid < 1020; tid++) _row(tid)];
+      ..pageRows[1] = [for (var tid = 800; tid < 1020; tid++) _row(tid)]
+      ..pageRows[2] = [for (var tid = 1100; tid < 1320; tid++) _row(tid)]
+      ..pageRows[3] = [_row(1400)];
     final largeRepo = ForumRepository(client: many);
     addTearDown(() => many.close(force: true));
-    final capped = largeRepo.scanFavorites(
+    final exhaustive = largeRepo.scanFavorites(
         keyword: 'needle', loaded: await largeRepo.fetchFavoriteCollections());
-    addTearDown(capped.dispose);
-    capped.start();
+    addTearDown(exhaustive.dispose);
+    expect(exhaustive.hits, hasLength(220), reason: 'all loaded seeds survive');
+    exhaustive.start();
     await tester.pump();
-    expect(capped.hits, hasLength(maxScanResults));
-    expect(capped.progress.capped, isTrue);
-    expect(capped.progress.canResume, isFalse);
-    expect(many.scanPaths, hasLength(1));
-    expect(many.scanPaths.single.queryParameters['page'], '2');
+    expect(exhaustive.hits, hasLength(441));
+    expect(exhaustive.progress.state, ScanState.done);
+    expect(exhaustive.progress.capped, isFalse);
+    expect(exhaustive.progress.scannedPages, 3);
+    expect(
+        many.scanPaths.map((uri) => uri.queryParameters['page']), ['2', '3']);
+    expect(many.peak, 1);
     expect(many.writes, isEmpty);
   });
 }

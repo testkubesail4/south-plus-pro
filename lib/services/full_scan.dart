@@ -6,8 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'forum_client.dart';
 import 'forum_request_exception.dart';
 
-const maxScanResults = 200;
-
 enum ScanState { idle, running, waiting, stopped, failed, done }
 
 class ScanProgress {
@@ -106,14 +104,14 @@ class PageFullScan<T> extends FullScan<T> {
     Iterable<T> initialHits = const [],
     int initialPending = 0,
     int? totalPages,
-    this.maxResults = maxScanResults,
+    this.maxResults,
     this.maxAttempts = 3,
   })  : _client = client,
         _isCurrentSession = isCurrentSession,
         _readPage = readPage,
         _totalPages = totalPages,
         _pending = initialPending {
-    if (maxResults < 1 ||
+    if ((maxResults != null && maxResults! < 1) ||
         maxAttempts < 1 ||
         maxAttempts > 5 ||
         initialPending < 0) {
@@ -136,7 +134,7 @@ class PageFullScan<T> extends FullScan<T> {
   final ForumClient _client;
   final bool Function() _isCurrentSession;
   final Future<ScanPage<T>> Function(int page, ScanRequest request) _readPage;
-  final int maxResults;
+  final int? maxResults;
   final int maxAttempts;
   final _random = Random.secure();
   final _seeded = <int>{};
@@ -340,7 +338,8 @@ class PageFullScan<T> extends FullScan<T> {
       (unresolved, _unresolved),
     ]) {
       for (final hit in source) {
-        if (_hits.length + _unresolved.length >= maxResults) {
+        if (maxResults != null &&
+            _hits.length + _unresolved.length >= maxResults!) {
           _capped = true;
           return;
         }

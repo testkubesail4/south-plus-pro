@@ -682,7 +682,7 @@ void main() {
     expect(client.peak, 1);
   });
 
-  testWidgets('unknown rows share the result cap and stop before another page',
+  testWidgets('unknown rows remain unresolved through every requested page',
       (tester) async {
     respond = (path) async {
       if (path.startsWith('read.php')) {
@@ -702,12 +702,46 @@ void main() {
         articleType: UserContentArticleType.sale));
     job.start();
     await tester.pump();
-    expect(job.progress.capped, isTrue);
-    expect(job.progress.state, ScanState.stopped);
-    expect(job.progress.canResume, isFalse);
-    expect(job.unresolved, hasLength(maxScanResults));
-    expect(paths.where((path) => path.startsWith('u.php')), hasLength(5));
-    expect(paths.where((path) => path.startsWith('read.php')), hasLength(201));
+    expect(job.progress.capped, isFalse);
+    expect(job.progress.state, ScanState.done);
+    expect(job.unresolved, hasLength(400));
+    expect(job.hits, isEmpty);
+    expect(paths.where((path) => path.startsWith('u.php')), hasLength(8));
+    expect(paths.where((path) => path.startsWith('read.php')), hasLength(400));
+    expect(client.peak, 1);
+  });
+
+  testWidgets('full profile sorting keeps over 200 loaded and later-page rows',
+      (tester) async {
+    respond = (path) async => html.parse(
+        _page(_row(900), pages: 2, page: _number(path), action: 'topic'));
+    final loaded = [
+      for (var tid = 100; tid < 320; tid++)
+        UserListItem(
+            title: 'title $tid',
+            url: 'https://south-plus.net/read.php?tid-$tid.html',
+            threadId: '$tid',
+            views: tid,
+            sourcePage: 1),
+    ];
+    final job = scan(
+        const UserContentQuery(uid: '7', tab: UserProfileTab.topics),
+        loaded: loaded,
+        loadedPages: 1,
+        totalPages: 2);
+    expect(job.hits, hasLength(220));
+    job.start();
+    await tester.pump();
+    expect(job.progress.state, ScanState.done);
+    expect(job.hits, hasLength(221));
+    final sorted = sortUserContent(
+        job.hits, const UserContentSort(UserContentSortKey.views));
+    expect(sorted, hasLength(221));
+    expect(sorted.first.threadId, '319');
+    expect(sorted.last.threadId, '900');
+    expect(job.hits.last.threadId, '900');
+    expect(paths, hasLength(1));
+    expect(_number(paths.single), 2);
   });
 
   testWidgets(

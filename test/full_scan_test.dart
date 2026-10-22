@@ -46,7 +46,7 @@ void main() {
           {bool Function()? current,
           Iterable<ScanPage<int>> loaded = const [],
           int total = 3,
-          int cap = 200}) =>
+          int? cap}) =>
       PageFullScan<int>(
         client: client,
         isCurrentSession: current ?? () => true,
@@ -213,6 +213,43 @@ void main() {
     expect(pending.hits, isEmpty);
     expect(pending.progress.failure, ForumRequestKind.loginRequired);
     expect(client.calls, ['1']);
+  });
+
+  testWidgets('uncapped scans retain over 200 seeds and continue every page',
+      (tester) async {
+    final client = _Client();
+    final job = PageFullScan<int>(
+      client: client,
+      isCurrentSession: () => true,
+      loaded: [
+        ScanPage(
+            page: 1,
+            totalPages: 3,
+            hasMore: true,
+            hits: List.generate(220, (i) => i),
+            unresolved: List.generate(5, (i) => 300 + i)),
+      ],
+      readPage: (page, request) async {
+        await request.getOnce('$page');
+        return ScanPage(
+            page: page,
+            totalPages: 3,
+            hasMore: page < 3,
+            hits: [400 + page],
+            unresolved: [500 + page]);
+      },
+    );
+    addTearDown(() => client.close(force: true));
+    addTearDown(job.dispose);
+    job.start();
+    await tester.pump();
+    expect(job.progress.state, ScanState.done);
+    expect(job.progress.capped, isFalse);
+    expect(job.progress.scannedPages, 3);
+    expect(job.hits, hasLength(222));
+    expect(job.unresolved, [300, 301, 302, 303, 304, 502, 503]);
+    expect(client.calls, ['2', '3']);
+    expect(client.peak, 1);
   });
 
   testWidgets('hits and unresolved share one cap, including loaded seeds',

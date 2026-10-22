@@ -40,7 +40,6 @@ FullScan<FavoriteSearchHit> createFavoriteScan({
         continue;
       if (!seen.add(key(item))) continue;
       yield FavoriteSearchHit(thread: item, page: seedPage.page);
-      if (seen.length > maxScanResults) return;
     }
   }
 
