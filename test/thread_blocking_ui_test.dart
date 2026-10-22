@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,11 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/features/watch/watch_tab.dart';
+import 'package:south_plus_rewrite/models/watch_models.dart';
+import 'package:south_plus_rewrite/services/watch_service.dart';
+
+import 'support/fake_watch.dart';
 
 // Synthetic fixtures only: fictional host, uids, authors and texts.
 const _url = 'https://south-plus.net/read.php?tid-7.html';
@@ -98,12 +104,115 @@ void main() {
   testWidgets('the 屏蔽 group\'s 管理 opens the blocking settings', (tester) async {
     await pumpThread(tester);
     await openMenu(tester, 'floor-actions-bob-B2F');
-    final manage = find.widgetWithText(TextButton, '管理');
+    // 关注 has its own 管理 above; 屏蔽's is the last.
+    final manage = find.widgetWithText(TextButton, '管理').last;
     expect(tester.getSize(manage).height, greaterThanOrEqualTo(48));
 
     await tester.tap(manage);
     await tester.pumpAndSettle();
     expect(find.byType(BlockingSettingsScreen), findsOneWidget);
+  });
+
+  testWidgets('关注 hears of shown floors only; a hidden one once revealed',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    expect(repository.fakeWatch.seen.last, _seen('7', ['901', '902', '903']));
+
+    await openMenu(tester, 'floor-actions-alice-B1F');
+    await tester.tap(find.text('屏蔽内容'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, '显示').first);
+    await tester.pumpAndSettle();
+    // B3F holds the same text and stays hidden.
+    expect(repository.fakeWatch.seen.last, _seen('7', ['901', '902']));
+  });
+
+  testWidgets('a page that loads behind another page is unread until shown',
+      (tester) async {
+    final repository = _Repository(loggedIn: true)..gate = Completer();
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadDetailScreen(repository: repository, thread: _thread),
+    ));
+    Navigator.of(tester.element(find.byType(ThreadDetailScreen)))
+        .push(MaterialPageRoute<void>(builder: (_) => const Scaffold()));
+    await tester.pumpAndSettle();
+    repository.gate!.complete();
+    await tester.pumpAndSettle();
+    expect(repository.fakeWatch.seen, isEmpty);
+
+    Navigator.of(tester.element(find.byType(Scaffold).last)).pop();
+    await tester.pumpAndSettle();
+    expect(repository.fakeWatch.seen.single, _seen('7', ['901', '902', '903']));
+  });
+
+  testWidgets('no opening body, no opening post read', (tester) async {
+    final repository = _Repository(loggedIn: true, openingBody: '');
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadDetailScreen(repository: repository, thread: _thread),
+    ));
+    await tester.pumpAndSettle();
+    expect(repository.fakeWatch.seen.last,
+        _seen('7', ['901', '902', '903'], opening: false));
+  });
+
+  testWidgets('a blocked opening poster leaves the opening post unread',
+      (tester) async {
+    final repository = await pumpThread(tester);
+    await repository.blocking.setUser('500', 'op', blocked: true);
+    await tester.pumpWidget(MaterialApp(
+      home: ThreadDetailScreen(
+          key: UniqueKey(), repository: repository, thread: _thread),
+    ));
+    await tester.pumpAndSettle();
+    expect(repository.fakeWatch.seen.last,
+        _seen('7', ['901', '902', '903'], opening: false));
+  });
+
+  testWidgets('a floor offers 关注 TA and 本帖中涉及 TA 的回复', (tester) async {
+    await pumpThread(tester);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    await tester.tap(find.text('关注 TA'));
+    await tester.pumpAndSettle();
+    expect(find.text('关注用户 · 新规则'), findsOneWidget);
+    expect(find.text('bob'), findsWidgets);
+    Navigator.of(tester.element(find.text('关注用户 · 新规则'))).pop();
+    await tester.pumpAndSettle();
+
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    await tester.tap(find.text('本帖中涉及 TA 的回复'));
+    await tester.pumpAndSettle();
+    expect(find.text('回复或引用 bob 的新回复'), findsOneWidget);
+  });
+
+  testWidgets('the 关注 group\'s 管理 opens 关注', (tester) async {
+    await pumpThread(tester);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    await tester.tap(find.widgetWithText(TextButton, '管理').first);
+    await tester.pumpAndSettle();
+    expect(find.byType(WatchScreen), findsOneWidget);
+  });
+
+  testWidgets('⋮ 关注本帖 adds a rule, then counts it', (tester) async {
+    final repository = await pumpThread(tester);
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('关注本帖'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '关注'));
+    await tester.pumpAndSettle();
+    final rule = repository.fakeWatch.rules.single;
+    expect((rule.scope, rule.subjectId, rule.label),
+        (WatchScope.thread, '7', 'blocking'));
+
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    expect(find.text('已关注本帖 · 1 条'), findsOneWidget);
+  });
+
+  testWidgets('signed out, no floor or thread offers 关注', (tester) async {
+    await pumpThread(tester, loggedIn: false);
+    await openMenu(tester, 'floor-actions-bob-B2F');
+    expect(find.text('关注 TA'), findsNothing);
   });
 
   testWidgets('屏蔽头像 only swaps the avatar for the initial', (tester) async {
@@ -367,10 +476,17 @@ class _Repository extends ForumRepository {
   _Repository({required this.loggedIn, this.openingBody = 'opening body'});
 
   final bool loggedIn;
+  final fakeWatch = FakeWatch();
+
+  @override
+  WatchService get watch => fakeWatch;
 
   /// Empty on later pages and author-filtered views: a header card only.
   final String openingBody;
   final server = _NativeServer();
+
+  /// Holds page loads until completed, when set.
+  Completer<void>? gate;
 
   @override
   bool get isLoggedIn => loggedIn;
@@ -400,6 +516,7 @@ class _Repository extends ForumRepository {
     ForumThread thread, {
     int page = 1,
   }) async {
+    await gate?.future;
     ThreadReply reply(String author, int uid, int floor, String text) =>
         ThreadReply(
           author: author,
@@ -408,6 +525,7 @@ class _Repository extends ForumRepository {
           authorUrl: 'https://south-plus.net/u.php?action-show-uid-$uid.html',
           authorAvatarUrl: 'https://south-plus.net/avatar/$uid.png',
           blockContentKey: text,
+          postId: '${900 + floor}',
         );
     return ThreadDetail(
       thread: _thread,
@@ -420,3 +538,10 @@ class _Repository extends ForumRepository {
     );
   }
 }
+
+// What the thread told 关注 it showed: tid, PIDs, and the opening post.
+Matcher _seen(String tid, List<String> pids, {bool opening = true}) =>
+    isA<(String, List<String>, bool)>()
+        .having((s) => s.$1, 'tid', tid)
+        .having((s) => s.$2, 'pids', pids)
+        .having((s) => s.$3, 'openingSeen', opening);

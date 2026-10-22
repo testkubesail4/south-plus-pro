@@ -22,6 +22,8 @@ import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_compose_screen.dart';
 import '../thread/thread_reward_view.dart' show boardBountyLabel;
+import '../../models/watch_models.dart';
+import '../watch/watch_rule_sheet.dart';
 
 part 'board_navigation_widgets.dart';
 part 'board_thread_list_widgets.dart';
@@ -357,6 +359,36 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     return fid == null ? '版块' : '版块 $fid';
   }
 
+  /// 关注本版新主题, lit while any rule watches this board; signed in only.
+  Widget? _watchButton() {
+    final repository = widget.repository;
+    final fid = repository.searchBoardId(_category);
+    if (!repository.isLoggedIn || fid == null) return null;
+    return ListenableBuilder(
+      listenable: repository.watch,
+      builder: (context, _) {
+        final watched = repository.watch.rules.any(
+            (rule) => rule.scope == WatchScope.board && rule.subjectId == fid);
+        return IconButton(
+          tooltip: watched ? '已关注本版' : '关注本版新主题',
+          isSelected: watched,
+          onPressed: () => showWatchSheet(
+            context,
+            repository: repository,
+            target: WatchTarget(
+              scope: WatchScope.board,
+              subjectId: fid,
+              label: _title,
+            ),
+          ),
+          icon: const Icon(Icons.notifications_none_outlined),
+          selectedIcon:
+              Icon(Icons.notifications_active, color: AppColors.brand),
+        );
+      },
+    );
+  }
+
   void _rememberSubBoards(ForumThreadPage page) {
     if (mounted && page.subBoards.isNotEmpty) {
       _knownSubBoards = List.of(page.subBoards);
@@ -610,6 +642,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                                   onSelected: _openSibling,
                                 ),
                         onSearch: _search,
+                        watch: _watchButton(),
                       ),
                       Expanded(
                         child: !panel

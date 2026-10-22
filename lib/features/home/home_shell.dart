@@ -87,15 +87,28 @@ class _HomeShellState extends State<HomeShell> {
 
   void _onTabRequest() => _select(_tabRequests.tab);
 
+  // A tapped 关注 notification shows 消息, which opens it.
+  void _onWatch() {
+    if (_repository.watch.pendingOpen != null && _index != 3) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      _select(3);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _tabRequests.addListener(_onTabRequest);
+    // The repository owns the service; the shell only starts its checks.
+    _repository.watch.addListener(_onWatch);
+    unawaited(_repository.watch.start());
   }
 
   @override
   void dispose() {
     _tabRequests.removeListener(_onTabRequest);
+    _repository.watch.removeListener(_onWatch);
+    _repository.watch.stop();
     super.dispose();
   }
 
@@ -127,9 +140,11 @@ class _HomeShellState extends State<HomeShell> {
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) _select(0);
           },
-          child: ValueListenableBuilder<ForumNoticeFlags>(
-            valueListenable: _repository.noticeFlags,
-            builder: (context, flags, _) {
+          child: ListenableBuilder(
+            listenable:
+                Listenable.merge([_repository.noticeFlags, _repository.watch]),
+            builder: (context, _) {
+              final flags = _repository.noticeFlags.value;
               final width = MediaQuery.sizeOf(context).width;
               final pages = IndexedStack(
                 index: _index,
@@ -154,7 +169,7 @@ class _HomeShellState extends State<HomeShell> {
                                 child: LoginPrompt(
                                   icon: Icons.mail_outline,
                                   title: '消息',
-                                  message: '登录后可以查看短消息和回复提醒。',
+                                  message: '登录后可以查看短消息、回复提醒和关注。',
                                   onLogin: () =>
                                       openLogin(context, _repository),
                                 ),
@@ -172,8 +187,10 @@ class _HomeShellState extends State<HomeShell> {
                   ),
                 ],
               );
-              // Either kind of unread dots the 消息 destination.
-              final unread = flags.unreadPm || flags.replyNotice;
+              // Any kind of unread dots the 消息 destination.
+              final unread = flags.unreadPm ||
+                  flags.replyNotice ||
+                  _repository.watch.unreadCount > 0;
               final pmIcon = Badge(
                 isLabelVisible: unread,
                 child: const Icon(Icons.mail_outline),

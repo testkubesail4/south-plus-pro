@@ -5,6 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/models/watch_models.dart';
+import 'package:south_plus_rewrite/services/watch_service.dart';
+
+import 'support/fake_watch.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -33,11 +37,14 @@ void main() {
     messenger.setMockMethodCallHandler(shareChannel, null);
   });
 
-  Future<void> pumpProfile(WidgetTester tester, String uid) async {
+  Future<_Repo> pumpProfile(WidgetTester tester, String uid,
+      {String? signedInAs}) async {
+    final repository = _Repo(uid, signedInAs: signedInAs);
     await tester.pumpWidget(MaterialApp(
-      home: UserProfileScreen(userUrl: 'u.php', repository: _Repo(uid)),
+      home: UserProfileScreen(userUrl: 'u.php', repository: repository),
     ));
     await tester.pumpAndSettle();
+    return repository;
   }
 
   testWidgets('分享 hands the canonical 用户中心 link to the share sheet',
@@ -72,12 +79,47 @@ void main() {
     await pumpProfile(tester, '');
     expect(find.byTooltip('分享'), findsNothing);
   });
+
+  testWidgets('关注 sits beside 分享 for someone else, lit once watched',
+      (tester) async {
+    final repository = await pumpProfile(tester, '101', signedInAs: '7');
+    await tester.tap(find.byTooltip('关注'));
+    await tester.pumpAndSettle();
+    expect(find.text('关注用户 · 新规则'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '关注'));
+    await tester.pumpAndSettle();
+    final rule = repository.fakeWatch.rules.single;
+    expect((rule.scope, rule.subjectId, rule.label),
+        (WatchScope.user, '101', 'peer-a'));
+    expect(find.byTooltip('已关注'), findsOneWidget);
+  });
+
+  testWidgets('no 关注 on your own profile or signed out', (tester) async {
+    await pumpProfile(tester, '101', signedInAs: '101');
+    expect(find.byTooltip('关注'), findsNothing);
+    await pumpProfile(tester, '101');
+    expect(find.byTooltip('关注'), findsNothing);
+  });
 }
 
 class _Repo extends ForumRepository {
-  _Repo(this.uid);
+  _Repo(this.uid, {this.signedInAs});
 
   final String uid;
+  final String? signedInAs;
+  final fakeWatch = FakeWatch();
+
+  @override
+  WatchService get watch => fakeWatch;
+
+  @override
+  bool get isLoggedIn => signedInAs != null;
+
+  @override
+  ValueListenable<ForumAccountIdentity?> get accountIdentity =>
+      ValueNotifier(signedInAs == null
+          ? null
+          : ForumAccountIdentity(systemName: 'me', uid: signedInAs));
 
   UserProfile get _profile => UserProfile(
         uid: uid,

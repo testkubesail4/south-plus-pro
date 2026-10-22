@@ -1,4 +1,4 @@
-import 'dart:async' show scheduleMicrotask;
+import 'dart:async' show scheduleMicrotask, unawaited;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -39,7 +39,10 @@ import '../profile/favorite_collections_sheets.dart' show showNewCategoryDialog;
 import '../profile/user_profile_screen.dart';
 import '../reply/reply_sheet.dart';
 import '../reply/thread_edit_screen.dart';
+import '../../models/watch_models.dart';
 import '../search/search_screen.dart';
+import '../watch/watch_rule_sheet.dart';
+import '../watch/watch_tab.dart';
 import 'thread_find.dart';
 import 'thread_floor_actions.dart';
 import 'thread_post_body.dart';
@@ -139,6 +142,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(onResume: _flushSeen);
     _thread = widget.thread;
     _pendingAnchor = _fragmentOf(widget.thread.url);
     LoadingPreferences.notifier.addListener(_onPagingSettingChanged);
@@ -216,6 +220,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   // Leaving the thread for another page pauses its scan; coming back keeps
   // what it found, with 继续. Raised while the overlay builds.
   void _onCovered() => scheduleMicrotask(() {
+        if (mounted && _onstage?.value == true) _flushSeen();
         if (mounted && _onstage?.value == false) _find.pause();
       });
 
@@ -297,6 +302,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _recomputeDetailRenderState();
       });
       _find.pagesChanged();
+      _reportSeen(detail);
       if (anchor != null || latest) {
         // The reveal steps down from the top of the newly loaded page.
         if (_scrollController.hasClients) _scrollController.jumpTo(0);
@@ -319,6 +325,15 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       }
     }
   }
+
+  /// Whether the page has an opening post to show; filtered views and later
+  /// pages often carry only the header.
+  static bool _hasOpeningPost(ThreadDetail detail) =>
+      detail.body.trim().isNotEmpty ||
+      detail.bodySegments.isNotEmpty ||
+      detail.bodyImages.isNotEmpty ||
+      detail.bodyLinks.isNotEmpty ||
+      detail.bodySaleBoxes.isNotEmpty;
 
   /// The post whose parsed DOM anchors contain [anchor] exactly; never guessed.
   static Object? _anchorTargetIn(ThreadDetail detail, String anchor) {
@@ -430,6 +445,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         _recomputeDetailRenderState();
       });
       _find.pagesChanged();
+      if (appended) _reportSeen(detail);
       // A page that shows nothing new adds no height to scroll through.
       if (appended && !added) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadMore());
@@ -727,11 +743,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         widget.repository.unfilteredThreadUrl(detail.thread) != null;
 
     final visibleReplies = detail.replies;
-    final hasOpeningPost = detail.body.trim().isNotEmpty ||
-        detail.bodySegments.isNotEmpty ||
-        detail.bodyImages.isNotEmpty ||
-        detail.bodyLinks.isNotEmpty ||
-        detail.bodySaleBoxes.isNotEmpty;
+    final hasOpeningPost = _hasOpeningPost(detail);
     _visibleFloorCount = visibleReplies.length + (hasOpeningPost ? 1 : 0);
 
     final last = _lastLoaded!;
@@ -829,10 +841,118 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     _notes.removeListener(_onNotesChanged);
     _notes.dispose();
     _onstage?.removeListener(_onCovered);
+    _lifecycle.dispose();
     _find.dispose();
     _favoriteFlow.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// This thread as a 关注 target, with the loaded floors' authors to pick
+  /// from; null before it loads or without a thread ID.
+  WatchTarget? _watchTarget({String? involving}) {
+    final detail = _detail;
+    final tid = detail == null ? null : watchTidOf(detail.thread.url);
+    if (detail == null || tid == null) return null;
+    final people = <String, String>{};
+    void add(String? uid, String? name) {
+      if (uid != null && name != null && name.trim().isNotEmpty) {
+        people.putIfAbsent(uid, () => name.trim());
+      }
+    }
+
+    add(detail.thread.authorUid, detail.thread.author);
+    for (final page in _loadedPages) {
+      for (final reply in page.replies) {
+        add(reply.authorUid, reply.author);
+      }
+    }
+    return WatchTarget(
+      scope: WatchScope.thread,
+      subjectId: tid,
+      label: detail.thread.title,
+      people: [
+        for (final MapEntry(:key, :value) in people.entries) (key, value)
+      ],
+      involving: involving,
+    );
+  }
+
+  Future<void> _openWatch() async {
+    if (!widget.repository.isLoggedIn) return;
+    try {
+      // 回复或引用我的 needs the reader's own uid.
+      await widget.repository.ensureAccountIdentity();
+    } catch (_) {
+      // The sheet still opens; 我 stays disabled without the uid.
+    }
+    final target = _watchTarget();
+    if (target == null || !mounted) return;
+    await showWatchSheet(context,
+        repository: widget.repository, target: target);
+  }
+
+  // Loaded pages not yet told to 关注: they count as read only once a frame
+  // has shown them, with no page over this one and the app in front.
+  final _unseenPages = <ThreadDetail>[];
+  late final AppLifecycleListener _lifecycle;
+
+  void _reportSeen(ThreadDetail page) {
+    if (!_unseenPages.any((p) => identical(p, page))) _unseenPages.add(page);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _flushSeen());
+  }
+
+  void _flushSeen() {
+    if (!mounted || _unseenPages.isEmpty) return;
+    final app = WidgetsBinding.instance.lifecycleState;
+    if (_onstage?.value == false ||
+        (app != null && app != AppLifecycleState.resumed)) {
+      return; // _onCovered or the lifecycle listener calls again.
+    }
+    final pages = [..._unseenPages];
+    _unseenPages.clear();
+    // Only pages still shown: a reload, refresh or account change replaced
+    // the rest before anyone saw them.
+    final shown = _loadedPages;
+    for (final page in pages) {
+      if (shown.any((p) => identical(p, page))) _markSeen(page);
+    }
+  }
+
+  /// Tells 关注 which posts [page] showed, so their 动态 count as read;
+  /// floors hidden by 屏蔽 stay unread until revealed, and topic events
+  /// clear only where the opening post itself showed.
+  void _markSeen(ThreadDetail page) {
+    if (!widget.repository.isLoggedIn) return;
+    final tid = watchTidOf(page.thread.url);
+    if (tid == null) return;
+    final rules = widget.repository.blocking.notifier.value;
+    final pids = [
+      for (final reply in page.replies)
+        if (reply.postId case final pid?)
+          if (_revealedPosts.contains(reply) ||
+              rules.floorBlock(
+                    uid: reply.authorUid,
+                    contentKey: reply.blockContentKey,
+                  ) ==
+                  FloorBlock.none)
+            pid,
+    ];
+    // The opening post renders only on the first page shown, when it has a
+    // body, and hides as the list hides it.
+    final openingSeen = identical(page, _detail) &&
+        page.pagination.currentPage == 1 &&
+        _hasOpeningPost(page) &&
+        (_revealedPosts.contains(page) ||
+            rules.floorBlock(
+                  uid: page.thread.authorUid,
+                  contentKey: null,
+                  isOpeningPost: true,
+                ) ==
+                FloorBlock.none);
+    unawaited(widget.repository.watch
+        .markPostsSeen(tid, pids, openingSeen: openingSeen)
+        .catchError((_) {}));
   }
 
   Future<void> _showFloorActions(ThreadReply reply, bool openingPost) async {
@@ -874,6 +994,11 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       canEdit: reply.editLink != null,
       canEditNote: uid != null,
       hasNote: _notes.noteFor(uid) != null,
+      canWatch: signedIn &&
+          uid != null &&
+          RegExp(r'^[1-9]\d*$').hasMatch(uid) &&
+          _watchTarget() != null,
+      ownFloor: uid != null && uid == watchSelfUid(repository),
       block: ThreadFloorBlockState(
         userBlocked: userBlocked,
         avatarBlocked: avatarBlocked,
@@ -907,6 +1032,25 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         await Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => BlockingSettingsScreen(repository: widget.repository),
         ));
+      case ThreadFloorAction.manageWatch:
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => WatchScreen(repository: widget.repository),
+        ));
+      case ThreadFloorAction.watchUser:
+        await showWatchSheet(
+          context,
+          repository: repository,
+          target: WatchTarget(
+            scope: WatchScope.user,
+            subjectId: uid!,
+            label: reply.author,
+          ),
+        );
+      case ThreadFloorAction.watchInThread:
+        final target = _watchTarget(involving: uid);
+        if (target != null) {
+          await showWatchSheet(context, repository: repository, target: target);
+        }
       case ThreadFloorAction.blockUser:
         await _applyBlock(
           userBlocked ? '已取消屏蔽此人' : '已屏蔽此人',
@@ -1792,7 +1936,10 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           onRetryLoadMore: _retryLoadMore,
           rules: widget.repository.blocking.notifier.value,
           revealedPosts: _revealedPosts,
-          onReveal: (post) => setState(() => _revealedPosts.add(post)),
+          onReveal: (post) {
+            setState(() => _revealedPosts.add(post));
+            _loadedPages.forEach(_reportSeen);
+          },
           entries: _detailEntries,
           loading: _loading,
           onlyOriginalPosterActive: _onlyOriginalPosterActive,
@@ -1870,6 +2017,18 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
                     icon: const Icon(Icons.share_outlined),
                   ),
                   _ThreadMoreMenu(
+                    onWatch: detail == null || !widget.repository.isLoggedIn
+                        ? null
+                        : _openWatch,
+                    watchCount: () {
+                      final tid =
+                          detail == null ? null : watchTidOf(detail.thread.url);
+                      return widget.repository.watch.rules
+                          .where((rule) =>
+                              rule.scope == WatchScope.thread &&
+                              rule.subjectId == tid)
+                          .length;
+                    },
                     onFind: detail == null ? null : _openFind,
                     // Loaded title only; the pre-load title can be a placeholder.
                     onSearchTitle: detail == null ||
@@ -3328,11 +3487,17 @@ class _BoardTitle extends StatelessWidget {
 /// Rare thread actions behind ⋮; an action without a target is omitted.
 class _ThreadMoreMenu extends StatelessWidget {
   const _ThreadMoreMenu({
+    required this.onWatch,
+    required this.watchCount,
     required this.onFind,
     required this.onSearchTitle,
     required this.onRss,
   });
 
+  final VoidCallback? onWatch;
+
+  /// How many 关注 rules watch this thread, read as the menu opens.
+  final int Function() watchCount;
   final VoidCallback? onFind;
   final VoidCallback? onSearchTitle;
   final VoidCallback? onRss;
@@ -3345,13 +3510,26 @@ class _ThreadMoreMenu extends StatelessWidget {
         ('搜索同名主题', Icons.manage_search, onSearchTitle!),
       if (onRss != null) ('RSS 订阅', Icons.rss_feed_outlined, onRss!),
     ];
+    // Read as the menu opens, so it follows rules added since.
+    List<(String, IconData, VoidCallback)> withWatch() {
+      final watch = onWatch;
+      if (watch == null) return items;
+      final count = watchCount();
+      return [
+        count == 0
+            ? ('关注本帖', Icons.notifications_none_outlined, watch)
+            : ('已关注本帖 · $count 条', Icons.notifications_active_outlined, watch),
+        ...items,
+      ];
+    }
+
     return PopupMenuButton<VoidCallback>(
       tooltip: '更多',
-      enabled: items.isNotEmpty,
+      enabled: onWatch != null || items.isNotEmpty,
       icon: const Icon(Icons.more_vert),
       onSelected: (action) => action(),
       itemBuilder: (context) => [
-        for (final (label, icon, action) in items)
+        for (final (label, icon, action) in withWatch())
           PopupMenuItem(
             value: action,
             child: Row(

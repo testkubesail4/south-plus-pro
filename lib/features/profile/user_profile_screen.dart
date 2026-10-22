@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../models/forum_friend_models.dart';
 import '../../models/forum_models.dart';
 import '../../models/user_content_query.dart';
+import '../../models/watch_models.dart';
 import '../../services/external_link_launcher.dart';
 import '../../services/forum_repository.dart';
 import '../../services/full_scan.dart';
@@ -29,6 +30,7 @@ import '../search/search_screen.dart';
 import '../thread/thread_detail_screen.dart';
 import '../thread/thread_image_viewer.dart';
 import '../thread/thread_render_models.dart';
+import '../watch/watch_rule_sheet.dart';
 import 'friends_screen.dart';
 
 part 'user_profile_widgets.dart';
@@ -460,6 +462,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               child: _ProfileHeader(
                                 profile: profile,
                                 actions: [
+                                  if (hasUid &&
+                                      selfUid != null &&
+                                      selfUid != uid)
+                                    _WatchButton(
+                                      repository: widget.repository,
+                                      uid: uid,
+                                      name: profile.name,
+                                    ),
                                   if (widget.repository.userProfileUrl(uid)
                                       case final url?)
                                     IconButton(

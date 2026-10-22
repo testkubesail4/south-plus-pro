@@ -10,6 +10,9 @@ enum ThreadFloorAction {
   blockUser,
   blockAvatar,
   manageBlocking,
+  watchUser,
+  watchInThread,
+  manageWatch,
 }
 
 /// The rule state a floor's menu reflects, and which rules may change.
@@ -126,6 +129,13 @@ Future<ThreadFloorAction?> showThreadFloorActions(
 
   /// Null hides the 屏蔽 group, e.g. while the rules are unavailable.
   required ThreadFloorBlockState? block,
+
+  /// Shows the 关注 group: signed in and the author's uid known.
+  bool canWatch = false,
+
+  /// The floor is the reader's own: no 关注 TA, and the thread item reads
+  /// 本帖中回复我的.
+  bool ownFloor = false,
 }) {
   return showModalBottomSheet<ThreadFloorAction>(
     context: context,
@@ -150,6 +160,36 @@ Future<ThreadFloorAction?> showThreadFloorActions(
       final nativeNote = block == null || block.canBlockUser
           ? null
           : block.userBlockUnavailableReason;
+      Widget divider() => Divider(
+            height: 17,
+            indent: 16,
+            endIndent: 16,
+            color: AppColors.border.withValues(alpha: 0.6),
+          );
+      // A small group label with its 管理 link, as 屏蔽 and 关注 use.
+      Widget groupHeader(String label, ThreadFloorAction manage) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                  ),
+                  onPressed: () => Navigator.of(context).pop(manage),
+                  child: const Text('管理'),
+                ),
+              ],
+            ),
+          );
       return SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.only(bottom: 8),
@@ -194,39 +234,26 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                   hasNote ? '修改备注' : '添加备注',
                   '仅本机',
                 ),
-              if (block != null) ...[
-                if (canShowAuthorPosts)
-                  Divider(
-                    height: 17,
-                    indent: 16,
-                    endIndent: 16,
-                    color: AppColors.border.withValues(alpha: 0.6),
+              if (canWatch) ...[
+                if (canShowAuthorPosts || canEditNote || canEdit) divider(),
+                groupHeader('关注', ThreadFloorAction.manageWatch),
+                if (!ownFloor)
+                  item(
+                    ThreadFloorAction.watchUser,
+                    Icons.notifications_none_outlined,
+                    '关注 TA',
+                    '新主题、回复或可见收藏',
                   ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '屏蔽',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: AppColors.textMuted,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                        ),
-                      ),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(48, 48),
-                        ),
-                        onPressed: () => Navigator.of(context)
-                            .pop(ThreadFloorAction.manageBlocking),
-                        child: const Text('管理'),
-                      ),
-                    ],
-                  ),
+                item(
+                  ThreadFloorAction.watchInThread,
+                  Icons.forum_outlined,
+                  ownFloor ? '本帖中回复我的' : '本帖中涉及 TA 的回复',
+                  ownFloor ? '回复或引用我的新楼层' : '回复或引用 TA 的新楼层',
                 ),
+              ],
+              if (block != null) ...[
+                if (canShowAuthorPosts || canWatch) divider(),
+                groupHeader('屏蔽', ThreadFloorAction.manageBlocking),
                 item(
                   ThreadFloorAction.blockContent,
                   Icons.comments_disabled_outlined,

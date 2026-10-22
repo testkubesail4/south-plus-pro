@@ -5,6 +5,46 @@ part of 'user_profile_screen.dart';
 double _gutter(BuildContext context) =>
     appGutter(MediaQuery.sizeOf(context).width, AppWidths.list);
 
+/// 关注 TA, lit while any rule watches this user.
+class _WatchButton extends StatelessWidget {
+  const _WatchButton({
+    required this.repository,
+    required this.uid,
+    required this.name,
+  });
+
+  final ForumRepository repository;
+  final String uid;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: repository.watch,
+        builder: (context, _) {
+          final watched = repository.watch.rules.any(
+              (rule) => rule.scope == WatchScope.user && rule.subjectId == uid);
+          return IconButton(
+            tooltip: watched ? '已关注' : '关注',
+            isSelected: watched,
+            onPressed: () => showWatchSheet(
+              context,
+              repository: repository,
+              target: WatchTarget(
+                scope: WatchScope.user,
+                subjectId: uid,
+                label: name.trim().isEmpty ? 'UID $uid' : name.trim(),
+              ),
+            ),
+            icon: const Icon(Icons.notifications_none_outlined),
+            selectedIcon: Icon(
+              Icons.notifications_active,
+              color: AppColors.brand,
+            ),
+          );
+        },
+      );
+}
+
 class _ProfileHeader extends StatelessWidget {
   const _ProfileHeader({
     required this.profile,

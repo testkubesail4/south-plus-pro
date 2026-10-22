@@ -88,8 +88,11 @@ class _BoardHeader extends StatelessWidget {
     this.onParent,
     this.onSwitch,
     this.onSearch,
+    this.watch,
   });
 
+  /// The 关注 button, beside 在本版搜索.
+  final Widget? watch;
   final double gutter;
   final String title;
   final ForumCategory? parent;
@@ -166,6 +169,7 @@ class _BoardHeader extends StatelessWidget {
                 ),
               ),
             ),
+            if (watch case final watch?) watch,
             if (onSearch != null)
               IconButton(
                 tooltip: '在本版搜索',
