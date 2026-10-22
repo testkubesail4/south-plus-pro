@@ -31,6 +31,7 @@ class MainActivity : FlutterActivity() {
 
     private var incomingLinks = IncomingLinkState(0, false)
     private var incomingLinkChannel: MethodChannel? = null
+    private var watchNotifications: WatchNotificationBridge? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         incomingLinks = IncomingLinkState(
@@ -43,6 +44,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        watchNotifications?.receiveIntent(intent)
         if (intent.action != Intent.ACTION_VIEW) return
         setIntent(intent)
         incomingLinks.receive(intent.dataString)
@@ -56,6 +58,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        watchNotifications?.close()
+        watchNotifications = null
         incomingLinkChannel?.setMethodCallHandler(null)
         incomingLinkChannel = null
         super.cleanUpFlutterEngine(flutterEngine)
@@ -63,6 +67,8 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        watchNotifications?.close()
+        watchNotifications = WatchNotificationBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         incomingLinkChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "south_plus_rewrite/incoming_links"
@@ -415,6 +421,7 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (watchNotifications?.onRequestPermissionsResult(requestCode) == true) return
         if (requestCode != saveImageRequestCode) return
 
         val pending = pendingImageSave ?: return
