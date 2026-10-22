@@ -8,7 +8,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.BinaryMessenger
@@ -35,13 +37,28 @@ internal class WatchNotificationBridge(
                     val arguments = call.arguments as? Map<*, *>
                     val owner = arguments?.get("owner")
                     val eventId = arguments?.get("eventId")
+                    val kind = WatchNotificationTapState.kind(arguments?.get("kind"))
                     if (!WatchNotificationTapState.valid(owner) ||
-                        !WatchNotificationTapState.valid(eventId)) {
+                        !WatchNotificationTapState.valid(eventId) || kind == null) {
                         result.error("invalid_event", "通知标识无效", null)
                     } else {
-                        show(owner as String, eventId as String, result)
+                        show(owner as String, eventId as String, kind, result)
                     }
                 }
+                "cancelKind" -> {
+                    val arguments = call.arguments as? Map<*, *>
+                    val owner = arguments?.get("owner")
+                    val kind = WatchNotificationTapState.kind(arguments?.get("kind"))
+                    if (!WatchNotificationTapState.valid(owner) ||
+                        (kind != "pm" && kind != "reply")) {
+                        result.error("invalid_event", "通知标识无效", null)
+                    } else {
+                        // A clicked cold tap may still be awaiting Dart after this shade slot is cleared.
+                        manager.cancel(identity(owner as String, kind, null), 0)
+                        result.success(null)
+                    }
+                }
+                "openSettings" -> result.success(openSettings())
                 "cancelAll" -> {
                     manager.cancelAll()
                     taps.clear()
@@ -61,7 +78,10 @@ internal class WatchNotificationBridge(
     fun receiveIntent(intent: Intent?, notify: Boolean = true) {
         if (intent?.action != tapAction) return
         val received = try {
-            taps.receive(intent.getStringExtra(EXTRA_OWNER), intent.getStringExtra(EXTRA_EVENT))
+            taps.receive(
+                intent.getStringExtra(EXTRA_OWNER), intent.getStringExtra(EXTRA_EVENT),
+                intent.extras?.get(EXTRA_KIND)
+            )
         } catch (_: RuntimeException) {
             false
         }
@@ -74,15 +94,14 @@ internal class WatchNotificationBridge(
     private fun clearTapExtras() {
         activity.intent?.removeExtra(EXTRA_OWNER)
         activity.intent?.removeExtra(EXTRA_EVENT)
+        activity.intent?.removeExtra(EXTRA_KIND)
     }
 
     private fun permission(): Boolean {
         if (Build.VERSION.SDK_INT >= 33 &&
             activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED) return false
-        if (!NotificationManagerCompat.from(activity).areNotificationsEnabled()) return false
-        return Build.VERSION.SDK_INT < 26 ||
-            manager.getNotificationChannel(CHANNEL_ID)?.importance != NotificationManager.IMPORTANCE_NONE
+        return NotificationManagerCompat.from(activity).areNotificationsEnabled()
     }
 
     private fun requestPermission(result: MethodChannel.Result) {
@@ -113,43 +132,59 @@ internal class WatchNotificationBridge(
         return true
     }
 
-    private fun show(owner: String, eventId: String, result: MethodChannel.Result) {
+    private fun show(owner: String, eventId: String, kind: String, result: MethodChannel.Result) {
         if (!permission()) {
             result.success(false)
             return
         }
         try {
+            val (channelId, channelName, channelDescription) = when (kind) {
+                "pm" -> Triple("pm_messages", "短消息", "App 打开时检查到的新短消息")
+                "reply" -> Triple("reply_notices", "回复提醒", "App 打开时检查到的新回复提醒")
+                else -> Triple(CHANNEL_ID, "关注动态", "本机关注检查发现的新动态")
+            }
             if (Build.VERSION.SDK_INT >= 26) {
                 val notificationChannel = NotificationChannel(
-                    CHANNEL_ID, "关注动态", NotificationManager.IMPORTANCE_DEFAULT
+                    channelId, channelName, NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
-                    description = "本机关注检查发现的新动态"
+                    description = channelDescription
                     lockscreenVisibility = Notification.VISIBILITY_SECRET
                 }
                 manager.createNotificationChannel(notificationChannel)
+                if (manager.getNotificationChannel(channelId)?.importance == NotificationManager.IMPORTANCE_NONE) {
+                    result.success(false)
+                    return
+                }
             }
-            val tag = MessageDigest.getInstance("SHA-256")
-                .digest("$owner\u0000$eventId".toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
+            val eventIdentity = identity(owner, kind, eventId)
+            val tag = if (kind == "watch") eventIdentity else identity(owner, kind, null)
             val intent = Intent(activity, MainActivity::class.java)
                 .setAction(tapAction)
-                .addCategory("${activity.packageName}.watch.$tag")
+                .addCategory("${activity.packageName}.watch.$eventIdentity")
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra(EXTRA_OWNER, owner)
                 .putExtra(EXTRA_EVENT, eventId)
+                .putExtra(EXTRA_KIND, kind)
             val pendingIntent = PendingIntent.getActivity(
                 activity, 0, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val builder = if (Build.VERSION.SDK_INT >= 26) {
-                Notification.Builder(activity, CHANNEL_ID)
+                Notification.Builder(activity, channelId)
             } else {
                 Notification.Builder(activity)
             }
             val notification = builder
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("南+")
-                .setContentText("你关注的内容有新动态，打开 App 查看")
+                .setContentText(when (kind) {
+                    "pm" -> "你有新的短消息，打开 App 查看"
+                    "reply" -> "你有新的回复提醒，打开 App 查看"
+                    else -> "你关注的内容有新动态，打开 App 查看"
+                })
+                .setOnlyAlertOnce(kind != "watch" && manager.activeNotifications.any {
+                    it.tag == tag && it.notification.contentIntent == pendingIntent
+                })
                 .setVisibility(Notification.VISIBILITY_SECRET)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
@@ -163,6 +198,25 @@ internal class WatchNotificationBridge(
         }
     }
 
+    private fun identity(owner: String, kind: String, eventId: String?): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(listOfNotNull(owner, kind, eventId).joinToString("\u0000").toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+    private fun openSettings(): Boolean = try {
+        val intent = if (Build.VERSION.SDK_INT >= 26) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.fromParts("package", activity.packageName, null))
+        }
+        activity.startActivity(intent)
+        true
+    } catch (_: RuntimeException) {
+        false
+    }
+
     fun close() {
         channel.setMethodCallHandler(null)
         pendingPermission?.success(false)
@@ -174,5 +228,6 @@ internal class WatchNotificationBridge(
         const val PERMISSION_REQUEST = 4109
         const val EXTRA_OWNER = "watch_notification_owner"
         const val EXTRA_EVENT = "watch_notification_event"
+        const val EXTRA_KIND = "watch_notification_kind"
     }
 }

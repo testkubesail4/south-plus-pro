@@ -14,11 +14,19 @@ final class WatchNotificationTapState {
                 || Character.getType(point) == Character.FORMAT);
     }
 
-    boolean receive(Object owner, Object eventId) {
-        if (!valid(owner) || !valid(eventId)) return false;
+    static String kind(Object value) {
+        if (value == null) return "watch";
+        return "watch".equals(value) || "pm".equals(value) || "reply".equals(value)
+            ? (String) value : null;
+    }
+
+    boolean receive(Object owner, Object eventId, Object kind) {
+        String type = kind(kind);
+        if (!valid(owner) || !valid(eventId) || type == null) return false;
         pending = new HashMap<>();
         pending.put("owner", (String) owner);
         pending.put("eventId", (String) eventId);
+        pending.put("kind", type);
         return true;
     }
 
