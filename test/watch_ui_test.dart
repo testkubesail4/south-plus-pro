@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/messages_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/features/watch/watch_rule_sheet.dart';
@@ -11,6 +13,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
 import 'package:south_plus_rewrite/models/watch_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/native_notice_notifications.dart';
 import 'package:south_plus_rewrite/services/watch_notifications.dart';
 import 'package:south_plus_rewrite/services/watch_service.dart';
 
@@ -247,15 +250,6 @@ void main() {
           tester.widget<ThreadDetailScreen>(find.byType(ThreadDetailScreen));
       expect(thread.thread.url, endsWith('read.php?tid-7.html'));
     });
-
-    testWidgets('denied notifications offer 开启', (tester) async {
-      final watch = FakeWatch(rules: [_rule('a')])
-        ..notificationPermission = WatchNotificationPermission.denied;
-      await pumpTab(tester, watch, rules: true);
-      await tester.tap(find.widgetWithText(TextButton, '开启'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('系统通知未开启'), findsNothing);
-    });
   });
 
   group('rule summary', () {
@@ -449,6 +443,170 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('event 1'), findsOneWidget);
   });
+
+  group('短消息 and 回复提醒 notifications', () {
+    Future<_Repo> pumpMessages(WidgetTester tester, FakeWatch watch,
+        {ValueListenable<bool>? shown}) async {
+      final repository = _Repo(watch);
+      final screen = MessagesScreen(repository: repository);
+      await tester.pumpWidget(MaterialApp(
+        home: shown == null
+            ? screen
+            : ValueListenableBuilder(
+                valueListenable: shown,
+                builder: (_, enabled, child) =>
+                    TickerMode(enabled: enabled, child: child!),
+                child: screen,
+              ),
+      ));
+      await tester.pumpAndSettle();
+      return repository;
+    }
+
+    int selectedTab(WidgetTester tester) =>
+        tester.widget<TabBar>(find.byType(TabBar)).controller!.index;
+
+    testWidgets('a tap turns to its list and reloads it, even if it is open',
+        (tester) async {
+      final watch = FakeWatch();
+      final repository = await pumpMessages(tester, watch);
+      expect(repository.pmLoads, 1);
+      await tester.tap(find.text('发件箱'));
+      await tester.pumpAndSettle();
+      expect(repository.lastBox, ForumPmBox.sendbox);
+
+      watch.tapNotice(NoticeNotificationKind.pm);
+      await tester.pumpAndSettle();
+      expect(selectedTab(tester), 0);
+      // A fresh 收件箱, whichever box was left open.
+      expect(repository.pmLoads, 2);
+      expect(repository.lastBox, ForumPmBox.inbox);
+      expect(
+          tester
+              .widget<SegmentedButton<ForumPmBox>>(
+                  find.byType(SegmentedButton<ForumPmBox>))
+              .selected,
+          {ForumPmBox.inbox});
+
+      watch.tapNotice(NoticeNotificationKind.reply);
+      await tester.pumpAndSettle();
+      expect(selectedTab(tester), 1);
+      final replies = repository.replyLoads;
+      watch.tapNotice(NoticeNotificationKind.reply);
+      await tester.pumpAndSettle();
+      expect(repository.replyLoads, replies + 1);
+      expect(watch.pendingNoticeOpen, isNull);
+    });
+
+    testWidgets('a tap shows 消息 from under whatever was open on top',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final watch = FakeWatch();
+      final repository = _Repo(watch);
+      await tester
+          .pumpWidget(MaterialApp(home: HomeShell(repository: repository)));
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(HomeShell))).push(
+          MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('on top'))));
+      await tester.pumpAndSettle();
+
+      watch.tapNotice(NoticeNotificationKind.reply);
+      await tester.pumpAndSettle();
+      expect(find.text('on top'), findsNothing);
+      expect(selectedTab(tester), 1);
+      expect(repository.replyLoads, 1);
+    });
+
+    testWidgets('a list on screen clears its own system notification',
+        (tester) async {
+      final shown = ValueNotifier(false);
+      final repository = await pumpMessages(tester, FakeWatch(), shown: shown);
+      // 消息 off screen clears nothing.
+      expect(repository.cancelled, isEmpty);
+      shown.value = true;
+      await tester.pumpAndSettle();
+      expect(repository.cancelled, [NoticeNotificationKind.pm]);
+      await tester.tap(find.text('回复提醒'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('关注'));
+      await tester.pumpAndSettle();
+      expect(repository.cancelled,
+          [NoticeNotificationKind.pm, NoticeNotificationKind.reply]);
+    });
+
+    testWidgets('a clearing the account no longer owns fails quietly',
+        (tester) async {
+      final watch = FakeWatch();
+      final repository = _Repo(watch)
+        ..nativeNotifications.error = StateError('stale owner');
+      await tester.pumpWidget(
+          MaterialApp(home: MessagesScreen(repository: repository)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('回复提醒'));
+      await tester.pumpAndSettle();
+      expect(repository.cancelled,
+          [NoticeNotificationKind.pm, NoticeNotificationKind.reply]);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('开启 asks; after a refusal only 去设置 opens the settings',
+        (tester) async {
+      final notifications = _Notifications();
+      final watch = FakeWatch(notifications: notifications)
+        ..notificationPermission = WatchNotificationPermission.denied
+        ..grantOnRequest = false;
+      await pumpMessages(tester, watch);
+      expect(find.text('系统通知未开启 · 新消息只在 App 内提示'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(TextButton, '开启'));
+      await tester.pumpAndSettle();
+      expect(notifications.settingsOpened, 0);
+      await tester.tap(find.widgetWithText(TextButton, '去设置'));
+      await tester.pumpAndSettle();
+      expect(notifications.settingsOpened, 1);
+
+      // Back from the settings with notifications on.
+      watch
+        ..notificationPermission = WatchNotificationPermission.granted
+        ..notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('系统通知未开启'), findsNothing);
+    });
+
+    testWidgets('开启 that is granted needs no settings', (tester) async {
+      final watch = FakeWatch()
+        ..notificationPermission = WatchNotificationPermission.denied;
+      await pumpMessages(tester, watch);
+      await tester.tap(find.widgetWithText(TextButton, '开启'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('系统通知未开启'), findsNothing);
+    });
+  });
+}
+
+class _Notifications extends WatchNotifications {
+  int settingsOpened = 0;
+
+  @override
+  Future<bool> openSettings() async {
+    settingsOpened++;
+    return true;
+  }
+}
+
+class _Notices implements NativeNoticeNotifications {
+  final cancelled = <NoticeNotificationKind>[];
+  Object? error;
+
+  @override
+  Future<void> cancelKind(NoticeNotificationKind kind) async {
+    cancelled.add(kind);
+    if (error case final error?) throw error;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _Repo extends ForumRepository {
@@ -457,6 +615,15 @@ class _Repo extends ForumRepository {
   final FakeWatch fake;
 
   final epoch = ValueNotifier<int>(0);
+  final _notices = _Notices();
+  int pmLoads = 0;
+  ForumPmBox? lastBox;
+  int replyLoads = 0;
+
+  List<NoticeNotificationKind> get cancelled => _notices.cancelled;
+
+  @override
+  _Notices get nativeNotifications => _notices;
 
   @override
   ValueListenable<int> get sessionEpoch => epoch;
@@ -472,11 +639,17 @@ class _Repo extends ForumRepository {
       ValueNotifier(const ForumAccountIdentity(systemName: 'me', uid: '101'));
 
   @override
-  Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async =>
-      ForumPmPage(box: box, messages: const []);
+  Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
+    lastBox = box;
+    if (box == ForumPmBox.inbox && pagePath == null) pmLoads++;
+    return ForumPmPage(box: box, messages: const []);
+  }
 
   @override
-  Future<List<ForumReplyNotice>> fetchReplyNotices() async => const [];
+  Future<List<ForumReplyNotice>> fetchReplyNotices() async {
+    replyLoads++;
+    return const [];
+  }
 
   // An opened 动态's thread never finishes loading here.
   @override
@@ -485,5 +658,16 @@ class _Repo extends ForumRepository {
 
   @override
   Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread t) async =>
+      null;
+
+  @override
+  Future<ForumHomeSnapshot> fetchHome() async =>
+      const ForumHomeSnapshot(latest: [], hot: [], sections: []);
+
+  @override
+  Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() async => null;
+
+  @override
+  Future<ForumTaskQuickClaimResult?> autoClaimForumTaskRewardsIfDue() async =>
       null;
 }

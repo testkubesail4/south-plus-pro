@@ -9,6 +9,7 @@ class FakeWatch extends WatchService {
     List<WatchRule> rules = const [],
     List<WatchEvent> events = const [],
     Map<String, WatchStatus> statuses = const {},
+    super.notifications,
   })  : _fakeRules = [...rules],
         _fakeEvents = [...events],
         _fakeStatuses = {...statuses},
@@ -22,6 +23,7 @@ class FakeWatch extends WatchService {
   int checks = 0;
   Object? markReadError;
   bool isRunning = false;
+  bool grantOnRequest = true;
 
   @override
   List<WatchRule> get rules => List.unmodifiable(_fakeRules);
@@ -97,7 +99,15 @@ class FakeWatch extends WatchService {
 
   @override
   Future<void> requestNotifications() async {
-    notificationPermission = WatchNotificationPermission.granted;
+    if (grantOnRequest) {
+      notificationPermission = WatchNotificationPermission.granted;
+    }
+    notifyListeners();
+  }
+
+  /// As if a 短消息 or 回复提醒 system notification was tapped.
+  void tapNotice(NoticeNotificationKind kind) {
+    pendingNoticeOpen = kind;
     notifyListeners();
   }
 

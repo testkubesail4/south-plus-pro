@@ -87,9 +87,16 @@ class _HomeShellState extends State<HomeShell> {
 
   void _onTabRequest() => _select(_tabRequests.tab);
 
-  // A tapped 关注 notification shows 消息, which opens it.
+  // A tapped notification shows 消息, which turns to its tab.
   void _onWatch() {
-    if (_repository.watch.pendingOpen != null && _index != 3) {
+    final watch = _repository.watch;
+    // 短消息 and 回复提醒 show under whatever was open on top of 消息.
+    if (watch.pendingNoticeOpen != null) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      if (_index != 3) _select(3);
+      return;
+    }
+    if (watch.pendingOpen != null && _index != 3) {
       Navigator.of(context).popUntil((route) => route.isFirst);
       _select(3);
     }

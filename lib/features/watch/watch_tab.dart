@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../models/watch_models.dart';
 import '../../services/forum_repository.dart';
-import '../../services/watch_notifications.dart';
 import '../../services/watch_service.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
@@ -11,6 +10,7 @@ import '../common/forum_link_opener.dart';
 import '../common/grouped_list.dart';
 import '../common/session_bound.dart';
 import '../common/thread_row.dart';
+import '../messages/notification_permission_row.dart';
 import 'watch_rule_sheet.dart';
 
 /// The 消息 › 关注 tab: what the local checks found (动态), and the rules
@@ -48,10 +48,20 @@ class WatchScreen extends StatelessWidget {
         title: '关注',
         child: Scaffold(
           appBar: AppBar(title: const Text('关注')),
-          body: WatchTab(
-            repository: repository,
-            initialRules: true,
-            opensNotifications: false,
+          body: Column(
+            children: [
+              AppContentWidth(
+                maxWidth: AppWidths.list,
+                child: NotificationPermissionRow(watch: repository.watch),
+              ),
+              Expanded(
+                child: WatchTab(
+                  repository: repository,
+                  initialRules: true,
+                  opensNotifications: false,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -170,7 +180,6 @@ class _WatchTabState extends State<WatchTab> {
   }
 
   List<Widget> _rules(BuildContext context, List<WatchRule> rules) {
-    final theme = Theme.of(context);
     return [
       if (rules.isEmpty)
         const _NoRules()
@@ -204,29 +213,6 @@ class _WatchTabState extends State<WatchTab> {
               ),
           ],
         ),
-      if (_watch.notificationPermission == WatchNotificationPermission.denied)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpace.lg,
-            AppSpace.md,
-            AppSpace.sm,
-            0,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '系统通知未开启 · 动态只在这里显示',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-              TextButton(
-                onPressed: _watch.requestNotifications,
-                child: const Text('开启'),
-              ),
-            ],
-          ),
-        ),
       Padding(
         padding: const EdgeInsets.fromLTRB(
           AppSpace.lg,
@@ -239,9 +225,9 @@ class _WatchTabState extends State<WatchTab> {
           '每 5 分钟最多 ${WatchService.maxSends} 次请求。'
           'App 在后台或被关闭时不检查，不保证即时通知。'
           '私密收藏、已删除的楼层和图片中的文字无法识别。',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: AppColors.textMuted,
-          ),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textMuted,
+              ),
         ),
       ),
     ];

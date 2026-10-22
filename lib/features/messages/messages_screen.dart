@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../services/forum_repository.dart';
+import '../../services/watch_notifications.dart';
 import '../../theme/app_theme.dart';
 import '../common/app_tab_header.dart';
 import '../common/content_width.dart';
 import '../profile/forum_preferences_screen.dart';
 import '../watch/watch_tab.dart';
+import 'notification_permission_row.dart';
 import 'pm_box_screen.dart';
 import 'reply_notices_screen.dart';
 
@@ -27,12 +31,26 @@ class _MessagesScreenState extends State<MessagesScreen>
     with SingleTickerProviderStateMixin {
   ForumRepository get repository => widget.repository;
   late final _tabs = TabController(length: 3, vsync: this);
+  // Bumped by a tapped notification, which reloads that list from the top.
+  var _pmLoads = 0;
+  var _replyLoads = 0;
+  bool? _shown;
 
   @override
   void initState() {
     super.initState();
     repository.watch.addListener(_onWatch);
-    _onWatch();
+    _tabs.addListener(_cancelShownKind);
+    _onWatch(building: true);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final shown = TickerMode.of(context);
+    if (shown == _shown) return;
+    _shown = shown;
+    _cancelShownKind();
   }
 
   @override
@@ -42,10 +60,36 @@ class _MessagesScreenState extends State<MessagesScreen>
     super.dispose();
   }
 
-  // A tapped system notification turns to 关注, which opens it.
-  void _onWatch() {
-    if (repository.watch.pendingOpen != null) {
+  // A tapped system notification turns to its tab: 关注 opens the 动态;
+  // 短消息 and 回复提醒 reload their lists, opening and reading nothing.
+  void _onWatch({bool building = false}) {
+    final watch = repository.watch;
+    if (watch.pendingOpen != null) {
       _tabs.animateTo(MessagesScreen.watchTab);
+    }
+    if (watch.pendingNoticeOpen == null) return;
+    final kind = watch.takePendingNoticeOpen();
+    if (kind == null) return;
+    void reload() =>
+        kind == NoticeNotificationKind.pm ? _pmLoads++ : _replyLoads++;
+    building ? reload() : setState(reload);
+    _tabs.animateTo(kind == NoticeNotificationKind.pm ? 0 : 1);
+  }
+
+  // A list on screen is seen: its system notification has done its job.
+  void _cancelShownKind() {
+    if (_shown != true || _tabs.indexIsChanging) return;
+    final kind = switch (_tabs.index) {
+      0 => NoticeNotificationKind.pm,
+      1 => NoticeNotificationKind.reply,
+      _ => null,
+    };
+    if (kind != null) {
+      // Best effort: a stale account or unreadable ledger leaves the shade as
+      // it is, and the tap or the next visit clears it.
+      unawaited(
+        repository.nativeNotifications.cancelKind(kind).catchError((_) {}),
+      );
     }
   }
 
@@ -109,12 +153,20 @@ class _MessagesScreenState extends State<MessagesScreen>
               },
             ),
           ),
+          AppContentWidth(
+            maxWidth: AppWidths.list,
+            child: NotificationPermissionRow(watch: repository.watch),
+          ),
           Expanded(
             child: TabBarView(
               controller: _tabs,
               children: [
-                _KeepAlive(PmBoxScreen(repository: repository, embedded: true)),
                 _KeepAlive(
+                  key: ValueKey(('pm', _pmLoads)),
+                  PmBoxScreen(repository: repository, embedded: true),
+                ),
+                _KeepAlive(
+                  key: ValueKey(('reply', _replyLoads)),
                   ReplyNoticesScreen(repository: repository, embedded: true),
                 ),
                 _KeepAlive(WatchTab(repository: repository)),
@@ -129,7 +181,7 @@ class _MessagesScreenState extends State<MessagesScreen>
 
 // Swiping back shows the list as left, without a reload.
 class _KeepAlive extends StatefulWidget {
-  const _KeepAlive(this.child);
+  const _KeepAlive(this.child, {super.key});
 
   final Widget child;
 
