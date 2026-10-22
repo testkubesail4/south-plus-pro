@@ -5,6 +5,8 @@ import '../models/watch_models.dart';
 
 enum WatchNotificationPermission { granted, denied, unsupported }
 
+enum NoticeNotificationKind { pm, reply }
+
 class WatchNotifications {
   static const channel = MethodChannel(
     'south_plus_rewrite/watch_notifications',
@@ -50,6 +52,51 @@ class WatchNotifications {
       // Unsupported platforms retain the in-app event.
     } on PlatformException {
       // A revoked permission must not discard a persisted event.
+    }
+  }
+
+  Future<bool> showNotice(
+    String owner,
+    String eventId,
+    NoticeNotificationKind kind,
+  ) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      return await channel.invokeMethod<bool>('show', {
+            'owner': owner,
+            'eventId': eventId,
+            'kind': kind.name,
+          }) ==
+          true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<void> cancelKind(String owner, NoticeNotificationKind kind) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      await channel.invokeMethod<void>('cancelKind', {
+        'owner': owner,
+        'kind': kind.name,
+      });
+    } on MissingPluginException {
+      // Unsupported platforms retain their existing in-app notices.
+    } on PlatformException {
+      // Cancellation failure cannot change forum read state.
+    }
+  }
+
+  Future<bool> openSettings() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      return await channel.invokeMethod<bool>('openSettings') == true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
     }
   }
 

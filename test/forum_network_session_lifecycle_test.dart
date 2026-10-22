@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -390,7 +391,10 @@ void main() {
           subjectId: '70', label: 'Synthetic B target'));
       await repository.watch.checkNow();
       expect(repository.watch.statuses['ownerB']!.phase, WatchPhase.current);
-      expect(fixture.requests.length, requests + 2, reason: 'identity refresh then one baseline read');
+      final noticeProbe =
+          !kIsWeb && defaultTargetPlatform == TargetPlatform.android ? 1 : 0;
+      expect(fixture.requests.length, requests + 2 + noticeProbe,
+          reason: 'identity refresh, Android native-header probe, then watched-thread baseline');
     });
   });
 

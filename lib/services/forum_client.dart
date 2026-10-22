@@ -130,6 +130,44 @@ class ForumClient {
   Future<String> getOnce(String path) => _readText('GET', path);
 
   static final _watchSendGate = Object();
+  static final _nativeNoticeSendGate = Object();
+  static final _nativeNoticeSessionGuard = Object();
+
+  Future<T> runNativeNoticeReads<T>(Future<T> Function() read, {
+    required void Function() requireCurrentSession,
+    required void Function() beforeSend,
+  }) {
+    void gate(String method, Uri uri, Map<String, String>? form) {
+      requireCurrentSession();
+      var safe = false;
+      if (_sameOrigin(uri) && !uri.hasFragment) {
+        if (method == 'GET' && uri.path == '/index.php' && !uri.hasQuery) {
+          safe = true;
+        } else if (method == 'GET' && uri.path == '/message.php') {
+          if (uri.query.contains('=')) {
+            final fields = uri.queryParametersAll;
+            safe = fields.entries.every((e) => {'action', 'page'}.contains(e.key) && e.value.length == 1) &&
+                fields['action']?.single == 'receivebox' &&
+                (fields['page'] == null || RegExp(r'^[1-9]\d*$').hasMatch(fields['page']!.single));
+          } else {
+            safe = uri.query.isEmpty || RegExp(r'^action-receivebox(?:-page-[1-9]\d*)?\.html$').hasMatch(uri.query);
+          }
+        } else if (method == 'POST' && uri.path == '/pw_ajax.php') {
+          final fields = uri.queryParametersAll;
+          safe = fields.length == 2 && fields.entries.every((e) => {'nowtime', 'verify'}.contains(e.key) && e.value.length == 1) &&
+              RegExp(r'^\d+$').hasMatch(fields['nowtime']?.single ?? '') &&
+              RegExp(r'^[A-Za-z0-9]{8}$').hasMatch(fields['verify']?.single ?? '') &&
+              form?.length == 1 && form?['action'] == 'newrp';
+        }
+      }
+      if (!safe) throw const ForumRequestException(ForumRequestKind.invalidInput, '通知检查不能访问此操作');
+      beforeSend();
+    }
+    return runZoned(read, zoneValues: {
+      _nativeNoticeSendGate: gate,
+      _nativeNoticeSessionGuard: requireCurrentSession,
+    });
+  }
 
   /// The gate runs at each actual send, including followed redirects.
   Future<String> getWatch(String path, {
@@ -611,6 +649,7 @@ class ForumClient {
     void requireCurrent() {
       _requireOpen();
       requireCurrentSession?.call();
+      (Zone.current[_nativeNoticeSessionGuard] as void Function()?)?.call();
       if (((requireCurrentSession != null || isLogin) &&
               storeGeneration != _cookieStoreGeneration) ||
           (isLogin &&
@@ -631,6 +670,7 @@ class ForumClient {
         (uri.path == '/pw_ajax.php' &&
             uri.queryParameters['action'] == 'addfriend');
     sensitiveAccount = sensitiveAccount ||
+        Zone.current[_nativeNoticeSessionGuard] != null ||
         uri.path == '/profile.php' ||
         isFavorites ||
         isFriends;
@@ -688,6 +728,7 @@ class ForumClient {
       try {
         requireCurrent();
         (Zone.current[_watchSendGate] as void Function(Uri)?)?.call(uri);
+        (Zone.current[_nativeNoticeSendGate] as void Function(String, Uri, Map<String, String>?)?)?.call(method, uri, form);
       } catch (error) {
         request.abort();
         rethrow;

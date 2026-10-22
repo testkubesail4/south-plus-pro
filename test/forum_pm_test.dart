@@ -35,6 +35,23 @@ void main() {
     ]);
   });
 
+  test('native pagination separates adjacent text and selected digits, and rejects incomplete or clamped pages', () async {
+    final client = _PmClient();
+    final repository = ForumRepository(client: client);
+    for (final (requested, pager, known) in [
+      (3, '<div class="pages">Pages:3/3<b>3</b></div>', true),
+      (3, '<div class="pages">Pages:3/30<b>3</b></div>', false),
+      (3, '<div class="pages">Pages:1/3<b>1</b></div>', false),
+      (1, '', true),
+      (3, '', false),
+    ]) {
+      client.responses.add(_inbox.replaceFirst(RegExp(r'<div class="pages">[\s\S]*?</div>'), pager));
+      final page = await repository.fetchPmBox(ForumPmBox.inbox,
+          pagePath: 'message.php?action=receivebox&page=$requested');
+      expect(page.paginationKnown, known, reason: 'page $requested: $pager');
+    }
+  });
+
   test('box continuation metadata follows only the observed consecutive page',
       () async {
     final client = _PmClient()

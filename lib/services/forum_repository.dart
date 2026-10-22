@@ -30,6 +30,7 @@ import 'forum_trace_logger.dart';
 import 'forum_url_resolver.dart';
 import 'user_profile_cache.dart';
 import 'watch_service.dart';
+import 'native_notice_notifications.dart';
 import 'thread_read_position_store.dart';
 import 'parsers/board_thread_page_parser.dart';
 import 'parsers/forum_form_parser.dart';
@@ -115,8 +116,12 @@ class ForumRepository {
       _taskSnapshotRefreshes.clear();
       _invalidateQuickLists();
       _watch?.sessionChanged();
+      _nativeNotifications?.sessionChanged();
     });
-    _accountIdentity.addListener(() => _watch?.sessionChanged());
+    _accountIdentity.addListener(() {
+      _watch?.sessionChanged();
+      _nativeNotifications?.sessionChanged();
+    });
     _sessionUser.addListener(() {
       final name = currentUsername;
       if (name == null) {
@@ -128,7 +133,46 @@ class ForumRepository {
   }
 
   WatchService? _watch;
-  WatchService get watch => _watch ??= WatchService(session: _watchSession);
+  NativeNoticeNotifications? _nativeNotifications;
+  NativeNoticeNotifications get nativeNotifications => _nativeNotifications ??= NativeNoticeNotifications(
+    session: _watchSession,
+    refreshFlags: _refreshNotificationFlags,
+    loadInbox: (path) => fetchPmBox(ForumPmBox.inbox, pagePath: path),
+    loadReplies: () => _fetchReplyNotices(allowVerifyRefresh: false),
+    notifications: watch.notifications,
+  );
+  WatchService get watch => _watch ??= WatchService(
+    session: _watchSession,
+    checkNativeNotices: !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+        ? (scope, reserve, guard) => nativeNotifications.check(scope, reserve, guard) : null,
+    acceptNativeNoticeTap: !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+        ? (tap) => nativeNotifications.acceptTap(tap) : null,
+  );
+
+  Future<ForumNoticeFlags> _refreshNotificationFlags(WatchSession scope) async {
+    scope.requireCurrent();
+    final response = await scope.client.getForm('index.php',
+        requireCurrentSession: scope.requireCurrent, followRedirects: false);
+    scope.requireCurrent();
+    final document = html_parser.parse(response);
+    if (_userProfileParser.parseAccountIdentity(document)?.uid != scope.uid) {
+      throw const ForumRequestException(ForumRequestKind.loginRequired, '当前账号无法确认，请刷新登录状态');
+    }
+    final parser = _replyNoticeParser;
+    final unreadPm = parser.hasUnreadPm(document);
+    final knownPm = unreadPm || document.querySelectorAll('#td_msg img[src]').any((image) =>
+        Uri.tryParse(image.attributes['src']!)?.path.split('/').last == 'no-shortmail.gif');
+    if (!knownPm) throw const ForumRequestException(ForumRequestKind.server, '未能识别短消息提醒状态');
+    final flags = ForumNoticeFlags(replyNotice: parser.hasReplyNotice(document), unreadPm: unreadPm);
+    final verify = parser.verifyToken(document);
+    if (flags.replyNotice && verify == null) {
+      throw const ForumRequestException(ForumRequestKind.server, '未能确认回复提醒读取入口');
+    }
+    _replyNoticeVerify = verify;
+    _replyNoticeCredentialGeneration = scope.client.credentialGeneration;
+    _noticeFlags.value = flags;
+    return flags;
+  }
 
   WatchSession? _watchSession() {
     final identity = _accountIdentity.value;
@@ -696,7 +740,7 @@ class ForumRepository {
     _maybeLoadBlocking();
   }
 
-  Future<String> _postReplyNotice(Map<String, String> fields) async {
+  Future<String> _postReplyNotice(Map<String, String> fields, {bool allowVerifyRefresh = true}) async {
     final epoch = _sessionEpoch.value;
     final client = _client;
     void requireCurrentSession() {
@@ -719,6 +763,9 @@ class ForumRepository {
       }
       requireCurrentSession();
       if (_replyNoticeVerify == null) {
+        if (!allowVerifyRefresh) {
+          throw const ForumRequestException(ForumRequestKind.server, '回复提醒读取入口已失效，请稍后重试');
+        }
         final credentialGeneration = client.credentialGeneration;
         final response = await client.get('index.php');
         requireCurrentSession();
@@ -744,8 +791,10 @@ class ForumRepository {
     }
   }
 
-  Future<List<ForumReplyNotice>> fetchReplyNotices() async {
-    final response = await _postReplyNotice({'action': 'newrp'});
+  Future<List<ForumReplyNotice>> fetchReplyNotices() => _fetchReplyNotices();
+
+  Future<List<ForumReplyNotice>> _fetchReplyNotices({bool allowVerifyRefresh = true}) async {
+    final response = await _postReplyNotice({'action': 'newrp'}, allowVerifyRefresh: allowVerifyRefresh);
     final List<ForumReplyNotice> notices;
     if (response.trim() == '您的回复列表为空') {
       notices = const [];

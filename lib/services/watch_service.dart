@@ -48,6 +48,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     required this.session,
     WatchNotifications? notifications,
     DateTime Function()? clock,
+    this.checkNativeNotices,
+    this.acceptNativeNoticeTap,
   }) : notifications = notifications ?? WatchNotifications(),
        clock = clock ?? DateTime.now;
 
@@ -59,6 +61,13 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   final WatchSession? Function() session;
   final WatchNotifications notifications;
   final DateTime Function() clock;
+  final Future<DateTime?> Function(
+    WatchSession,
+    void Function(),
+    void Function(),
+  )?
+  checkNativeNotices;
+  final Future<bool> Function(Map<String, dynamic>)? acceptNativeNoticeTap;
   final _rules = <WatchRule>[];
   final _events = <WatchEvent>[];
   final _states = <String, Map<String, dynamic>>{};
@@ -79,6 +88,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _mutations = Future.value();
   final _sourceStatuses = <String, WatchStatus>{};
   WatchEvent? pendingOpen;
+  NoticeNotificationKind? pendingNoticeOpen;
+  DateTime? _nativePendingUntil;
   WatchNotificationPermission notificationPermission =
       WatchNotificationPermission.unsupported;
   DateTime? nextCheckAt;
@@ -103,7 +114,6 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     notifications.listen(() => _consumeTap().catchError((_) {}));
-    notificationPermission = await notifications.permission();
     if (_disposed || !_started) return;
     await _resumeCheck();
   }
@@ -133,6 +143,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     _statuses.clear();
     _sourceStatuses.clear();
     pendingOpen = null;
+    pendingNoticeOpen = null;
+    _nativePendingUntil = null;
     // The rolling budget is deliberately not reset by account/mirror changes.
     if (previousOwner != null)
       _nativeReset = _nativeReset.then((_) => notifications.cancelAll());
@@ -382,9 +394,11 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       if (identical(_checking, pending)) _checking = null;
       if (!_disposed) {
         notifyListeners();
-        _schedule(
-          pendingUntil == null ? interval : pendingUntil!.difference(clock()),
-        );
+        var next = clock().add(interval);
+        for (final deadline in [pendingUntil, _nativePendingUntil]) {
+          if (deadline != null && deadline.isBefore(next)) next = deadline;
+        }
+        _schedule(next.difference(clock()));
       }
     });
     _checking = pending;
@@ -419,6 +433,12 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _resumeCheck() async {
+    final permission = await notifications.permission();
+    if (_disposed || !_started || !_foreground) return;
+    if (permission != notificationPermission) {
+      notificationPermission = permission;
+      notifyListeners();
+    }
     await _checking?.catchError((_) {});
     if (_disposed || !_started || !_foreground) return;
     await checkNow().catchError((_) {});
@@ -500,7 +520,25 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
             (_states['${b.$1.id}/${b.$2.name}']?['checked'] as int?) ?? 0,
           ),
     );
+    await _consumeTap();
+    requireCurrent();
     try {
+      if (checkNativeNotices != null) {
+        try {
+          final deadline = await checkNativeNotices!(
+            current,
+            _charge,
+            requireCurrent,
+          );
+          requireCurrent();
+          _nativePendingUntil = deadline;
+        } on WatchBudgetExhausted {
+          rethrow;
+        } catch (_) {
+          requireCurrent();
+          _nativePendingUntil = clock().add(budgetWindow);
+        }
+      }
       while (done.length + failures.length < jobs.length) {
         for (final (rule, kind) in jobs) {
           final key = '${rule.id}/${kind.name}';
@@ -629,8 +667,19 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     final tap = await notifications.takeTap();
     current.requireCurrent();
     if (generation != _generation || _disposed) return;
-    if (tap?['owner'] == current.owner) {
-      pendingOpen = _events.where((e) => e.id == tap?['eventId']).firstOrNull;
+    if (tap == null || tap['owner'] != current.owner) return;
+    final kind = tap['kind'] ?? 'watch';
+    if (kind == 'watch') {
+      pendingOpen = _events.where((e) => e.id == tap['eventId']).firstOrNull;
+      notifyListeners();
+    } else if (NoticeNotificationKind.values.any(
+          (value) => value.name == kind,
+        ) &&
+        acceptNativeNoticeTap != null) {
+      final accepted = await acceptNativeNoticeTap!(tap);
+      current.requireCurrent();
+      if (generation != _generation || _disposed || !accepted) return;
+      pendingNoticeOpen = NoticeNotificationKind.values.byName(kind as String);
       notifyListeners();
     }
   }
@@ -641,13 +690,19 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     return event;
   }
 
+  NoticeNotificationKind? takePendingNoticeOpen() {
+    final kind = pendingNoticeOpen;
+    pendingNoticeOpen = null;
+    return kind;
+  }
+
   void _schedule(Duration delay) {
     _timer?.cancel();
     if (!_started ||
         !_foreground ||
         _disposed ||
         session() == null ||
-        activeCount == 0) {
+        (activeCount == 0 && checkNativeNotices == null)) {
       nextCheckAt = null;
       return;
     }

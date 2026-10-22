@@ -55,6 +55,7 @@ class ForumPmPage {
     this.hasUnread,
     this.currentPage = 1,
     this.nextPagePath,
+    this.paginationKnown = true,
   });
   final ForumPmBox box;
   final List<ForumPmSummary> messages;
@@ -62,6 +63,7 @@ class ForumPmPage {
   final bool? hasUnread;
   final int currentPage;
   final String? nextPagePath;
+  final bool paginationKnown;
 }
 
 class ForumPmDetail {
