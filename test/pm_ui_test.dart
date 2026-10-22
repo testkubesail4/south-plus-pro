@@ -782,6 +782,68 @@ void main() {
     });
   });
 
+  testWidgets('a peer with a native UID opens TA\'s profile; others stay text',
+      (tester) async {
+    final repository = _FakePmRepository();
+    await tester.pumpWidget(
+      MaterialApp(home: PmBoxScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    // The broadcast's peer has no UID, so only peer-a is a link.
+    expect(_profileLink('查看 peer-a 的用户中心'), findsOneWidget);
+    expect(_profileLink('查看 system 的用户中心'), findsNothing);
+
+    // A screen reader's tap opens it too.
+    final semantics = tester.ensureSemantics();
+    // Throws unless the node has a tap action.
+    tester.semantics.tap(find.semantics.byLabel('查看 peer-a 的用户中心'));
+    await tester.pumpAndSettle();
+    semantics.dispose();
+    final profile =
+        tester.widget<UserProfileScreen>(find.byType(UserProfileScreen));
+    expect(profile.userUrl, endsWith('/u.php?action-show-uid-101.html'));
+    expect(repository.detailCalls, 0);
+  });
+
+  for (final (label, uid, linked) in [
+    ('a native peer UID', '101', true),
+    ('SYSTEM uid 0', '0', false),
+    ('no peer UID', null, false),
+  ]) {
+    testWidgets('detail sender with $label', (tester) async {
+      final summary = ForumPmSummary(
+        box: ForumPmBox.inbox,
+        type: ForumPmType.personal,
+        id: '11',
+        peer: 'peer-a',
+        peerUid: uid,
+        title: 'personal title',
+        time: '2026-01-01',
+        detailPath: 'message.php?action-read-mid-11.html',
+      );
+      final repository = _FakePmRepository()
+        ..detail = ForumPmDetail(
+          summary: summary,
+          sender: 'peer-a',
+          title: 'personal title',
+          time: '2026-01-01',
+          content: 'body',
+        );
+      await tester.pumpWidget(MaterialApp(
+        home: PmDetailScreen(repository: repository, message: summary),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(_profileLink('查看 peer-a 的用户中心'),
+          linked ? findsOneWidget : findsNothing);
+      await tester.tap(find.text('peer-a'));
+      await tester.pumpAndSettle();
+      expect(find.byType(UserProfileScreen),
+          linked ? findsOneWidget : findsNothing);
+    });
+  }
+
   testWidgets('profile message chip opens the server compose entry',
       (tester) async {
     final repository = _FakePmRepository();
@@ -927,3 +989,7 @@ class _FakePmRepository extends ForumRepository {
           {bool forceReload = false}) async =>
       overview;
 }
+
+// The peer link, by the label it announces.
+Finder _profileLink(String label) => find.byWidgetPredicate(
+    (widget) => widget is Semantics && widget.properties.label == label);

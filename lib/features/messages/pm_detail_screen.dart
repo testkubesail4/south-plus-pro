@@ -14,6 +14,7 @@ import '../common/page_end.dart';
 import '../common/session_bound.dart';
 import '../thread/thread_rich_content.dart';
 import 'pm_compose_screen.dart';
+import 'pm_peer_meta.dart';
 import '../common/more_pages.dart';
 
 /// Returns the server result so the box can follow its refresh destination.
@@ -243,6 +244,7 @@ class _PmDetailViewState extends State<_PmDetailView> {
                             _PmMessageCard(
                               repository: widget.repository,
                               sender: detail.sender,
+                              senderUid: detail.summary.peerUid,
                               title: detail.title,
                               time: detail.time,
                               content: detail.content,
@@ -506,6 +508,7 @@ class _PmMessageCard extends StatelessWidget {
   const _PmMessageCard({
     required this.repository,
     required this.sender,
+    this.senderUid,
     required this.title,
     required this.time,
     required this.content,
@@ -514,6 +517,9 @@ class _PmMessageCard extends StatelessWidget {
 
   final ForumRepository repository;
   final String sender;
+
+  /// The native peer UID; only a positive one makes [sender] a profile link.
+  final String? senderUid;
   final String title;
   final String time;
   final String content;
@@ -532,9 +538,11 @@ class _PmMessageCard extends StatelessWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 6),
-          Text(
-            [sender, time].where((part) => part.isNotEmpty).join(' · '),
-            style: Theme.of(context).textTheme.bodySmall,
+          PmPeerMeta(
+            repository: repository,
+            peer: sender,
+            peerUid: senderUid,
+            rest: [time],
           ),
           Divider(height: 24, color: AppColors.border),
           if (segments.isEmpty)

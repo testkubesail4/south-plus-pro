@@ -54,7 +54,7 @@ void main() {
       'a cap counts the undecided rows it kept',
       const ScanProgress(
           state: ScanState.stopped, unresolved: 200, capped: true),
-      ('结果较多，已停止', '仅保留前 200 条：找到 0 条 · 待确认 200 条，请使用更具体的关键词'),
+      ('已达结果上限，已停止', '已搜索 0 页 · 找到 0 条 · 待确认 200 条，结果不完整'),
       ['返回已加载'],
     ),
     (

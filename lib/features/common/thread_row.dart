@@ -12,6 +12,7 @@ class ForumThreadRow extends StatelessWidget {
     required this.title,
     this.titleStyle,
     this.meta = const [],
+    this.metaLine,
     this.tag,
     this.thumbnail,
     this.trailing,
@@ -31,6 +32,7 @@ class ForumThreadRow extends StatelessWidget {
     this.onLongPress,
   })  : dense = true,
         meta = const [],
+        metaLine = null,
         tag = null,
         thumbnail = null,
         trailing = null,
@@ -41,6 +43,9 @@ class ForumThreadRow extends StatelessWidget {
 
   /// Shown joined by ` · ` in one line: board, author, time, `N 回复`.
   final List<String> meta;
+
+  /// Replaces the [meta] line, e.g. one with its own tappable part.
+  final Widget? metaLine;
 
   /// A short leading tag such as 置顶 or 精华.
   final String? tag;
@@ -98,7 +103,10 @@ class ForumThreadRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 titleText,
-                if (meta.isNotEmpty || tag != null) ...[
+                if (metaLine case final line?) ...[
+                  const SizedBox(height: AppSpace.xs),
+                  line,
+                ] else if (meta.isNotEmpty || tag != null) ...[
                   const SizedBox(height: AppSpace.xs),
                   _MetaLine(tag: tag, meta: meta.join(' · ')),
                 ],

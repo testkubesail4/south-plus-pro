@@ -20,9 +20,13 @@ class _ProfileHeader extends StatelessWidget {
     this.onAddFriend,
     this.addingFriend = false,
     this.onOpenFriends,
+    this.actions = const [],
   });
 
   final UserProfile profile;
+
+  /// Icon buttons at the right of the 用户中心 bar, e.g. 关注 and 分享.
+  final List<Widget> actions;
   final String? note;
   final List<String> tags;
   final VoidCallback? onEditNote;
@@ -54,7 +58,13 @@ class _ProfileHeader extends StatelessWidget {
                 onPressed: () => Navigator.of(context).pop(),
                 icon: Icon(Icons.chevron_left, size: 30),
               ),
-              Text('用户中心', style: Theme.of(context).textTheme.titleMedium),
+              Expanded(
+                child: Text(
+                  '用户中心',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              ...actions,
             ],
           ),
           const SizedBox(height: 10),

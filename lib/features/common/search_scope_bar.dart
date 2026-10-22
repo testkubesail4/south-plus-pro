@@ -266,9 +266,10 @@ String _reason(ForumRequestKind? kind) =>
           '已找到 ${p.found} 条',
         ].join(' · '),
       ),
+    // Only a caller's explicit cap; user-started scans have none.
     ScanState.stopped when p.capped => (
-        '结果较多，已停止',
-        '仅保留前 ${p.found + p.unresolved} 条：$kept，请使用更具体的关键词',
+        '已达结果上限，已停止',
+        '已搜索 $pages · $kept，结果不完整',
       ),
     ScanState.stopped => ('已停止，结果不完整', '已搜索 $pages · $kept'),
     ScanState.failed => (

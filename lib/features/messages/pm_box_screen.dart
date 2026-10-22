@@ -14,6 +14,7 @@ import '../common/session_bound.dart';
 import '../common/thread_row.dart';
 import 'pm_compose_screen.dart';
 import 'pm_detail_screen.dart';
+import 'pm_peer_meta.dart';
 import '../common/more_pages.dart';
 
 class PmBoxScreen extends StatelessWidget {
@@ -407,6 +408,7 @@ class _PmBoxViewState extends State<_PmBoxView> {
                                   color: AppColors.brand,
                                   onRefresh: _refresh,
                                   child: _PmList(
+                                    repository: widget.repository,
                                     pages: [snapshot.data!, ..._more.pages],
                                     scroll: _scroll,
                                     footer: _footer(snapshot.data!),
@@ -456,12 +458,15 @@ class _PmBoxViewState extends State<_PmBoxView> {
 
 class _PmList extends StatelessWidget {
   const _PmList({
+    required this.repository,
     required this.pages,
     required this.scroll,
     required this.footer,
     required this.onOpen,
     required this.onPage,
   });
+
+  final ForumRepository repository;
 
   /// The first page, then those 自动接续 appended.
   final List<ForumPmPage> pages;
@@ -544,12 +549,16 @@ class _PmList extends StatelessWidget {
           for (final message in messages)
             ForumThreadRow(
               title: message.title,
-              meta: [
-                if (message.peer.isNotEmpty) message.peer,
-                if (message.time.isNotEmpty) message.time,
-                if (message.recipientRead case final read?)
-                  read ? '对方已读' : '对方未读',
-              ],
+              metaLine: PmPeerMeta(
+                repository: repository,
+                peer: message.peer,
+                peerUid: message.peerUid,
+                rest: [
+                  message.time,
+                  if (message.recipientRead case final read?)
+                    read ? '对方已读' : '对方未读',
+                ],
+              ),
               emphasized: message.unread,
               trailing: message.unread
                   ? Padding(

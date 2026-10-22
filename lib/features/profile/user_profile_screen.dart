@@ -9,6 +9,7 @@ import '../../services/forum_repository.dart';
 import '../../services/full_scan.dart';
 import '../../services/keyword_match.dart';
 import '../../services/loading_preferences.dart';
+import '../../services/thread_share_service.dart';
 import '../../services/user_content_sort.dart';
 import '../../services/user_display_name_store.dart';
 import '../../theme/app_theme.dart';
@@ -284,6 +285,26 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         },
       );
 
+  // The canonical 用户中心 URL on the active origin; the native chooser, or
+  // the clipboard where there is none.
+  Future<void> _share(UserProfile profile, String url) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final name = profile.name.trim();
+    try {
+      final opened = await ThreadShareService.share(
+        title: name.isEmpty ? '用户中心' : '$name 的用户中心',
+        url: url,
+      );
+      if (!opened && mounted) {
+        messenger.showSnackBar(const SnackBar(content: Text('已复制链接')));
+      }
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(const SnackBar(content: Text('分享失败')));
+      }
+    }
+  }
+
   void _copyLoginName(String name) {
     Clipboard.setData(ClipboardData(text: name));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -438,6 +459,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               colors: _notes.tagColors,
                               child: _ProfileHeader(
                                 profile: profile,
+                                actions: [
+                                  if (widget.repository.userProfileUrl(uid)
+                                      case final url?)
+                                    IconButton(
+                                      tooltip: '分享',
+                                      onPressed: () => _share(profile, url),
+                                      icon: const Icon(Icons.share_outlined),
+                                    ),
+                                ],
                                 note: hasUid ? _notes.noteFor(uid) : null,
                                 tags: hasUid ? _notes.tagsFor(uid) : const [],
                                 onEditNote:
