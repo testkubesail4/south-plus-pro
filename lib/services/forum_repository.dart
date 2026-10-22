@@ -29,6 +29,7 @@ import 'forum_task_state_store.dart';
 import 'forum_trace_logger.dart';
 import 'forum_url_resolver.dart';
 import 'user_profile_cache.dart';
+import 'watch_service.dart';
 import 'thread_read_position_store.dart';
 import 'parsers/board_thread_page_parser.dart';
 import 'parsers/forum_form_parser.dart';
@@ -113,7 +114,9 @@ class ForumRepository {
       _taskReadRequests.clear();
       _taskSnapshotRefreshes.clear();
       _invalidateQuickLists();
+      _watch?.sessionChanged();
     });
+    _accountIdentity.addListener(() => _watch?.sessionChanged());
     _sessionUser.addListener(() {
       final name = currentUsername;
       if (name == null) {
@@ -122,6 +125,31 @@ class ForumRepository {
         _accountIdentity.value = ForumAccountIdentity(systemName: name);
       }
     });
+  }
+
+  WatchService? _watch;
+  WatchService get watch => _watch ??= WatchService(session: _watchSession);
+
+  WatchSession? _watchSession() {
+    final identity = _accountIdentity.value;
+    final owner = localPreferenceAccount;
+    final uid = identity?.uid;
+    if (!isLoggedIn || owner == null || uid == null ||
+        !RegExp(r'^[1-9]\d*$').hasMatch(uid) ||
+        identity?.credentialGeneration == null ||
+        !_client.isCredentialCurrent(identity!.credentialGeneration!)) return null;
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final credentials = client.credentialGeneration;
+    return WatchSession(owner: owner, uid: uid, epoch: epoch, client: client,
+      urls: _urls, requireCurrent: () {
+        if (!identical(client, _client) || epoch != _sessionEpoch.value ||
+            !client.isCredentialCurrent(credentials) || !isLoggedIn ||
+            localPreferenceAccount != owner || _accountIdentity.value?.uid != uid ||
+            _accountIdentity.value?.credentialGeneration != credentials) {
+          throw const ForumRequestException(ForumRequestKind.loginRequired, '登录状态已改变，关注检查已暂停');
+        }
+      });
   }
 
   ForumClient _client;

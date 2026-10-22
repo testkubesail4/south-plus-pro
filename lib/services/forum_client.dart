@@ -129,6 +129,50 @@ class ForumClient {
 
   Future<String> getOnce(String path) => _readText('GET', path);
 
+  static final _watchSendGate = Object();
+
+  /// The gate runs at each actual send, including followed redirects.
+  Future<String> getWatch(String path, {
+    required void Function() requireCurrentSession,
+    required void Function() beforeSend,
+  }) {
+    final source = baseUri.resolve(path).removeFragment();
+    String? tid(Uri uri) => RegExp(r'(?:^|[&-])tid[-=]([1-9]\d*)(?:[&-]|\.html$|$)')
+        .firstMatch(uri.query)?.group(1);
+    bool readRedirect(Uri uri) {
+      if (uri.path != '/read.php' || tid(source) == null || tid(uri) != tid(source)) return false;
+      if (!uri.query.contains('=')) {
+        return RegExp(r'^tid-[1-9]\d*(?:-page-[1-9]\d*)?\.html$').hasMatch(uri.query);
+      }
+      try {
+        final fields = uri.queryParametersAll;
+        if (fields.entries.any((e) => !{'tid', 'page'}.contains(e.key) || e.value.length != 1)) return false;
+        return RegExp(r'^[1-9]\d*$').hasMatch(fields['tid']?.single ?? '') &&
+            (fields['page'] == null || RegExp(r'^[1-9]\d*$').hasMatch(fields['page']!.single));
+      } on FormatException { return false; }
+    }
+    void gate(Uri uri) {
+      requireCurrentSession();
+      final sourceSafe = switch (source.path) {
+        '/read.php' => RegExp(r'^tid-[1-9]\d*(?:-page-[1-9]\d*)?\.html$').hasMatch(source.query),
+        '/thread_new.php' => RegExp(r'^fid-[1-9]\d*-orderway-postdate-asc-DESC-page-[1-9]\d*\.html$').hasMatch(source.query),
+        '/u.php' => RegExp(r'^action-(?:topic|post|favor)-uid-[1-9]\d*-page-[1-9]\d*\.html$').hasMatch(source.query),
+        '/job.php' => RegExp(r'^action-topost-tid-[1-9]\d*-pid-[1-9]\d*\.html$').hasMatch(source.query),
+        _ => false,
+      };
+      final safe = sourceSafe && _sameOrigin(uri) &&
+          (uri == source || readRedirect(uri));
+      if (!safe) {
+        throw const ForumRequestException(ForumRequestKind.invalidInput, '关注页面跳转不在安全只读范围内');
+      }
+      beforeSend();
+    }
+    return runZoned(() => _readText('GET', path,
+        requireCurrentSession: requireCurrentSession,
+        requireOk: true, sensitiveAccount: true),
+        zoneValues: {_watchSendGate: gate});
+  }
+
   Future<String> getOnceGuarded(String path,
       {required void Function() requireCurrentSession,
       ForumReadRedirectPolicy redirectPolicy = ForumReadRedirectPolicy.none}) {
@@ -643,6 +687,7 @@ class ForumClient {
     final response = await _pacer.send(uri, () {
       try {
         requireCurrent();
+        (Zone.current[_watchSendGate] as void Function(Uri)?)?.call(uri);
       } catch (error) {
         request.abort();
         rethrow;
