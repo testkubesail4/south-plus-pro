@@ -70,16 +70,27 @@ class _ReplyNoticesScreenState extends State<ReplyNoticesScreen> {
     }
   }
 
+  // A notice names a thread, not a floor: a bare link opens the latest page,
+  // where the new replies are; a link with its own page or floor keeps it.
   void _open(ForumReplyNotice notice) {
+    var thread = ForumThread(
+      title: notice.title,
+      url: notice.threadUrl,
+      replies: 0,
+      section: notice.board,
+    );
+    final url = notice.threadUrl;
+    final located = (Uri.tryParse(url)?.fragment.isNotEmpty ?? false) ||
+        RegExp(r'[-&?]page[-=]').hasMatch(url);
+    if (!located) {
+      if (widget.repository.latestThreadPageUrl(thread) case final latest?) {
+        thread = thread.copyWith(url: latest);
+      }
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ThreadDetailScreen(
-          thread: ForumThread(
-            title: notice.title,
-            url: notice.threadUrl,
-            replies: 0,
-            section: notice.board,
-          ),
+          thread: thread,
           repository: widget.repository,
         ),
       ),
@@ -133,8 +144,8 @@ class _ReplyNoticesScreenState extends State<ReplyNoticesScreen> {
                         )
                       // One grouped surface, as wide as any list (D§4, D§8).
                       : ListView(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: AppSpace.md),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: AppSpace.md),
                           children: [
                             AppContentWidth(
                               maxWidth: AppWidths.list,

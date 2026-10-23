@@ -111,6 +111,12 @@ class FakeWatch extends WatchService {
     notifyListeners();
   }
 
+  /// As if a check set or cleared the status under [key].
+  void setStatus(String key, WatchStatus? status) {
+    status == null ? _fakeStatuses.remove(key) : _fakeStatuses[key] = status;
+    notifyListeners();
+  }
+
   /// As if a system notification for [event] was tapped.
   void tap(WatchEvent event) {
     pendingOpen = event;

@@ -23,7 +23,10 @@ class _NotificationPermissionRowState extends State<NotificationPermissionRow> {
   Future<void> _enable() async {
     final watch = widget.watch;
     if (_refused) {
-      await watch.notifications.openSettings();
+      // Without a settings page to open, asking again is all that is left.
+      if (!await watch.notifications.openSettings() && mounted) {
+        setState(() => _refused = false);
+      }
       return;
     }
     await watch.requestNotifications();

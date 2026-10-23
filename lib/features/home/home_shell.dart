@@ -88,18 +88,61 @@ class _HomeShellState extends State<HomeShell> {
 
   void _onTabRequest() => _select(_tabRequests.tab);
 
-  // A tapped notification shows 消息, which turns to its tab.
+  // A page asking 放弃修改 for a tapped notification.
+  Route<dynamic>? _asking;
+
   void _onWatch() {
     final watch = _repository.watch;
-    // 短消息 and 回复提醒 show under whatever was open on top of 消息.
-    if (watch.pendingNoticeOpen != null) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-      if (_index != 3) _select(3);
+    if (_asking != null ||
+        (watch.pendingNoticeOpen == null && watch.pendingOpen == null)) {
       return;
     }
-    if (watch.pendingOpen != null && _index != 3) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-      _select(3);
+    _showMessages();
+  }
+
+  // A tapped notification closes what is open on top and shows 消息, which
+  // turns to its tab. A page that asks before closing (an unsaved draft)
+  // asks as Back does.
+  void _showMessages() {
+    final navigator = Navigator.of(context);
+    Route<dynamic>? guarded;
+    navigator.popUntil((route) {
+      if (!route.isFirst &&
+          route.popDisposition == RoutePopDisposition.doNotPop) {
+        guarded = route;
+      }
+      return route.isFirst || guarded != null;
+    });
+    if (guarded case final page?) {
+      _asking = page;
+      unawaited(_askToLeave(navigator, page));
+      return;
+    }
+    if (_index != 3) _select(3);
+  }
+
+  // 放弃 goes on to 消息; keeping the page, or a page still saving, drops the
+  // tap.
+  Future<void> _askToLeave(
+      NavigatorState navigator, Route<dynamic> page) async {
+    await navigator.maybePop();
+    if (!mounted) return;
+    Route<dynamic>? top;
+    navigator.popUntil((route) {
+      top = route;
+      return true;
+    });
+    if (top case final question? when question != page) await question.popped;
+    // The page closes itself right after its question does.
+    await Future<void>.delayed(Duration.zero);
+    _asking = null;
+    if (!mounted) return;
+    if (page.isActive) {
+      _repository.watch
+        ..takePendingOpen()
+        ..takePendingNoticeOpen();
+    } else {
+      _showMessages();
     }
   }
 

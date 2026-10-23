@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/watch_models.dart';
@@ -74,13 +75,22 @@ class _WatchTabState extends State<WatchTab> {
   late var _showRules = widget.initialRules;
   // The account this list belongs to; a write after a switch is dropped.
   late final WatchSessionScope _scope;
+  var _shown = false;
 
   @override
   void initState() {
     super.initState();
     _scope = WatchSessionScope(widget.repository);
     _watch.addListener(_onWatch);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _onWatch());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final shown = TickerMode.of(context);
+    if (shown == _shown) return;
+    _shown = shown;
+    if (shown) WidgetsBinding.instance.addPostFrameCallback((_) => _onWatch());
   }
 
   @override
@@ -89,16 +99,16 @@ class _WatchTabState extends State<WatchTab> {
     super.dispose();
   }
 
-  // A tapped system notification lands here and opens its 动态.
+  // A tapped system notification lands on 动态; its rows open their floors.
+  // Under another page it waits until that page is gone.
   void _onWatch() {
-    if (!mounted || !widget.opensNotifications || _watch.pendingOpen == null) {
+    if (!mounted ||
+        !_shown ||
+        !widget.opensNotifications ||
+        _watch.pendingOpen == null) {
       return;
     }
-    final event = _watch.takePendingOpen();
-    if (event != null) {
-      setState(() => _showRules = false);
-      _open(event);
-    }
+    if (_watch.takePendingOpen() != null) setState(() => _showRules = false);
   }
 
   // Opening is not reading: the thread clears the 动态 once its post shows.
@@ -111,6 +121,8 @@ class _WatchTabState extends State<WatchTab> {
       listenable: _watch,
       builder: (context, _) {
         final rules = _watch.rules;
+        // Unread local state is not an empty list; 重试 reads it again.
+        final unreadable = _watch.statuses.containsKey('storage');
         return ListView(
           padding: const EdgeInsets.only(top: AppSpace.sm, bottom: 88),
           children: [
@@ -121,12 +133,14 @@ class _WatchTabState extends State<WatchTab> {
                   (false, '动态'),
                   (
                     true,
-                    '规则 ${_watch.activeCount}/${WatchService.maxActiveRules}'
+                    unreadable
+                        ? '规则'
+                        : '规则 ${_watch.activeCount}/${WatchService.maxActiveRules}'
                   ),
                 ],
                 selected: _showRules,
                 onSelected: (value) => setState(() => _showRules = value),
-                trailing: const HelpButton(title: '关注', lines: watchHelpLines),
+                trailing: HelpButton(title: '关注', lines: watchHelpLines),
               ),
             ),
             const SizedBox(height: AppSpace.md),
@@ -134,9 +148,24 @@ class _WatchTabState extends State<WatchTab> {
               maxWidth: AppWidths.list,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: _showRules
-                    ? _rules(context, rules)
-                    : _events(context, rules),
+                children: unreadable
+                    ? [
+                        EmptyStateView(
+                          icon: Icons.error_outline,
+                          iconColor: AppColors.textMuted,
+                          title: '关注数据无法读取',
+                          action: FilledButton.tonalIcon(
+                            onPressed: _watch.running
+                                ? null
+                                : () => _watch.checkNow().catchError((_) {}),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('重试'),
+                          ),
+                        ),
+                      ]
+                    : _showRules
+                        ? _rules(context, rules)
+                        : _events(context, rules),
               ),
             ),
           ],
@@ -367,13 +396,18 @@ class _NoRules extends StatelessWidget {
       );
 }
 
-/// What 关注 checks, where it is added, and what it cannot see.
-const watchHelpLines = [
-  (Icons.add_alert_outlined, '在帖子右上角菜单、楼层作者菜单、用户中心或版块里添加'),
-  (Icons.schedule_outlined, '使用 App 时约每 15 分钟检查一次'),
-  (Icons.phonelink_erase_outlined, '后台或关闭时不检查'),
-  (Icons.visibility_off_outlined, '私密收藏、已删除的楼层和图片中的文字无法识别'),
-];
+/// What 关注 checks, where it is added, and what it cannot see. Only
+/// Android keeps checking in the background, and only for rules that notify.
+List<(IconData, String)> get watchHelpLines => [
+      (Icons.add_alert_outlined, '在帖子右上角菜单、楼层作者菜单、用户中心或版块里添加'),
+      (Icons.schedule_outlined, '使用 App 时约每 15 分钟检查一次'),
+      if (defaultTargetPlatform == TargetPlatform.android) ...[
+        (Icons.notifications_active_outlined, '开启通知的关注在后台也检查，系统可能延迟或停止'),
+        (Icons.phonelink_erase_outlined, '关闭 App 后不检查'),
+      ] else
+        (Icons.phonelink_erase_outlined, '后台或关闭时不检查'),
+      (Icons.visibility_off_outlined, '私密收藏、已删除的楼层和图片中的文字无法识别'),
+    ];
 
 class _EventRow extends StatelessWidget {
   const _EventRow({

@@ -89,8 +89,43 @@ void main() {
           .widget<ThreadDetailScreen>(find.byType(ThreadDetailScreen))
           .thread
           .url,
-      _notice(2).threadUrl,
+      // A notice names no floor; its new replies are on the latest page.
+      'https://south-plus.net/read.php?tid-2-page-e.html',
     );
+  });
+
+  testWidgets('a notice that links a page or floor opens exactly that',
+      (tester) async {
+    ForumReplyNotice at(int tid, String url) => ForumReplyNotice(
+          board: 'Board $tid',
+          boardUrl: 'https://south-plus.net/thread.php?fid=$tid',
+          title: 'Fixture topic $tid',
+          threadUrl: url,
+          date: '2026-01-0$tid',
+          tid: tid,
+        );
+    const paged = 'https://south-plus.net/read.php?tid-4-page-3.html';
+    const floor = 'https://south-plus.net/read.php?tid-5.html#905';
+    final repo = _Repo(const ForumNoticeFlags())
+      ..notices = [at(4, paged), at(5, floor)];
+    await tester
+        .pumpWidget(MaterialApp(home: ReplyNoticesScreen(repository: repo)));
+    await tester.pumpAndSettle();
+    for (final (title, url) in [
+      ('Fixture topic 4', paged),
+      ('Fixture topic 5', floor),
+    ]) {
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      expect(
+          tester
+              .widget<ThreadDetailScreen>(find.byType(ThreadDetailScreen))
+              .thread
+              .url,
+          url);
+      Navigator.of(tester.element(find.byType(ThreadDetailScreen))).pop();
+      await tester.pumpAndSettle();
+    }
   });
 
   testWidgets('swiping between the 消息 tabs keeps both lists loaded',
@@ -99,13 +134,13 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final repo = _Repo(const ForumNoticeFlags());
-    await tester.pumpWidget(MaterialApp(home: MessagesScreen(repository: repo)));
+    await tester
+        .pumpWidget(MaterialApp(home: MessagesScreen(repository: repo)));
     await tester.pumpAndSettle();
     expect(repo.pmFetches, 1);
 
     for (var i = 0; i < 2; i++) {
-      await tester.fling(
-          find.byType(TabBarView), const Offset(-300, 0), 1000);
+      await tester.fling(find.byType(TabBarView), const Offset(-300, 0), 1000);
       await tester.pumpAndSettle();
       expect(find.text('Fixture topic 1'), findsOneWidget);
       await tester.fling(find.byType(TabBarView), const Offset(300, 0), 1000);
@@ -121,7 +156,8 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final repo = _Repo(const ForumNoticeFlags());
-    await tester.pumpWidget(MaterialApp(home: MessagesScreen(repository: repo)));
+    await tester
+        .pumpWidget(MaterialApp(home: MessagesScreen(repository: repo)));
     await tester.pumpAndSettle();
     await tester.tap(find.text('回复提醒'));
     await tester.pumpAndSettle();

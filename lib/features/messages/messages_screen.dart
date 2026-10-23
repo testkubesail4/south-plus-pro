@@ -41,7 +41,6 @@ class _MessagesScreenState extends State<MessagesScreen>
     super.initState();
     repository.watch.addListener(_onWatch);
     _tabs.addListener(_cancelShownKind);
-    _onWatch(building: true);
   }
 
   @override
@@ -51,6 +50,7 @@ class _MessagesScreenState extends State<MessagesScreen>
     if (shown == _shown) return;
     _shown = shown;
     _cancelShownKind();
+    if (shown) _onWatch(building: true);
   }
 
   @override
@@ -62,7 +62,9 @@ class _MessagesScreenState extends State<MessagesScreen>
 
   // A tapped system notification turns to its tab: 关注 opens the 动态;
   // 短消息 and 回复提醒 reload their lists, opening and reading nothing.
+  // Under another page it waits until that page is gone.
   void _onWatch({bool building = false}) {
+    if (_shown != true) return;
     final watch = repository.watch;
     if (watch.pendingOpen != null) {
       _tabs.animateTo(MessagesScreen.watchTab);

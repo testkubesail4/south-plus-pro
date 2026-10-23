@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/common/sub_tabs.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/messages_screen.dart';
+import 'package:south_plus_rewrite/features/reply/thread_edit_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/features/watch/watch_rule_sheet.dart';
 import 'package:south_plus_rewrite/features/watch/watch_tab.dart';
@@ -78,6 +79,33 @@ void main() {
   }
 
   group('动态', () {
+    testWidgets('unreadable local state is an error on both views, not empty',
+        (tester) async {
+      final watch = FakeWatch(statuses: const {
+        'storage': WatchStatus(WatchPhase.unavailable, '关注数据无法读取，请重试或检查本机存储'),
+      });
+      await pumpTab(tester, watch);
+      expect(find.text('关注数据无法读取'), findsOneWidget);
+      expect(find.text('还没有关注'), findsNothing);
+      expect(find.text('规则'), findsOneWidget);
+      expect(find.textContaining('0/'), findsNothing);
+      await tester.tap(find.text('规则'));
+      await tester.pumpAndSettle();
+      expect(find.text('关注数据无法读取'), findsOneWidget);
+      expect(find.text('还没有关注'), findsNothing);
+
+      await tester.tap(find.text('重试'));
+      await tester.pumpAndSettle();
+      expect(watch.checks, 1);
+      // The check read it after all.
+      await watch.addRule(_rule('r1'));
+      watch.setStatus('storage', null);
+      await tester.pumpAndSettle();
+      expect(find.text('关注数据无法读取'), findsNothing);
+      expect(find.text('规则 1/${WatchService.maxActiveRules}'), findsOneWidget);
+      expect(find.text('a thread'), findsOneWidget);
+    });
+
     testWidgets('a probable match says why; a certain one says nothing',
         (tester) async {
       await pumpTab(
@@ -198,11 +226,25 @@ void main() {
       expect(failed.style?.color,
           Theme.of(tester.element(find.byType(WatchTab))).colorScheme.error);
       // The limits and what is never checked are one tap away.
-      expect(find.textContaining('后台或关闭时不检查'), findsNothing);
+      expect(find.textContaining('关闭 App 后不检查'), findsNothing);
+      await tester.tap(find.byTooltip('说明'));
+      await tester.pumpAndSettle();
+      // Android checks rules that notify in the background too.
+      expect(find.text('开启通知的关注在后台也检查，系统可能延迟或停止'), findsOneWidget);
+      expect(find.text('关闭 App 后不检查'), findsOneWidget);
+      expect(find.text('后台或关闭时不检查'), findsNothing);
+      expect(find.text('私密收藏、已删除的楼层和图片中的文字无法识别'), findsOneWidget);
+    });
+
+    testWidgets('iOS checks only while the app is open', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await pumpTab(tester, FakeWatch(rules: [_rule('a')]), rules: true);
       await tester.tap(find.byTooltip('说明'));
       await tester.pumpAndSettle();
       expect(find.text('后台或关闭时不检查'), findsOneWidget);
-      expect(find.text('私密收藏、已删除的楼层和图片中的文字无法识别'), findsOneWidget);
+      expect(find.textContaining('后台也检查'), findsNothing);
+      debugDefaultTargetPlatformOverride = null;
     });
 
     testWidgets('暂停 and 恢复 come from the row menu', (tester) async {
@@ -445,13 +487,16 @@ void main() {
     watch.tap(_event('1'));
     await tester.pumpAndSettle();
     expect(watch.pendingOpen, isNull);
-    // The 动态 opens on its thread; 关注 is the tab under it.
+    // The tap lands on 动态, opening and reading nothing.
+    expect(find.byType(ThreadDetailScreen), findsNothing);
+    expect(find.text('event 1'), findsOneWidget);
+    expect(watch.read, isEmpty);
+    // The row opens its exact floor.
+    await tester.tap(find.text('event 1'));
+    await tester.pumpAndSettle();
     final thread =
         tester.widget<ThreadDetailScreen>(find.byType(ThreadDetailScreen));
     expect(thread.thread.url, endsWith('read.php?tid-7-page-2.html#901'));
-    Navigator.of(tester.element(find.byType(ThreadDetailScreen))).pop();
-    await tester.pumpAndSettle();
-    expect(find.text('event 1'), findsOneWidget);
   });
 
   group('短消息 and 回复提醒 notifications', () {
@@ -527,6 +572,161 @@ void main() {
       expect(repository.replyLoads, 1);
     });
 
+    for (final mounted in [false, true]) {
+      testWidgets(
+          'a 关注 tap under a page opened from 消息 lands on 动态 '
+          '(关注 ${mounted ? 'visited' : 'unvisited'})', (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final watch = FakeWatch(rules: [_rule('r1')], events: [_event('1')]);
+        await tester
+            .pumpWidget(MaterialApp(home: HomeShell(repository: _Repo(watch))));
+        await tester.pumpAndSettle();
+        final shell = tester.element(find.byType(HomeShell));
+        HomeShell.showTab(shell, 3);
+        await tester.pumpAndSettle();
+        if (mounted) {
+          await tester.tap(find.text('关注'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('短消息'));
+          await tester.pumpAndSettle();
+        }
+        Navigator.of(shell).push(MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('on top'))));
+        await tester.pumpAndSettle();
+
+        watch.tap(_event('1'));
+        await tester.pumpAndSettle();
+        expect(find.text('on top', skipOffstage: false), findsNothing);
+        expect(find.byType(ThreadDetailScreen), findsNothing);
+        expect(watch.pendingOpen, isNull);
+        expect(selectedTab(tester), MessagesScreen.watchTab);
+        expect(find.text('event 1'), findsOneWidget);
+      });
+    }
+
+    testWidgets('a tap over an unsaved edit asks first, as Back does',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(720, 1280);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      final watch = FakeWatch(rules: [_rule('r1')], events: [_event('1')]);
+      final repository = _Repo(watch);
+      await tester
+          .pumpWidget(MaterialApp(home: HomeShell(repository: repository)));
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(HomeShell))).push(
+          MaterialPageRoute<void>(
+              builder: (_) => ThreadEditScreen(
+                  repository: repository,
+                  link: const ThreadActionLink(
+                      label: '编辑',
+                      url: 'post.php?action-modify-fid-8-tid-7-pid-501.html'),
+                  openingPost: false)));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'draft body'), 'unsaved edit');
+      await tester.pumpAndSettle();
+      int shown() => tester
+          .widget<NavigationBar>(
+              find.byType(NavigationBar, skipOffstage: false))
+          .selectedIndex;
+
+      // 继续编辑 keeps the draft and drops the tap.
+      watch.tap(_event('1'));
+      await tester.pumpAndSettle();
+      expect(find.text('放弃修改？'), findsOneWidget);
+      await tester.tap(find.text('继续编辑'));
+      await tester.pumpAndSettle();
+      expect(find.text('unsaved edit'), findsOneWidget);
+      expect(watch.pendingOpen, isNull);
+      expect(shown(), 0);
+      // Other updates ask nothing.
+      watch.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.text('放弃修改？'), findsNothing);
+
+      // 放弃 goes on to 动态.
+      watch.tap(_event('1'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('放弃'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ThreadEditScreen), findsNothing);
+      expect(shown(), 3);
+      expect(find.text('event 1'), findsOneWidget);
+      expect(watch.pendingOpen, isNull);
+    });
+
+    testWidgets(
+        'under an unsaved edit opened from 消息, nothing below moves until '
+        '放弃', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(720, 1280);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      final watch = FakeWatch(rules: [_rule('r1')], events: [_event('1')]);
+      final repository = _Repo(watch);
+      await tester
+          .pumpWidget(MaterialApp(home: HomeShell(repository: repository)));
+      await tester.pumpAndSettle();
+      final shell = tester.element(find.byType(HomeShell));
+      HomeShell.showTab(shell, 3);
+      await tester.pumpAndSettle();
+      // 关注 is built, then left for 短消息.
+      await tester.tap(find.text('关注'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('短消息'));
+      await tester.pumpAndSettle();
+      final loads = (repository.pmLoads, repository.replyLoads);
+      Future<void> edit() async {
+        Navigator.of(shell).push(MaterialPageRoute<void>(
+            builder: (_) => ThreadEditScreen(
+                repository: repository,
+                link: const ThreadActionLink(
+                    label: '编辑',
+                    url: 'post.php?action-modify-fid-8-tid-7-pid-501.html'),
+                openingPost: false)));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+            find.widgetWithText(TextField, 'draft body'), 'unsaved edit');
+        await tester.pumpAndSettle();
+      }
+
+      await edit();
+      watch.tap(_event('1'));
+      watch.tapNotice(NoticeNotificationKind.reply);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('继续编辑'));
+      await tester.pumpAndSettle();
+      expect(watch.pendingOpen, isNull);
+      expect(watch.pendingNoticeOpen, isNull);
+      // Leaving the edit later finds 消息 as it was.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('放弃'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ThreadEditScreen), findsNothing);
+      expect(selectedTab(tester), 0);
+      expect((repository.pmLoads, repository.replyLoads), loads);
+
+      await edit();
+      watch.tapNotice(NoticeNotificationKind.reply);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('放弃'));
+      await tester.pumpAndSettle();
+      expect(selectedTab(tester), 1);
+      expect(repository.replyLoads, loads.$2 + 1);
+
+      await edit();
+      watch.tap(_event('1'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('放弃'));
+      await tester.pumpAndSettle();
+      expect(selectedTab(tester), MessagesScreen.watchTab);
+      expect(find.text('event 1'), findsOneWidget);
+      expect(watch.pendingOpen, isNull);
+    });
+
     testWidgets('a list on screen clears its own system notification',
         (tester) async {
       final shown = ValueNotifier(false);
@@ -583,6 +783,20 @@ void main() {
       expect(find.textContaining('系统通知未开启'), findsNothing);
     });
 
+    testWidgets('去设置 with no settings page to open asks again', (tester) async {
+      final notifications = _Notifications()..opens = false;
+      final watch = FakeWatch(notifications: notifications)
+        ..notificationPermission = WatchNotificationPermission.denied
+        ..grantOnRequest = false;
+      await pumpMessages(tester, watch);
+      await tester.tap(find.widgetWithText(TextButton, '开启'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '去设置'));
+      await tester.pumpAndSettle();
+      expect(notifications.settingsOpened, 1);
+      expect(find.widgetWithText(TextButton, '开启'), findsOneWidget);
+    });
+
     testWidgets('开启 that is granted needs no settings', (tester) async {
       final watch = FakeWatch()
         ..notificationPermission = WatchNotificationPermission.denied;
@@ -596,11 +810,12 @@ void main() {
 
 class _Notifications extends WatchNotifications {
   int settingsOpened = 0;
+  bool opens = true;
 
   @override
   Future<bool> openSettings() async {
     settingsOpened++;
-    return true;
+    return opens;
   }
 }
 
@@ -659,6 +874,15 @@ class _Repo extends ForumRepository {
     replyLoads++;
     return const [];
   }
+
+  @override
+  Future<ThreadEditDraft> fetchEditDraft(ThreadActionLink link) async =>
+      ThreadEditDraft(
+          title: 'Re:edit',
+          content: 'draft body',
+          fields: const {},
+          controls: const [],
+          actionPath: 'post.php?');
 
   // An opened 动态's thread never finishes loading here.
   @override
