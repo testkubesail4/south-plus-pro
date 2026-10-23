@@ -140,7 +140,7 @@ class _ThreadComposeScreenState extends State<_ThreadComposeView> {
     if (_unconfirmed) setState(() => _draftNotKept = !saved);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(saved ? '草稿已保存' : '草稿未能保存到本机，请先复制正文后重试'),
+        content: Text(saved ? '草稿已保存' : '草稿未能保存到本机，请先复制正文'),
       ),
     );
   }
@@ -240,8 +240,15 @@ class _ThreadComposeScreenState extends State<_ThreadComposeView> {
         builder: (context, epoch, dialog) =>
             epoch == generation ? dialog! : const SizedBox.shrink(),
         child: AlertDialog(
-          title: const Text('发布悬赏帖？'),
-          content: Text(bounty.terms.join('\n')),
+          // Large text with a keyboard up leaves little room: every term
+          // stays reachable by scrolling, none is clipped.
+          scrollable: true,
+          title: const Text('发布悬赏帖'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [for (final term in bounty.terms) Text(term)],
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -250,7 +257,7 @@ class _ThreadComposeScreenState extends State<_ThreadComposeView> {
             FilledButton(
               key: const ValueKey('compose-bounty-confirm'),
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text('确认发布并扣除 ${bounty.charge} ${bounty.currency}'),
+              child: Text('发布并扣除 ${bounty.charge} ${bounty.currency}'),
             ),
           ],
         ),
@@ -420,9 +427,8 @@ class _ThreadComposeScreenState extends State<_ThreadComposeView> {
                                       key:
                                           const ValueKey('compose-unconfirmed'),
                                       content: Text(
-                                        '发布结果未确认：请求已发出，但没有收到论坛的明确答复。'
-                                        '请到版块查看是否已发布，不要重复发布。'
-                                        '${_draftNotKept ? '草稿未能保存到本机，离开前请先复制正文。' : '草稿已保留。'}',
+                                        '发布结果未确认，请到版块查看，不要重复发布。'
+                                        '${_draftNotKept ? '草稿未能保存到本机，请先复制正文。' : '草稿已保留。'}',
                                       ),
                                       leading: const Icon(Icons.help_outline),
                                       actions: [
@@ -444,7 +450,7 @@ class _ThreadComposeScreenState extends State<_ThreadComposeView> {
                                         TextButton(
                                           onPressed: () =>
                                               setState(() => _error = null),
-                                          child: const Text('知道了'),
+                                          child: const Text('关闭'),
                                         ),
                                       ],
                                     ),
@@ -532,10 +538,9 @@ class BountyInput {
   int get charge => best! * 2 + helpful!;
 
   List<String> get terms => [
-        '发布时将预先扣除 $charge $currency：',
-        '· 最佳答案 $best × 2 = ${best! * 2}，选出最佳答案后退回 $best',
-        '· 热心助人 $helpful，奖励热心回复者，不退回',
-        '逾期未选出最佳答案，押金可能无法退回。',
+        '最佳答案 $best × 2 = ${best! * 2}，选出最佳答案后退回 $best',
+        '热心助人 $helpful，不退回',
+        '逾期未选出最佳答案，押金可能无法退回',
       ];
 }
 
@@ -641,8 +646,8 @@ class _ComposeOptions extends StatelessWidget {
               liveRegion: true,
               child: Text(
                 error ??
-                    '发布时预先扣除 ${bounty.charge} ${bounty.currency}，'
-                        '其中 ${bounty.best} 在选出最佳答案后退回',
+                    '预扣 ${bounty.charge} ${bounty.currency}，'
+                        '选出最佳答案后退回 ${bounty.best}',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: error == null ? null : theme.colorScheme.error,
                 ),

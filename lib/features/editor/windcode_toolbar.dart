@@ -228,8 +228,8 @@ class WindCodeToolbar extends StatelessWidget {
 
   Future<void> _showHelpSheet(BuildContext context) {
     final rows = <(String, String)>[
-      ('粗体 / 斜体 / 下划线', '[b]文字[/b]  [i]文字[/i]  [u]文字[/u]'),
-      ('字号 / 颜色', '[size=4]文字[/size]  [color=red]文字[/color]'),
+      ('粗体、斜体、下划线', '[b]文字[/b]  [i]文字[/i]  [u]文字[/u]'),
+      ('字号、颜色', '[size=4]文字[/size]  [color=red]文字[/color]'),
       ('引用', '[quote]引用内容[/quote]'),
       ('链接', '[url=https://地址]文字[/url]'),
       ('图片', '[img]图片地址[/img]'),
@@ -252,11 +252,9 @@ class WindCodeToolbar extends StatelessWidget {
               shrinkWrap: true,
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               children: [
-                Text('格式说明', style: theme.textTheme.titleMedium),
-                const SizedBox(height: 4),
-                Text(
-                  '正文使用 WindCode。选中文字后点工具栏按钮可直接套用。',
-                  style: theme.textTheme.bodySmall,
+                Semantics(
+                  header: true,
+                  child: Text('WindCode', style: theme.textTheme.titleMedium),
                 ),
                 const SizedBox(height: 12),
                 for (final (label, code) in rows)
@@ -275,13 +273,6 @@ class WindCodeToolbar extends StatelessWidget {
                       ],
                     ),
                   ),
-                if (allowSale) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    '整帖出售、隐藏帖和附件暂不支持。',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
               ],
             ),
           ),
@@ -437,79 +428,13 @@ class WindCodeToolbar extends StatelessWidget {
 
   Future<void> _showSaleSheet(BuildContext context) async {
     final capturedSelection = controller.value.selection;
-    final priceController = TextEditingController(text: '0');
     final price = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              16,
-              0,
-              16,
-              16 + MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  '出售选中内容',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  capturedSelection.isCollapsed
-                      ? '未选中文字，将插入可编辑的出售内容占位。'
-                      : '已选中的文字会被包裹为出售内容。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: priceController,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: '售价',
-                    suffixText: 'SP币',
-                    helperText: '填 0 可作为免费出售测试。',
-                  ),
-                  onSubmitted: (_) => _submitSalePrice(
-                    context,
-                    priceController.text,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('取消'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => _submitSalePrice(
-                          context,
-                          priceController.text,
-                        ),
-                        icon: Icon(Icons.sell_outlined, size: 18),
-                        label: const Text('插入出售'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      builder: (context) =>
+          _SaleSheet(selected: !capturedSelection.isCollapsed),
     );
-    priceController.dispose();
     if (price == null) return;
 
     _wrapRange(
@@ -518,12 +443,6 @@ class WindCodeToolbar extends StatelessWidget {
       placeholder: '出售内容',
       selection: capturedSelection,
     );
-  }
-
-  void _submitSalePrice(BuildContext context, String value) {
-    final price = int.tryParse(value.trim());
-    if (price == null || price < 0) return;
-    Navigator.of(context).pop(price);
   }
 
   void _wrapRange({
@@ -560,4 +479,85 @@ class _WindCodeAction {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
+}
+
+/// The sale price; owns its field so the field outlives the closing sheet.
+class _SaleSheet extends StatefulWidget {
+  const _SaleSheet({required this.selected});
+
+  /// Text was selected, so the sale wraps it.
+  final bool selected;
+
+  @override
+  State<_SaleSheet> createState() => _SaleSheetState();
+}
+
+class _SaleSheetState extends State<_SaleSheet> {
+  final _price = TextEditingController(text: '0');
+
+  @override
+  void dispose() {
+    _price.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final price = int.tryParse(_price.text.trim());
+    if (price == null || price < 0) return;
+    Navigator.of(context).pop(price);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          0,
+          16,
+          16 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.selected ? '出售选中内容' : '插入出售内容',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _price,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: '售价',
+                suffixText: 'SP币',
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('取消'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _submit,
+                    icon: Icon(Icons.sell_outlined, size: 18),
+                    label: const Text('插入出售'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

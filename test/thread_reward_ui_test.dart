@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
@@ -391,10 +392,57 @@ void main() {
     return repo;
   }
 
+  testWidgets(
+      'every bounty term and both actions stay readable at 320dp, 2.3x text '
+      'and a keyboard up', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = _Repo(form: _bountyForm);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: const TextScaler.linear(2.3),
+          viewInsets: const EdgeInsets.only(bottom: 250),
+        ),
+        child: child!,
+      ),
+      home: ThreadComposeScreen(category: _board, repository: repo),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('compose-submit')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    final dialog = find.descendant(
+        of: find.byType(AlertDialog), matching: find.byType(Scrollable));
+    for (final term in [
+      '最佳答案 20 × 2 = 40，选出最佳答案后退回 20',
+      '热心助人 10，不退回',
+      '逾期未选出最佳答案，押金可能无法退回',
+    ]) {
+      final text = find.text(term);
+      await tester.scrollUntilVisible(text, 40, scrollable: dialog);
+      // Laid out whole, not squeezed to a clipped box.
+      final paragraph = tester.renderObject<RenderParagraph>(text);
+      expect(
+          paragraph.size.height + 1,
+          greaterThanOrEqualTo(
+              paragraph.getMaxIntrinsicHeight(paragraph.size.width)));
+      expect(text.hitTestable(), findsOneWidget);
+    }
+    expect(find.text('取消').hitTestable(), findsOneWidget);
+    expect(repo.posts, isEmpty, reason: 'nothing sent before consent');
+    await tester.tap(
+        find.byKey(const ValueKey('compose-bounty-confirm')).hitTestable());
+    await tester.pumpAndSettle();
+    expect(repo.posts.single['confirm'], isTrue);
+  });
+
   testWidgets('a bounty thread states its charge and posts only once confirmed',
       (tester) async {
     final repo = await pumpCompose(tester, _bountyForm);
-    expect(find.text('发布时预先扣除 50 SP币，其中 20 在选出最佳答案后退回'), findsOneWidget);
+    expect(find.text('预扣 50 SP币，选出最佳答案后退回 20'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('compose-category')));
     await tester.pumpAndSettle();
@@ -415,7 +463,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('compose-submit')));
     await tester.pumpAndSettle();
-    expect(find.text('发布悬赏帖？'), findsOneWidget);
+    expect(find.text('发布悬赏帖'), findsOneWidget);
     expect(find.textContaining('最佳答案 25 × 2 = 50'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
@@ -423,7 +471,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('compose-submit')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('确认发布并扣除 62 SP币'));
+    await tester.tap(find.text('发布并扣除 62 SP币'));
     await tester.pumpAndSettle();
     expect(repo.posts.single, {
       'draft': _bountyForm,
@@ -447,7 +495,7 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('compose-submit')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('确认发布并扣除 50 SP币'));
+    await tester.tap(find.text('发布并扣除 50 SP币'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('compose-unconfirmed')), findsOneWidget);

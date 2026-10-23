@@ -244,7 +244,51 @@ void main() {
       home: Scaffold(body: WindCodeToolbar(controller: controller)),
     ));
     await tapAction(tester, '出售');
-    expect(find.text('出售选中内容'), findsOneWidget);
+    expect(find.text('插入出售内容'), findsOneWidget);
+  });
+
+  testWidgets(
+      'the sale sheet closes cleanly at 1.3x with a keyboard up, however it '
+      'closes, and inserts once', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final controller = TextEditingController(text: 'abc')
+      ..selection = const TextSelection(baseOffset: 1, extentOffset: 2);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: const TextScaler.linear(1.3),
+          viewInsets: const EdgeInsets.only(bottom: 250),
+        ),
+        child: child!,
+      ),
+      home: Scaffold(body: WindCodeToolbar(controller: controller)),
+    ));
+    // The focused price field rides the closing route through its exit
+    // animation, whichever way the sheet closes.
+    for (final close in <Future<void> Function()>[
+      () => tester.tap(find.text('取消')),
+      () => tester.binding.handlePopRoute(),
+      () => tester.tapAt(const Offset(10, 10)),
+    ]) {
+      await tapAction(tester, '出售');
+      expect(find.text('出售选中内容'), findsOneWidget);
+      await close();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('出售选中内容'), findsNothing);
+      expect(controller.text, 'abc');
+      expect(controller.selection,
+          const TextSelection(baseOffset: 1, extentOffset: 2));
+    }
+
+    await tapAction(tester, '出售');
+    await tester.tap(find.text('插入出售'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(controller.text, 'a[sell=0]b[/sell]c');
   });
 
   testWidgets('format help lists sale syntax only where sale is offered',

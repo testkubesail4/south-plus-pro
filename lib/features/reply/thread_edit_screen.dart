@@ -152,7 +152,6 @@ class _ThreadEditScreenState extends State<_ThreadEditView> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('放弃修改？'),
-        content: const Text('未保存的修改会丢失。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -246,7 +245,8 @@ class _ThreadEditScreenState extends State<_ThreadEditView> {
                 liveRegion: true,
                 child: Text(
                   _unconfirmed
-                      ? '保存未确认：$error。修改可能已经生效，请先查看帖子确认，再决定是否重新保存。'
+                      ? '保存未确认，修改可能已生效'
+                          '${error.isEmpty ? '' : '\n$error'}'
                       : error,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),

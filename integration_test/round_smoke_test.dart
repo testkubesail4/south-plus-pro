@@ -324,7 +324,7 @@ void main() {
       await tester.enterText(content, updated);
       await fixture('round/edit-$feedback-next', reset: true);
       await tap(tester, find.byKey(const ValueKey('edit-save-button')));
-      await waitFor(tester, find.textContaining('保存未确认：'));
+      await waitFor(tester, find.textContaining('保存未确认'));
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(content).controller?.text, updated);
       expect(find.text('已保存修改'), findsNothing);

@@ -205,9 +205,9 @@ void main() {
     await tester.enterText(
         find.byKey(const ValueKey('compose-bounty-helpful')), '12');
     await tester.pumpAndSettle();
-    expect(find.textContaining('发布时预先扣除 62 SP币'), findsOneWidget);
+    expect(find.textContaining('预扣 62 SP币'), findsOneWidget);
     await tap(tester, find.byKey(const ValueKey('compose-submit')));
-    await waitFor(tester, find.text('发布悬赏帖？'));
+    await waitFor(tester, find.text('发布悬赏帖'));
     await screenshot(tester, 'compose-cost-confirm');
     expect((await fixture('r8/stats'))['compose_attempts'], isEmpty,
         reason:
@@ -215,7 +215,7 @@ void main() {
     await tap(tester, find.text('取消'));
     expect((await fixture('r8/stats'))['compose_attempts'], isEmpty);
     await tap(tester, find.byKey(const ValueKey('compose-submit')));
-    await tap(tester, find.text('确认发布并扣除 62 SP币'));
+    await tap(tester, find.text('发布并扣除 62 SP币'));
     await waitFor(tester, find.byKey(const ValueKey('compose-unconfirmed')));
     expect(find.textContaining('不要重复发布'), findsOneWidget);
     expect(

@@ -165,7 +165,7 @@ void main() {
     expect(submit.hitTestable(), findsOneWidget);
     await tester.tap(submit);
     await tester.pumpAndSettle();
-    final amount = find.text('确认发布并扣除 85 SP币', skipOffstage: false);
+    final amount = find.text('发布并扣除 85 SP币', skipOffstage: false);
     expect(amount.hitTestable(), findsOneWidget);
     final semantics = tester.ensureSemantics();
     try {

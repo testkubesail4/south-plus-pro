@@ -92,7 +92,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('编辑帖子'), findsOneWidget, reason: 'stays open');
     expect(find.widgetWithText(TextField, '改过'), findsOneWidget);
-    expect(find.textContaining('保存未确认：提示信息'), findsOneWidget);
+    expect(find.text('保存未确认，修改可能已生效\n提示信息'), findsOneWidget);
     expect(repository.draftLinks, hasLength(1), reason: 'no automatic retry');
 
     // 保存修改 again reads a fresh form and sends what is on screen.
