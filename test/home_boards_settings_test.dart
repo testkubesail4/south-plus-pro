@@ -10,9 +10,16 @@ import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
 
 const _sections = [
   ForumSection(nativeId: '7', title: '交流', items: [
-    ForumBoard(name: '父版块', url: 'https://south-plus.net/thread.php?fid-42.html', section: '交流', children: [
-      ForumBoard(name: '子版块', url: 'https://south-plus.net/thread.php?fid-43.html', section: '交流'),
-    ]),
+    ForumBoard(
+        name: '父版块',
+        url: 'https://south-plus.net/thread.php?fid-42.html',
+        section: '交流',
+        children: [
+          ForumBoard(
+              name: '子版块',
+              url: 'https://south-plus.net/thread.php?fid-43.html',
+              section: '交流'),
+        ]),
   ]),
   ForumSection(nativeId: '39', title: '漫区', items: []),
 ];
@@ -37,13 +44,16 @@ void main() {
     tester.view.physicalSize = const Size(480, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(home: HomeBoardsSettingsScreen(repository: _Repo())));
+    await tester.pumpWidget(
+        MaterialApp(home: HomeBoardsSettingsScreen(repository: _Repo())));
     await tester.pumpAndSettle();
   }
 
-  testWidgets('a preference revision cannot erase a failed directory retry', (tester) async {
+  testWidgets('a preference revision cannot erase a failed directory retry',
+      (tester) async {
     final repo = _Repo()..failDirectory = true;
-    await tester.pumpWidget(MaterialApp(home: HomeBoardsSettingsScreen(repository: repo)));
+    await tester.pumpWidget(
+        MaterialApp(home: HomeBoardsSettingsScreen(repository: repo)));
     await tester.pumpAndSettle();
     expect(find.text('加载失败'), findsOneWidget);
     await HomeReadingPreferences.saveQuickRowCount(5, account: 'fixture');
@@ -57,9 +67,11 @@ void main() {
     expect(find.text('加载失败'), findsNothing);
   });
 
-  testWidgets('a preference revision cannot cancel an in-flight directory load', (tester) async {
+  testWidgets('a preference revision cannot cancel an in-flight directory load',
+      (tester) async {
     final repo = _Repo()..sectionsGate = Completer<List<ForumSection>>();
-    await tester.pumpWidget(MaterialApp(home: HomeBoardsSettingsScreen(repository: repo)));
+    await tester.pumpWidget(
+        MaterialApp(home: HomeBoardsSettingsScreen(repository: repo)));
     await tester.pump();
     await HomeReadingPreferences.saveQuickRowCount(5, account: 'fixture');
     await tester.pump();
@@ -69,7 +81,9 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
-  testWidgets('parent visibility and section visibility are independent and children have no controls', (tester) async {
+  testWidgets(
+      'parent visibility and section visibility are independent and children have no controls',
+      (tester) async {
     await pump(tester);
     await tester.tap(find.byTooltip('展开版块').first);
     await tester.pumpAndSettle();
@@ -89,12 +103,19 @@ void main() {
     expect(_sections.first.items.single.children.single.name, '子版块');
   });
 
-  testWidgets('restore remains reachable when all hidden and preserves folds', (tester) async {
-    await HomeReadingPreferences.setCollapsed('section-id:7', true, account: 'fixture');
-    await HomeReadingPreferences.setSectionHidden('section-id:7', true, account: 'fixture', sections: _sections);
-    await HomeReadingPreferences.setSectionHidden('section-id:39', true, account: 'fixture');
-    await HomeReadingPreferences.setParentHidden('42', true, account: 'fixture');
-    await HomeReadingPreferences.saveSectionOrder(['section-id:39', 'section-id:7'], account: 'fixture');
+  testWidgets('restore remains reachable when all hidden and preserves folds',
+      (tester) async {
+    await HomeReadingPreferences.setCollapsed('section-id:7', true,
+        account: 'fixture');
+    await HomeReadingPreferences.setSectionHidden('section-id:7', true,
+        account: 'fixture', sections: _sections);
+    await HomeReadingPreferences.setSectionHidden('section-id:39', true,
+        account: 'fixture');
+    await HomeReadingPreferences.setParentHidden('42', true,
+        account: 'fixture');
+    await HomeReadingPreferences.saveSectionOrder(
+        ['section-id:39', 'section-id:7'],
+        account: 'fixture');
     await pump(tester);
     await tester.tap(find.text('恢复默认').first);
     await tester.pumpAndSettle();
@@ -108,14 +129,18 @@ void main() {
     expect(prefs.collapsedIds, {'section-id:7'});
   });
 
-  testWidgets('drag changes section order and a new route reads the saved order', (tester) async {
+  testWidgets(
+      'drag changes section order and a new route reads the saved order',
+      (tester) async {
     await pump(tester);
-    await tester.drag(find.byType(ReorderableDragStartListener).first, const Offset(0, 190));
+    await tester.drag(
+        find.byType(ReorderableDragStartListener).first, const Offset(0, 190));
     await tester.pumpAndSettle();
     final prefs = await HomeReadingPreferences.load(account: 'fixture');
     expect(prefs.sectionOrder, ['section-id:39', 'section-id:7']);
     await tester.pumpWidget(const SizedBox.shrink());
     await pump(tester);
-    expect(tester.getTopLeft(find.text('漫区')).dy, lessThan(tester.getTopLeft(find.text('交流')).dy));
+    expect(tester.getTopLeft(find.text('漫区')).dy,
+        lessThan(tester.getTopLeft(find.text('交流')).dy));
   });
 }

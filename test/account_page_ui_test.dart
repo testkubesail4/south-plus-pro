@@ -65,7 +65,8 @@ void main() {
     await _pump(tester, true);
     await tester.tap(find.text('fixture_login'));
     await tester.pumpAndSettle();
-    final profile = tester.widget<UserProfileScreen>(find.byType(UserProfileScreen));
+    final profile =
+        tester.widget<UserProfileScreen>(find.byType(UserProfileScreen));
     expect(profile.userUrl, 'u.php');
     expect(profile.initialTab, UserProfileTab.home);
   });

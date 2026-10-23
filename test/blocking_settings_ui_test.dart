@@ -102,7 +102,8 @@ void main() {
     expect(find.byType(BlockingSettingsScreen), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
-    await tester.pumpWidget(MaterialApp(home: SettingsScreen(repository: repo)));
+    await tester
+        .pumpWidget(MaterialApp(home: SettingsScreen(repository: repo)));
     await tester.pumpAndSettle();
     expect(find.text('屏蔽配置', skipOffstage: false), findsNothing);
   });

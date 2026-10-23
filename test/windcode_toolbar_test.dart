@@ -196,9 +196,9 @@ void main() {
 
     final sheet = find.byType(BottomSheet);
     Finder inSheet(String text) => find.descendant(
-      of: sheet,
-      matching: find.textContaining(text, findRichText: true),
-    );
+          of: sheet,
+          matching: find.textContaining(text, findRichText: true),
+        );
     expect(inSheet('粗体文字'), findsWidgets);
     expect(inSheet('引用内容'), findsWidgets);
     expect(inSheet('[b]'), findsNothing);

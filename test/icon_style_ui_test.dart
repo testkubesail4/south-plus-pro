@@ -24,7 +24,8 @@ void main() {
         .widget<Icon>(find
             .descendant(
                 of: find
-                    .ancestor(of: find.text(title), matching: find.byType(InkWell))
+                    .ancestor(
+                        of: find.text(title), matching: find.byType(InkWell))
                     .first,
                 matching: find.byType(Icon))
             .first)

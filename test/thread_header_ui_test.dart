@@ -114,7 +114,8 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
 
     expect(
-      tester.widget<BoardThreadListScreen>(find.byType(BoardThreadListScreen))
+      tester
+          .widget<BoardThreadListScreen>(find.byType(BoardThreadListScreen))
           .category,
       _board,
     );

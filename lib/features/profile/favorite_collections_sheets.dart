@@ -309,7 +309,8 @@ Future<MoveSheetAction?> showMoveSheet(
   bool categoryChanged = false,
 }) {
   final generation = session.value;
-  final hasTarget = categories.any((category) => !unavailableCategoryIds.contains(category.id));
+  final hasTarget = categories
+      .any((category) => !unavailableCategoryIds.contains(category.id));
   return showModalBottomSheet<MoveSheetAction>(
     context: context,
     isScrollControlled: true,
@@ -415,8 +416,7 @@ class _MoveSheetBody extends StatelessWidget {
               Icon(Icons.info_outline, size: 20, color: AppColors.textMuted),
               const SizedBox(width: AppSpace.sm),
               Expanded(
-                child: Text('暂无其他分类',
-                    style: theme.textTheme.bodySmall),
+                child: Text('暂无其他分类', style: theme.textTheme.bodySmall),
               ),
             ]),
           ),
@@ -437,7 +437,10 @@ class _MoveSheetBody extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [if (create != null) create else const SizedBox(), manage],
+              children: [
+                if (create != null) create else const SizedBox(),
+                manage
+              ],
             ),
           ),
         ],

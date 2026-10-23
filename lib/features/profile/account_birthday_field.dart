@@ -33,7 +33,8 @@ bool hasNativeBirthday(ForumAccountForm form) {
 }
 
 List<String> _choices(NativeFormController c, String name) => [
-      for (final o in c.form.field(name)?.options ?? const <ForumAccountOption>[])
+      for (final o
+          in c.form.field(name)?.options ?? const <ForumAccountOption>[])
         if (o.value.isNotEmpty) o.value
     ];
 
@@ -53,8 +54,8 @@ String _two(String v) => v.padLeft(2, '0');
 /// date blocks saving. An untouched one never does; it is not this edit.
 String? birthdayFieldCheck(NativeFormController c, String name) {
   if (!birthdayFields.contains(name) || !hasNativeBirthday(c.form)) return null;
-  return _problem(c, c.value(birthdayYear), c.value(birthdayMonth),
-      c.value(birthdayDay));
+  return _problem(
+      c, c.value(birthdayYear), c.value(birthdayMonth), c.value(birthdayDay));
 }
 
 /// One 生日 row for the three selects: the whole date, 未设置, or a half date
@@ -206,10 +207,10 @@ class _BirthdaySheetState extends State<_BirthdaySheet> {
     final theme = Theme.of(context);
     final problem = _problem(_c, _y, _m, _d);
     final empty = _y.isEmpty && _m.isEmpty && _d.isEmpty;
-    final year = _menu('year', '年', '', _y, _choices(_c, birthdayYear),
-        (v) => _pick(y: v));
-    final month = _menu('month', '月', '', _m, _choices(_c, birthdayMonth),
-        (v) => _pick(m: v));
+    final year = _menu(
+        'year', '年', '', _y, _choices(_c, birthdayYear), (v) => _pick(y: v));
+    final month = _menu(
+        'month', '月', '', _m, _choices(_c, birthdayMonth), (v) => _pick(m: v));
     final day = _menu('day', '日', '', _d, _days, (v) => _pick(d: v));
     return SafeArea(
       child: SingleChildScrollView(

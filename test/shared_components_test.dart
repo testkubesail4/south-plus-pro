@@ -29,8 +29,8 @@ void main() {
     expect(tester.widget<Icon>(find.byType(Icon)).color,
         AppColors.lightPalette.textFaint);
 
-    await _pump(tester,
-        AsyncErrorView(title: '加载失败', message: '网络失败', onRetry: () {}));
+    await _pump(
+        tester, AsyncErrorView(title: '加载失败', message: '网络失败', onRetry: () {}));
     expect(tester.getCenter(find.text('加载失败')).dy, lessThan(800 / 2));
     // An error is information, not a placeholder.
     expect(tester.widget<Icon>(find.byIcon(Icons.cloud_off_outlined)).color,
@@ -84,7 +84,8 @@ void main() {
     expect(find.text('置顶'), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('17 回复')), findsOneWidget);
     // A count is information: muted, not the faint disabled colour.
-    expect(tester.renderObject<RenderParagraph>(find.text('17')).text.style?.color,
+    expect(
+        tester.renderObject<RenderParagraph>(find.text('17')).text.style?.color,
         AppColors.lightPalette.textMuted);
     expect(tester.getSize(find.byType(ForumThreadRow).last).height,
         greaterThanOrEqualTo(48));

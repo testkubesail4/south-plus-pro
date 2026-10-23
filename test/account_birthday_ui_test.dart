@@ -14,8 +14,8 @@ List<ForumAccountOption> _range(int from, int to) => [
         ForumAccountOption(value: '$i', label: '$i'),
     ];
 
-ForumAccountField _select(String name, List<String> values,
-        List<ForumAccountOption> options) =>
+ForumAccountField _select(
+        String name, List<String> values, List<ForumAccountOption> options) =>
     ForumAccountField(
         name: name,
         label: '生日',
@@ -221,14 +221,19 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect(repo.saved, {
-      'progender': ['1']
-    }, reason: 'no birthday patch; the native form re-posts what the forum holds');
+    expect(
+        repo.saved,
+        {
+          'progender': ['1']
+        },
+        reason:
+            'no birthday patch; the native form re-posts what the forum holds');
     expect(find.text('1990 年 · 月日未设置'), findsOneWidget,
         reason: 'the readback keeps the forum value as it was');
   });
 
-  testWidgets('a touched half or impossible birthday blocks Save with its reason and sends nothing',
+  testWidgets(
+      'a touched half or impossible birthday blocks Save with its reason and sends nothing',
       (tester) async {
     final repo = _Repo(year: '1990', month: '6', day: '15');
     await _pump(tester, repo);

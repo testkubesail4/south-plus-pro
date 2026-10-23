@@ -335,8 +335,7 @@ void main() {
     await tester.enterText(field, '没有这个版块');
     await tester.pumpAndSettle();
     expect(find.text('没有匹配的版块'), findsOneWidget);
-    expect(find.text('版块层级加载失败'), findsOneWidget,
-        reason: 'also with no hit');
+    expect(find.text('版块层级加载失败'), findsOneWidget, reason: 'also with no hit');
 
     await tester.enterText(field, '同人志');
     await tester.pumpAndSettle();

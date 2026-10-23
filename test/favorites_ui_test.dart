@@ -961,8 +961,7 @@ void main() {
     await select(tester, ['11', '12']);
     await tapKey(tester, 'favorite-remove-selected');
     expect(
-        find.text(
-            '2 个主题将从收藏中移除\n「Fixture favourite A」\n「Fixture favourite B」'),
+        find.text('2 个主题将从收藏中移除\n「Fixture favourite A」\n「Fixture favourite B」'),
         findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '取消收藏').last);
     await tester.pumpAndSettle();

@@ -29,8 +29,7 @@ class SouthPlusEmojiPicker extends StatelessWidget {
   /// As many columns as fit tiles of at least a 48 px target, wider at
   /// large text so a scaled code label stays on one line.
   static int _columns(BuildContext context, double width) {
-    final minTile =
-        math.max(48.0, MediaQuery.textScalerOf(context).scale(40));
+    final minTile = math.max(48.0, MediaQuery.textScalerOf(context).scale(40));
     return math.max(1, ((width + _gap) / (minTile + _gap)).floor());
   }
 

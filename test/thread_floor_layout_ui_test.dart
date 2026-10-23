@@ -75,7 +75,8 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: ThreadDetailScreen(
         repository: _Repo(),
-        thread: const ForumThread(title: '', url: _url, replies: 0, section: ''),
+        thread:
+            const ForumThread(title: '', url: _url, replies: 0, section: ''),
       ),
     ));
     await tester.pumpAndSettle();
@@ -115,7 +116,8 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(48), reason: label);
       expect(size.height, greaterThanOrEqualTo(48), reason: label);
     }
-    expect(find.descendant(of: footer, matching: find.text('回复')), findsNothing);
+    expect(
+        find.descendant(of: footer, matching: find.text('回复')), findsNothing);
   });
 
   testWidgets('the whole author row is one 48 px tap target to the profile',
@@ -140,7 +142,9 @@ void main() {
     await pumpThread(tester, const Size(900, 1600));
 
     final footer = footerOf('B1F');
-    expect(find.descendant(of: footer, matching: find.text('回复')), findsOneWidget);
-    expect(find.descendant(of: footer, matching: find.text('引用')), findsOneWidget);
+    expect(
+        find.descendant(of: footer, matching: find.text('回复')), findsOneWidget);
+    expect(
+        find.descendant(of: footer, matching: find.text('引用')), findsOneWidget);
   });
 }

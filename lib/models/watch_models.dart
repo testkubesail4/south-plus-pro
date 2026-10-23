@@ -55,47 +55,47 @@ class WatchRule {
   final bool notificationsEnabled;
 
   WatchRule copyWith({bool? paused}) => WatchRule(
-    id: id,
-    scope: scope,
-    subjectId: subjectId,
-    label: label,
-    kinds: kinds,
-    involvingUid: involvingUid,
-    keyword: keyword,
-    keywordField: keywordField,
-    paused: paused ?? this.paused,
-    notificationsEnabled: notificationsEnabled,
-  );
+        id: id,
+        scope: scope,
+        subjectId: subjectId,
+        label: label,
+        kinds: kinds,
+        involvingUid: involvingUid,
+        keyword: keyword,
+        keywordField: keywordField,
+        paused: paused ?? this.paused,
+        notificationsEnabled: notificationsEnabled,
+      );
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'scope': scope.name,
-    'subjectId': subjectId,
-    'label': label,
-    'kinds': kinds.map((k) => k.name).toList(),
-    'involvingUid': involvingUid,
-    'keyword': keyword,
-    'keywordField': keywordField.name,
-    'paused': paused,
-    'notificationsEnabled': notificationsEnabled,
-  };
+        'id': id,
+        'scope': scope.name,
+        'subjectId': subjectId,
+        'label': label,
+        'kinds': kinds.map((k) => k.name).toList(),
+        'involvingUid': involvingUid,
+        'keyword': keyword,
+        'keywordField': keywordField.name,
+        'paused': paused,
+        'notificationsEnabled': notificationsEnabled,
+      };
 
   factory WatchRule.fromJson(Map<String, dynamic> json) => WatchRule(
-    id: json['id'] as String,
-    scope: WatchScope.values.byName(json['scope'] as String),
-    subjectId: json['subjectId'] as String,
-    label: json['label'] as String,
-    kinds: (json['kinds'] as List)
-        .map((k) => WatchContentKind.values.byName(k as String))
-        .toSet(),
-    involvingUid: json['involvingUid'] as String?,
-    keyword: json['keyword'] as String,
-    keywordField: WatchKeywordField.values.byName(
-      json['keywordField'] as String,
-    ),
-    paused: json['paused'] as bool,
-    notificationsEnabled: json['notificationsEnabled'] as bool? ?? true,
-  );
+        id: json['id'] as String,
+        scope: WatchScope.values.byName(json['scope'] as String),
+        subjectId: json['subjectId'] as String,
+        label: json['label'] as String,
+        kinds: (json['kinds'] as List)
+            .map((k) => WatchContentKind.values.byName(k as String))
+            .toSet(),
+        involvingUid: json['involvingUid'] as String?,
+        keyword: json['keyword'] as String,
+        keywordField: WatchKeywordField.values.byName(
+          json['keywordField'] as String,
+        ),
+        paused: json['paused'] as bool,
+        notificationsEnabled: json['notificationsEnabled'] as bool? ?? true,
+      );
 }
 
 class WatchEvent {
@@ -129,43 +129,43 @@ class WatchEvent {
       : RegExp(r'(?:[?&-])pid[-=]([1-9]\d*)').firstMatch(url)?.group(1);
 
   WatchEvent read() => WatchEvent(
-    id: id,
-    ruleId: ruleId,
-    title: title,
-    url: url,
-    kind: kind,
-    confidence: confidence,
-    reason: reason,
-    detectedAt: detectedAt,
-    authorUid: authorUid,
-    unread: false,
-  );
+        id: id,
+        ruleId: ruleId,
+        title: title,
+        url: url,
+        kind: kind,
+        confidence: confidence,
+        reason: reason,
+        detectedAt: detectedAt,
+        authorUid: authorUid,
+        unread: false,
+      );
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'ruleId': ruleId,
-    'title': title,
-    'url': url,
-    'kind': kind.name,
-    'confidence': confidence.name,
-    'reason': reason,
-    'detectedAt': detectedAt.toIso8601String(),
-    'authorUid': authorUid,
-    'unread': unread,
-  };
+        'id': id,
+        'ruleId': ruleId,
+        'title': title,
+        'url': url,
+        'kind': kind.name,
+        'confidence': confidence.name,
+        'reason': reason,
+        'detectedAt': detectedAt.toIso8601String(),
+        'authorUid': authorUid,
+        'unread': unread,
+      };
 
   factory WatchEvent.fromJson(Map<String, dynamic> json) => WatchEvent(
-    id: json['id'] as String,
-    ruleId: json['ruleId'] as String,
-    title: json['title'] as String,
-    url: json['url'] as String,
-    kind: WatchContentKind.values.byName(json['kind'] as String),
-    confidence: WatchConfidence.values.byName(json['confidence'] as String),
-    reason: json['reason'] as String,
-    detectedAt: DateTime.parse(json['detectedAt'] as String),
-    authorUid: json['authorUid'] as String?,
-    unread: json['unread'] as bool,
-  );
+        id: json['id'] as String,
+        ruleId: json['ruleId'] as String,
+        title: json['title'] as String,
+        url: json['url'] as String,
+        kind: WatchContentKind.values.byName(json['kind'] as String),
+        confidence: WatchConfidence.values.byName(json['confidence'] as String),
+        reason: json['reason'] as String,
+        detectedAt: DateTime.parse(json['detectedAt'] as String),
+        authorUid: json['authorUid'] as String?,
+        unread: json['unread'] as bool,
+      );
 }
 
 class WatchStatus {
