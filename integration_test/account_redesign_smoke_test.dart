@@ -608,7 +608,7 @@ void main() {
       expect(find.byKey(ValueKey(name)), findsOneWidget,
           reason: 'native preference $name remains editable');
     }
-    expect(find.textContaining('数字 UID（不是昵称）'), findsOneWidget);
+    expect(find.textContaining('填写对方的数字 UID'), findsOneWidget);
     expect(find.byKey(const ValueKey('date_f')), findsNothing);
     expect(find.textContaining('时间格式(格式如:'), findsNothing,
         reason: 'native paragraph is help, not a title');
@@ -616,16 +616,16 @@ void main() {
         reason: 'default-only skin is not a meaningful choice');
     await choose(tester, 'd_type', '自定义');
     await waitFor(tester, textField('date_f'));
-    expect(find.textContaining('示例：2026-03-07'), findsOneWidget);
+    expect(find.textContaining('示例 2026-03-07'), findsOneWidget);
     await enter(tester, 'date_f', 'yy-m-d');
-    expect(find.textContaining('示例：26-3-7'), findsOneWidget);
+    expect(find.textContaining('示例 26-3-7'), findsOneWidget);
     await choose(tester, 'time_f', '12 小时制');
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pump();
     await reveal(tester, find.byKey(const ValueKey('date_f')), alignment: 0.25);
     fullyVisible(tester, find.byKey(const ValueKey('date_f')));
-    fullyVisible(tester, find.textContaining('示例：26-3-7'));
-    expect(find.textContaining('示例：26-3-7').hitTestable(), findsOneWidget);
+    fullyVisible(tester, find.textContaining('示例 26-3-7'));
+    expect(find.textContaining('示例 26-3-7').hitTestable(), findsOneWidget);
     await screenshot(tester, 'preferences_phone-dark2_custom-date');
     await choose(tester, 'd_type', '论坛默认');
     expect(textField('date_f'), findsNothing);

@@ -104,7 +104,6 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
             ? EmptyStateView(
                 icon: Icons.block_outlined,
                 title: '登录后可配置屏蔽规则',
-                message: '屏蔽名单跟随南+账号，本机规则也按账号分开保存',
                 action: FilledButton(
                   onPressed: () => openLogin(context, widget.repository),
                   child: const Text('登录'),
@@ -136,8 +135,7 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
     return EmptyStateView(
       icon: Icons.block_outlined,
       title: '暂时无法识别当前账号',
-      message:
-          snapshot.hasError ? _blockingError(snapshot.error) : '识别账号后才能读取屏蔽名单',
+      message: snapshot.hasError ? _blockingError(snapshot.error) : null,
       action: OutlinedButton(
         onPressed: _refresh,
         child: const Text('重试'),
@@ -168,10 +166,9 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
       children: [
         AppGroup(
           label: '南+ 屏蔽名单',
-          description: '与网页版同步。隐藏主题和回复：不显示 TA 的主题与所有楼层；替换头像：只换掉头像',
           children: [
             if (rules.users.isEmpty)
-              _emptyRow('没有屏蔽任何人。在楼层的「⋯」里可以屏蔽此人或屏蔽头像。')
+              _emptyRow('没有屏蔽任何人')
             else
               for (final user in rules.users) _siteUserRow(user),
           ],
@@ -261,14 +258,11 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
   Widget _localSection(BlockingRules rules) {
     return AppGroup(
       label: '本机规则',
-      description: '只保存在这台设备，按账号分开，不会同步到南+。'
-          '屏蔽的回复内容只折叠与它完全相同的简短回复',
       children: [
         for (final user in rules.localUsers) _localUserRow(user),
         for (final key in rules.contentKeys) _contentRow(key),
         if (rules.localUsers.isEmpty && rules.contentKeys.isEmpty)
-          _emptyRow('没有本机规则。在楼层的「⋯」里可以屏蔽内容：'
-              '与它完全相同的简短回复都会被折叠。'),
+          _emptyRow('没有本机规则'),
       ],
     );
   }
@@ -314,7 +308,8 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
       enabled: true,
       icon: Icons.chat_bubble_outline,
       title: Text(_readableContent(key)),
-      subtitle: const Text('回复内容'),
+      // Only replies identical to it fold.
+      subtitle: const Text('完全相同的简短回复'),
       trailing: _busy.contains(row)
           ? const _RowProgress()
           : IconButton(

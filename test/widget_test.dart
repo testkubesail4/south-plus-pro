@@ -684,10 +684,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 外观 comes first: one segmented control per choice.
+    // 外观 comes first: one row per choice, showing the current one; its
+    // menu offers them all.
     expect(find.text('外观'), findsOneWidget);
-    expect(find.byType(SegmentedButton<ThemeMode>), findsOneWidget);
-    for (final label in ['系统', '浅色', '深色']) {
+    expect(find.text('系统'), findsOneWidget);
+    expect(find.text('深色'), findsNothing);
+    await tester.tap(find.text('主题'));
+    await tester.pumpAndSettle();
+    for (final label in ['浅色', '深色']) {
       expect(find.text(label), findsOneWidget);
     }
 
@@ -739,7 +743,7 @@ void main() {
     expect(find.text('自动加载'), findsOneWidget, reason: 'the current mode');
     await tester.tap(find.text('图片加载'));
     await tester.pumpAndSettle();
-    // The choices open in a sheet; picking one closes it.
+    // The choices open in a menu; picking one closes it.
     expect(find.text('仅 Wi-Fi 自动加载'), findsOneWidget);
     await tester.tap(find.text('无图模式'));
     await tester.pumpAndSettle();
@@ -771,7 +775,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('字体大小'), 180,
         scrollable: find.byType(Scrollable).first);
-    await tester.ensureVisible(find.text('大'));
+    await tester.tap(find.text('字体大小'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('大'));
     await tester.pumpAndSettle();

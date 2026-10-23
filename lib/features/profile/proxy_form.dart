@@ -16,7 +16,6 @@ Future<bool> confirmDisableProxy(BuildContext context) async {
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('停用代理？'),
-      content: const Text('之后所有请求将不经代理，直接连接论坛。'),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
@@ -177,14 +176,26 @@ class _ProxyFormState extends State<ProxyForm> {
             ),
           ],
           const SizedBox(height: 8),
-          // The note for the chosen type cross-fades in.
+          // Only HTTP sends the credentials in the clear; its warning
+          // cross-fades in.
           AppSwitcher(
             id: _type == ForumProxyType.http,
-            child: Text(
-              '使用代理时，所有请求都经由代理发送，网络优化与加密解析会关闭。'
-              '${_type == ForumProxyType.http ? 'HTTP 代理的用户名和密码以明文发送给代理，请只使用可信任的代理。' : ''}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            child: _type != ForumProxyType.http
+                ? const SizedBox(width: double.infinity)
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.lock_open_outlined,
+                          size: 16, color: AppColors.textMuted),
+                      const SizedBox(width: AppSpace.sm),
+                      Expanded(
+                        child: Text(
+                          'HTTP 代理以明文发送用户名和密码，请只用可信任的代理',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
           const SizedBox(height: 14),
           // While saving, a spinner joins the label (DESIGN §6).

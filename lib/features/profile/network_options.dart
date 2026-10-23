@@ -20,12 +20,6 @@ String networkModeLabel(ForumNetworkMode mode) => switch (mode) {
       ForumNetworkMode.proxy => '代理',
     };
 
-String networkModeDescription(ForumNetworkMode mode) => switch (mode) {
-      ForumNetworkMode.native => '只用系统网络与系统 DNS，应用不做改写。',
-      ForumNetworkMode.optimized => '加密 DNS 解析，按候选 IP 连接；适合 DNS 受干扰的网络。',
-      ForumNetworkMode.proxy => '全部经由你的代理；代理不可用时不会改为直连。',
-    };
-
 IconData networkModeIcon(ForumNetworkMode mode) => switch (mode) {
       ForumNetworkMode.native => Icons.router_outlined,
       ForumNetworkMode.optimized => Icons.alt_route_outlined,
@@ -46,9 +40,6 @@ String hostAddressesLabel(ForumNetworkConfig config) {
   final count = customAddressesFor(config, config.site.host).length;
   return count == 0 ? '仅内置' : '$count 个自定义';
 }
-
-/// Shown with external links and downloads that leave the app.
-const externalTrafficNote = '在外部浏览器中打开的链接，以及交给系统下载的文件，不经过这里的设置。';
 
 /// One probe outcome for display. A result only describes the single
 /// attempt it came from, so callers drop it when the config changes.
@@ -205,7 +196,6 @@ class Ipv6Row extends StatelessWidget {
     return AppRow(
       icon: Icons.looks_6_outlined,
       title: const Text('使用 IPv6'),
-      subtitle: const Text('默认关闭。开启后也会尝试 IPv6 地址，IPv6 连不上时改用 IPv4。'),
       enabled: onChanged != null,
       onTap: onChanged == null ? null : () => onChanged!(!value),
       trailing: Switch(value: value, onChanged: onChanged),
@@ -453,8 +443,6 @@ class _SiteChoiceListState extends State<SiteChoiceList> {
             ),
           ],
         ),
-        const NetworkNote('入口只决定访问哪个论坛域名，与连接方式互不影响。'
-            '测速结果只代表刚才那一次请求。'),
       ],
     );
   }
@@ -656,7 +644,6 @@ class _DohChoiceListState extends State<DohChoiceList> {
               ),
           ],
         ),
-        const NetworkNote('所选服务优先使用，失败时依次尝试其它内置服务。测速会查询当前入口的域名。'),
       ],
     );
   }
@@ -674,7 +661,7 @@ class _CustomDoh {
   for (final line in text.split(RegExp(r'[\s,，]+'))) {
     if (line.isEmpty) continue;
     final error = ForumNetworkConfig.validateAddressLiteral(line);
-    if (error != null) return (addresses: const [], error: '$line：$error');
+    if (error != null) return (addresses: const [], error: '$line · $error');
     if (!addresses.contains(line)) addresses.add(line);
   }
   return (addresses: addresses, error: null);
@@ -773,9 +760,6 @@ class _CustomDohPageState extends State<_CustomDohPage> {
           decoration: InputDecoration(
             labelText: '引导地址（可选）',
             hintText: '1.1.1.1\n2606:4700:4700::1111',
-            helperText: '这个 DNS 服务自身的 IP，每行一个。填写后直接连接这些 IP；'
-                '留空则用系统 DNS 查询该服务的域名。',
-            helperMaxLines: 3,
             errorText: _bootstrapError,
             errorMaxLines: 2,
           ),
@@ -791,8 +775,6 @@ class _CustomDohPageState extends State<_CustomDohPage> {
           saveLabel: '使用此服务',
           onSave: _save,
         ),
-        const SizedBox(height: AppSpace.md),
-        const NetworkNote('保存不要求测试通过，离线时也可以先填好。自定义服务失败时会依次尝试内置服务。'),
       ],
     );
   }
@@ -890,8 +872,8 @@ class _InlineResult extends StatelessWidget {
             Expanded(
               child: Text(
                 reading.success
-                    ? '$successText · ${reading.label}（仅代表这一次）'
-                    : '未通过：${reading.label}',
+                    ? '$successText · ${reading.label}'
+                    : '未通过，${reading.label}',
                 style: theme.textTheme.bodyMedium,
               ),
             ),
@@ -972,19 +954,11 @@ class _HostAddressesPageState extends State<HostAddressesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final builtIn = ForumNetworkConfig.builtInHostAddresses(_host);
     final addresses = parseAddressLines(_controller.text).addresses;
     return NetworkPage(
       title: '目标地址',
       children: [
         Text(_host, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: AppSpace.xs),
-        Text(
-          '这里的 IP 地址会先于内置候选尝试；全部连不上时仍会尝试'
-          '${builtIn.isEmpty ? '加密 DNS 的解析结果' : '内置的 ${builtIn.length} 个候选'}。'
-          '连接时仍按 $_host 验证证书。',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
         const SizedBox(height: AppSpace.lg),
         TextField(
           controller: _controller,
@@ -996,7 +970,6 @@ class _HostAddressesPageState extends State<HostAddressesPage> {
           onChanged: (_) => _check.reset(),
           decoration: InputDecoration(
             labelText: 'IPv4 / IPv6 地址',
-            helperText: '每行一个。留空即只用内置候选。',
             errorText: _error,
             errorMaxLines: 2,
           ),

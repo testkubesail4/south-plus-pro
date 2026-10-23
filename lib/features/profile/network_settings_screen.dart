@@ -81,7 +81,7 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen> {
     try {
       await _apply(config);
     } on FormatException catch (error) {
-      _snack('无法保存：${error.message}');
+      _snack('无法保存，${error.message}');
     } catch (_) {
       // Raw errors may carry proxy credentials.
       _snack('保存失败，设置未更改');
@@ -200,17 +200,17 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen> {
           const SizedBox(height: AppSpace.xl),
           AppGroup(
             label: '连接方式',
-            description: '三种方式互斥，同一时间只使用一种。',
             children: [
               for (final mode in ForumNetworkMode.values)
                 AppRow(
                   icon: networkModeIcon(mode),
                   title: Text(networkModeLabel(mode)),
-                  subtitle: Text(mode == ForumNetworkMode.proxy &&
+                  // Only a saved, unused proxy is worth a line.
+                  subtitle: mode == ForumNetworkMode.proxy &&
                           proxy != null &&
                           config.mode != mode
-                      ? '已保存 ${proxyLabel(proxy)}'
-                      : networkModeDescription(mode)),
+                      ? Text('已保存 ${proxyLabel(proxy)}')
+                      : null,
                   selected: config.mode == mode,
                   onTap: _saving.value ? null : () => _selectMode(mode),
                 ),
@@ -223,7 +223,6 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen> {
               AppRow(
                 icon: Icons.language,
                 title: Text(config.site.host),
-                subtitle: const Text('要访问的论坛域名，与连接方式各自独立'),
                 onTap: _saving.value ? null : _openSites,
               ),
             ],
@@ -248,7 +247,6 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen> {
                 AppRow(
                   icon: Icons.pin_drop_outlined,
                   title: const Text('目标地址'),
-                  subtitle: Text('为 ${config.site.host} 指定优先尝试的 IP'),
                   value: hostAddressesLabel(config),
                   onTap: _saving.value ? null : _openHostAddresses,
                 ),
@@ -276,13 +274,12 @@ class _NetworkSettingsScreenState extends State<NetworkSettingsScreen> {
                 AppRow(
                   icon: Icons.dns_outlined,
                   title: Text(proxyLabel(proxy)),
-                  subtitle: const Text('未使用。可编辑或删除'),
+                  subtitle: const Text('未使用'),
                   onTap: _saving.value ? null : _openProxy,
                 ),
               ],
             ),
           ],
-          const NetworkNote(externalTrafficNote),
         ],
       ),
     );
@@ -312,7 +309,7 @@ class _StatusCard extends StatelessWidget {
             ? (AppColors.textFaint, '尚未测试当前设置')
             : reading.success
                 ? (AppColors.success, '刚才的测试成功 · ${reading.label}')
-                : (theme.colorScheme.error, '刚才的测试失败：${reading.label}');
+                : (theme.colorScheme.error, '测试未通过，${reading.label}');
     return Container(
       padding: const EdgeInsets.all(AppSpace.lg),
       decoration: appSurface(context),

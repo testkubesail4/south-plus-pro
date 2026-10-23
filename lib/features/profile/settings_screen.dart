@@ -144,7 +144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('检查更新失败：$error')),
+        SnackBar(content: Text('检查更新失败，$error')),
       );
     } finally {
       if (!mounted) return;
@@ -164,12 +164,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('当前版本：v${result.currentVersion}'),
+              Text('当前 v${result.currentVersion}'),
               const SizedBox(height: 4),
-              Text('最新版本：${release.tagName}'),
+              Text('最新 ${release.tagName}'),
               if (release.publishedAt != null) ...[
                 const SizedBox(height: 4),
-                Text('发布时间：${_formatReleaseDate(release.publishedAt!)}'),
+                Text('发布于 ${_formatReleaseDate(release.publishedAt!)}'),
               ],
               if (release.body.isNotEmpty) ...[
                 const SizedBox(height: AppSpace.xl),
@@ -199,7 +199,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: Text(result.hasUpdate ? '稍后' : '知道了'),
+              child: Text(result.hasUpdate ? '稍后' : '关闭'),
             ),
             FilledButton.icon(
               onPressed: () async {
@@ -226,40 +226,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SnackBar(content: Text(error.message)),
       );
     }
-  }
-
-  Future<void> _chooseImageMode(ImageLoadMode current) async {
-    final chosen = await showModalBottomSheet<ImageLoadMode>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                    AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
-                child: Text('图片加载',
-                    style: Theme.of(context).textTheme.titleMedium),
-              ),
-              for (final mode in ImageLoadMode.values)
-                AppRow(
-                  icon: _iconForImageMode(mode),
-                  title: Text(mode.label),
-                  subtitle: Text(mode.description),
-                  selected: mode == current,
-                  onTap: () => Navigator.of(context).pop(mode),
-                ),
-              const SizedBox(height: AppSpace.sm),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (chosen != null && chosen != current) await _setImageMode(chosen);
   }
 
   Future<void> _openNetworkSettings() async {
@@ -291,7 +257,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     ValueListenableBuilder<ThemeMode>(
                       valueListenable: AppThemeController.notifier,
-                      builder: (context, mode, _) => _SegmentRow<ThemeMode>(
+                      builder: (context, mode, _) => _ChoiceRow<ThemeMode>(
                         icon: Icons.contrast,
                         title: '主题',
                         value: mode,
@@ -305,7 +271,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     ValueListenableBuilder<ForumTextSize>(
                       valueListenable: ForumTextSizeSettings.notifier,
-                      builder: (context, size, _) => _SegmentRow<ForumTextSize>(
+                      builder: (context, size, _) => _ChoiceRow<ForumTextSize>(
                         icon: Icons.format_size,
                         title: '字体大小',
                         value: size,
@@ -326,7 +292,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     AppRow(
                       icon: Icons.vertical_align_bottom_outlined,
                       title: const Text('加载与分页'),
-                      subtitle: const Text('帖子、版块、搜索等列表各自翻页或接续'),
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) => const LoadingSettingsScreen(),
@@ -336,12 +301,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     FutureBuilder<ImageLoadMode>(
                       future: _imageMode,
                       builder: (context, snapshot) {
-                        final mode = snapshot.data ?? ImageLoadMode.automatic;
-                        return AppRow(
+                        return _ChoiceRow<ImageLoadMode>(
                           icon: Icons.image_outlined,
-                          title: const Text('图片加载'),
-                          value: mode.label,
-                          onTap: () => _chooseImageMode(mode),
+                          title: '图片加载',
+                          value: snapshot.data ?? ImageLoadMode.automatic,
+                          options: {
+                            for (final mode in ImageLoadMode.values)
+                              mode: mode.label,
+                          },
+                          onChanged: _setImageMode,
                         );
                       },
                     ),
@@ -356,7 +324,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         return AppRow(
                           icon: Icons.view_list_outlined,
                           title: const Text('速览'),
-                          subtitle: const Text('显示行数与栏目来源'),
                           value: '$rows 行',
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
@@ -383,13 +350,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     AppRow(
                       icon: Icons.dashboard_outlined,
                       title: const Text('首页版块'),
-                      subtitle: const Text('分区顺序与显示、版块隐藏'),
                       onTap: _openHomeBoards,
                     ),
                     AppRow(
                       icon: Icons.label_outline,
                       title: const Text('备注与标签'),
-                      subtitle: const Text('仅本机保存，按当前账号区分'),
                       onTap: _openLocalAnnotations,
                     ),
                   ],
@@ -402,7 +367,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       AppRow(
                         icon: Icons.tune_outlined,
                         title: const Text('论坛偏好'),
-                        subtitle: const Text('短消息黑名单、好友和个人设置'),
                         onTap: () =>
                             Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => ForumPreferencesScreen(
@@ -497,18 +461,14 @@ class _LoadingSettingsScreenState extends State<LoadingSettingsScreen> {
   late Future<void> _read = _load();
 
   static const _domains = {
-    LoadingDomain.thread: ('帖子楼层', Icons.forum_outlined, null),
-    LoadingDomain.board: ('版块主题列表', Icons.view_list_outlined, null),
-    LoadingDomain.search: ('搜索结果', Icons.search, null),
-    LoadingDomain.favorites: ('收藏夹', Icons.star_outline, null),
-    LoadingDomain.userContent: (
-      '用户主页的主题、回复与收藏',
-      Icons.person_outline,
-      '手动时点按「加载更多」接在后面',
-    ),
-    LoadingDomain.pm: ('短消息与对话', Icons.mail_outline, null),
-    LoadingDomain.friends: ('好友列表', Icons.people_outline, null),
-    LoadingDomain.avatars: ('系统头像', Icons.face_outlined, null),
+    LoadingDomain.thread: ('帖子楼层', Icons.forum_outlined),
+    LoadingDomain.board: ('版块主题列表', Icons.view_list_outlined),
+    LoadingDomain.search: ('搜索结果', Icons.search),
+    LoadingDomain.favorites: ('收藏夹', Icons.star_outline),
+    LoadingDomain.userContent: ('用户主页', Icons.person_outline),
+    LoadingDomain.pm: ('短消息与对话', Icons.mail_outline),
+    LoadingDomain.friends: ('好友列表', Icons.people_outline),
+    LoadingDomain.avatars: ('系统头像', Icons.face_outlined),
   };
 
   static Future<void> _load() async {
@@ -551,8 +511,10 @@ class _LoadingSettingsScreenState extends State<LoadingSettingsScreen> {
                   AppGroup(children: [
                     AppRow(
                       icon: Icons.error_outline,
+                      // An error to read, not a disabled row.
+                      enabled: true,
                       title: const Text('加载设置读取失败'),
-                      subtitle: const Text('读取成功前，所有列表都手动翻页'),
+                      subtitle: const Text('读取成功前全部手动翻页'),
                       trailing: TextButton(
                         onPressed: () => setState(() {
                           _read = _load();
@@ -563,29 +525,24 @@ class _LoadingSettingsScreenState extends State<LoadingSettingsScreen> {
                   ]),
                 if (failed) const SizedBox(height: AppSpace.xl),
                 AppGroup(
-                  description: '手动翻页：只在点按时加载下一页。'
-                      '自动接续：滑到底部时自动接上下一页。',
+                  label: '自动接续',
                   children: [
-                    for (final MapEntry(key: domain, value: (title, icon, note))
+                    for (final MapEntry(key: domain, value: (title, icon))
                         in _domains.entries)
-                      _SegmentRow<LoadingMode>(
+                      _LoadingRow(
                         key: ValueKey('loading-${domain.name}'),
                         icon: icon,
                         title: title,
-                        subtitle: note,
-                        value: modes[domain]!,
-                        options: const {
-                          LoadingMode.manual: '手动翻页',
-                          LoadingMode.continuous: '自动接续',
-                        },
-                        onChanged: ready ? (mode) => _save(domain, mode) : null,
+                        continuous: modes[domain] == LoadingMode.continuous,
+                        onChanged: ready
+                            ? (on) => _save(
+                                domain,
+                                on
+                                    ? LoadingMode.continuous
+                                    : LoadingMode.manual)
+                            : null,
                       ),
                   ],
-                ),
-                const SizedBox(height: AppSpace.md),
-                Text(
-                  '浏览历史、回复提醒和速览一次显示全部内容，不分页。',
-                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),
@@ -596,14 +553,12 @@ class _LoadingSettingsScreenState extends State<LoadingSettingsScreen> {
   }
 }
 
-/// A setting with a few short choices: the title row, then a full-width
-/// segmented control (DESIGN.md §7). A null [onChanged] disables it.
-class _SegmentRow<T> extends StatelessWidget {
-  const _SegmentRow({
-    super.key,
+/// A setting with a few short choices: one row showing the current one,
+/// opening a menu anchored to it with the current choice checked.
+class _ChoiceRow<T> extends StatefulWidget {
+  const _ChoiceRow({
     required this.icon,
     required this.title,
-    this.subtitle,
     required this.value,
     required this.options,
     required this.onChanged,
@@ -611,57 +566,115 @@ class _SegmentRow<T> extends StatelessWidget {
 
   final IconData icon;
   final String title;
-  final String? subtitle;
   final T value;
   final Map<T, String> options;
-  final ValueChanged<T>? onChanged;
+
+  /// Saves the choice; throws when it was not saved.
+  final Future<void> Function(T) onChanged;
+
+  @override
+  State<_ChoiceRow<T>> createState() => _ChoiceRowState<T>();
+}
+
+class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
+  final _menu = MenuController();
+
+  // Focus starts on the current option, so keys move from it and Escape
+  // closes the menu.
+  final _current = FocusNode();
+
+  @override
+  void dispose() {
+    _current.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    if (_menu.isOpen) return _menu.close();
+    _menu.open();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_menu.isOpen) _current.requestFocus();
+    });
+  }
+
+  // The row keeps showing what is saved; picking again retries.
+  Future<void> _choose(T choice) async {
+    try {
+      await widget.onChanged(choice);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('保存失败，请稍后重试')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpace.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 22, color: AppColors.textMuted),
-              const SizedBox(width: AppSpace.lg),
-              Expanded(
-                child:
-                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+    final w = widget;
+    return AppRow(
+      icon: w.icon,
+      title: Text(w.title),
+      value: w.options[w.value],
+      // The menu hangs from the trailing end, under the current value.
+      trailing: MenuAnchor(
+        controller: _menu,
+        menuChildren: [
+          for (final MapEntry(:key, value: label) in w.options.entries)
+            // Merged, so the option itself is announced as selected.
+            MergeSemantics(
+              child: Semantics(
+                selected: key == w.value,
+                child: MenuItemButton(
+                  focusNode: key == w.value ? _current : null,
+                  leadingIcon: Icon(Icons.check,
+                      color: key == w.value
+                          ? AppColors.brand
+                          : Colors.transparent),
+                  onPressed: () => _choose(key),
+                  child: Text(label),
+                ),
               ),
-            ],
-          ),
-          if (subtitle != null)
-            Padding(
-              padding: const EdgeInsets.only(left: 22 + AppSpace.lg),
-              child:
-                  Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
             ),
-          const SizedBox(height: AppSpace.md),
-          SegmentedButton<T>(
-            showSelectedIcon: false,
-            segments: [
-              for (final MapEntry(:key, value: label) in options.entries)
-                ButtonSegment(value: key, label: Text(label)),
-            ],
-            selected: {value},
-            onSelectionChanged: onChanged == null
-                ? null
-                : (selection) => onChanged!(selection.single),
-          ),
         ],
+        child: Icon(Icons.unfold_more, color: AppColors.textFaint),
       ),
+      onTap: _toggle,
     );
   }
 }
 
-IconData _iconForImageMode(ImageLoadMode mode) {
-  return switch (mode) {
-    ImageLoadMode.automatic => Icons.image_outlined,
-    ImageLoadMode.wifiOnly => Icons.wifi_outlined,
-    ImageLoadMode.manual => Icons.touch_app_outlined,
-    ImageLoadMode.noImages => Icons.hide_image_outlined,
-  };
+/// One list's paging: on follows on by itself, off waits for a tap.
+class _LoadingRow extends StatelessWidget {
+  const _LoadingRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.continuous,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String title;
+  final bool continuous;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    // One node for readers: the title, its on/off state and the row's tap.
+    return MergeSemantics(
+      child: Semantics(
+        toggled: continuous,
+        enabled: onChanged != null,
+        child: AppRow(
+          icon: icon,
+          title: Text(title),
+          enabled: onChanged != null,
+          onTap: onChanged == null ? null : () => onChanged!(!continuous),
+          trailing: ExcludeSemantics(
+              child: Switch(value: continuous, onChanged: onChanged)),
+        ),
+      ),
+    );
+  }
 }

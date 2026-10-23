@@ -198,9 +198,6 @@ class _HomeBoardsSettingsScreenState extends State<HomeBoardsSettingsScreen> {
                   appGutter(MediaQuery.sizeOf(context).width, AppWidths.form),
               vertical: AppSpace.md),
           children: [
-            Text('隐藏只缩短首页。\n最近、搜索、收藏和我的版块里依然可以进入。',
-                style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: AppSpace.lg),
             // The settings fade in over the spinner.
             AppSwitcher(
               id: sections != null && prefs != null
@@ -222,8 +219,7 @@ class _HomeBoardsSettingsScreenState extends State<HomeBoardsSettingsScreen> {
                               padding: EdgeInsets.all(24),
                               child: CircularProgressIndicator())),
                     if (sections != null && prefs != null) ...[
-                      Text('分区（拖动排序，调整后自动保存）',
-                          style: Theme.of(context).textTheme.titleSmall),
+                      Text('分区', style: Theme.of(context).textTheme.titleSmall),
                       const SizedBox(height: AppSpace.md),
                       ReorderableListView.builder(
                         shrinkWrap: true,

@@ -86,8 +86,6 @@ const _knownNames = {
 };
 
 List<Widget> _sections(BuildContext context, NativeFormController c) {
-  final theme = Theme.of(context);
-
   Widget row(String name) {
     switch (name) {
       case 'msggroups[]':
@@ -96,7 +94,6 @@ List<Widget> _sections(BuildContext context, NativeFormController c) {
           controller: c,
           name: name,
           title: '屏蔽用户组',
-          helper: '勾选的用户组无法给你发私信；不勾选即接收所有用户组',
           emptyValue: '未屏蔽',
           summary: (chosen) =>
               chosen.isEmpty ? '未屏蔽' : '已屏蔽 ${chosen.length} 个分组',
@@ -107,7 +104,7 @@ List<Widget> _sections(BuildContext context, NativeFormController c) {
           controller: c,
           name: name,
           title: '私讯黑名单',
-          helper: '填写对方的数字 UID（不是昵称），多个用逗号分隔。名单内的用户无法给你发私信',
+          helper: '填写对方的数字 UID，用逗号分隔',
         );
       case 'friendcheck':
         return NativeFieldRow(
@@ -118,7 +115,6 @@ List<Widget> _sections(BuildContext context, NativeFormController c) {
           controller: c,
           name: name,
           title: '时区',
-          helper: '时间按所选时区显示',
           optionLabel: _optionLabel,
         );
       case 'd_type':
@@ -131,15 +127,15 @@ List<Widget> _sections(BuildContext context, NativeFormController c) {
         );
       case 'date_f':
         final pattern = c.value('date_f');
-        const letters = '年 yyyy 或 yy，月 mm 或 m，日 dd 或 d。';
+        const letters = '年 yyyy 或 yy，月 mm 或 m，日 dd 或 d';
         return NativeFieldRow(
           key: ValueKey(name),
           controller: c,
           name: name,
           title: '自定义日期格式',
           helper: pattern.trim().isEmpty
-              ? '$letters例如 yyyy-mm-dd'
-              : '$letters示例：${dateFormatExample(pattern)}',
+              ? '$letters · 例如 yyyy-mm-dd'
+              : '$letters · 示例 ${dateFormatExample(pattern)}',
         );
       case 'time_f':
         return NativeFieldRow(
@@ -155,7 +151,6 @@ List<Widget> _sections(BuildContext context, NativeFormController c) {
           controller: c,
           name: name,
           title: '主题列表每页数量',
-          helper: '选 0 使用论坛默认',
           optionLabel: _optionLabel,
         );
       case 'p_num':
@@ -164,7 +159,6 @@ List<Widget> _sections(BuildContext context, NativeFormController c) {
           controller: c,
           name: name,
           title: '阅读页每页帖子数',
-          helper: '选 0 使用论坛默认',
           optionLabel: _optionLabel,
         );
       case 'tpskin':
@@ -192,34 +186,28 @@ List<Widget> _sections(BuildContext context, NativeFormController c) {
     }
   }
 
-  final groups = <(String, List<String>, String?)>[
-    ('私讯与好友', ['msggroups[]', 'banidinfo', 'friendcheck'], null),
-    (
-      '日期与时间',
-      ['timedf', 'd_type', if (_customDate(c)) 'date_f', 'time_f'],
-      null
-    ),
-    ('阅读', ['t_num', 'p_num'], null),
+  final groups = <(String, List<String>)>[
+    ('私讯与好友', ['msggroups[]', 'banidinfo', 'friendcheck']),
+    ('日期与时间', ['timedf', 'd_type', if (_customDate(c)) 'date_f', 'time_f']),
+    ('阅读', ['t_num', 'p_num']),
     (
       '原站设置',
       [
         if (_hasSkinChoice(c.form.field('tpskin'))) 'tpskin',
         'editor',
         'proreceivemail',
-      ],
-      '这些设置保存在论坛账号上，只影响论坛网页和邮件，不改变本应用。'
+      ]
     ),
     (
       '其他',
       [
         for (final f in c.form.fields)
           if (!_knownNames.contains(f.name)) f.name,
-      ],
-      null
+      ]
     ),
   ];
   return [
-    for (final (label, names, note) in groups)
+    for (final (label, names) in groups)
       if (names.any(c.has)) ...[
         AppGroup(
           label: label,
@@ -229,12 +217,6 @@ List<Widget> _sections(BuildContext context, NativeFormController c) {
               if (c.has(name)) row(name),
           ],
         ),
-        if (note != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpace.lg, AppSpace.sm, AppSpace.lg, 0),
-            child: Text(note, style: theme.textTheme.bodySmall),
-          ),
         const SizedBox(height: AppSpace.xl),
       ],
   ];

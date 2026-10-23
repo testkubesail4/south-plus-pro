@@ -112,7 +112,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
       await widget.onFinished?.call();
       if (mounted && !widget.firstRun) Navigator.of(context).pop(true);
     } on FormatException catch (error) {
-      _showError('无法保存：${error.message}');
+      _showError('无法保存，${error.message}');
     } catch (_) {
       // The setup stays incomplete and retryable; a raw error may carry
       // proxy credentials, so it is never shown.
@@ -133,7 +133,7 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
     final steps = _steps;
     final index = steps.indexOf(_step);
     final gutter = appGutter(MediaQuery.sizeOf(context).width, AppWidths.form);
-    final (title, subtitle) = _copy(_step);
+    final title = _title(_step);
     return PopScope(
       canPop: !widget.firstRun && index == 0,
       onPopInvokedWithResult: (didPop, _) {
@@ -168,12 +168,6 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
               child:
                   Text(title, style: Theme.of(context).textTheme.headlineSmall),
             ),
-            const SizedBox(height: AppSpace.sm),
-            Text(subtitle,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: AppColors.textMuted, height: 1.45)),
             const SizedBox(height: AppSpace.xl),
             AnimatedSwitcher(
               duration: AppMotion.of(context, AppMotion.medium),
@@ -195,12 +189,12 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
     );
   }
 
-  (String, String) _copy(_Step step) => switch (step) {
-        _Step.mode => ('选择连接方式', '三种方式只会同时使用一种，之后可在「设置 › 网络连接」随时更改。'),
-        _Step.proxy => ('填写代理', '所有请求都会经由这个代理发送。'),
-        _Step.optimize => ('网络优化', '选择加密 DNS 服务。不确定时保持默认即可，后台测速不影响继续。'),
-        _Step.site => ('访问入口', '入口是要访问的论坛域名，与连接方式各自独立。'),
-        _Step.confirm => ('确认设置', '下面是即将保存的设置。'),
+  String _title(_Step step) => switch (step) {
+        _Step.mode => '选择连接方式',
+        _Step.proxy => '填写代理',
+        _Step.optimize => '网络优化',
+        _Step.site => '访问入口',
+        _Step.confirm => '确认设置',
       };
 
   Widget _content() => switch (_step) {
@@ -246,7 +240,6 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
             AppRow(
               icon: Icons.check_circle_outline,
               title: Text(proxyLabel(proxy)),
-              subtitle: const Text('将使用此代理，可在下方修改'),
               enabled: true,
             ),
           ]),
@@ -328,7 +321,6 @@ class _NetworkSetupFlowScreenState extends State<NetworkSetupFlowScreen> {
             AppRow(
               icon: Icons.pin_drop_outlined,
               title: const Text('目标地址'),
-              subtitle: const Text('可选，为当前入口指定优先尝试的 IP'),
               value: hostAddressesLabel(config),
               onTap: _saving
                   ? null
@@ -387,30 +379,21 @@ class _ModeCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(AppSpace.lg),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(networkModeIcon(mode),
                     color: selected ? AppColors.brand : AppColors.textMuted),
                 const SizedBox(width: AppSpace.lg),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Wrap(
+                    spacing: AppSpace.sm,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      Wrap(
-                        spacing: AppSpace.sm,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(networkModeLabel(mode),
-                              style: theme.textTheme.titleMedium),
-                          if (recommended)
-                            Text('推荐',
-                                style: theme.textTheme.labelMedium
-                                    ?.copyWith(color: AppColors.brand)),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpace.xs),
-                      Text(networkModeDescription(mode),
-                          style: theme.textTheme.bodySmall),
+                      Text(networkModeLabel(mode),
+                          style: theme.textTheme.titleMedium),
+                      if (recommended)
+                        Text('推荐',
+                            style: theme.textTheme.labelMedium
+                                ?.copyWith(color: AppColors.brand)),
                     ],
                   ),
                 ),
@@ -450,14 +433,12 @@ class _CheckPanel extends StatelessWidget {
                 ? (
                     Icons.check_circle_outline,
                     AppColors.success,
-                    '刚才的测试请求成功（${result.label}）。'
-                        '这只说明当下可以连上，之后网络变化时可能不同。'
+                    '测试成功，${result.label}'
                   )
                 : (
                     Icons.error_outline,
                     theme.colorScheme.error,
-                    '测试未通过：${result.label}。'
-                        '仍可开始使用，之后在「设置 › 网络连接」调整。'
+                    '测试未通过，${result.label}。仍可开始使用'
                   );
     return Semantics(
       liveRegion: true,

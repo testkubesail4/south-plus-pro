@@ -29,12 +29,17 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Set<LoadingMode> shown(WidgetTester tester, LoadingDomain domain) => tester
-      .widget<SegmentedButton<LoadingMode>>(find.descendant(
-        of: find.byKey(ValueKey('loading-${domain.name}')),
-        matching: find.byType(SegmentedButton<LoadingMode>),
-      ))
-      .selected;
+  // The switch is on for 自动接续, off for 手动翻页.
+  Set<LoadingMode> shown(WidgetTester tester, LoadingDomain domain) => {
+        tester
+                .widget<Switch>(find.descendant(
+                  of: find.byKey(ValueKey('loading-${domain.name}')),
+                  matching: find.byType(Switch),
+                ))
+                .value
+            ? LoadingMode.continuous
+            : LoadingMode.manual
+      };
 
   testWidgets('加载与分页 shows each list\'s default and saves a change',
       (tester) async {
@@ -47,7 +52,7 @@ void main() {
 
     await tester.tap(find.descendant(
       of: find.byKey(const ValueKey('loading-thread')),
-      matching: find.text('自动接续'),
+      matching: find.byType(Switch),
     ));
     await tester.pumpAndSettle();
     expect(shown(tester, LoadingDomain.thread), {LoadingMode.continuous});

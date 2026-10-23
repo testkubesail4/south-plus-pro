@@ -84,13 +84,4 @@ extension ImageLoadModeLabel on ImageLoadMode {
       ImageLoadMode.noImages => '无图模式',
     };
   }
-
-  String get description {
-    return switch (this) {
-      ImageLoadMode.automatic => '滚动到图片时自动加载并缓存。',
-      ImageLoadMode.wifiOnly => '移动网络下先显示占位，点击后再加载。',
-      ImageLoadMode.manual => '所有帖子图片默认占位，点击后加载。',
-      ImageLoadMode.noImages => '隐藏论坛图片、表情、头像和预览截图，保留文字与链接。',
-    };
-  }
 }

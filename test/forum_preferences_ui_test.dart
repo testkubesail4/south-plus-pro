@@ -124,7 +124,6 @@ void main() {
     }
     expect(find.textContaining('yyyy:4位数年份'), findsNothing);
     expect(find.textContaining('填写对方的数字 UID'), findsOneWidget);
-    expect(find.textContaining('只影响论坛网页和邮件'), findsOneWidget);
     // Plain words for the forum's bare choices.
     expect(find.text('24 小时制'), findsOneWidget);
     expect(find.text('论坛默认'), findsWidgets);
@@ -144,14 +143,14 @@ void main() {
     expect(find.text('自定义日期格式'), findsNothing);
     await _choose(tester, '日期格式', '自定义');
     expect(find.text('自定义日期格式'), findsOneWidget);
-    expect(find.textContaining('示例：2026-03-07'), findsOneWidget);
+    expect(find.textContaining('示例 2026-03-07'), findsOneWidget);
     await tester.enterText(
         find.descendant(
             of: find.byKey(const ValueKey('date_f')),
             matching: find.byType(TextField)),
         'yy-m-d');
     await tester.pump();
-    expect(find.textContaining('示例：26-3-7'), findsOneWidget);
+    expect(find.textContaining('示例 26-3-7'), findsOneWidget);
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(repo.saved, {

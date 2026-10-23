@@ -109,7 +109,7 @@ void main() {
       expect(find.text('测速中'), findsWidgets);
       await tapText(tester, '下一步');
       await tapText(tester, '下一步');
-      expect(find.textContaining('测试未通过：连接超时'), findsOneWidget);
+      expect(find.textContaining('测试未通过，连接超时'), findsOneWidget);
       expect(find.textContaining('成功'), findsNothing);
       await tapText(tester, '开始使用');
       expect(repo.saved, hasLength(1));
@@ -231,7 +231,7 @@ void main() {
       final field = find.byType(TextField);
       await tester.enterText(field, '10.0.0.1');
       await tapText(tester, '保存');
-      expect(find.textContaining('10.0.0.1：'), findsOneWidget,
+      expect(find.textContaining('10.0.0.1 · '), findsOneWidget,
           reason: 'private addresses are rejected');
 
       await tester.enterText(field, '104.18.26.110\n2606:4700::6812:1a6e');
@@ -301,7 +301,7 @@ void main() {
       expect(find.textContaining('稳定'), findsNothing);
       check.complete(_failure('TLS 握手失败'));
       await settle(tester);
-      expect(find.text('刚才的测试失败：TLS 握手失败'), findsOneWidget);
+      expect(find.text('测试未通过，TLS 握手失败'), findsOneWidget);
     });
 
     testWidgets('a change cancels the running test and drops its result',
