@@ -468,10 +468,14 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
         );
       }
       await _mutations.catchError((_) {});
-      if (_backgroundLease != null ||
-          !_wantsBackgroundPolling ||
-          _backgroundStopped ||
-          !_foreground) return;
+      if (_backgroundLease != null) {
+        if (_canCheck && _checking == null && _timer?.isActive != true) {
+          _scheduleNextCheck();
+        }
+        return;
+      }
+      if (!_wantsBackgroundPolling || _backgroundStopped || !_foreground)
+        return;
       final revision = _backgroundRevision;
       final generation = _generation;
       final id = ++_nextBackgroundRequestId;
