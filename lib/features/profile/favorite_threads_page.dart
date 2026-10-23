@@ -852,7 +852,6 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
           child: LoginPrompt(
             icon: Icons.star_outline,
             title: '收藏',
-            message: '登录后，在帖子里收藏的主题会集中在这里。',
             onLogin: widget.onLoginTap ??
                 () => openLogin(context, widget.repository),
           ),

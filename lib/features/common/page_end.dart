@@ -136,7 +136,7 @@ class PageEndFooter extends StatelessWidget {
             TextButton.icon(
               onPressed: refresh,
               icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('刷新本页，看看新回复'),
+              label: const Text('刷新本页'),
             ),
         ],
       );

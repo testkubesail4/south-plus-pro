@@ -176,7 +176,6 @@ class _HomeShellState extends State<HomeShell> {
                                 child: LoginPrompt(
                                   icon: Icons.mail_outline,
                                   title: '消息',
-                                  message: '登录后可以查看短消息、回复提醒和关注。',
                                   onLogin: () =>
                                       openLogin(context, _repository),
                                 ),

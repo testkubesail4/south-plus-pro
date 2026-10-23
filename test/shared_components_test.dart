@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
 import 'package:south_plus_rewrite/features/common/content_width.dart';
 import 'package:south_plus_rewrite/features/common/grouped_list.dart';
+import 'package:south_plus_rewrite/features/common/help_sheet.dart';
+import 'package:south_plus_rewrite/features/common/sub_tabs.dart';
 import 'package:south_plus_rewrite/features/common/thread_row.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
@@ -88,4 +90,54 @@ void main() {
         greaterThanOrEqualTo(48));
     semantics.dispose();
   });
+
+  testWidgets('sub tabs: 48px targets, one selected tab of an exclusive group',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    var current = 1;
+    await _pump(
+      tester,
+      StatefulBuilder(
+        builder: (context, setState) => SubTabs<int>(
+          tabs: const [(1, '收件箱'), (2, '发件箱')],
+          selected: current,
+          onSelected: (value) => setState(() => current = value),
+          trailing: const HelpButton(title: '说明', lines: []),
+        ),
+      ),
+    );
+    for (final label in ['收件箱', '发件箱']) {
+      final chip = find.ancestor(
+          of: find.text(label), matching: find.byType(ChoiceChip));
+      expect(tester.getSize(chip).height, greaterThanOrEqualTo(48));
+    }
+    expect(
+        tester.getSemantics(find.text('收件箱')),
+        containsSemantics(
+          label: '收件箱',
+          isSelected: true,
+          isButton: true,
+          isInMutuallyExclusiveGroup: true,
+          isFocusable: true,
+          hasTapAction: true,
+        ));
+    // The padded edge of the 48px target selects, not only the visible chip.
+    final sent = tester.getRect(
+        find.ancestor(of: find.text('发件箱'), matching: find.byType(ChoiceChip)));
+    await tester.tapAt(sent.topCenter + const Offset(0, 2));
+    await tester.pump();
+    expect(current, 2);
+    expect(
+        tester.getSemantics(find.text('收件箱')),
+        containsSemantics(
+            label: '收件箱', isSelected: false, isInMutuallyExclusiveGroup: true));
+    expect(
+        tester.getSemantics(find.text('发件箱')),
+        containsSemantics(
+            label: '发件箱', isSelected: true, isInMutuallyExclusiveGroup: true));
+    semantics.dispose();
+  },
+      // Touch and desktop densities both keep the 48px target.
+      variant: const TargetPlatformVariant(
+          {TargetPlatform.android, TargetPlatform.linux}));
 }

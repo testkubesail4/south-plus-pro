@@ -84,8 +84,18 @@ class EmptyStateView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 40, color: iconColor ?? AppColors.textFaint),
-              const SizedBox(height: AppSpace.md),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.inkSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpace.lg),
+                  child: Icon(icon,
+                      size: 28, color: iconColor ?? AppColors.textFaint),
+                ),
+              ),
+              const SizedBox(height: AppSpace.lg),
               Text(
                 title,
                 textAlign: TextAlign.center,

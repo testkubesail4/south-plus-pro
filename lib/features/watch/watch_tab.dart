@@ -8,7 +8,9 @@ import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/forum_link_opener.dart';
 import '../common/grouped_list.dart';
+import '../common/help_sheet.dart';
 import '../common/session_bound.dart';
+import '../common/sub_tabs.dart';
 import '../common/thread_row.dart';
 import '../messages/notification_permission_row.dart';
 import 'watch_rule_sheet.dart';
@@ -110,27 +112,21 @@ class _WatchTabState extends State<WatchTab> {
       builder: (context, _) {
         final rules = _watch.rules;
         return ListView(
-          padding: const EdgeInsets.only(top: AppSpace.md, bottom: 88),
+          padding: const EdgeInsets.only(top: AppSpace.sm, bottom: 88),
           children: [
             AppContentWidth(
               maxWidth: AppWidths.list,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
-                child: SegmentedButton<bool>(
-                  segments: [
-                    const ButtonSegment(value: false, label: Text('动态')),
-                    ButtonSegment(
-                      value: true,
-                      label: Text(
-                        '规则 ${_watch.activeCount}/${WatchService.maxActiveRules}',
-                      ),
-                    ),
-                  ],
-                  showSelectedIcon: false,
-                  selected: {_showRules},
-                  onSelectionChanged: (values) =>
-                      setState(() => _showRules = values.single),
-                ),
+              child: SubTabs<bool>(
+                tabs: [
+                  (false, '动态'),
+                  (
+                    true,
+                    '规则 ${_watch.activeCount}/${WatchService.maxActiveRules}'
+                  ),
+                ],
+                selected: _showRules,
+                onSelected: (value) => setState(() => _showRules = value),
+                trailing: const HelpButton(title: '关注', lines: watchHelpLines),
               ),
             ),
             const SizedBox(height: AppSpace.md),
@@ -152,16 +148,14 @@ class _WatchTabState extends State<WatchTab> {
   List<Widget> _events(BuildContext context, List<WatchRule> rules) {
     final events = _watch.events;
     final labels = {for (final rule in rules) rule.id: rule.label};
+    if (rules.isEmpty) return const [_NoRules()];
     return [
       _StatusStrip(watch: _watch),
       const SizedBox(height: AppSpace.md),
-      if (rules.isEmpty)
-        const _NoRules()
-      else if (events.isEmpty)
+      if (events.isEmpty)
         const EmptyStateView(
           icon: Icons.notifications_none_outlined,
           title: '还没有新动态',
-          message: '打开 App 或回到前台时补查；后台或关闭期间不保证即时通知',
         )
       else
         AppGroup(
@@ -213,23 +207,6 @@ class _WatchTabState extends State<WatchTab> {
               ),
           ],
         ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpace.lg,
-          AppSpace.lg,
-          AppSpace.lg,
-          0,
-        ),
-        child: Text(
-          '检查只在本机进行：打开 App 或回到前台时补查，使用期间约每 15 分钟一次，'
-          '每 5 分钟最多 ${WatchService.maxSends} 次请求。'
-          'App 在后台或被关闭时不检查，不保证即时通知。'
-          '私密收藏、已删除的楼层和图片中的文字无法识别。',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textMuted,
-              ),
-        ),
-      ),
     ];
   }
 
@@ -387,9 +364,16 @@ class _NoRules extends StatelessWidget {
   Widget build(BuildContext context) => const EmptyStateView(
         icon: Icons.notifications_none_outlined,
         title: '还没有关注',
-        message: '在帖子右上角 ⋮、楼层作者菜单、用户中心或版块里添加',
       );
 }
+
+/// What 关注 checks, where it is added, and what it cannot see.
+const watchHelpLines = [
+  (Icons.add_alert_outlined, '在帖子右上角菜单、楼层作者菜单、用户中心或版块里添加'),
+  (Icons.schedule_outlined, '使用 App 时约每 15 分钟检查一次'),
+  (Icons.phonelink_erase_outlined, '后台或关闭时不检查'),
+  (Icons.visibility_off_outlined, '私密收藏、已删除的楼层和图片中的文字无法识别'),
+];
 
 class _EventRow extends StatelessWidget {
   const _EventRow({

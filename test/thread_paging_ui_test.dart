@@ -120,7 +120,7 @@ void main() {
     expect(find.text('已到最后一页'), findsOneWidget);
     expect(find.byKey(const ValueKey('page-end-next')), findsNothing);
 
-    await tester.tap(find.text('刷新本页，看看新回复'));
+    await tester.tap(find.text('刷新本页'));
     await tester.pumpAndSettle();
     expect(repository.pages, [1, 1]);
   });

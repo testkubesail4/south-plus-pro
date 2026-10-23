@@ -103,7 +103,7 @@ class _PmDetailViewState extends State<_PmDetailView> {
 
   Future<void> _confirmAndRun({
     required String title,
-    required String message,
+    required String? message,
     required String confirmLabel,
     required Future<ForumPmActionResult> Function() action,
   }) async {
@@ -112,7 +112,7 @@ class _PmDetailViewState extends State<_PmDetailView> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: Text(message),
+        content: message == null ? null : Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -175,7 +175,7 @@ class _PmDetailViewState extends State<_PmDetailView> {
           '标为未读',
           () => _confirmAndRun(
             title: '标为未读',
-            message: '确定将这条消息标为未读？',
+            message: null,
             confirmLabel: '标为未读',
             action: () => widget.repository.markPmUnread(detail),
           ),
@@ -186,7 +186,7 @@ class _PmDetailViewState extends State<_PmDetailView> {
           '删除',
           () => _confirmAndRun(
             title: '删除消息',
-            message: '删除后无法恢复，确定删除这条消息？',
+            message: '删除后无法恢复',
             confirmLabel: '删除',
             action: () =>
                 widget.repository.deletePm(detail.summary, detail: detail),

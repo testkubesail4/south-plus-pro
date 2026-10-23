@@ -127,7 +127,6 @@ class _ReplyNoticesScreenState extends State<ReplyNoticesScreen> {
                           children: const [
                             EmptyStateView(
                               title: '暂无回复提醒',
-                              message: '你的主题有新回复时会显示在这里。',
                               icon: Icons.mark_chat_read_outlined,
                             ),
                           ],

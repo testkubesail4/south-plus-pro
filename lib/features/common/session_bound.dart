@@ -74,7 +74,6 @@ class _SessionBoundState extends State<SessionBound> {
       body: EmptyStateView(
         icon: Icons.lock_outline,
         title: '账号已切换',
-        message: '这里是之前账号的内容，已关闭。',
         action: FilledButton(
           onPressed: () => Navigator.of(context).maybePop(),
           child: const Text('返回'),

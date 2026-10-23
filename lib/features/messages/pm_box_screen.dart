@@ -11,6 +11,7 @@ import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../common/page_end.dart';
 import '../common/session_bound.dart';
+import '../common/sub_tabs.dart';
 import '../common/thread_row.dart';
 import 'pm_compose_screen.dart';
 import 'pm_detail_screen.dart';
@@ -350,33 +351,17 @@ class _PmBoxViewState extends State<_PmBoxView> {
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<ForumPmBox>(
-                    // Text-only segments stay on one line at large text.
-                    segments: const [
-                      ButtonSegment(
-                        value: ForumPmBox.inbox,
-                        label: Text('收件箱'),
-                      ),
-                      ButtonSegment(
-                        value: ForumPmBox.sendbox,
-                        label: Text('发件箱'),
-                      ),
-                      ButtonSegment(
-                        value: ForumPmBox.scout,
-                        // Short enough for one line at large text (D§7).
-                        label: Text('跟踪'),
-                      ),
-                    ],
-                    showSelectedIcon: false,
-                    selected: {_box},
-                    onSelectionChanged: (values) => _selectBox(values.single),
-                  ),
+                padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+                child: SubTabs<ForumPmBox>(
+                  tabs: const [
+                    (ForumPmBox.inbox, '收件箱'),
+                    (ForumPmBox.sendbox, '发件箱'),
+                    (ForumPmBox.scout, '跟踪'),
+                  ],
+                  selected: _box,
+                  onSelected: _selectBox,
                 ),
               ),
-              Divider(height: 1, color: AppColors.border),
               Expanded(
                 child: FutureBuilder<ForumPmPage>(
                   future: _future,

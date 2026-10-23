@@ -48,7 +48,7 @@ class _NotificationPermissionRowState extends State<NotificationPermissionRow> {
               children: [
                 Expanded(
                   child: Text(
-                    '系统通知未开启 · 新消息只在 App 内提示',
+                    '系统通知未开启',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,

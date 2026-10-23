@@ -349,15 +349,6 @@ class _RejectedLinkSheet extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Text(
-              url == null
-                  ? '这个链接不是可在应用内浏览的论坛页面，已忽略。'
-                  : '这个论坛页面还没有对应的应用内页面。为避免在应用和浏览器之间来回跳转，'
-                      '不会自动打开浏览器，可以复制链接后自行打开。',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: AppColors.textMuted),
-            ),
             if (url != null) ...[
               const SizedBox(height: 12),
               SelectableText(url, style: theme.textTheme.bodySmall),
@@ -376,7 +367,7 @@ class _RejectedLinkSheet extends StatelessWidget {
                   ),
                 FilledButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('知道了'),
+                  child: const Text('关闭'),
                 ),
               ],
             ),

@@ -155,7 +155,6 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
         body: LoginPrompt(
           icon: Icons.fact_check_outlined,
           title: '论坛任务',
-          message: '登录后可以申请日常、周常任务，并领取 SP 币奖励。',
           onLogin: () async {
             if (!await openLogin(context, widget.repository)) return;
             if (!mounted) return;

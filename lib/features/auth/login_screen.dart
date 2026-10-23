@@ -30,13 +30,11 @@ class LoginPrompt extends StatelessWidget {
     super.key,
     required this.icon,
     required this.title,
-    required this.message,
     required this.onLogin,
   });
 
   final IconData icon;
   final String title;
-  final String message;
   final VoidCallback onLogin;
 
   @override
@@ -48,7 +46,6 @@ class LoginPrompt extends StatelessWidget {
         EmptyStateView(
           icon: icon,
           title: title,
-          message: message,
           action: FilledButton.icon(
             onPressed: onLogin,
             icon: const Icon(Icons.login),

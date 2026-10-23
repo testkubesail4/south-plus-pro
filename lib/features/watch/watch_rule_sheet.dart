@@ -104,7 +104,7 @@ String watchStatusText(WatchService watch, WatchRule rule) {
   final status = watch.statuses[rule.id];
   final checked = status?.checkedAt;
   return switch (status?.phase) {
-    null || WatchPhase.baseline => '首次检查后开始提醒，不推送已有内容',
+    null || WatchPhase.baseline => '等待首次检查',
     WatchPhase.pending => watch.pendingUntil == null ? '等待检查' : '待继续（已达请求上限）',
     WatchPhase.current =>
       checked == null ? '已检查' : '${_clock(checked.toLocal())} 已检查',
@@ -355,7 +355,7 @@ class _WatchSheetState extends State<WatchSheet> {
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
       messenger.showSnackBar(
-        SnackBar(content: Text(_rule == null ? '已关注，首次检查后开始提醒' : '已保存')),
+        SnackBar(content: Text(_rule == null ? '已关注' : '已保存')),
       );
     } on WatchLimitException catch (error) {
       if (mounted) setState(() => _error = error.message);
@@ -565,21 +565,19 @@ class _WatchSheetState extends State<WatchSheet> {
         controller: _keyword,
         maxLength: 200,
         decoration: InputDecoration(
-          hintText: scope == WatchScope.board ? '例如：汉化' : '不填则不限',
+          hintText: scope == WatchScope.board ? '例如：汉化' : null,
           counterText: '',
         ),
         onChanged: (_) => setState(() => _error = null),
       ),
-      if (scope == WatchScope.board) _hint(context, '按发帖时间检查新主题，忽略置顶'),
       if (scope == WatchScope.user &&
           _field == WatchKeywordField.body &&
           _keyword.text.trim().isNotEmpty)
-        _hint(context, '回复列表只有主题标题，匹配正文需要逐条读取，检查更慢'),
+        _hint(context, '匹配正文检查较慢'),
       const SizedBox(height: AppSpace.md),
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         title: const Text('系统通知'),
-        subtitle: const Text('“可能”的动态只在 App 内显示'),
         value: _notify,
         onChanged: (value) => setState(() => _notify = value),
       ),

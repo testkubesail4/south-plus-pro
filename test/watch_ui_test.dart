@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/common/sub_tabs.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/messages_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
@@ -156,9 +157,14 @@ void main() {
       expect(watch.checks, 1);
     });
 
-    testWidgets('no rules says where to add one', (tester) async {
+    testWidgets('no rules: nothing to check, and 说明 says where to add one',
+        (tester) async {
       await pumpTab(tester, FakeWatch());
       expect(find.text('还没有关注'), findsOneWidget);
+      expect(find.text('立即检查'), findsNothing);
+      await tester.tap(find.byTooltip('说明'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('楼层作者菜单'), findsOneWidget);
     });
   });
 
@@ -191,8 +197,12 @@ void main() {
       final failed = tester.widget<Text>(find.text('无法检查：帖子不存在'));
       expect(failed.style?.color,
           Theme.of(tester.element(find.byType(WatchTab))).colorScheme.error);
-      // The limits and what is never checked are disclosed.
-      expect(find.textContaining('App 在后台或被关闭时不检查，不保证即时通知'), findsOneWidget);
+      // The limits and what is never checked are one tap away.
+      expect(find.textContaining('后台或关闭时不检查'), findsNothing);
+      await tester.tap(find.byTooltip('说明'));
+      await tester.pumpAndSettle();
+      expect(find.text('后台或关闭时不检查'), findsOneWidget);
+      expect(find.text('私密收藏、已删除的楼层和图片中的文字无法识别'), findsOneWidget);
     });
 
     testWidgets('暂停 and 恢复 come from the row menu', (tester) async {
@@ -483,10 +493,9 @@ void main() {
       expect(repository.lastBox, ForumPmBox.inbox);
       expect(
           tester
-              .widget<SegmentedButton<ForumPmBox>>(
-                  find.byType(SegmentedButton<ForumPmBox>))
+              .widget<SubTabs<ForumPmBox>>(find.byType(SubTabs<ForumPmBox>))
               .selected,
-          {ForumPmBox.inbox});
+          ForumPmBox.inbox);
 
       watch.tapNotice(NoticeNotificationKind.reply);
       await tester.pumpAndSettle();
@@ -557,7 +566,7 @@ void main() {
         ..notificationPermission = WatchNotificationPermission.denied
         ..grantOnRequest = false;
       await pumpMessages(tester, watch);
-      expect(find.text('系统通知未开启 · 新消息只在 App 内提示'), findsOneWidget);
+      expect(find.text('系统通知未开启'), findsOneWidget);
 
       await tester.tap(find.widgetWithText(TextButton, '开启'));
       await tester.pumpAndSettle();
