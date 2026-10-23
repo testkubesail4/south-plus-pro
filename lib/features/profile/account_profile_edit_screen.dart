@@ -492,21 +492,21 @@ class _AvatarSectionState extends State<_AvatarSection> {
     if (mode == _AvatarMode.upload && upload != null) {
       return (
         _picture(upload),
-        '新头像，保存后生效\n${upload.fileName} · ${_size(upload.bytes.length)}'
+        '新头像\n${upload.fileName} · ${_size(upload.bytes.length)}'
       );
     }
     final system = _systemChoice;
     if (mode == _AvatarMode.system &&
         _c.isEdited('proicon') &&
         system?.imageUrl != null) {
-      return (_netPicture(system!.imageUrl!, '新系统头像预览'), '新头像，保存后生效');
+      return (_netPicture(system!.imageUrl!, '新系统头像预览'), '新头像');
     }
     final link = _linkPreview;
     // Only the address that was previewed; an edited one needs a new preview.
     if (mode == _AvatarMode.link &&
         link != null &&
         link == _typedLink?.toString()) {
-      return (_netPicture(link, '链接图片预览'), '链接图片预览，保存后生效');
+      return (_netPicture(link, '链接图片预览'), '新头像');
     }
     return (
       AccountAvatar(avatarUrl: widget.avatarUrl, size: 64),
@@ -533,9 +533,7 @@ class _AvatarSectionState extends State<_AvatarSection> {
       children: [
         AppRow(
           title: const Text('显示尺寸'),
-          subtitle: Text(widthBlank
-              ? '请填写显示宽度，论坛需要它才能保存头像'
-              : '宽度 ${_c.value(shown.first)}'),
+          subtitle: Text(widthBlank ? '需填写宽度' : '宽度 ${_c.value(shown.first)}'),
           value: open ? '收起' : '展开',
           trailing: Icon(open ? Icons.expand_less : Icons.expand_more,
               color: AppColors.textFaint),
@@ -551,7 +549,7 @@ class _AvatarSectionState extends State<_AvatarSection> {
               helper: [
                 if (n.endsWith('[1]')) '必填',
                 _rangeText(_c.form.field(n)),
-                if (n.endsWith('[2]')) '选填，留空则按宽度等比缩放',
+                if (n.endsWith('[2]')) '选填',
               ].whereType<String>().join('；').nullIfEmpty,
               keyboardType: TextInputType.number,
             ),
@@ -581,7 +579,6 @@ class _AvatarSectionState extends State<_AvatarSection> {
             controller: _c,
             name: 'httpurl[0]',
             title: '头像链接',
-            helper: '图片的网络地址，以 http:// 或 https:// 开头',
             keyboardType: TextInputType.url,
           ),
           AppRow(
@@ -600,10 +597,11 @@ class _AvatarSectionState extends State<_AvatarSection> {
           for (final e in (field.accept ?? '').split(','))
             if (e.trim().isNotEmpty) acceptLabel(e)
         }.join('、');
+        // Without PNG the picture cannot be cropped and goes up as is.
         final note = [
-          cropping ? '选择后裁剪为正方形，以 PNG 上传' : '论坛的头像格式限制，将直接上传原图，不裁剪',
-          if (formats.isNotEmpty) '支持格式：$formats',
-        ].join('；');
+          if (!cropping) '原图上传',
+          if (formats.isNotEmpty) formats,
+        ].join(' · ');
         final upload = _c.draftUpload;
         return [
           AppRow(
@@ -619,21 +617,22 @@ class _AvatarSectionState extends State<_AvatarSection> {
                     icon: const Icon(Icons.close),
                   ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpace.lg, 0, AppSpace.lg, AppSpace.md),
-            child: Semantics(
-              liveRegion: _problem != null,
-              child: Text(
-                _problem ?? note,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: _problem != null
-                      ? theme.colorScheme.error
-                      : AppColors.textMuted,
+          if (_problem != null || note.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.lg, 0, AppSpace.lg, AppSpace.md),
+              child: Semantics(
+                liveRegion: _problem != null,
+                child: Text(
+                  _problem ?? note,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: _problem != null
+                        ? theme.colorScheme.error
+                        : AppColors.textMuted,
+                  ),
                 ),
               ),
             ),
-          ),
           _sizeRows(const ['uploadurl[1]', 'uploadurl[2]']),
         ];
       case null:

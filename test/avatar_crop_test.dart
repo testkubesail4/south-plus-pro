@@ -127,7 +127,6 @@ void main() {
     final harness = _Harness();
     await harness.open(tester, await _bands(tester));
     expect(find.byKey(const Key('avatar-crop-screen')), findsOneWidget);
-    expect(find.textContaining('240 × 240 像素 PNG'), findsOneWidget);
     await tester.tap(find.byKey(const Key('avatar-crop-confirm')));
     await _settle(tester);
     expect(harness.done, isTrue);
@@ -193,7 +192,7 @@ void main() {
     final gif = _animatedGif();
     final keep = _Harness();
     await keep.open(tester, gif);
-    expect(find.textContaining('这是一张动图'), findsOneWidget);
+    expect(find.text('动图裁剪后只保留第一帧'), findsOneWidget);
     await tester.tap(find.byKey(const Key('avatar-crop-original')));
     await _settle(tester);
     expect(identical(keep.result, gif), isTrue);

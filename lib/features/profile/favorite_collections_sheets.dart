@@ -259,7 +259,7 @@ Future<bool> showRemoveFavoritesDialog(
         title: const Text('取消收藏'),
         content: Text(titles.length == 1
             ? '「${titles.single}」将从收藏中移除。'
-            : '${titles.length} 个主题将从收藏中移除：\n'
+            : '${titles.length} 个主题将从收藏中移除\n'
                 '${titles.take(3).map((t) => '「$t」').join('\n')}'
                 '${titles.length > 3 ? '\n…' : ''}'),
         actions: [
@@ -415,7 +415,7 @@ class _MoveSheetBody extends StatelessWidget {
               Icon(Icons.info_outline, size: 20, color: AppColors.textMuted),
               const SizedBox(width: AppSpace.sm),
               Expanded(
-                child: Text('暂无其他分类，请先新建分类，再选择移入',
+                child: Text('暂无其他分类',
                     style: theme.textTheme.bodySmall),
               ),
             ]),

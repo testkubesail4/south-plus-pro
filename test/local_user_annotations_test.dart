@@ -100,8 +100,8 @@ void main() {
       expect(find.text('UID $uid'), findsOneWidget);
     }
     expect(find.text('用户 3'), findsOneWidget);
-    expect(find.text('备注：旧备注'), findsOneWidget, reason: 'a note is labelled, never mistaken for a tag');
-    expect(find.text('备注：组合'), findsOneWidget);
+    expect(find.text('备注 旧备注'), findsOneWidget, reason: 'a note is labelled, never mistaken for a tag');
+    expect(find.text('备注 组合'), findsOneWidget);
     final before = writes;
     await tester.tap(find.text('标签 1'));
     await tester.pumpAndSettle();
@@ -120,7 +120,7 @@ void main() {
     await tester.pumpAndSettle();
     expect((await UserNoteStore.load())['43'], '新增备注');
     expect((await UserTagStore.load())['43'], ['Artist']);
-    expect(find.text('备注：新增备注'), findsOneWidget);
+    expect(find.text('备注 新增备注'), findsOneWidget);
   });
 
   testWidgets('failed reads expose retry instead of an authoritative empty list or counts', (tester) async {
@@ -275,7 +275,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('annotation-edit:42')));
     await tester.pumpAndSettle();
-    expect(find.text('原名：禁止事项　UID 42'), findsOneWidget);
+    expect(find.text('原名 禁止事项 · UID 42'), findsOneWidget);
     // Opening the profile route still uses the record UID.
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();

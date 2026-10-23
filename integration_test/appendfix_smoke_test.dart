@@ -361,24 +361,23 @@ void main() {
         UserProfileScreen(userUrl: _profileUrl, repository: repository));
     await resize(tester, const Size(400, 800));
     await tap(tester, find.text('添加备注'));
-    expect(find.textContaining('仅本机'), findsWidgets);
     expect(find.textContaining('930002'), findsWidgets);
-    expect(find.textContaining('原名：林间书签'), findsOneWidget);
+    expect(find.textContaining('原名 林间书签'), findsOneWidget);
     await tester.enterText(find.byType(TextField), '常读作者');
     await tester.pump();
     await screenshot(tester, 'flow2_phone-light_local-note-editor');
     await tap(tester, find.text('保存'));
-    await waitFor(tester, find.text('备注：常读作者'));
+    await waitFor(tester, find.text('备注 常读作者'));
     await tap(tester, find.text('主题'));
     await waitFor(tester, find.text('本地阅读笔记'));
     await tap(tester, find.byTooltip('展开筛选'));
-    await tap(tester, find.text('版块：全部'));
+    await tap(tester, find.text('版块 · 全部'));
     await tap(
         tester,
         find.descendant(
             of: find.byType(BoardPickerSheet), matching: find.text('本地阅读版块')));
-    await waitFor(tester, find.text('版块：本地阅读版块'));
-    await tap(tester, find.text('分类：全部'));
+    await waitFor(tester, find.text('版块 · 本地阅读版块'));
+    await tap(tester, find.text('分类 · 全部'));
     await tap(tester, find.text('阅读笔记'));
     await waitFor(tester, find.text('待确认 (1)'));
     await tap(tester, find.text('待确认 (1)'));

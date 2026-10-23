@@ -67,28 +67,29 @@ void main() {
     await tester.pumpAndSettle();
     for (final option in [
       '论坛顺序',
-      '发帖时间 新→旧',
-      '发帖时间 旧→新',
-      '浏览量 多→少',
-      '浏览量 少→多',
-      '回复数 多→少',
-      '回复数 少→多',
+      '发帖时间 从新到旧',
+      '发帖时间 从旧到新',
+      '浏览量 从多到少',
+      '浏览量 从少到多',
+      '回复数 从多到少',
+      '回复数 从少到多',
     ]) {
       expect(find.text(option), findsOneWidget, reason: option);
     }
-    await tester.tap(find.text('浏览量 多→少'));
+    await tester.tap(find.text('浏览量 从多到少'));
     await tester.pumpAndSettle();
     expect(titles(tester), ['多', '少', '未知']);
-    expect(find.text('按浏览量 多→少 · 范围：已加载的 1 页（共 3 页）'), findsOneWidget);
+    expect(find.text('按浏览量 从多到少 · 已加载的 1 页（共 3 页）'), findsOneWidget);
 
-    await pickSort(tester, '浏览量 少→多');
+    await pickSort(tester, '浏览量 从少到多');
     expect(titles(tester), ['少', '多', '未知'], reason: 'unknown stays last');
     expect(repository.queries, isEmpty, reason: 'sorting reads nothing');
     expect(repository.scans, isEmpty);
 
     await pickSort(tester, '论坛顺序');
     expect(titles(tester), ['少', '未知', '多']);
-    expect(find.textContaining('范围：'), findsNothing);
+    // Forum order drops the sort scope line.
+    expect(find.textContaining('按浏览量'), findsNothing);
   });
 
   testWidgets('排序全部页面 asks first, then scans and is honest until done',
@@ -103,7 +104,7 @@ void main() {
                 ThreadPagination(currentPage: 1, totalPages: 2),
           },
         ));
-    await pickSort(tester, '浏览量 多→少');
+    await pickSort(tester, '浏览量 从多到少');
     await tester.tap(find.text('排序全部页面'));
     await tester.pumpAndSettle();
     expect(find.text('排序全部页面？'), findsOneWidget);
@@ -117,14 +118,14 @@ void main() {
     expect(scan.query.keyword, '');
     expect(scan.loaded!.map((row) => row.title), ['一', '二'],
         reason: 'seeded with the forum order, not the sorted view');
-    expect(find.text('按浏览量 多→少 · 范围：已扫描 1 页，结果不完整'), findsOneWidget);
+    expect(find.text('按浏览量 从多到少 · 已扫描 1 页，结果不完整'), findsOneWidget);
     expect(find.text('停止'), findsOneWidget);
 
     scan.scan.finish(
         [_row('一', views: 1), _row('二', views: 2), _row('三', views: 9)]);
     await tester.pumpAndSettle();
     expect(titles(tester), ['三', '二', '一']);
-    expect(find.text('按浏览量 多→少 · 范围：全部 2 页'), findsOneWidget);
+    expect(find.text('按浏览量 从多到少 · 全部 2 页'), findsOneWidget);
     expect(find.text('排序全部页面'), findsNothing);
   });
 
@@ -139,11 +140,11 @@ void main() {
         ]));
     await tester.tap(find.byTooltip('排序'));
     await tester.pumpAndSettle();
-    expect(find.text('回复时间 新→旧'), findsOneWidget);
-    expect(find.text('回复时间 旧→新'), findsOneWidget);
+    expect(find.text('回复时间 从新到旧'), findsOneWidget);
+    expect(find.text('回复时间 从旧到新'), findsOneWidget);
     expect(find.textContaining('浏览量'), findsNothing);
     expect(find.textContaining('回复数'), findsNothing);
-    await tester.tap(find.text('回复时间 新→旧'));
+    await tester.tap(find.text('回复时间 从新到旧'));
     await tester.pumpAndSettle();
     expect(titles(tester), ['新', '旧']);
 

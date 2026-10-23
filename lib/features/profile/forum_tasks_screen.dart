@@ -7,6 +7,7 @@ import '../auth/login_screen.dart';
 import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
+import '../common/sub_tabs.dart';
 
 class ForumTasksScreen extends StatefulWidget {
   const ForumTasksScreen({
@@ -220,7 +221,6 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
                                   children: [
                                     EmptyStateView(
                                       title: _emptyTitle(_status),
-                                      message: _emptyMessage(_status),
                                       icon: Icons.task_alt_outlined,
                                     ),
                                   ],
@@ -283,81 +283,35 @@ class _TaskHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpace.lg),
-      decoration: appSurface(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.inkSoft,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.fact_check_outlined,
-                  size: 20,
-                  color: AppColors.textMuted,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('社区论坛任务',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 3),
-                    Text(
-                      '申请任务后在进行中领取奖励，完成记录会回到已完成任务。',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: quickClaiming ? null : onQuickClaim,
+            icon: quickClaiming
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.redeem_outlined),
+            label: Text(quickClaiming ? '领取中...' : '一键领取任务奖励'),
           ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: quickClaiming ? null : onQuickClaim,
-              icon: quickClaiming
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.redeem_outlined),
-              label: Text(quickClaiming ? '领取中...' : '一键领取任务奖励'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<ForumTaskStatus>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(
-                value: ForumTaskStatus.available,
-                label: Text('新任务'),
-              ),
-              ButtonSegment(
-                value: ForumTaskStatus.inProgress,
-                label: Text('进行中'),
-              ),
-              ButtonSegment(
-                value: ForumTaskStatus.completed,
-                label: Text('已完成'),
-              ),
-            ],
-            selected: {status},
-            onSelectionChanged: (values) => onStatusChanged(values.single),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: AppSpace.sm),
+        SubTabs<ForumTaskStatus>(
+          padding: EdgeInsets.zero,
+          tabs: const [
+            (ForumTaskStatus.available, '新任务'),
+            (ForumTaskStatus.inProgress, '进行中'),
+            (ForumTaskStatus.completed, '已完成'),
+          ],
+          selected: status,
+          onSelected: onStatusChanged,
+        ),
+      ],
     );
   }
 }
@@ -387,6 +341,22 @@ class _TaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = task.progressPercent;
+    final pills = [
+      // The failed list has no tab of its own: each card names its state.
+      if (task.status == ForumTaskStatus.failed)
+        const _TaskPill(icon: Icons.error_outline, label: '已失败'),
+      if (claimed)
+        const _TaskPill(
+            icon: Icons.check_circle_outline, label: '已领取', success: true),
+      if (stateUnknown)
+        const _TaskPill(icon: Icons.help_outline, label: '状态未知'),
+      if (task.reward != null)
+        _TaskPill(icon: Icons.toll_outlined, label: task.reward!),
+      if (task.endsAt != null)
+        _TaskPill(icon: Icons.event_outlined, label: '至 ${task.endsAt}'),
+      if (progress != null)
+        _TaskPill(icon: Icons.percent_outlined, label: '已完成 $progress%'),
+    ];
     return Container(
       padding: const EdgeInsets.all(AppSpace.lg),
       decoration: appSurface(context),
@@ -394,7 +364,6 @@ class _TaskCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 width: 42,
@@ -418,42 +387,24 @@ class _TaskCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      task.description ?? _statusLabel(task.status),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                    if (task.description case final description?) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (claimed)
-                const _TaskPill(
-                    icon: Icons.check_circle_outline,
-                    label: '已领取',
-                    success: true),
-              if (stateUnknown)
-                const _TaskPill(icon: Icons.help_outline, label: '状态未知'),
-              if (task.reward != null)
-                _TaskPill(icon: Icons.toll_outlined, label: task.reward!),
-              if (task.endsAt != null)
-                _TaskPill(
-                    icon: Icons.event_outlined, label: '至 ${task.endsAt}'),
-              if (progress != null)
-                _TaskPill(
-                  icon: Icons.percent_outlined,
-                  label: '已完成 $progress%',
-                ),
-            ],
-          ),
+          if (pills.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: pills),
+          ],
           if (progress != null) ...[
             const SizedBox(height: 10),
             ClipRRect(
@@ -591,7 +542,7 @@ void showForumTaskClaimSnackBar(
         !result.alreadyHandled)
       '暂无可领取任务奖励',
     if (result.skipped.isNotEmpty) result.skipped.first,
-    if (result.hasFailures) '部分任务失败：${result.failures.first}',
+    if (result.hasFailures) '部分任务失败，${result.failures.first}',
   ];
 
   final title = result.hasClaims
@@ -637,7 +588,7 @@ void showForumTaskClaimErrorSnackBar(BuildContext context, Object error) {
     ..showSnackBar(
       forumTaskSnackBar(
         title: '任务奖励领取失败',
-        lines: ['请稍后重试：$error'],
+        lines: ['请稍后重试，$error'],
       ),
     );
 }
@@ -667,15 +618,6 @@ String _actionLabel(ForumTask task) {
   return task.actionLabel ?? '处理任务';
 }
 
-String _statusLabel(ForumTaskStatus status) {
-  return switch (status) {
-    ForumTaskStatus.available => '可申请任务',
-    ForumTaskStatus.inProgress => '任务已完成时可以领取奖励',
-    ForumTaskStatus.completed => '奖励已经领取完成',
-    ForumTaskStatus.failed => '任务已失败',
-  };
-}
-
 IconData _statusIcon(ForumTaskStatus status) {
   return switch (status) {
     ForumTaskStatus.available => Icons.add_task_outlined,
@@ -700,14 +642,5 @@ String _emptyTitle(ForumTaskStatus status) {
     ForumTaskStatus.inProgress => '没有进行中任务',
     ForumTaskStatus.completed => '还没有已完成任务',
     ForumTaskStatus.failed => '没有失败任务',
-  };
-}
-
-String _emptyMessage(ForumTaskStatus status) {
-  return switch (status) {
-    ForumTaskStatus.available => '源站当前没有新的社区任务。',
-    ForumTaskStatus.inProgress => '申请日常或周常后，会在这里领取奖励。',
-    ForumTaskStatus.completed => '领取奖励后会显示完成时间。',
-    ForumTaskStatus.failed => '未按期限完成的任务会显示在这里。',
   };
 }

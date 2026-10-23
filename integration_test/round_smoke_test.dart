@@ -372,19 +372,19 @@ void main() {
     await waitFor(tester, find.text('Known high'));
     final beforeSort = await fixture('round/stats');
     await tap(tester, find.byTooltip('排序'));
-    await tap(tester, find.text('发帖时间 旧→新'));
+    await tap(tester, find.text('发帖时间 从旧到新'));
     await tester.pumpAndSettle();
     expectOrder(tester, ['Unknown metrics..', _lowTitle, 'Known high']);
     for (final (choice, titles) in [
-      ('浏览量 少→多', [_lowTitle, 'Known high', 'Unknown metrics..']),
-      ('浏览量 多→少', ['Known high', _lowTitle, 'Unknown metrics..']),
+      ('浏览量 从少到多', [_lowTitle, 'Known high', 'Unknown metrics..']),
+      ('浏览量 从多到少', ['Known high', _lowTitle, 'Unknown metrics..']),
     ]) {
       await tap(tester, find.byTooltip('排序'));
       await tap(tester, find.text(choice));
       await tester.pumpAndSettle();
       expectOrder(tester, titles);
     }
-    expect(find.textContaining('范围：已加载的 1 页'), findsWidgets);
+    expect(find.textContaining('已加载的 1 页'), findsWidgets);
     final loaded = await fixture('round/stats');
     expect(loaded['list_reads'], beforeSort['list_reads'],
         reason: 'picking a loaded-only sort must issue no list requests');
@@ -407,7 +407,7 @@ void main() {
       await tester.pumpAndSettle();
       expect((await fixture('round/stats'))['topic_pages'], isNot(contains(3)));
       await tap(tester, find.text('继续'), settle: false);
-      await waitFor(tester, find.textContaining('范围：全部 3 页'));
+      await waitFor(tester, find.textContaining('全部 3 页'));
       await tester.pumpAndSettle();
       expectOrder(tester, [
         'Unloaded maximum',
@@ -419,7 +419,7 @@ void main() {
       expect((await fixture('round/stats'))['thread_reads'], isEmpty,
           reason: 'empty-keyword sorting never enriches even truncated titles');
       await tap(tester, find.text('返回已加载'));
-      await waitFor(tester, find.textContaining('范围：已加载的 1 页'));
+      await waitFor(tester, find.textContaining('已加载的 1 页'));
       expect(find.text('Unloaded maximum'), findsNothing);
     } finally {
       await fixture('round/release-scan', reset: true);

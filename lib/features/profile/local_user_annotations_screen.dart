@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../common/app_switcher.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
+import '../common/sub_tabs.dart';
 import '../common/user_note.dart';
 import '../common/user_tags_inline.dart';
 import 'favorite_collections_sheets.dart' show SessionBound;
@@ -158,7 +159,7 @@ class _LocalUserAnnotationsScreenState
               style: TextStyle(color: AppColors.textFaint)),
         // One line: a long note ellipsizes on its own, the tags keep theirs.
         if (_annotations.noteFor(uid) case final note?)
-          Text('备注：$note', maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text('备注 $note', maxLines: 1, overflow: TextOverflow.ellipsis),
         if (_annotations.tagsFor(uid).isNotEmpty) ...[
           const SizedBox(height: AppSpace.xs),
           UserTagsInline(
@@ -259,29 +260,27 @@ class _LocalUserAnnotationsScreenState
                               prefixIcon: Icon(Icons.search),
                               hintText: '搜索 UID、备注、标签或名称')),
                       const SizedBox(height: AppSpace.md),
-                      SegmentedButton<int>(
-                          segments: [
-                            ButtonSegment(
-                                value: 0,
-                                label: Text(failed || _annotations.isLoading
-                                    ? '用户'
-                                    : '用户 ${ids.length}')),
-                            ButtonSegment(
-                                value: 1,
-                                label: Text(failed || _annotations.isLoading
-                                    ? '标签'
-                                    : '标签 ${vocabulary.length}')),
+                      SubTabs<int>(
+                          padding: EdgeInsets.zero,
+                          tabs: [
+                            (
+                              0,
+                              failed || _annotations.isLoading
+                                  ? '用户'
+                                  : '用户 ${ids.length}'
+                            ),
+                            (
+                              1,
+                              failed || _annotations.isLoading
+                                  ? '标签'
+                                  : '标签 ${vocabulary.length}'
+                            ),
                           ],
-                          selected: {
-                            _tab
-                          },
-                          onSelectionChanged: (value) => setState(() {
-                                _tab = value.first;
+                          selected: _tab,
+                          onSelected: (value) => setState(() {
+                                _tab = value;
                                 _tagFilter = null;
                               })),
-                      const SizedBox(height: AppSpace.sm),
-                      Text('仅保存在本机，按当前账号区分',
-                          style: Theme.of(context).textTheme.bodySmall),
                       if (failed)
                         ListTile(
                           title: Text(
@@ -306,7 +305,7 @@ class _LocalUserAnnotationsScreenState
                               if (_tagFilter != null)
                                 ListTile(
                                     leading: const Icon(Icons.arrow_back),
-                                    title: Text('标签：${labelOf(_tagFilter!)}'),
+                                    title: Text('标签 ${labelOf(_tagFilter!)}'),
                                     onTap: () =>
                                         setState(() => _tagFilter = null)),
                               if (users.isEmpty &&
@@ -356,9 +355,6 @@ class _LocalUserAnnotationsScreenState
                                                   entry.label.toLowerCase();
                                             })),
                                 ]),
-                              const SizedBox(height: AppSpace.md),
-                              Text('点开标签查看用户；调色板设置颜色；在用户上编辑可增删标签',
-                                  style: Theme.of(context).textTheme.bodySmall),
                             ],
                           ],
                         ),

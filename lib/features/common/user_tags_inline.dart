@@ -117,9 +117,6 @@ Future<String?> showTagColorPicker(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('「$tag」的颜色', style: theme.textTheme.titleMedium),
-              const SizedBox(height: AppSpace.xs),
-              Text('仅本机保存；当前账号下所有带这个标签的用户一起变色',
-                  style: theme.textTheme.bodySmall),
               const SizedBox(height: AppSpace.md),
               Wrap(
                 spacing: AppSpace.xs,

@@ -87,7 +87,7 @@ void main() {
     return repository;
   }
 
-  Future<void> openSheet(WidgetTester tester, [String chip = '版块：全部']) async {
+  Future<void> openSheet(WidgetTester tester, [String chip = '版块 · 全部']) async {
     await tester.tap(find.text(chip));
     await tester.pumpAndSettle();
   }
@@ -123,7 +123,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.queries.map((q) => q.boardId), ['229'],
         reason: 'the parent alone, never its children');
-    expect(find.text('版块：CM108'), findsOneWidget);
+    expect(find.text('版块 · CM108'), findsOneWidget);
   });
 
   testWidgets('a child is chosen on its own and keeps its parent in the label',
@@ -136,7 +136,7 @@ void main() {
     await tester.tap(row('227'));
     await tester.pumpAndSettle();
     expect(repository.queries.map((q) => q.boardId), ['227']);
-    expect(find.text('版块：CM107 / 同人志&CG'), findsOneWidget);
+    expect(find.text('版块 · CM107 / 同人志&CG'), findsOneWidget);
   });
 
   testWidgets('closing the sheet after folding changes nothing',
@@ -150,7 +150,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('筛选版块'), findsNothing, reason: 'the sheet is closed');
     expect(repository.queries, isEmpty);
-    expect(find.text('版块：全部'), findsOneWidget);
+    expect(find.text('版块 · 全部'), findsOneWidget);
     expect(find.text('第一页主题'), findsOneWidget);
   });
 
@@ -178,7 +178,7 @@ void main() {
     await tapKey(tester, 'board-filter-group:226');
     await tester.tap(row('227'));
     await tester.pumpAndSettle();
-    await openSheet(tester, '版块：CM107 / 同人志&CG');
+    await openSheet(tester, '版块 · CM107 / 同人志&CG');
     expect(row('227'), findsOneWidget);
     expect(tester.widget<ListTile>(row('227')).selected, isTrue);
     expect(row('230'), findsNothing, reason: 'the other parent stays folded');
@@ -192,14 +192,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(row('300'));
     await tester.pumpAndSettle();
-    expect(find.text('版块：阅读区'), findsOneWidget);
+    expect(find.text('版块 · 阅读区'), findsOneWidget);
     await tester.tap(find.text('回复'));
     await tester.pumpAndSettle();
     // The reply list starts folded and unfiltered: no chip until opened.
-    expect(find.textContaining('版块：'), findsNothing);
+    expect(find.textContaining('版块 · '), findsNothing);
     await tester.tap(find.byTooltip('展开筛选'));
     await tester.pumpAndSettle();
-    expect(find.text('版块：全部'), findsOneWidget);
+    expect(find.text('版块 · 全部'), findsOneWidget);
     expect(repository.queries.map((q) => q.boardId), ['300']);
   });
 
@@ -208,7 +208,7 @@ void main() {
       'then the parent shows', (tester) async {
     final repository = await open(tester);
     final hold = repository.holdSections = Completer<void>();
-    await tester.tap(find.text('版块：全部'));
+    await tester.tap(find.text('版块 · 全部'));
     // The loading line spins, so wait by frames, not until idle.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
@@ -276,7 +276,7 @@ void main() {
     final watcher = _PushWatcher();
     final repository = await open(tester, watcher: watcher);
     final before = watcher.pushes;
-    await tester.tap(find.text('版块：全部'));
+    await tester.tap(find.text('版块 · 全部'));
     // The tap pushes the sheet's route; no frame has been drawn yet.
     expect(watcher.pushes, before + 1, reason: 'the sheet route is pushed');
     repository.epoch.value++;

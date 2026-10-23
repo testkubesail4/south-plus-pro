@@ -71,7 +71,7 @@ void main() {
     repository.onContent = (_) async => answers.removeAt(0);
     await openTab(tester, repository, '主题');
 
-    await tester.tap(find.text('类型：全部'));
+    await tester.tap(find.text('类型 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('精华'));
     await tester.pumpAndSettle();
@@ -196,7 +196,7 @@ void main() {
       onContent: (_) => page.future,
     );
     await openTab(tester, repository, '主题');
-    await tester.tap(find.text('类型：全部'));
+    await tester.tap(find.text('类型 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('精华'));
     await tester.pump();
@@ -222,7 +222,7 @@ void main() {
       onContent: (_) => answers[asked++].future,
     );
     await openTab(tester, repository, '主题');
-    await tester.tap(find.text('类型：全部'));
+    await tester.tap(find.text('类型 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('精华'));
     await tester.pump();
@@ -305,7 +305,7 @@ void main() {
         ForumSearchBoard(id: '7', name: '|- 影视区', depth: 1),
       ];
     await openTab(tester, repository, '收藏');
-    await tester.tap(find.text('版块：全部'));
+    await tester.tap(find.text('版块 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('board-filter-group:2')));
     await tester.pumpAndSettle();
@@ -321,8 +321,8 @@ void main() {
     );
     await openTab(tester, repository, '收藏');
     expect(find.text('Saved'), findsOneWidget);
-    expect(find.text('版块：全部'), findsOneWidget);
-    expect(find.text('类型：全部'), findsNothing);
+    expect(find.text('版块 · 全部'), findsOneWidget);
+    expect(find.text('类型 · 全部'), findsNothing);
     expect(find.widgetWithText(TextField, '搜索收藏标题'), findsOneWidget);
   });
 
@@ -333,7 +333,7 @@ void main() {
       onContent: (_) async => contentResult(scanned: 3, hasMore: false),
     );
     await openTab(tester, repository, '回复');
-    await tester.tap(find.text('类型：全部'));
+    await tester.tap(find.text('类型 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('交易'));
     await tester.pumpAndSettle();
@@ -353,7 +353,7 @@ void main() {
             : Future.value(contentResult(items: [listItem('投票主题', tid: '6')]));
     await openTab(tester, repository, '主题');
 
-    await tester.tap(find.text('类型：全部'));
+    await tester.tap(find.text('类型 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('精华'));
     await tester.pump();
@@ -361,7 +361,7 @@ void main() {
 
     // The superseded digest query is still pending, so its spinner keeps
     // animating: pump bounded durations instead of settling.
-    await tester.tap(find.text('类型：精华'));
+    await tester.tap(find.text('类型 · 精华'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('投票'), findsOneWidget, reason: 'type menu is open');
@@ -384,11 +384,11 @@ void main() {
     );
     await openTab(tester, repository, '主题');
 
-    await tester.tap(find.text('分类：全部'));
+    await tester.tap(find.text('分类 · 全部'));
     await tester.pumpAndSettle();
     expect(find.text('全部分类'), findsNothing, reason: 'disabled without board');
 
-    await tester.tap(find.text('版块：全部'));
+    await tester.tap(find.text('版块 · 全部'));
     await tester.pumpAndSettle();
     expect(find.text('综合区'), findsOneWidget);
     expect(find.text('影视区'), findsNothing, reason: 'folded under its section');
@@ -398,18 +398,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.queries.last.boardId, '7');
 
-    await tester.tap(find.text('分类：全部'));
+    await tester.tap(find.text('分类 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('求助'));
     await tester.pumpAndSettle();
     expect(repository.queries.last.classificationId, '3');
-    expect(find.text('分类：求助'), findsOneWidget);
+    expect(find.text('分类 · 求助'), findsOneWidget);
 
-    await tester.tap(find.text('版块：影视区'));
+    await tester.tap(find.text('版块 · 影视区'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('全部版块'));
     await tester.pumpAndSettle();
-    expect(find.text('分类：全部'), findsOneWidget);
+    expect(find.text('分类 · 全部'), findsOneWidget);
     expect(find.text('第一页主题'), findsOneWidget, reason: 'default list again');
   });
 
@@ -427,7 +427,7 @@ void main() {
       return contentResult(items: [listItem('已找到', tid: '2')]);
     };
     await openTab(tester, repository, '主题');
-    await tester.tap(find.text('类型：全部'));
+    await tester.tap(find.text('类型 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('精华'));
     await tester.pumpAndSettle();
@@ -435,11 +435,11 @@ void main() {
     await tester.ensureVisible(find.text('继续查找'));
     await tester.tap(find.text('继续查找'));
     await tester.pumpAndSettle();
-    expect(find.text('查找失败：网络失败'), findsOneWidget);
+    expect(find.text('查找失败，网络失败'), findsOneWidget);
     expect(find.text('已找到'), findsOneWidget);
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
-    expect(find.text('查找失败：网络失败'), findsNothing);
+    expect(find.text('查找失败，网络失败'), findsNothing);
     expect(calls, 3);
   });
 
@@ -464,7 +464,7 @@ void main() {
       onContent: (_) async => contentResult(items: [listItem('命中', tid: '2')]),
     );
     await openTab(tester, repository, '主题');
-    await tester.tap(find.text('类型：全部'));
+    await tester.tap(find.text('类型 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('精华'));
     await tester.pumpAndSettle();
@@ -485,7 +485,7 @@ void main() {
     expect(repository.queries, hasLength(2));
     expect(repository.refreshes.last, isTrue);
     expect(repository.queries.last.articleType, UserContentArticleType.digest);
-    expect(find.text('类型：精华'), findsOneWidget, reason: 'selector kept');
+    expect(find.text('类型 · 精华'), findsOneWidget, reason: 'selector kept');
     expect(find.text('命中'), findsOneWidget);
 
     // A second refresh is a new generation, not the same flag again.
@@ -512,7 +512,7 @@ void main() {
       ),
     );
     await openTab(tester, repository, '主题');
-    await tester.tap(find.text('类型：全部'));
+    await tester.tap(find.text('类型 · 全部'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('精华'));
     await tester.pumpAndSettle();

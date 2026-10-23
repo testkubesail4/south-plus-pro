@@ -968,11 +968,6 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
             : _view == null
                 ? '还没有收藏'
                 : '这个分类还没有主题',
-        message: !complete
-            ? '${_pageNote(data)}，下拉刷新再看看。'
-            : _view == null
-                ? '在帖子页点「收藏」，主题会出现在这里。'
-                : null,
         icon: Icons.star_outline,
       );
     } else {
@@ -1189,11 +1184,6 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: AppSpace.sm),
-          child: Text('全部页面的结果只能打开；移动或取消收藏请在所在页面操作',
-              style: Theme.of(context).textTheme.bodySmall),
-        ),
         if (hits.isNotEmpty)
           rows(hits)
         // Undecided rows may still match: only none at all is final.

@@ -17,6 +17,7 @@ import 'package:south_plus_rewrite/app.dart';
 import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/common/async_state_view.dart';
+import 'package:south_plus_rewrite/features/common/sub_tabs.dart';
 import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
 import 'package:south_plus_rewrite/features/common/thread_row.dart';
 import 'package:south_plus_rewrite/features/common/grouped_list.dart';
@@ -120,7 +121,7 @@ void main() {
     expect(repository.lastFields, containsPair('hideid', '1'));
     expect(repository.lastFields, containsPair('cktime', '2592000'));
     expect(find.text('密码错误'), findsOneWidget);
-    expect(find.textContaining('验证码加载失败：没有找到登录表单'), findsOneWidget);
+    expect(find.textContaining('验证码加载失败，没有找到登录表单'), findsOneWidget);
   });
 
   testWidgets('login type labels stay on one line at text scale 2',
@@ -923,6 +924,18 @@ void main() {
     expect((bar.backgroundColor, bar.shape, bar.margin), (null, null, null));
   });
 
+  testWidgets('a failed task opened from its link says it failed',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: ForumTasksScreen(
+            repository: _FailedTasksRepository(),
+            initialStatus: ForumTaskStatus.failed)));
+    await tester.pumpAndSettle();
+    expect(find.text('过期任务'), findsOneWidget);
+    // No tab stands for 已失败, and the forum gave no description.
+    expect(find.text('已失败'), findsOneWidget);
+  });
+
   testWidgets('forum tasks sit in the form width with text-only segments',
       (tester) async {
     tester.view.physicalSize = const Size(1440, 900);
@@ -932,7 +945,7 @@ void main() {
         home: ForumTasksScreen(repository: _FakeQuickClaimTasksRepository())));
     await tester.pumpAndSettle();
 
-    final segments = find.byType(SegmentedButton<ForumTaskStatus>);
+    final segments = find.byType(SubTabs<ForumTaskStatus>);
     expect(tester.getSize(segments).width, lessThanOrEqualTo(AppWidths.form));
     expect(tester.getCenter(segments).dx, 1440 / 2);
     // Icons make the three labels wrap at large text (DESIGN §7).
@@ -2454,6 +2467,14 @@ class _FakeAutoClaimHomeRepository extends _FakeHomeRepository {
       ],
     );
   }
+}
+
+class _FailedTasksRepository extends _FakeTasksRepository {
+  @override
+  Future<List<ForumTask>> fetchForumTasks(ForumTaskStatus status) async =>
+      status == ForumTaskStatus.failed
+          ? const [ForumTask(name: '过期任务', status: ForumTaskStatus.failed)]
+          : const [];
 }
 
 class _FakeQuickClaimTasksRepository extends _FakeTasksRepository {

@@ -175,8 +175,6 @@ class _AvatarCropScreenState extends State<AvatarCropScreen> {
   double get _side =>
       math.min(_image!.width, _image!.height).toDouble() / _zoom;
 
-  int get _outEdge => math.max(1, math.min(avatarOutputEdge, _side.floor()));
-
   Offset _clamp(Offset c) {
     final image = _image!;
     final half = _side / 2;
@@ -257,7 +255,7 @@ class _AvatarCropScreenState extends State<AvatarCropScreen> {
       body = const Center(child: CircularProgressIndicator());
     } else if (_frames > 1 && !_stillAccepted) {
       body = _Notice(
-        message: '这是一张动图。裁剪后只保留第一帧，成为静态头像；也可以不裁剪，直接上传原图。',
+        message: '动图裁剪后只保留第一帧',
         actions: [
           FilledButton(
             key: const Key('avatar-crop-still'),
@@ -267,7 +265,7 @@ class _AvatarCropScreenState extends State<AvatarCropScreen> {
           OutlinedButton(
             key: const Key('avatar-crop-original'),
             onPressed: () => Navigator.of(context).pop(widget.source),
-            child: const Text('上传原图，不裁剪'),
+            child: const Text('上传原图'),
           ),
           TextButton(
             key: const Key('avatar-crop-cancel'),
@@ -343,11 +341,6 @@ class _AvatarCropScreenState extends State<AvatarCropScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    '拖动移动范围，滑动缩放。头像以正方形上传'
-                    '（$_outEdge × $_outEdge 像素 PNG）。',
-                    style: theme.textTheme.bodySmall,
-                  ),
                   Row(
                     children: [
                       const Icon(Icons.zoom_out, size: 20),

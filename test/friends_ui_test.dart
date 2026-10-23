@@ -266,6 +266,9 @@ void main() {
 
       await tester.tap(find.byTooltip('删除好友 Bob'));
       await tester.pumpAndSettle();
+      // States only what deleting changes, never that Bob still lists us.
+      expect(find.text('删除好友 Bob？'), findsOneWidget);
+      expect(find.text('不影响对方的好友列表'), findsOneWidget);
       await tester.tap(find.text('删除'));
       await tester.pumpAndSettle();
       expect(repo.calls, ['delete 201']);

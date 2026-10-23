@@ -57,7 +57,7 @@ void main() {
       expect(find.text('按人查找'), findsOneWidget);
       await tester.tap(find.text('添加备注'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('原名：${identity.$3}'), findsOneWidget);
+      expect(find.textContaining('原名 ${identity.$3}'), findsOneWidget);
     });
   }
 
@@ -107,19 +107,18 @@ void main() {
     expect(find.text('添加备注'), findsOneWidget);
     await tester.tap(find.text('添加备注'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('原名：Alice'), findsOneWidget);
-    expect(find.text('仅本机保存，不会同步到论坛'), findsOneWidget);
+    expect(find.textContaining('原名 Alice'), findsOneWidget);
     expect(find.text('清除备注'), findsNothing);
 
     await tester.enterText(find.byType(TextField), '老朋友');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
-    expect(find.text('备注：老朋友'), findsOneWidget);
+    expect(find.text('备注 老朋友'), findsOneWidget);
     expect(find.text('Alice'), findsOneWidget, reason: 'original name stays');
     expect(await UserNoteStore.load(), {'123': '老朋友'});
 
-    await tester.tap(find.text('备注：老朋友'));
+    await tester.tap(find.text('备注 老朋友'));
     await tester.pumpAndSettle();
     expect(find.text('清除备注'), findsOneWidget);
     await tester.tap(find.text('清除备注'));
@@ -143,7 +142,7 @@ void main() {
     await UserTagStore.save('123', ['Keep me', 'Other']);
     final repository = FakeProfileRepository();
     await openProfile(tester, repository);
-    await tester.tap(find.text('备注：老朋友'));
+    await tester.tap(find.text('备注 老朋友'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('移除 Keep me'));
     await tester.pumpAndSettle();
@@ -190,7 +189,7 @@ void main() {
 
     // A numeric-looking nickname is a real name, shown as given.
     await open('2860844');
-    expect(find.text('原名：2860844　UID 123'), findsOneWidget);
+    expect(find.text('原名 2860844 · UID 123'), findsOneWidget);
   });
 
   Future<void> openTagPicker(WidgetTester tester) async {

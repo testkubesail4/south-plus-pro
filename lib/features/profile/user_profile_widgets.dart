@@ -299,7 +299,7 @@ class _NoteLine extends StatelessWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        '备注：$text',
+                        '备注 $text',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -756,7 +756,7 @@ class _DetailsTab extends StatelessWidget {
         if (snapshot.data!.contentErrors[tab] case final error?) {
           return AsyncErrorView(
             title: '这一栏没有读完整',
-            message: '论坛返回的列表不完整（${forumErrorText(error)}），其它栏目不受影响。',
+            message: forumErrorText(error),
             onRetry: onRetry,
           );
         }
@@ -1191,7 +1191,8 @@ String _sortLabel(UserProfileTab tab, UserContentSortKey key, bool descending) {
     UserContentSortKey.views => '浏览量',
     UserContentSortKey.replies => '回复数',
   };
-  final order = descending ? (time ? '新→旧' : '多→少') : (time ? '旧→新' : '少→多');
+  final order =
+      descending ? (time ? '从新到旧' : '从多到少') : (time ? '从旧到新' : '从少到多');
   return '$name $order';
 }
 
@@ -1358,7 +1359,7 @@ class _ContentTabState extends State<_ContentTab>
         '${key.name}-$descending';
     final picked = await _showChoiceSheet<String>(
       context,
-      title: '排序（缺少数据的始终排在最后）',
+      title: '排序',
       selected: current == null ? '' : id(current.key, current.descending),
       options: [
         ('', '论坛顺序'),
@@ -1590,7 +1591,7 @@ class _ContentTabState extends State<_ContentTab>
         if (!mounted) return;
         setState(() => _loadingClassifications = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('分类加载失败：${forumErrorText(error)}')),
+          SnackBar(content: Text('分类加载失败，${forumErrorText(error)}')),
         );
         return;
       }
@@ -1882,7 +1883,7 @@ class _SortScope extends StatelessWidget {
           Expanded(
             child: Semantics(
               liveRegion: true,
-              child: Text('按$label · 范围：$scope',
+              child: Text('按$label · $scope',
                   style: Theme.of(context).textTheme.bodySmall),
             ),
           ),
@@ -1947,7 +1948,7 @@ class _FilterChipButton extends StatelessWidget {
                 children: [
                   Flexible(
                     child: Text(
-                      '$label：$value',
+                      '$label · $value',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context)
@@ -2016,7 +2017,7 @@ class _ContentFooter extends StatelessWidget {
     } else if (error != null) {
       child = Column(
         children: [
-          Text('查找失败：${forumErrorText(error)}',
+          Text('查找失败，${forumErrorText(error)}',
               textAlign: TextAlign.center, style: style),
           TextButton(onPressed: onContinue, child: const Text('重试')),
         ],

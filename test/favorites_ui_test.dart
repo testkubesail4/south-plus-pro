@@ -389,7 +389,7 @@ void main() {
         isFalse);
     expect(find.text('暂无其他分类，请先新建'), findsOneWidget);
     await tapKey(tester, 'favorite-row-move-manage:11');
-    expect(find.text('暂无其他分类，请先新建分类，再选择移入'), findsOneWidget);
+    expect(find.text('暂无其他分类'), findsOneWidget);
     expect(tester.widget<ListTile>(key('favorite-move-to:0')).enabled, isFalse);
     await createInMove(tester, '音声');
     expect(repo.calls.where((call) => call.startsWith('move:')), isEmpty);
@@ -554,7 +554,6 @@ void main() {
           find.text(
               pages == null ? '已加载 0 个主题 · 页数未能确认' : '已加载 0 个主题 · 第 1/3 页'),
           findsOneWidget);
-      expect(find.textContaining('下拉刷新'), findsOneWidget);
     }
     // A complete single page that is empty says so.
     final empty = _Repo()..entries = [];
@@ -816,7 +815,6 @@ void main() {
       ]);
       await tester.pumpAndSettle();
       expect(find.textContaining('第 2 页'), findsOneWidget);
-      expect(find.text('全部页面的结果只能打开；移动或取消收藏请在所在页面操作'), findsOneWidget);
       expect(find.byTooltip('更多'), findsNothing);
       expect(key('favorite-select-start'), findsNothing);
 
@@ -964,7 +962,7 @@ void main() {
     await tapKey(tester, 'favorite-remove-selected');
     expect(
         find.text(
-            '2 个主题将从收藏中移除：\n「Fixture favourite A」\n「Fixture favourite B」'),
+            '2 个主题将从收藏中移除\n「Fixture favourite A」\n「Fixture favourite B」'),
         findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '取消收藏').last);
     await tester.pumpAndSettle();

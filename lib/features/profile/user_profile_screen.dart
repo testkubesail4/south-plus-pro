@@ -168,7 +168,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       if (!mounted || epoch != _lookupEpoch) return null;
       setState(() => _lookingUp = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('查询登录名失败：${forumErrorText(error)}')),
+        SnackBar(content: Text('查询登录名失败，${forumErrorText(error)}')),
       );
       return null;
     }
@@ -208,7 +208,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
           result.message.trim().isEmpty ? '论坛没有确认添加结果' : result.message.trim(),
       });
     } catch (error) {
-      if (!stale()) toast('加好友失败：${forumErrorText(error)}');
+      if (!stale()) toast('加好友失败，${forumErrorText(error)}');
     } finally {
       if (!stale()) setState(() => _addingFriend = false);
     }

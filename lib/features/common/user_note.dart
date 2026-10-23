@@ -648,7 +648,7 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
                   Text(
                     switch (widget.name?.trim()) {
                       final name? when name.isNotEmpty =>
-                        '原名：$name　UID ${widget.uid}',
+                        '原名 $name · UID ${widget.uid}',
                       _ => 'UID ${widget.uid}',
                     },
                     style: theme.textTheme.bodySmall,
@@ -678,7 +678,6 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
             onChanged: (_) => setState(() => _error = null),
             decoration: InputDecoration(
               labelText: '备注',
-              helperText: '仅本机保存，不会同步到论坛',
               errorText: _error,
             ),
           ),
@@ -737,13 +736,6 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
                         _busy ? null : () => setState(() => _addingTag = true),
                   ),
               ]),
-          if (_tags.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpace.xs),
-              child: Text('点按标签可设置颜色',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: AppColors.textFaint)),
-            ),
           if (_colorError case final error?)
             _StatusLine(
                 icon: Icons.error_outline,
@@ -769,7 +761,6 @@ class _UserNoteSheetState extends State<_UserNoteSheet> {
                 labelText: '标签',
                 hintText: '搜索或新建标签',
                 counterText: '${_tagController.text.trim().runes.length}/16',
-                helperText: '最多 16 个字符，部分表情占多个字符',
                 suffixIcon: IconButton(
                     tooltip: '添加标签',
                     onPressed: _busy || _resolving ? null : _addTag,

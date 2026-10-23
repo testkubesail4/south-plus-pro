@@ -189,8 +189,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: AppSpace.lg),
                   Text('登录南+', style: theme.textTheme.headlineSmall),
-                  const SizedBox(height: AppSpace.xs),
-                  Text('使用账号和验证码继续参与讨论。', style: theme.textTheme.bodySmall),
                   const SizedBox(height: AppSpace.xl),
                   AutofillGroup(
                     child: Column(
@@ -598,7 +596,7 @@ class _ChallengeError extends StatelessWidget {
     return OutlinedButton.icon(
       onPressed: onRetry,
       icon: Icon(Icons.refresh),
-      label: Text('验证码加载失败：$message'),
+      label: Text('验证码加载失败，$message'),
     );
   }
 }

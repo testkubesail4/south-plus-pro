@@ -12,6 +12,7 @@ import '../common/forum_pager.dart';
 import '../common/grouped_list.dart';
 import '../common/more_pages.dart';
 import '../common/page_end.dart';
+import '../common/sub_tabs.dart';
 import 'forum_preferences_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -206,7 +207,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               : result.message);
     } catch (error) {
       if (!_current(epoch)) return;
-      _toast('操作失败：${forumErrorText(error)}');
+      _toast('操作失败，${forumErrorText(error)}');
     }
     if (!_current(epoch)) return;
     _busy.remove(friend.uid);
@@ -218,8 +219,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('删除好友'),
-        content: Text('将 ${friend.name} 移出你的好友列表。你在对方列表中的状态不变。'),
+        title: Text('删除好友 ${friend.name}？'),
+        // Only this list changes; the other side's is untouched, whatever
+        // it holds (仅接受 can leave it without you).
+        content: const Text('不影响对方的好友列表'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -309,37 +312,28 @@ class _FriendsScreenState extends State<FriendsScreen> {
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FutureBuilder<ForumFriendPage>(
-                    future: _futures[true],
-                    builder: (context, snapshot) {
-                      // Only a settled answer from this session counts.
-                      final waiting = _sessionChanged ||
-                              snapshot.connectionState != ConnectionState.done
-                          ? null
-                          : snapshot.data;
-                      final count = waiting == null || waiting.items.isEmpty
-                          ? ''
-                          : waiting.pageCount > 1
-                              ? ' ${waiting.items.length}+'
-                              : ' ${waiting.items.length}';
-                      return SegmentedButton<bool>(
-                        segments: [
-                          const ButtonSegment(value: false, label: Text('好友')),
-                          ButtonSegment(value: true, label: Text('待验证$count')),
-                        ],
-                        showSelectedIcon: false,
-                        selected: {_pending},
-                        onSelectionChanged: (values) =>
-                            setState(() => _pending = values.single),
-                      );
-                    },
-                  ),
+                padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+                child: FutureBuilder<ForumFriendPage>(
+                  future: _futures[true],
+                  builder: (context, snapshot) {
+                    // Only a settled answer from this session counts.
+                    final waiting = _sessionChanged ||
+                            snapshot.connectionState != ConnectionState.done
+                        ? null
+                        : snapshot.data;
+                    final count = waiting == null || waiting.items.isEmpty
+                        ? ''
+                        : waiting.pageCount > 1
+                            ? ' ${waiting.items.length}+'
+                            : ' ${waiting.items.length}';
+                    return SubTabs<bool>(
+                      tabs: [(false, '好友'), (true, '待验证$count')],
+                      selected: _pending,
+                      onSelected: (value) => setState(() => _pending = value),
+                    );
+                  },
                 ),
               ),
-              Divider(height: 1, color: AppColors.border),
               Expanded(
                   child: AppSwitcher(
                 direction: _pending ? 1 : -1,
@@ -408,8 +402,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                           ? Icons.how_to_reg_outlined
                                           : Icons.people_outline,
                                       title: _pending ? '没有待验证的请求' : '还没有好友',
-                                      message:
-                                          _pending ? null : '在其他用户的资料页点「加为好友」',
                                     )
                                   else
                                     for (final (i, (shown, friends))
@@ -422,9 +414,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                         const SizedBox.shrink()
                                       else if (_pending)
                                         AppGroup(
-                                          description: i > 0
-                                              ? null
-                                              : '仅接受：对方的好友列表加上你，你的列表不加对方。',
+                                          description:
+                                              i > 0 ? null : '仅接受时，只有对方的列表加上你',
                                           dividerIndent: AppSpace.lg,
                                           children: [
                                             for (final friend in friends)
@@ -773,9 +764,11 @@ class _FriendRequestSheetState extends State<_FriendRequestSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text('向 ${widget.name} 发送好友请求', style: theme.textTheme.titleMedium),
-          const SizedBox(height: AppSpace.xs),
-          Text(prompt.isEmpty ? '对方开启了好友验证，通过后才会成为好友。' : prompt,
-              style: theme.textTheme.bodySmall),
+          // The forum's own request prompt, when it set one.
+          if (prompt.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.xs),
+            Text(prompt, style: theme.textTheme.bodySmall),
+          ],
           const SizedBox(height: AppSpace.lg),
           TextField(
             controller: _text,

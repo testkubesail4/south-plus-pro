@@ -188,7 +188,7 @@ void main() {
     await pumpThread(tester);
     await tester.tap(find.byType(UserTagsInline));
     await tester.pumpAndSettle();
-    expect(find.text('原名：路人乙　UID 4'), findsOneWidget);
+    expect(find.text('原名 路人乙 · UID 4'), findsOneWidget);
     await tester.enterText(find.byType(TextField).first, '老乙');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();

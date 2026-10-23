@@ -299,7 +299,7 @@ void main() {
     expect(find.text('CM108 子版主题'), findsOneWidget);
     expect(find.text('CM107 子版主题'), findsOneWidget);
     final beforeFold = contentReads(await stats());
-    await openBoardFilter(tester, '版块：全部');
+    await openBoardFilter(tester, '版块 · 全部');
     final section = find.widgetWithText(ListTile, '同人展会');
     await waitFor(tester, section);
     expect(find.byKey(const ValueKey('board-filter-group:229')), findsNothing);
@@ -325,16 +325,16 @@ void main() {
     }
     await screenshot(tester, 'profile_boards_phone-dark2_nested-tree');
     await dismissBoardSheet(tester);
-    expect(find.text('版块：全部'), findsOneWidget);
+    expect(find.text('版块 · 全部'), findsOneWidget);
     expect(contentReads(await stats()), beforeFold,
         reason: 'folding and cancelling do not start a content query');
     expect((await stats())['attempts'], isEmpty);
 
-    await openBoardFilter(tester, '版块：全部');
+    await openBoardFilter(tester, '版块 · 全部');
     await tap(tester, section);
     await tap(tester, find.byKey(const ValueKey('board-filter-group:229')));
     await tap(tester, find.byKey(const ValueKey('board-filter:229')));
-    await waitFor(tester, find.text('版块：CM108'));
+    await waitFor(tester, find.text('版块 · CM108'));
     await waitFor(tester, find.text('CM108 父版主题'));
     for (final excluded in ['CM108 子版主题', 'CM107 父版主题', 'CM107 子版主题']) {
       expect(find.text(excluded), findsNothing,
@@ -342,7 +342,7 @@ void main() {
               'parent FID229 selects only that board, not descendant FID230');
     }
 
-    await openBoardFilter(tester, '版块：CM108');
+    await openBoardFilter(tester, '版块 · CM108');
     await waitFor(tester, find.byKey(const ValueKey('board-filter-group:229')));
     await tap(tester, find.byKey(const ValueKey('board-filter-group:229')));
     final search = find.byWidgetPredicate((widget) =>
@@ -365,11 +365,11 @@ void main() {
         reason: 'clearing search restores the local fold state');
     await enter(tester, search, '同人志');
     await tap(tester, find.byKey(const ValueKey('board-filter:230')));
-    await waitFor(tester, find.text('版块：CM108 / 同人志&CG'));
+    await waitFor(tester, find.text('版块 · CM108 / 同人志&CG'));
     await waitFor(tester, find.text('CM108 子版主题'));
     expect(find.text('CM108 父版主题'), findsNothing);
     expect(find.text('CM107 子版主题'), findsNothing);
-    await openBoardFilter(tester, '版块：CM108 / 同人志&CG');
+    await openBoardFilter(tester, '版块 · CM108 / 同人志&CG');
     await waitFor(tester, find.byKey(const ValueKey('board-filter:230')));
     expect(find.byKey(const ValueKey('board-filter:227')), findsNothing,
         reason: 'only the selected child ancestors reopen automatically');
@@ -378,28 +378,28 @@ void main() {
     await tap(tester, find.widgetWithText(Tab, '回复'));
     // Replies keep their own selectors: folded and unfiltered here.
     await waitFor(tester, find.byTooltip('展开筛选'));
-    expect(find.textContaining('版块：'), findsNothing);
+    expect(find.textContaining('版块 · '), findsNothing);
     await waitFor(tester, find.text('CM108 子版回复'));
-    await openBoardFilter(tester, '版块：全部');
+    await openBoardFilter(tester, '版块 · 全部');
     await tap(tester, section);
     await tap(tester, find.byKey(const ValueKey('board-filter-group:226')));
     await tap(tester, find.byKey(const ValueKey('board-filter:227')));
-    await waitFor(tester, find.text('版块：CM107 / 同人志&CG'));
+    await waitFor(tester, find.text('版块 · CM107 / 同人志&CG'));
     await waitFor(tester, find.text('CM107 子版回复'));
     expect(find.text('CM108 子版回复'), findsNothing);
     expect(find.text('CM107 父版回复'), findsNothing);
     await tap(tester, find.widgetWithText(Tab, '主题'));
-    await waitFor(tester, find.text('版块：CM108 / 同人志&CG'));
+    await waitFor(tester, find.text('版块 · CM108 / 同人志&CG'));
     expect(find.text('CM108 子版主题'), findsOneWidget);
     await tap(tester, find.widgetWithText(Tab, '回复'));
-    await waitFor(tester, find.text('版块：CM107 / 同人志&CG'));
-    await openBoardFilter(tester, '版块：CM107 / 同人志&CG');
+    await waitFor(tester, find.text('版块 · CM107 / 同人志&CG'));
+    await openBoardFilter(tester, '版块 · CM107 / 同人志&CG');
     await tap(tester, find.byKey(const ValueKey('board-filter:all')));
-    await waitFor(tester, find.text('版块：全部'));
+    await waitFor(tester, find.text('版块 · 全部'));
     expect(find.text('CM108 子版回复'), findsOneWidget);
     expect(find.text('CM107 子版回复'), findsOneWidget);
     await tap(tester, find.widgetWithText(Tab, '主题'));
-    await waitFor(tester, find.text('版块：CM108 / 同人志&CG'));
+    await waitFor(tester, find.text('版块 · CM108 / 同人志&CG'));
 
     final profileState = tester.state(find.byType(UserProfileScreen));
     dark = false;
@@ -430,12 +430,12 @@ void main() {
           .first;
       expect(tester.widget<Scaffold>(profileScaffold).backgroundColor,
           AppColors.lightPalette.background);
-      expect(find.text('版块：CM108 / 同人志&CG'), findsOneWidget);
+      expect(find.text('版块 · CM108 / 同人志&CG'), findsOneWidget);
       expect(find.text('CM108 子版主题'), findsOneWidget);
       expect(find.text('CM108 父版主题'), findsNothing);
       expect(find.text('CM107 子版主题'), findsNothing);
-      await reveal(tester, find.text('版块：CM108 / 同人志&CG'), alignment: 0.3);
-      fullyVisible(tester, find.text('版块：CM108 / 同人志&CG'));
+      await reveal(tester, find.text('版块 · CM108 / 同人志&CG'), alignment: 0.3);
+      fullyVisible(tester, find.text('版块 · CM108 / 同人志&CG'));
       fullyVisible(tester, find.text('CM108 子版主题'));
       await screenshot(tester, 'profile_boards_wide-light_independent-filters');
       final after = await stats();

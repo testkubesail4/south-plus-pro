@@ -83,7 +83,6 @@ void main() {
     ));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    expect(find.text('点按标签可设置颜色'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('user-tag-chip:test')));
     await tester.pumpAndSettle();

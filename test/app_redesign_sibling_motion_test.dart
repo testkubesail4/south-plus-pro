@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/common/sub_tabs.dart';
 import 'package:south_plus_rewrite/features/profile/friends_screen.dart';
 import 'package:south_plus_rewrite/features/profile/forum_tasks_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
@@ -46,7 +47,7 @@ class _TasksRepository extends AppRedesignRepository {
 Future<void> _select(WidgetTester tester, bool pending,
     {bool settle = true}) async {
   await tester.tap(find.descendant(
-    of: find.byType(SegmentedButton<bool>),
+    of: find.byType(SubTabs<bool>),
     matching: find.textContaining(pending ? '待验证' : '好友'),
   ));
   if (settle) await tester.pumpAndSettle();
@@ -91,8 +92,7 @@ void main() {
     await _push(tester, ForumTasksScreen(repository: repository));
     expect(find.text('fixture-owner-a inProgress task'), findsOneWidget);
     await tester.tap(find.descendant(
-        of: find.byType(SegmentedButton<ForumTaskStatus>),
-        matching: find.text('已完成')));
+        of: find.byType(SubTabs<ForumTaskStatus>), matching: find.text('已完成')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(find.text('fixture-owner-a completed task').hitTestable(),

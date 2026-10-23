@@ -55,8 +55,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('退出登录'),
-        content: const Text('将清除本机的登录状态，帖子、收藏和私信不受影响。'),
+        title: const Text('退出登录？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -131,11 +130,8 @@ class _AccountScreenState extends State<AccountScreen> {
                     title: !loggedIn
                         ? '未登录'
                         : name ?? widget.repository.currentUsername ?? '已登录',
-                    subtitle: !loggedIn
-                        ? '登录后查看主题、回复、收藏和短消息'
-                        : nicknameShown
-                            ? identity.systemName
-                            : null,
+                    subtitle:
+                        loggedIn && nicknameShown ? identity.systemName : null,
                     avatarUrl: loggedIn ? identity?.avatarUrl : null,
                     onTap: loggedIn
                         ? () => _openProfile(UserProfileTab.home)
@@ -167,7 +163,6 @@ class _AccountScreenState extends State<AccountScreen> {
                     AppRow(
                       icon: Icons.tune_outlined,
                       title: const Text('论坛偏好'),
-                      subtitle: const Text('短消息黑名单、好友和个人设置'),
                       onTap: () => _push(ForumPreferencesScreen(
                           repository: widget.repository)),
                     ),

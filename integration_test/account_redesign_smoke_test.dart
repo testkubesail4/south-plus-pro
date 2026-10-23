@@ -445,7 +445,7 @@ void main() {
           .getSemantics(find.bySemanticsLabel('显示高度').first)
           .getSemanticsData();
       expect(heightSemantics.hint, contains('1 – 270'));
-      expect(heightSemantics.hint, contains('留空'));
+      expect(heightSemantics.hint, contains('选填'));
       await enter(tester, 'httpurl[1]', '151');
       expect(find.textContaining('不能大于 150'), findsOneWidget);
       await tap(tester, find.widgetWithText(TextButton, '保存'));
@@ -460,7 +460,7 @@ void main() {
       await enter(tester, 'httpurl[2]', '271');
       expect(find.textContaining('不能大于 270'), findsOneWidget);
       await enter(tester, 'httpurl[2]', '');
-      expect(find.textContaining('留空则按宽度等比缩放'), findsWidgets);
+      expect(find.text('1 – 270 的整数；选填'), findsWidgets);
       formDiagnostic(tester, 'valid-link-before-capture');
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pump();
@@ -510,7 +510,7 @@ void main() {
       final cropped = Uint8List.fromList(previewBytes(tester));
       await _expectYellowCrop(cropped);
       expect(cropped, isNot(orderedEquals(source)));
-      final caption = find.textContaining('新头像，保存后生效');
+      final caption = find.textContaining('新头像');
       await reveal(tester, caption, alignment: 0.3);
       fullyVisible(tester, caption);
       fullyVisible(
