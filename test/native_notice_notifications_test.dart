@@ -36,7 +36,7 @@ class _CaptureStdout implements Stdout {
 
 class _Client extends ForumClient {
   _Client(this.baseUri, HttpClient transport)
-    : super(httpClient: transport, delay: (_) async {});
+      : super(httpClient: transport, delay: (_) async {});
   @override
   final Uri baseUri;
   @override
@@ -55,7 +55,8 @@ class _Bridge extends WatchNotifications {
   @override
   Future<WatchNotificationPermission> permission({
     bool request = false,
-  }) async => granted;
+  }) async =>
+      granted;
   @override
   Future<bool> showNotice(
     String owner,
@@ -200,16 +201,15 @@ class _Fixture {
     final page = repeatFirstPage ? 1 : requested.clamp(1, pm.length).toInt();
     final rows = pm[page - 1]
         .map(
-          (row) =>
-              '<tr><td>Peer</td><td><a class="${row.$2 ? 'b' : ''}" '
+          (row) => '<tr><td>Peer</td><td><a class="${row.$2 ? 'b' : ''}" '
               'href="message.php?action-read-mid-${row.$1}.html">private synthetic title</a></td><td>2026-01-01</td></tr>',
         )
         .join();
     return '<form method="post" action="message.php?action=receivebox"><input name="towhere" value="receivebox">'
         '<input name="verify" value="TESTTOK1"><table><tr><th>标题</th><th>时间</th></tr>$rows</table></form>'
         '${pm.length == 1 || omitPager ? '' : '<div class="pages">Pages: $page/${pm.length}<b>$page</b>'
-                  '${page > 1 ? '<a href="message.php?action-receivebox-page-${page - 1}.html">上一页</a>' : ''}'
-                  '${page < pm.length ? '<a href="message.php?action-receivebox-page-${page + 1}.html">下一页</a>' : ''}</div>'}';
+            '${page > 1 ? '<a href="message.php?action-receivebox-page-${page - 1}.html">上一页</a>' : ''}'
+            '${page < pm.length ? '<a href="message.php?action-receivebox-page-${page + 1}.html">下一页</a>' : ''}</div>'}';
   }
 
   Future<void> _serve(HttpRequest request) async {
@@ -323,13 +323,11 @@ void main() {
         [('8', true)],
       ];
       await f.watch.checkNow();
-      final baseline =
-          jsonDecode(
-                persisted.values.whereType<String>().firstWhere(
-                  (v) => v.contains('pmSeen'),
-                ),
-              )
-              as Map;
+      final baseline = jsonDecode(
+        persisted.values.whereType<String>().firstWhere(
+              (v) => v.contains('pmSeen'),
+            ),
+      ) as Map;
       expect(baseline['pmInitialized'], isTrue);
       expect(f.bridge.shown, isEmpty);
       f.nextWindow();
@@ -436,13 +434,11 @@ void main() {
       f.repeatFirstPage = true;
       await f.watch.checkNow();
       expect(f.bridge.shown, isEmpty);
-      final state =
-          jsonDecode(
-                persisted.values.whereType<String>().firstWhere(
-                  (v) => v.contains('pmSeen'),
-                ),
-              )
-              as Map;
+      final state = jsonDecode(
+        persisted.values.whereType<String>().firstWhere(
+              (v) => v.contains('pmSeen'),
+            ),
+      ) as Map;
       expect(state['pmInitialized'], isNot(true));
       expect(state['pmNext'], isNotNull);
       f.repeatFirstPage = false;
@@ -535,8 +531,7 @@ void main() {
       f.watch.addListener(() {
         if (f.watch.notificationPermission ==
                 WatchNotificationPermission.granted &&
-            !changed.isCompleted)
-          changed.complete();
+            !changed.isCompleted) changed.complete();
       });
       f.bridge.granted = WatchNotificationPermission.granted;
       f.watch.didChangeAppLifecycleState(AppLifecycleState.resumed);
@@ -656,15 +651,15 @@ void main() {
         () => f.client.getForm('message.php?action=receivebox&page=1&page=2'),
         () => f.client.getForm('index.php?unknown=1'),
         () => f.client.post('pw_ajax.php?nowtime=1&verify=TESTTOK1', {
-          'action': 'delnewrp',
-        }),
+              'action': 'delnewrp',
+            }),
         () => f.client.post('pw_ajax.php?nowtime=1&verify=TESTTOK1&unknown=1', {
-          'action': 'newrp',
-        }),
+              'action': 'newrp',
+            }),
         () => f.client.post('pw_ajax.php?nowtime=1&verify=TESTTOK1', {
-          'action': 'newrp',
-          'tid': '70',
-        }),
+              'action': 'newrp',
+              'tid': '70',
+            }),
       ]) {
         final count = f.requests.length;
         await expectLater(

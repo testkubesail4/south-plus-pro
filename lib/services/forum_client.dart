@@ -133,7 +133,8 @@ class ForumClient {
   static final _nativeNoticeSendGate = Object();
   static final _nativeNoticeSessionGuard = Object();
 
-  Future<T> runNativeNoticeReads<T>(Future<T> Function() read, {
+  Future<T> runNativeNoticeReads<T>(
+    Future<T> Function() read, {
     required void Function() requireCurrentSession,
     required void Function() beforeSend,
   }) {
@@ -146,23 +147,36 @@ class ForumClient {
         } else if (method == 'GET' && uri.path == '/message.php') {
           if (uri.query.contains('=')) {
             final fields = uri.queryParametersAll;
-            safe = fields.entries.every((e) => {'action', 'page'}.contains(e.key) && e.value.length == 1) &&
+            safe = fields.entries.every((e) =>
+                    {'action', 'page'}.contains(e.key) &&
+                    e.value.length == 1) &&
                 fields['action']?.single == 'receivebox' &&
-                (fields['page'] == null || RegExp(r'^[1-9]\d*$').hasMatch(fields['page']!.single));
+                (fields['page'] == null ||
+                    RegExp(r'^[1-9]\d*$').hasMatch(fields['page']!.single));
           } else {
-            safe = uri.query.isEmpty || RegExp(r'^action-receivebox(?:-page-[1-9]\d*)?\.html$').hasMatch(uri.query);
+            safe = uri.query.isEmpty ||
+                RegExp(r'^action-receivebox(?:-page-[1-9]\d*)?\.html$')
+                    .hasMatch(uri.query);
           }
         } else if (method == 'POST' && uri.path == '/pw_ajax.php') {
           final fields = uri.queryParametersAll;
-          safe = fields.length == 2 && fields.entries.every((e) => {'nowtime', 'verify'}.contains(e.key) && e.value.length == 1) &&
+          safe = fields.length == 2 &&
+              fields.entries.every((e) =>
+                  {'nowtime', 'verify'}.contains(e.key) &&
+                  e.value.length == 1) &&
               RegExp(r'^\d+$').hasMatch(fields['nowtime']?.single ?? '') &&
-              RegExp(r'^[A-Za-z0-9]{8}$').hasMatch(fields['verify']?.single ?? '') &&
-              form?.length == 1 && form?['action'] == 'newrp';
+              RegExp(r'^[A-Za-z0-9]{8}$')
+                  .hasMatch(fields['verify']?.single ?? '') &&
+              form?.length == 1 &&
+              form?['action'] == 'newrp';
         }
       }
-      if (!safe) throw const ForumRequestException(ForumRequestKind.invalidInput, '通知检查不能访问此操作');
+      if (!safe)
+        throw const ForumRequestException(
+            ForumRequestKind.invalidInput, '通知检查不能访问此操作');
       beforeSend();
     }
+
     return runZoned(read, zoneValues: {
       _nativeNoticeSendGate: gate,
       _nativeNoticeSessionGuard: requireCurrentSession,
@@ -170,44 +184,67 @@ class ForumClient {
   }
 
   /// The gate runs at each actual send, including followed redirects.
-  Future<String> getWatch(String path, {
+  Future<String> getWatch(
+    String path, {
     required void Function() requireCurrentSession,
     required void Function() beforeSend,
   }) {
     final source = baseUri.resolve(path).removeFragment();
-    String? tid(Uri uri) => RegExp(r'(?:^|[&-])tid[-=]([1-9]\d*)(?:[&-]|\.html$|$)')
-        .firstMatch(uri.query)?.group(1);
+    String? tid(Uri uri) =>
+        RegExp(r'(?:^|[&-])tid[-=]([1-9]\d*)(?:[&-]|\.html$|$)')
+            .firstMatch(uri.query)
+            ?.group(1);
     bool readRedirect(Uri uri) {
-      if (uri.path != '/read.php' || tid(source) == null || tid(uri) != tid(source)) return false;
+      if (uri.path != '/read.php' ||
+          tid(source) == null ||
+          tid(uri) != tid(source)) return false;
       if (!uri.query.contains('=')) {
-        return RegExp(r'^tid-[1-9]\d*(?:-page-[1-9]\d*)?\.html$').hasMatch(uri.query);
+        return RegExp(r'^tid-[1-9]\d*(?:-page-[1-9]\d*)?\.html$')
+            .hasMatch(uri.query);
       }
       try {
         final fields = uri.queryParametersAll;
-        if (fields.entries.any((e) => !{'tid', 'page'}.contains(e.key) || e.value.length != 1)) return false;
+        if (fields.entries.any(
+            (e) => !{'tid', 'page'}.contains(e.key) || e.value.length != 1))
+          return false;
         return RegExp(r'^[1-9]\d*$').hasMatch(fields['tid']?.single ?? '') &&
-            (fields['page'] == null || RegExp(r'^[1-9]\d*$').hasMatch(fields['page']!.single));
-      } on FormatException { return false; }
+            (fields['page'] == null ||
+                RegExp(r'^[1-9]\d*$').hasMatch(fields['page']!.single));
+      } on FormatException {
+        return false;
+      }
     }
+
     void gate(Uri uri) {
       requireCurrentSession();
       final sourceSafe = switch (source.path) {
-        '/read.php' => RegExp(r'^tid-[1-9]\d*(?:-page-[1-9]\d*)?\.html$').hasMatch(source.query),
-        '/thread_new.php' => RegExp(r'^fid-[1-9]\d*-orderway-postdate-asc-DESC-page-[1-9]\d*\.html$').hasMatch(source.query),
-        '/u.php' => RegExp(r'^action-(?:topic|post|favor)-uid-[1-9]\d*-page-[1-9]\d*\.html$').hasMatch(source.query),
-        '/job.php' => RegExp(r'^action-topost-tid-[1-9]\d*-pid-[1-9]\d*\.html$').hasMatch(source.query),
+        '/read.php' => RegExp(r'^tid-[1-9]\d*(?:-page-[1-9]\d*)?\.html$')
+            .hasMatch(source.query),
+        '/thread_new.php' => RegExp(
+                r'^fid-[1-9]\d*-orderway-postdate-asc-DESC-page-[1-9]\d*\.html$')
+            .hasMatch(source.query),
+        '/u.php' => RegExp(
+                r'^action-(?:topic|post|favor)-uid-[1-9]\d*-page-[1-9]\d*\.html$')
+            .hasMatch(source.query),
+        '/job.php' => RegExp(r'^action-topost-tid-[1-9]\d*-pid-[1-9]\d*\.html$')
+            .hasMatch(source.query),
         _ => false,
       };
-      final safe = sourceSafe && _sameOrigin(uri) &&
+      final safe = sourceSafe &&
+          _sameOrigin(uri) &&
           (uri == source || readRedirect(uri));
       if (!safe) {
-        throw const ForumRequestException(ForumRequestKind.invalidInput, '关注页面跳转不在安全只读范围内');
+        throw const ForumRequestException(
+            ForumRequestKind.invalidInput, '关注页面跳转不在安全只读范围内');
       }
       beforeSend();
     }
-    return runZoned(() => _readText('GET', path,
-        requireCurrentSession: requireCurrentSession,
-        requireOk: true, sensitiveAccount: true),
+
+    return runZoned(
+        () => _readText('GET', path,
+            requireCurrentSession: requireCurrentSession,
+            requireOk: true,
+            sensitiveAccount: true),
         zoneValues: {_watchSendGate: gate});
   }
 
@@ -728,7 +765,9 @@ class ForumClient {
       try {
         requireCurrent();
         (Zone.current[_watchSendGate] as void Function(Uri)?)?.call(uri);
-        (Zone.current[_nativeNoticeSendGate] as void Function(String, Uri, Map<String, String>?)?)?.call(method, uri, form);
+        (Zone.current[_nativeNoticeSendGate] as void Function(
+                String, Uri, Map<String, String>?)?)
+            ?.call(method, uri, form);
       } catch (error) {
         request.abort();
         rethrow;

@@ -369,32 +369,48 @@ void main() {
     });
   });
 
-  test('watch waits for identity refresh when client credentials rotate independently', () async {
+  test(
+      'watch waits for identity refresh when client credentials rotate independently',
+      () async {
     await withFixture((fixture) async {
       final repository = fixture.repository;
       addTearDown(repository.watch.dispose);
-      await repository.watch.addRule(WatchRule(id: 'ownerA', scope: WatchScope.thread,
-          subjectId: '70', label: 'Synthetic A target'));
+      await repository.watch.addRule(WatchRule(
+          id: 'ownerA',
+          scope: WatchScope.thread,
+          subjectId: '70',
+          label: 'Synthetic A target'));
       final oldIdentity = repository.accountIdentity.value!;
-      await fixture.initialClient.postLogin({'pwuser': 'Synthetic B',
-          'pwpwd': 'synthetic-password', 'gdcode': '1234'});
-      expect(fixture.initialClient.isCredentialCurrent(oldIdentity.credentialGeneration!), isFalse);
+      await fixture.initialClient.postLogin({
+        'pwuser': 'Synthetic B',
+        'pwpwd': 'synthetic-password',
+        'gdcode': '1234'
+      });
+      expect(
+          fixture.initialClient
+              .isCredentialCurrent(oldIdentity.credentialGeneration!),
+          isFalse);
       expect(repository.accountIdentity.value, same(oldIdentity));
       final requests = fixture.requests.length;
       await repository.watch.checkNow();
-      expect(fixture.requests.length, requests, reason: 'stale UID must not poll using replacement credentials');
+      expect(fixture.requests.length, requests,
+          reason: 'stale UID must not poll using replacement credentials');
       expect(repository.watch.events, isEmpty);
       expect(repository.watch.rules, isEmpty);
       expect(await repository.restoreSession(), isTrue);
       expect(repository.accountIdentity.value!.uid, '903');
-      await repository.watch.addRule(WatchRule(id: 'ownerB', scope: WatchScope.thread,
-          subjectId: '70', label: 'Synthetic B target'));
+      await repository.watch.addRule(WatchRule(
+          id: 'ownerB',
+          scope: WatchScope.thread,
+          subjectId: '70',
+          label: 'Synthetic B target'));
       await repository.watch.checkNow();
       expect(repository.watch.statuses['ownerB']!.phase, WatchPhase.current);
       final noticeProbe =
           !kIsWeb && defaultTargetPlatform == TargetPlatform.android ? 1 : 0;
       expect(fixture.requests.length, requests + 2 + noticeProbe,
-          reason: 'identity refresh, Android native-header probe, then watched-thread baseline');
+          reason:
+              'identity refresh, Android native-header probe, then watched-thread baseline');
     });
   });
 
@@ -476,7 +492,8 @@ class _Fixture {
 <div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-${owner == 'A' ? '901' : '903'}.html">个人资料</a></div></div>
 </body></html>''');
       } else if (request.uri.path == '/read.php') {
-        request.response.write('''<h1 id="subject_tpc">Synthetic thread</h1><a href="read.php?tid-70.html">Thread</a>
+        request.response.write(
+            '''<h1 id="subject_tpc">Synthetic thread</h1><a href="read.php?tid-70.html">Thread</a>
 <div class="pages">Pages: 1/1</div><table class="js-post"><tr>
 <th class="r_two"><a href="u.php?action-show-uid-903.html"><strong>Synthetic B</strong></a></th>
 <th class="r_one" id="td_tpc"><div id="read_tpc">Synthetic body</div></th></tr></table>''');

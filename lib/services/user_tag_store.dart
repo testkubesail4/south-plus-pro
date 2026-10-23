@@ -42,7 +42,9 @@ class UserTagStore {
       if (decoded is! Map) return {};
       final result = <String, List<String>>{};
       for (final entry in decoded.entries) {
-        if (entry.key is! String || !_uid.hasMatch(entry.key as String) || entry.value is! List) continue;
+        if (entry.key is! String ||
+            !_uid.hasMatch(entry.key as String) ||
+            entry.value is! List) continue;
         final values = <String>[];
         final seen = <String>{};
         for (final raw in entry.value as List) {
@@ -51,7 +53,8 @@ class UserTagStore {
           values.add(tag);
           if (values.length == maxTags) break;
         }
-        if (values.isNotEmpty) result[entry.key as String] = List.unmodifiable(values);
+        if (values.isNotEmpty)
+          result[entry.key as String] = List.unmodifiable(values);
       }
       return result;
     } on FormatException {
@@ -60,9 +63,11 @@ class UserTagStore {
   }
 
   static Future<Map<String, List<String>>> load({String? account}) =>
-      LocalStatePreferences.read((prefs) => Map.unmodifiable(_read(prefs, _key(account))));
+      LocalStatePreferences.read(
+          (prefs) => Map.unmodifiable(_read(prefs, _key(account))));
 
-  static Future<void> save(String uid, List<String> tags, {String? account}) async {
+  static Future<void> save(String uid, List<String> tags,
+      {String? account}) async {
     if (!_uid.hasMatch(uid)) throw ArgumentError.value(uid, 'uid');
     final values = normalize(tags);
     await LocalStatePreferences.write((prefs) {
@@ -73,10 +78,13 @@ class UserTagStore {
       } else {
         users[uid] = values;
       }
-      return users.isEmpty ? prefs.remove(key) : prefs.setString(key, jsonEncode(users));
+      return users.isEmpty
+          ? prefs.remove(key)
+          : prefs.setString(key, jsonEncode(users));
     });
     revision.value++;
   }
 
-  static Future<void> clear(String uid, {String? account}) => save(uid, [], account: account);
+  static Future<void> clear(String uid, {String? account}) =>
+      save(uid, [], account: account);
 }

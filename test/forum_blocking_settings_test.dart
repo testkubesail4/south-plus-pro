@@ -206,10 +206,12 @@ void main() {
     expect(settings.notifier.value.isUserBlocked('303'), isTrue);
   });
 
-  test('native load decodes the XML text and HTML entities before JSON', () async {
-    final settings = ForumBlockingSettings(accountUid: () => '101',
+  test('native load decodes the XML text and HTML entities before JSON',
+      () async {
+    final settings = ForumBlockingSettings(
+        accountUid: () => '101',
         request: (action, fields) async =>
-          '<ajax>{&quot;version&quot;:&quot;3.1&quot;,&quot;blist&quot;:{&quot;202&quot;:{&quot;name&quot;:&quot;Synthetic A&amp;amp;B&quot;,&quot;level&quot;:[&quot;topic&quot;]}}}</ajax>');
+            '<ajax>{&quot;version&quot;:&quot;3.1&quot;,&quot;blist&quot;:{&quot;202&quot;:{&quot;name&quot;:&quot;Synthetic A&amp;amp;B&quot;,&quot;level&quot;:[&quot;topic&quot;]}}}</ajax>');
     await settings.load();
     expect(settings.notifier.value.users.single.name, 'Synthetic A&B');
     expect(settings.notifier.value.isUserBlocked('202'), isTrue);

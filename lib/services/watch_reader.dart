@@ -62,13 +62,15 @@ class WatchReader {
     int page,
     ThreadReply p,
     String title,
-  ) => {
-    'id': p.postId, 'tid': tid, 'pid': p.postId, 'page': page,
-    'title': title, 'truncated': false,
-    'authorUid': urls.uidFromUrl(p.authorUrl ?? ''),
-    // replyTitle is the outgoing action label, never a parent relationship.
-    'url': urls.absoluteUrl('read.php?tid-$tid-page-$page.html#${p.postId}'),
-  };
+  ) =>
+      {
+        'id': p.postId, 'tid': tid, 'pid': p.postId, 'page': page,
+        'title': title, 'truncated': false,
+        'authorUid': urls.uidFromUrl(p.authorUrl ?? ''),
+        // replyTitle is the outgoing action label, never a parent relationship.
+        'url':
+            urls.absoluteUrl('read.php?tid-$tid-page-$page.html#${p.postId}'),
+      };
 
   Future<WatchStep> step(
     WatchRule rule,
@@ -89,9 +91,8 @@ class WatchReader {
     if (state['queue'] case final List queue when queue.isNotEmpty) {
       final row = Map<String, dynamic>.from(queue.first as Map);
       queue[0] = row;
-      final event = baseline
-          ? null
-          : await _match(rule, WatchContentKind.replies, row);
+      final event =
+          baseline ? null : await _match(rule, WatchContentKind.replies, row);
       queue.removeAt(0);
       final id = int.parse(row['id'] as String);
       if (id > (state['nextHigh'] as int? ?? high)) state['nextHigh'] = id;
@@ -100,9 +101,8 @@ class WatchReader {
     // Baseline every visible page once. Later walk backwards to an observed old
     // PID boundary, keeping the old watermark until all new candidates resolve.
     final first = await _thread(tid, 1);
-    final tail = baseline || first.pages == 1
-        ? first
-        : await _thread(tid, first.pages);
+    final tail =
+        baseline || first.pages == 1 ? first : await _thread(tid, first.pages);
     if (state.remove('end') == true) {
       state['high'] = state.remove('nextHigh') ?? high;
       state['initialized'] = true;
@@ -111,14 +111,13 @@ class WatchReader {
       return WatchStep(done: true, baseline: baseline);
     }
     final requested = state['page'] as int? ?? (baseline ? 1 : first.pages);
-    final page = requested > first.pages
-        ? (baseline ? 1 : first.pages)
-        : requested;
+    final page =
+        requested > first.pages ? (baseline ? 1 : first.pages) : requested;
     final result = page == 1
         ? first
         : page == first.pages && !baseline
-        ? tail
-        : await _thread(tid, page);
+            ? tail
+            : await _thread(tid, page);
     final rows = result.posts
         .where((p) => (int.tryParse(p.postId ?? '') ?? 0) > high)
         .map(
@@ -134,9 +133,8 @@ class WatchReader {
       final next = rows
           .map((r) => int.parse(r['id'] as String))
           .fold<int>(high, (a, b) => a > b ? a : b);
-      state['nextHigh'] = next > (state['nextHigh'] as int? ?? high)
-          ? next
-          : state['nextHigh'];
+      state['nextHigh'] =
+          next > (state['nextHigh'] as int? ?? high) ? next : state['nextHigh'];
       state['queue'] = <Map<String, dynamic>>[];
     } else {
       state['queue'] = rows;
@@ -220,9 +218,8 @@ class WatchReader {
     final rows = parsed.items
         .map(
           (item) => <String, dynamic>{
-            'id': kind == WatchContentKind.replies
-                ? item.postId
-                : item.threadId,
+            'id':
+                kind == WatchContentKind.replies ? item.postId : item.threadId,
             'tid': item.threadId,
             'pid': item.postId,
             'title': item.title,
@@ -254,8 +251,8 @@ class WatchReader {
       queue[0] = row;
       WatchEvent? event;
       if (favorites) {
-        final inventory = (state['inventory'] as List? ?? const [])
-            .cast<String>();
+        final inventory =
+            (state['inventory'] as List? ?? const []).cast<String>();
         if (!baseline && !inventory.contains(row['id']))
           event = await _match(rule, kind, row);
       } else if (rule.scope == WatchScope.user) {
@@ -300,9 +297,8 @@ class WatchReader {
       (state['observed'] as List).addAll(
         result.rows.map<String>((r) => r['id'] as String),
       );
-    final known = ((state['inventory'] ??= <String>[]) as List)
-        .cast<String>()
-        .toSet();
+    final known =
+        ((state['inventory'] ??= <String>[]) as List).cast<String>().toSet();
     if (baseline) {
       if (!favorites)
         (state['inventory'] as List).addAll(
@@ -321,8 +317,7 @@ class WatchReader {
           .toList();
     }
     // Only the explicitly POSTDATE-ordered board source has a safe older boundary.
-    final reachedOld =
-        rule.scope == WatchScope.board &&
+    final reachedOld = rule.scope == WatchScope.board &&
         result.rows.any(
           (r) => int.parse(r['id'] as String) <= (state['high'] as int),
         );
@@ -346,8 +341,7 @@ class WatchReader {
     String? quote = row['quote'] as String?;
     String url = row['url'] as String;
     final needsPost = kind == WatchContentKind.replies && body == null;
-    final needsOpening =
-        rule.keyword.trim().isNotEmpty &&
+    final needsOpening = rule.keyword.trim().isNotEmpty &&
         (rule.keywordField == WatchKeywordField.body ||
             row['truncated'] == true);
     if (needsPost || (needsOpening && body == null)) {
@@ -384,8 +378,7 @@ class WatchReader {
         );
         if (row['truncated'] == true &&
             rule.keywordField == WatchKeywordField.title) {
-          title =
-              _threads.threadTitle(doc) ??
+          title = _threads.threadTitle(doc) ??
               (throw const WatchIncomplete('主题标题无法确认'));
         }
       } else {
@@ -398,8 +391,7 @@ class WatchReader {
             .firstOrNull;
         if (opening == null) throw const WatchIncomplete('主题正文不可见，保留进度');
         body = opening.content;
-        title =
-            _threads.threadTitle(doc) ??
+        title = _threads.threadTitle(doc) ??
             (throw const WatchIncomplete('主题标题无法确认'));
         if (kind != WatchContentKind.favorites)
           author = urls.uidFromUrl(opening.authorUrl ?? '');
@@ -429,11 +421,9 @@ class WatchReader {
         row['lookupUnknown'] = false;
       }
       int? matchedFloor;
-      for (
-        var index = row['lookupIndex'] as int? ?? 0;
-        index < floors.length;
-        index++
-      ) {
+      for (var index = row['lookupIndex'] as int? ?? 0;
+          index < floors.length;
+          index++) {
         final floor = floors[index];
         row['lookupIndex'] = index;
         ThreadReply? target;
@@ -445,20 +435,19 @@ class WatchReader {
                 (p) => floor == 0
                     ? p.postId == 'tpc'
                     : int.tryParse(
-                            RegExp(
-                                  r'\d+',
-                                ).firstMatch(p.floor ?? '')?.group(0) ??
-                                '',
-                          ) ==
-                          floor,
+                          RegExp(
+                                r'\d+',
+                              ).firstMatch(p.floor ?? '')?.group(0) ??
+                              '',
+                        ) ==
+                        floor,
               )
               .firstOrNull;
           if (target != null || page >= result.pages) break;
           row['lookupPage'] = ++page;
         }
-        final targetUid = target == null
-            ? null
-            : urls.uidFromUrl(target.authorUrl ?? '');
+        final targetUid =
+            target == null ? null : urls.uidFromUrl(target.authorUrl ?? '');
         if (targetUid == rule.involvingUid) {
           matchedFloor = floor;
           break;

@@ -50,17 +50,18 @@ WatchRule rule(
   WatchKeywordField field = WatchKeywordField.body,
   String? involving,
   bool paused = false,
-}) => WatchRule(
-  id: id,
-  scope: scope,
-  subjectId: subject,
-  label: 'Synthetic target',
-  kinds: kinds,
-  keyword: keyword,
-  keywordField: field,
-  involvingUid: involving,
-  paused: paused,
-);
+}) =>
+    WatchRule(
+      id: id,
+      scope: scope,
+      subjectId: subject,
+      label: 'Synthetic target',
+      kinds: kinds,
+      keyword: keyword,
+      keywordField: field,
+      involvingUid: involving,
+      paused: paused,
+    );
 
 class Notices extends WatchNotifications {
   final shown = <WatchEvent>[];
@@ -72,7 +73,8 @@ class Notices extends WatchNotifications {
   @override
   Future<WatchNotificationPermission> permission({
     bool request = false,
-  }) async => granted;
+  }) async =>
+      granted;
   @override
   Future<void> show(String owner, WatchEvent event) async {
     shown.add(event);
@@ -204,8 +206,8 @@ void main() {
     await rig.service.checkNow();
     SharedPreferences.resetStatic();
     rejectReads = true;
-    final restored = WatchService(
-        session: rig.service.session, notifications: rig.notices);
+    final restored =
+        WatchService(session: rig.service.session, notifications: rig.notices);
     addTearDown(restored.dispose);
     final writes = preferenceWrites;
     await expectLater(restored.checkNow(), throwsStateError);
@@ -239,7 +241,9 @@ void main() {
     stored['flutter.account/${rig.owner}/watch_v1'] = raw;
     var nativeChecks = 0;
     rig.notices.tap = {
-      'owner': rig.owner, 'eventId': 'issued', 'kind': 'pm',
+      'owner': rig.owner,
+      'eventId': 'issued',
+      'kind': 'pm',
     };
     final service = WatchService(
       session: rig.service.session,
@@ -303,7 +307,9 @@ void main() {
         }
         try {
           notices.tap = {
-            'owner': rig.owner, 'eventId': 'issued', 'kind': kind.name,
+            'owner': rig.owner,
+            'eventId': 'issued',
+            'kind': kind.name,
           };
           if (overlap) {
             await notices.onTap!();
@@ -333,8 +339,7 @@ void main() {
     final event = rig.service.events.single;
     SharedPreferences.resetStatic();
     rejectReads = true;
-    final notices = Notices()
-      ..tap = {'owner': rig.owner, 'eventId': event.id};
+    final notices = Notices()..tap = {'owner': rig.owner, 'eventId': event.id};
     final service = WatchService(
       session: rig.service.session,
       notifications: notices,
@@ -367,10 +372,9 @@ void main() {
     final event = rig.service.events.single;
     SharedPreferences.resetStatic();
     rejectReads = true;
-    final notices = Notices()
-      ..tap = {'owner': rig.owner, 'eventId': event.id};
-    final service = WatchService(
-        session: rig.service.session, notifications: notices);
+    final notices = Notices()..tap = {'owner': rig.owner, 'eventId': event.id};
+    final service =
+        WatchService(session: rig.service.session, notifications: notices);
     addTearDown(service.dispose);
     await expectLater(service.checkNow(), throwsStateError);
     expect(service.pendingOpen, isNull);
@@ -395,10 +399,9 @@ void main() {
     final writes = preferenceWrites;
     SharedPreferences.resetStatic();
     rejectReads = true;
-    final notices = Notices()
-      ..tap = {'owner': rig.owner, 'eventId': event.id};
-    final service = WatchService(
-        session: rig.service.session, notifications: notices);
+    final notices = Notices()..tap = {'owner': rig.owner, 'eventId': event.id};
+    final service =
+        WatchService(session: rig.service.session, notifications: notices);
     addTearDown(service.dispose);
     await expectLater(service.checkNow(), throwsStateError);
     rejectReads = false;
@@ -448,7 +451,8 @@ void main() {
     expect(service.events, isEmpty);
   });
 
-  test('unacknowledged poll state never becomes an alert or an event', () async {
+  test('unacknowledged poll state never becomes an alert or an event',
+      () async {
     final rig = Rig();
     addTearDown(rig.dispose);
     rig.service.notificationPermission = WatchNotificationPermission.granted;
@@ -824,34 +828,37 @@ void main() {
       await rig.service.addRule(rule('quote', involving: '7'));
       await rig.service.checkNow();
       rig.client.respond = (_) async => thread(
-        post('tpc', uid: '7', floor: 0) + post('101', body: 'ordinary body'),
-        pages: 1,
-      ).replaceFirst('Thread title', 'Re:回0楼(target)的帖子');
+            post('tpc', uid: '7', floor: 0) +
+                post('101', body: 'ordinary body'),
+            pages: 1,
+          ).replaceFirst('Thread title', 'Re:回0楼(target)的帖子');
       await rig.service.checkNow();
       expect(rig.service.events, isEmpty);
       rig.client.respond = (_) async => thread(
-        post('tpc', uid: '7', floor: 0) +
-            post('102', body: '<blockquote>引用第0楼 target</blockquote>response'),
-      );
+            post('tpc', uid: '7', floor: 0) +
+                post('102',
+                    body: '<blockquote>引用第0楼 target</blockquote>response'),
+          );
       await rig.service.checkNow();
       expect(rig.service.events.single.confidence, WatchConfidence.probable);
       expect(rig.notices.shown, isEmpty);
       rig.client.respond = (_) async => thread(
-        post('tpc', uid: '7', floor: 0) +
-            post('50', floor: 1) +
-            post(
-              '103',
-              body:
-                  '<blockquote>引用第1楼 other</blockquote><blockquote>引用第0楼 target</blockquote>response',
-            ),
-      );
+            post('tpc', uid: '7', floor: 0) +
+                post('50', floor: 1) +
+                post(
+                  '103',
+                  body:
+                      '<blockquote>引用第1楼 other</blockquote><blockquote>引用第0楼 target</blockquote>response',
+                ),
+          );
       await rig.service.checkNow();
       expect(rig.service.events, hasLength(2));
       expect(rig.service.events.first.pid, '103');
       expect(rig.service.events.first.confidence, WatchConfidence.probable);
       rig.client.respond = (_) async => thread(
-        post('104', body: '<blockquote>引用第999楼 target</blockquote>response'),
-      );
+            post('104',
+                body: '<blockquote>引用第999楼 target</blockquote>response'),
+          );
       await rig.service.checkNow();
       expect(rig.service.events, hasLength(2));
       expect(rig.service.statuses['quote']!.phase, WatchPhase.incomplete);
@@ -1154,24 +1161,24 @@ void main() {
     () {
       final invalid = <WatchRule Function()>[
         () => rule(
-          'bad',
-          scope: WatchScope.user,
-          involving: '8',
-          kinds: {WatchContentKind.topics},
-        ),
+              'bad',
+              scope: WatchScope.user,
+              involving: '8',
+              kinds: {WatchContentKind.topics},
+            ),
         () => rule('bad', kinds: {}),
         () => rule(
-          'bad',
-          scope: WatchScope.board,
-          kinds: {WatchContentKind.topics},
-          keyword: 'x',
-        ),
+              'bad',
+              scope: WatchScope.board,
+              kinds: {WatchContentKind.topics},
+              keyword: 'x',
+            ),
         () => rule(
-          'bad',
-          scope: WatchScope.board,
-          kinds: {WatchContentKind.topics},
-          field: WatchKeywordField.title,
-        ),
+              'bad',
+              scope: WatchScope.board,
+              kinds: {WatchContentKind.topics},
+              field: WatchKeywordField.title,
+            ),
         () => rule('bad', involving: '0'),
         () => rule('bad', subject: '-1'),
         () => rule('bad/id'),
@@ -1233,7 +1240,7 @@ class RealHttp extends HttpOverrides {}
 
 class LocalClient extends ForumClient {
   LocalClient(this.baseUri, HttpClient transport)
-    : super(httpClient: transport, delay: (_) async {});
+      : super(httpClient: transport, delay: (_) async {});
   @override
   final Uri baseUri;
 }

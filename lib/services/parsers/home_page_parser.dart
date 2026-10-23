@@ -133,7 +133,8 @@ class HomePageParser {
                   : null);
         }
       }
-      sections.add(ForumSection(title: title, items: boards, nativeId: nativeId));
+      sections
+          .add(ForumSection(title: title, items: boards, nativeId: nativeId));
     }
     return sections;
   }

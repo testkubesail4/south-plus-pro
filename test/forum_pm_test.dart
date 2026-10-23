@@ -35,7 +35,9 @@ void main() {
     ]);
   });
 
-  test('native pagination separates adjacent text and selected digits, and rejects incomplete or clamped pages', () async {
+  test(
+      'native pagination separates adjacent text and selected digits, and rejects incomplete or clamped pages',
+      () async {
     final client = _PmClient();
     final repository = ForumRepository(client: client);
     for (final (requested, pager, known) in [
@@ -45,7 +47,8 @@ void main() {
       (1, '', true),
       (3, '', false),
     ]) {
-      client.responses.add(_inbox.replaceFirst(RegExp(r'<div class="pages">[\s\S]*?</div>'), pager));
+      client.responses.add(_inbox.replaceFirst(
+          RegExp(r'<div class="pages">[\s\S]*?</div>'), pager));
       final page = await repository.fetchPmBox(ForumPmBox.inbox,
           pagePath: 'message.php?action=receivebox&page=$requested');
       expect(page.paginationKnown, known, reason: 'page $requested: $pager');

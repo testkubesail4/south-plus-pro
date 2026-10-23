@@ -50,8 +50,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     DateTime Function()? clock,
     this.checkNativeNotices,
     this.acceptNativeNoticeTap,
-  }) : notifications = notifications ?? WatchNotifications(),
-       clock = clock ?? DateTime.now;
+  })  : notifications = notifications ?? WatchNotifications(),
+        clock = clock ?? DateTime.now;
 
   static const maxActiveRules = 10;
   static const maxStoredRules = 30;
@@ -65,8 +65,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     WatchSession,
     void Function(),
     void Function(),
-  )?
-  checkNativeNotices;
+  )? checkNativeNotices;
   final Future<bool> Function(Map<String, dynamic>)? acceptNativeNoticeTap;
   final _rules = <WatchRule>[];
   final _events = <WatchEvent>[];
@@ -212,8 +211,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
           )
           .toList();
       final states = <String, Map<String, dynamic>>{};
-      for (final entry in
-          Map<String, dynamic>.from(decoded['states'] as Map).entries) {
+      for (final entry
+          in Map<String, dynamic>.from(decoded['states'] as Map).entries) {
         if (rules.any((r) => entry.key.startsWith('${r.id}/'))) {
           states[entry.key] = Map<String, dynamic>.from(entry.value as Map);
         }
@@ -340,17 +339,18 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> addRule(WatchRule rule) => _mutate(() {
-    if (_rules.any((r) => r.id == rule.id)) throw ArgumentError('关注 ID 已存在');
-    if (_rules.length >= maxStoredRules)
-      throw const WatchLimitException('最多保存 30 条关注，请先删除一条');
-    if (!rule.paused && activeCount >= maxActiveRules)
-      throw const WatchLimitException('最多启用 10 条关注，请先暂停或删除一条');
-    _rules.add(rule);
-    _statuses[rule.id] = WatchStatus(
-      rule.paused ? WatchPhase.paused : WatchPhase.baseline,
-      rule.paused ? '已暂停，保留检查进度' : '等待建立可见快照，不发送历史动态',
-    );
-  }, scheduleCheck: true);
+        if (_rules.any((r) => r.id == rule.id))
+          throw ArgumentError('关注 ID 已存在');
+        if (_rules.length >= maxStoredRules)
+          throw const WatchLimitException('最多保存 30 条关注，请先删除一条');
+        if (!rule.paused && activeCount >= maxActiveRules)
+          throw const WatchLimitException('最多启用 10 条关注，请先暂停或删除一条');
+        _rules.add(rule);
+        _statuses[rule.id] = WatchStatus(
+          rule.paused ? WatchPhase.paused : WatchPhase.baseline,
+          rule.paused ? '已暂停，保留检查进度' : '等待建立可见快照，不发送历史动态',
+        );
+      }, scheduleCheck: true);
 
   void _replaceRule(WatchRule rule) {
     final index = _rules.indexWhere((r) => r.id == rule.id);
@@ -377,42 +377,43 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       _mutate(() => _replaceRule(rule), scheduleCheck: true);
 
   Future<void> setPaused(String id, bool paused) => _mutate(() {
-    final rule = _rules.where((r) => r.id == id).firstOrNull;
-    if (rule != null) _replaceRule(rule.copyWith(paused: paused));
-  }, scheduleCheck: true);
+        final rule = _rules.where((r) => r.id == id).firstOrNull;
+        if (rule != null) _replaceRule(rule.copyWith(paused: paused));
+      }, scheduleCheck: true);
 
   Future<void> removeRule(String id) => _mutate(() {
-    _rules.removeWhere((r) => r.id == id);
-    _events.removeWhere((e) => e.ruleId == id);
-    _states.removeWhere((k, _) => k.startsWith('$id/'));
-    _statuses.remove(id);
-  }, scheduleCheck: true);
+        _rules.removeWhere((r) => r.id == id);
+        _events.removeWhere((e) => e.ruleId == id);
+        _states.removeWhere((k, _) => k.startsWith('$id/'));
+        _statuses.remove(id);
+      }, scheduleCheck: true);
 
   Future<void> markRead(String eventId) => _mutate(() {
-    final index = _events.indexWhere((e) => e.id == eventId);
-    if (index >= 0 && _events[index].unread)
-      _events[index] = _events[index].read();
-  });
+        final index = _events.indexWhere((e) => e.id == eventId);
+        if (index >= 0 && _events[index].unread)
+          _events[index] = _events[index].read();
+      });
 
   Future<void> markPostsSeen(
     String tid,
     Iterable<String> actualPositivePids, {
     bool openingSeen = false,
-  }) => _mutate(() {
-    final pids = actualPositivePids
-        .where((p) => RegExp(r'^[1-9]\d*$').hasMatch(p))
-        .toSet();
-    for (var i = 0; i < _events.length; i++) {
-      final event = _events[i];
-      if (event.unread &&
-          event.tid == tid &&
-          (event.kind == WatchContentKind.replies
-              ? pids.contains(event.pid)
-              : openingSeen)) {
-        _events[i] = event.read();
-      }
-    }
-  });
+  }) =>
+      _mutate(() {
+        final pids = actualPositivePids
+            .where((p) => RegExp(r'^[1-9]\d*$').hasMatch(p))
+            .toSet();
+        for (var i = 0; i < _events.length; i++) {
+          final event = _events[i];
+          if (event.unread &&
+              event.tid == tid &&
+              (event.kind == WatchContentKind.replies
+                  ? pids.contains(event.pid)
+                  : openingSeen)) {
+            _events[i] = event.read();
+          }
+        }
+      });
 
   Future<void> requestNotifications() async {
     final permission = await notifications.permission(request: true);
@@ -423,7 +424,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   bool get _wantsBackgroundPolling {
-    if (!_started || _disposed ||
+    if (!_started ||
+        _disposed ||
         notificationPermission != WatchNotificationPermission.granted ||
         _statuses.containsKey('storage') ||
         !_rules.any((r) => !r.paused && r.notificationsEnabled)) return false;
@@ -438,7 +440,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  bool get _canCheck => _foreground ||
+  bool get _canCheck =>
+      _foreground ||
       (_backgroundLease?.$2 == _backgroundRevision && _wantsBackgroundPolling);
 
   void _pauseBackgroundChecks() {
@@ -460,29 +463,37 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
           (lease.$2 != _backgroundRevision || !_wantsBackgroundPolling)) {
         _backgroundLease = null;
         await notifications.setBackgroundPolling(
-          enabled: false, requestId: ++_nextBackgroundRequestId,
+          enabled: false,
+          requestId: ++_nextBackgroundRequestId,
         );
       }
       await _mutations.catchError((_) {});
-      if (_backgroundLease != null || !_wantsBackgroundPolling ||
-          _backgroundStopped || !_foreground) return;
+      if (_backgroundLease != null ||
+          !_wantsBackgroundPolling ||
+          _backgroundStopped ||
+          !_foreground) return;
       final revision = _backgroundRevision;
       final generation = _generation;
       final id = ++_nextBackgroundRequestId;
       _pendingBackgroundRequestId = id;
       final accepted = await notifications.setBackgroundPolling(
-        enabled: true, requestId: id,
+        enabled: true,
+        requestId: id,
       );
       final pending = _pendingBackgroundRequestId == id;
       if (pending) _pendingBackgroundRequestId = null;
-      if (accepted && pending && revision == _backgroundRevision &&
-          generation == _generation && _wantsBackgroundPolling &&
+      if (accepted &&
+          pending &&
+          revision == _backgroundRevision &&
+          generation == _generation &&
+          _wantsBackgroundPolling &&
           !_backgroundStopped) {
         _backgroundLease = (id, revision);
         if (!_foreground) _scheduleNextCheck();
       } else if (accepted) {
         await notifications.setBackgroundPolling(
-          enabled: false, requestId: ++_nextBackgroundRequestId,
+          enabled: false,
+          requestId: ++_nextBackgroundRequestId,
         );
       }
     }).catchError((_) {
@@ -495,8 +506,9 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _onBackgroundStopped(int requestId) {
-    if (_disposed || (requestId != _pendingBackgroundRequestId &&
-        requestId != _backgroundLease?.$1)) return;
+    if (_disposed ||
+        (requestId != _pendingBackgroundRequestId &&
+            requestId != _backgroundLease?.$1)) return;
     _pendingBackgroundRequestId = null;
     _backgroundLease = null;
     _backgroundRevision++;
@@ -586,16 +598,13 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       if (_disposed ||
           !_canCheck ||
           generation != _generation ||
-          runGeneration != _runGeneration)
-        throw StateError('关注检查已暂停');
+          runGeneration != _runGeneration) throw StateError('关注检查已暂停');
     }
 
     Future<dom.Document> document(String path) {
       requireCurrent();
-      final key = current.urls.baseUri
-          .resolve(path)
-          .removeFragment()
-          .toString();
+      final key =
+          current.urls.baseUri.resolve(path).removeFragment().toString();
       return cache.putIfAbsent(key, () async {
         final response = await current.client.getWatch(
           path,
@@ -678,8 +687,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     jobs.sort(
       (a, b) => ((_states['${a.$1.id}/${a.$2.name}']?['checked'] as int?) ?? 0)
           .compareTo(
-            (_states['${b.$1.id}/${b.$2.name}']?['checked'] as int?) ?? 0,
-          ),
+        (_states['${b.$1.id}/${b.$2.name}']?['checked'] as int?) ?? 0,
+      ),
     );
     WatchEvent? notification;
     try {
@@ -714,13 +723,13 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
                 result.done
                     ? WatchPhase.current
                     : result.baseline
-                    ? WatchPhase.baseline
-                    : WatchPhase.pending,
+                        ? WatchPhase.baseline
+                        : WatchPhase.pending,
                 result.done
                     ? '已检查当前可见内容'
                     : result.baseline
-                    ? '正在建立可见快照，期间不发送历史动态'
-                    : '仍有页面或回复待检查，下次继续',
+                        ? '正在建立可见快照，期间不发送历史动态'
+                        : '仍有页面或回复待检查，下次继续',
                 checkedAt: clock(),
               ),
             );
@@ -848,7 +857,9 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
         acceptNativeNoticeTap != null) {
       final accepted = await acceptNativeNoticeTap!(tap);
       current.requireCurrent();
-      if (generation != _generation || _disposed || !accepted ||
+      if (generation != _generation ||
+          _disposed ||
+          !accepted ||
           order <= _acceptedTapOrder) return;
       _acceptedTapOrder = order;
       if ((_deferredWatchTap?.$1 ?? 0) <= order) _deferredWatchTap = null;
@@ -888,9 +899,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       nextCheckAt = null;
       return;
     }
-    final safe = delay < const Duration(seconds: 1)
-        ? const Duration(seconds: 1)
-        : delay;
+    final safe =
+        delay < const Duration(seconds: 1) ? const Duration(seconds: 1) : delay;
     nextCheckAt = clock().add(safe);
     _timer = Timer(safe, () {
       unawaited(checkNow().catchError((_) {}));

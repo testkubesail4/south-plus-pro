@@ -224,7 +224,9 @@ void main() {
         expect(UserNoteStore.revision.value, noteRevision);
         expect(UserTagStore.revision.value, tagRevision);
         expect(await UserNoteStore.load(), {'42': '旧备注'});
-        expect(await UserTagStore.load(), {'42': ['旧标签']});
+        expect(await UserTagStore.load(), {
+          '42': ['旧标签']
+        });
         expect((await UserDisplayNameStore.load())['42']!.nickname, '已保存');
         rejectWrites = false;
         await Future.wait([

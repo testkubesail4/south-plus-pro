@@ -205,9 +205,8 @@ class NativeNoticeNotifications {
     next['pmNext'] = nextPath;
     next['pmSignatures'] = nextPath == null ? <String>[] : signatures;
     if (nextPath == null) next['pmInitialized'] = true;
-    final id = fresh.isEmpty
-        ? null
-        : _issue(next, NoticeNotificationKind.pm, fresh);
+    final id =
+        fresh.isEmpty ? null : _issue(next, NoticeNotificationKind.pm, fresh);
     await _save(scope, next, guard);
     return id;
   }
@@ -232,15 +231,13 @@ class NativeNoticeNotifications {
     guard();
     final current = rows.map<String>(_replyKey).toSet();
     final next = _copy();
-    final previous = ((next['replyCurrent'] as List?) ?? const [])
-        .cast<String>()
-        .toSet();
+    final previous =
+        ((next['replyCurrent'] as List?) ?? const []).cast<String>().toSet();
     final fresh = next['replyInitialized'] == true
         ? current.difference(previous).toList()
         : <String>[];
-    next['replyCurrent'] = hasNotice
-        ? previous.union(current).toList()
-        : <String>[];
+    next['replyCurrent'] =
+        hasNotice ? previous.union(current).toList() : <String>[];
     next['replyInitialized'] = true;
     final id = fresh.isEmpty
         ? null
@@ -280,8 +277,7 @@ class NativeNoticeNotifications {
         () async {
           final flags = await refreshFlags(scope);
           guard();
-          final needsPm =
-              flags.unreadPm ||
+          final needsPm = flags.unreadPm ||
               _state['pmInitialized'] != true ||
               _state['pmNext'] != null;
           if (needsPm) {

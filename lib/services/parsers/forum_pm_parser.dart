@@ -238,19 +238,24 @@ class ForumPmParser {
     var missingForward = false;
     for (final pager in pagers) {
       final pageText = pager.nodes.map((node) => node.text ?? '').join(' ');
-      final pages = RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)').firstMatch(clean(pageText));
+      final pages =
+          RegExp(r'Pages:\s*(\d+)\s*/\s*(\d+)').firstMatch(clean(pageText));
       if (pages != null) {
         markers.add(int.parse(pages[1]!));
-        if (int.parse(pages[2]!) > currentPage && next == null) missingForward = true;
+        if (int.parse(pages[2]!) > currentPage && next == null)
+          missingForward = true;
       }
       for (final selected in pager.querySelectorAll('b, strong, .current')) {
         final number = int.tryParse(clean(selected.text));
         if (number != null) markers.add(number);
       }
     }
-    final paginationKnown = !missingForward && (pagers.isEmpty ? currentPage == 1 :
-        markers.isNotEmpty ? markers.length == 1 && markers.single == currentPage :
-        currentPage == 1 && links.isNotEmpty);
+    final paginationKnown = !missingForward &&
+        (pagers.isEmpty
+            ? currentPage == 1
+            : markers.isNotEmpty
+                ? markers.length == 1 && markers.single == currentPage
+                : currentPage == 1 && links.isNotEmpty);
     return ForumPmPage(
         box: box,
         messages: List.unmodifiable(messages),
