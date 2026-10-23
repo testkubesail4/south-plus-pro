@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import 'local_state_preferences.dart';
 
 enum ImageLoadMode {
   automatic,
@@ -27,25 +28,28 @@ class ImageLoadingSettings {
     return _modeFuture = _loadMode();
   }
 
-  static Future<ImageLoadMode> _loadMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    final value = prefs.getString(_modeKey);
-    final mode = ImageLoadMode.values.firstWhere(
-      (mode) => mode.name == value,
-      orElse: () => ImageLoadMode.automatic,
-    );
-    notifier.value = mode;
-    _modeFuture = null;
-    return mode;
-  }
+  static Future<ImageLoadMode> _loadMode() =>
+      LocalStatePreferences.read((prefs) {
+        final value = prefs.getString(_modeKey);
+        final mode = ImageLoadMode.values.firstWhere(
+          (mode) => mode.name == value,
+          orElse: () => ImageLoadMode.automatic,
+        );
+        notifier.value = mode;
+        _modeFuture = null;
+        return mode;
+      });
 
-  static Future<void> saveMode(ImageLoadMode mode) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_modeKey, mode.name);
-    _modeFuture = Future<ImageLoadMode>.value(mode);
-    _canAutoLoadImagesFuture = null;
-    notifier.value = mode;
-  }
+  static Future<void> saveMode(ImageLoadMode mode) =>
+      LocalStatePreferences.write((prefs) async {
+        final saved = await prefs.setString(_modeKey, mode.name);
+        if (saved) {
+          _modeFuture = Future<ImageLoadMode>.value(mode);
+          _canAutoLoadImagesFuture = null;
+          notifier.value = mode;
+        }
+        return saved;
+      });
 
   static Future<bool> canAutoLoadImages() async {
     return _canAutoLoadImagesFuture ??= _resolveCanAutoLoadImages();

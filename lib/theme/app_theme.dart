@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../services/local_state_preferences.dart';
 
 class AppPalette {
   const AppPalette({
@@ -301,20 +302,20 @@ class AppThemeController {
 
   static ThemeMode get themeMode => notifier.value;
 
-  static Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final name = prefs.getString(_prefKey);
-    notifier.value = ThemeMode.values.firstWhere(
-      (mode) => mode.name == name,
-      orElse: () => ThemeMode.system,
-    );
-  }
+  static Future<void> load() => LocalStatePreferences.read((prefs) {
+        final name = prefs.getString(_prefKey);
+        notifier.value = ThemeMode.values.firstWhere(
+          (mode) => mode.name == name,
+          orElse: () => ThemeMode.system,
+        );
+      });
 
-  static Future<void> setMode(ThemeMode mode) async {
-    notifier.value = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefKey, mode.name);
-  }
+  static Future<void> setMode(ThemeMode mode) =>
+      LocalStatePreferences.write((prefs) async {
+        final saved = await prefs.setString(_prefKey, mode.name);
+        if (saved) notifier.value = mode;
+        return saved;
+      });
 }
 
 // Component styles name the family too: ThemeData.fontFamily reaches only
