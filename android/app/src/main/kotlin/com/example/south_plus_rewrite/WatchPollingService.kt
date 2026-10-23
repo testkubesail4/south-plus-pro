@@ -186,8 +186,8 @@ class WatchPollingService : Service() {
             val intent = Intent(context, WatchPollingService::class.java)
                 .putExtra(EXTRA_REQUEST, requestId)
             try {
-                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
-                else context.startService(intent)
+                // New starts are resumed-only; cancelled requests need no foreground-start deadline.
+                context.startService(intent)
             } catch (_: RuntimeException) {
                 if (pending === request) pending = null
                 request.complete(false)
