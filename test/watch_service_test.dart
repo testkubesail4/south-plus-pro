@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -65,6 +66,8 @@ class Notices extends WatchNotifications {
   final shown = <WatchEvent>[];
   int cancels = 0;
   Map<String, dynamic>? tap;
+  Future<void> Function()? onTap;
+  Completer<void>? tapTaken;
   WatchNotificationPermission granted = WatchNotificationPermission.granted;
   @override
   Future<WatchNotificationPermission> permission({
@@ -85,11 +88,13 @@ class Notices extends WatchNotifications {
   Future<Map<String, dynamic>?> takeTap() async {
     final value = tap;
     tap = null;
+    tapTaken?.complete();
+    tapTaken = null;
     return value;
   }
 
   @override
-  void listen(Future<void> Function()? callback) {}
+  void listen(Future<void> Function()? callback) => onTap = callback;
 }
 
 class SourceClient extends ForumClient {
@@ -148,14 +153,36 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   var preferenceWrites = 0;
+  var preferenceReads = 0;
+  var rejectReads = false;
+  var rejectWrites = false;
+  Completer<void>? heldRead;
+  Completer<void>? readStarted;
+  late Map<String, Object> stored;
   setUp(() {
     preferenceWrites = 0;
+    preferenceReads = 0;
+    rejectReads = false;
+    rejectWrites = false;
+    heldRead = null;
+    readStarted = null;
     SharedPreferences.resetStatic();
-    final stored = <String, Object>{};
+    stored = <String, Object>{};
     messenger.setMockMethodCallHandler(preferences, (call) async {
-      if (call.method == 'getAll') return Map<String, Object>.of(stored);
+      if (call.method == 'getAll') {
+        preferenceReads++;
+        final held = heldRead;
+        if (held != null) {
+          heldRead = null;
+          readStarted!.complete();
+          await held.future;
+        }
+        if (rejectReads) throw PlatformException(code: 'fixture-read-failure');
+        return Map<String, Object>.of(stored);
+      }
       final args = call.arguments as Map;
       preferenceWrites++;
+      if (rejectWrites) return false;
       if (call.method == 'remove') {
         stored.remove(args['key']);
       } else {
@@ -167,6 +194,297 @@ void main() {
   tearDown(() {
     SharedPreferences.resetStatic();
     messenger.setMockMethodCallHandler(preferences, null);
+  });
+
+  test('failed watch read recovers and coalesces checks in the same session',
+      () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    await rig.service.addRule(rule('durable'));
+    await rig.service.checkNow();
+    SharedPreferences.resetStatic();
+    rejectReads = true;
+    final restored = WatchService(
+        session: rig.service.session, notifications: rig.notices);
+    addTearDown(restored.dispose);
+    final writes = preferenceWrites;
+    await expectLater(restored.checkNow(), throwsStateError);
+    expect(restored.statuses['storage']!.phase, WatchPhase.unavailable);
+    expect(restored.rules, isEmpty);
+    expect(preferenceWrites, writes);
+    rejectReads = false;
+    final reads = preferenceReads;
+    final first = restored.checkNow();
+    final second = restored.checkNow();
+    expect(identical(first, second), isTrue);
+    await Future.wait([first, second]);
+    expect(preferenceReads, reads + 1);
+    expect(restored.statuses.containsKey('storage'), isFalse);
+    expect(restored.rules.map((r) => r.id), ['durable']);
+    expect(restored.events, isEmpty, reason: 'saved baseline is not reset');
+    await restored.checkNow();
+    expect(restored.rules, hasLength(1));
+    expect(restored.events, isEmpty);
+  });
+
+  test('unreadable watch state does not block native polls or validated taps',
+      () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    final raw = jsonEncode({
+      'rules': [rule('saved').toJson()],
+      'events': [],
+      'states': {'saved/replies': 42},
+    });
+    stored['flutter.account/${rig.owner}/watch_v1'] = raw;
+    var nativeChecks = 0;
+    rig.notices.tap = {
+      'owner': rig.owner, 'eventId': 'issued', 'kind': 'pm',
+    };
+    final service = WatchService(
+      session: rig.service.session,
+      notifications: rig.notices,
+      checkNativeNotices: (scope, reserve, guard) async {
+        guard();
+        nativeChecks++;
+        return null;
+      },
+      acceptNativeNoticeTap: (tap) async => tap['eventId'] == 'issued',
+    );
+    addTearDown(service.dispose);
+    await expectLater(service.checkNow(), throwsStateError);
+    expect(nativeChecks, 1);
+    expect(service.takePendingNoticeOpen(), NoticeNotificationKind.pm);
+    expect(service.rules, isEmpty, reason: 'decode is published atomically');
+    expect(service.events, isEmpty);
+    expect(service.statuses.containsKey('storage'), isTrue);
+    await expectLater(service.addRule(rule('blocked')), throwsStateError);
+    expect(preferenceWrites, 0);
+    expect(stored['flutter.account/${rig.owner}/watch_v1'], raw);
+  });
+
+  for (final kind in NoticeNotificationKind.values) {
+    for (final overlap in [false, true]) {
+      test('newer ${kind.name} tap supersedes deferred Watch; overlap=$overlap',
+          () async {
+        final rig = Rig();
+        addTearDown(rig.dispose);
+        await rig.service.addRule(rule('durable'));
+        await rig.service.checkNow();
+        rig.client.respond = (_) async => thread(post('101'));
+        await rig.service.checkNow();
+        final event = rig.service.events.single;
+        SharedPreferences.resetStatic();
+        rejectReads = true;
+        final notices = Notices()
+          ..tap = {'owner': rig.owner, 'eventId': event.id};
+        final service = WatchService(
+          session: rig.service.session,
+          notifications: notices,
+          acceptNativeNoticeTap: (tap) async => tap['eventId'] == 'issued',
+        );
+        addTearDown(service.dispose);
+        await service.start();
+        expect(service.statuses.containsKey('storage'), isTrue);
+        expect(service.pendingOpen, isNull);
+        rejectReads = false;
+        Future<void>? recovery;
+        Future<void>? oldTap;
+        Completer<void>? released;
+        if (overlap) {
+          released = heldRead = Completer<void>();
+          readStarted = Completer<void>();
+          recovery = service.checkNow();
+          await readStarted!.future.timeout(const Duration(seconds: 2));
+          notices.tap = {'owner': rig.owner, 'eventId': event.id};
+          final taken = notices.tapTaken = Completer<void>();
+          oldTap = notices.onTap!();
+          await taken.future.timeout(const Duration(seconds: 2));
+        }
+        try {
+          notices.tap = {
+            'owner': rig.owner, 'eventId': 'issued', 'kind': kind.name,
+          };
+          if (overlap) {
+            await notices.onTap!();
+            expect(service.pendingNoticeOpen, kind);
+          } else {
+            await service.checkNow();
+          }
+        } finally {
+          released?.complete();
+        }
+        await oldTap;
+        await recovery;
+        expect(service.takePendingNoticeOpen(), kind);
+        expect(service.takePendingOpen(), isNull);
+        expect(service.events.single.unread, isTrue);
+      });
+    }
+  }
+
+  test('invalid native taps preserve a deferred Watch intent', () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    await rig.service.addRule(rule('durable'));
+    await rig.service.checkNow();
+    rig.client.respond = (_) async => thread(post('101'));
+    await rig.service.checkNow();
+    final event = rig.service.events.single;
+    SharedPreferences.resetStatic();
+    rejectReads = true;
+    final notices = Notices()
+      ..tap = {'owner': rig.owner, 'eventId': event.id};
+    final service = WatchService(
+      session: rig.service.session,
+      notifications: notices,
+      acceptNativeNoticeTap: (tap) async => tap['eventId'] == 'issued',
+    );
+    addTearDown(service.dispose);
+    await expectLater(service.checkNow(), throwsStateError);
+    for (final tap in [
+      {'owner': 'stale-owner', 'eventId': 'issued', 'kind': 'pm'},
+      {'owner': rig.owner, 'eventId': 'not-in-ledger', 'kind': 'reply'},
+    ]) {
+      notices.tap = tap;
+      await expectLater(service.checkNow(), throwsStateError);
+      expect(service.pendingNoticeOpen, isNull);
+    }
+    rejectReads = false;
+    await service.checkNow();
+    expect(service.takePendingOpen()!.id, event.id);
+    expect(service.takePendingOpen(), isNull);
+  });
+
+  test('watch tap survives transient storage failure until its event is loaded',
+      () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    await rig.service.addRule(rule('durable'));
+    await rig.service.checkNow();
+    rig.client.respond = (_) async => thread(post('101'));
+    await rig.service.checkNow();
+    final event = rig.service.events.single;
+    SharedPreferences.resetStatic();
+    rejectReads = true;
+    final notices = Notices()
+      ..tap = {'owner': rig.owner, 'eventId': event.id};
+    final service = WatchService(
+        session: rig.service.session, notifications: notices);
+    addTearDown(service.dispose);
+    await expectLater(service.checkNow(), throwsStateError);
+    expect(service.pendingOpen, isNull);
+    rejectReads = false;
+    await service.checkNow();
+    expect(service.takePendingOpen()!.id, event.id);
+    expect(service.takePendingOpen(), isNull);
+    expect(service.events.single.unread, isTrue);
+    expect(service.rules, hasLength(1));
+  });
+
+  test('account switch during recovery discards the old load and deferred tap',
+      () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    await rig.service.addRule(rule('private'));
+    await rig.service.checkNow();
+    rig.client.respond = (_) async => thread(post('101'));
+    await rig.service.checkNow();
+    final event = rig.service.events.single;
+    final saved = Map<String, Object>.of(stored);
+    final writes = preferenceWrites;
+    SharedPreferences.resetStatic();
+    rejectReads = true;
+    final notices = Notices()
+      ..tap = {'owner': rig.owner, 'eventId': event.id};
+    final service = WatchService(
+        session: rig.service.session, notifications: notices);
+    addTearDown(service.dispose);
+    await expectLater(service.checkNow(), throwsStateError);
+    rejectReads = false;
+    final released = heldRead = Completer<void>();
+    readStarted = Completer<void>();
+    final retry = service.checkNow();
+    final rejected = expectLater(retry, throwsStateError);
+    try {
+      await readStarted!.future.timeout(const Duration(seconds: 2));
+      rig.owner = 'next-owner';
+      rig.epoch++;
+      service.sessionChanged();
+    } finally {
+      released.complete();
+    }
+    await rejected;
+    await service.checkNow();
+    expect(service.rules, isEmpty);
+    expect(service.events, isEmpty);
+    expect(service.pendingOpen, isNull);
+    expect(preferenceWrites, writes);
+    expect(stored, saved);
+  });
+
+  test('native request budget cannot prevent local watch-store recovery',
+      () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    await rig.service.addRule(rule('durable'));
+    await rig.service.checkNow();
+    SharedPreferences.resetStatic();
+    rejectReads = true;
+    final service = WatchService(
+      session: rig.service.session,
+      notifications: rig.notices,
+      checkNativeNotices: (scope, reserve, guard) async {
+        guard();
+        throw const WatchBudgetExhausted();
+      },
+    );
+    addTearDown(service.dispose);
+    await expectLater(service.checkNow(), throwsStateError);
+    rejectReads = false;
+    await service.checkNow();
+    expect(service.rules.single.id, 'durable');
+    expect(service.statuses.containsKey('storage'), isFalse);
+    expect(service.events, isEmpty);
+  });
+
+  test('unacknowledged poll state never becomes an alert or an event', () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    rig.service.notificationPermission = WatchNotificationPermission.granted;
+    await rig.service.addRule(rule('durable'));
+    await rig.service.checkNow();
+    rig.client.respond = (_) async => thread(post('101'));
+    rejectWrites = true;
+    await expectLater(rig.service.checkNow(), throwsException);
+    expect(rig.service.events, isEmpty);
+    expect(rig.notices.shown, isEmpty);
+    rejectWrites = false;
+    await rig.service.checkNow();
+    expect(rig.service.events.single.pid, '101');
+    expect(rig.notices.shown, hasLength(1));
+  });
+
+  test('mixed rules produce one persisted summary per poll without backfill',
+      () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    rig.service.notificationPermission = WatchNotificationPermission.granted;
+    await rig.service.addRule(rule('plain'));
+    await rig.service.addRule(rule('keyword', keyword: 'needle'));
+    await rig.service.checkNow();
+    expect(rig.notices.shown, isEmpty);
+    rig.client.respond = (_) async =>
+        thread(post('101', body: 'needle') + post('102', body: 'needle'));
+    await rig.service.checkNow();
+    expect(rig.service.events, hasLength(4));
+    expect(rig.service.events.map((e) => e.pid).toSet(), {'101', '102'});
+    expect(rig.notices.shown, hasLength(1));
+    expect(rig.service.events.map((e) => e.id),
+        contains(rig.notices.shown.single.id));
+    await rig.service.checkNow();
+    expect(rig.notices.shown, hasLength(1));
+    expect(rig.service.events, hasLength(4));
   });
 
   test(
@@ -370,6 +688,7 @@ void main() {
     () async {
       final rig = Rig();
       addTearDown(rig.dispose);
+      rig.service.notificationPermission = WatchNotificationPermission.granted;
       await rig.service.addRule(
         rule('user', scope: WatchScope.user, subject: '8', keyword: 'needle'),
       );
@@ -394,6 +713,8 @@ void main() {
       expect(rig.service.statuses['user']!.phase, WatchPhase.pending);
       final firstCount = rig.service.events.length;
       expect(firstCount, greaterThan(0));
+      expect(rig.notices.shown, hasLength(1),
+          reason: 'budget stop still sends one summary for persisted results');
       final restored = WatchService(
         session: rig.service.session,
         notifications: rig.notices,

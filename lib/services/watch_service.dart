@@ -87,7 +87,12 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _writes = Future.value();
   Future<void> _mutations = Future.value();
   final _sourceStatuses = <String, WatchStatus>{};
+  // A verified system-notification intent to show the event list, not this row.
   WatchEvent? pendingOpen;
+  (int, Map<String, dynamic>)? _deferredWatchTap;
+  // Receipt order survives asynchronous validation and storage recovery.
+  int _tapOrder = 0;
+  int _acceptedTapOrder = 0;
   NoticeNotificationKind? pendingNoticeOpen;
   DateTime? _nativePendingUntil;
   WatchNotificationPermission notificationPermission =
@@ -143,6 +148,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     _statuses.clear();
     _sourceStatuses.clear();
     pendingOpen = null;
+    _deferredWatchTap = null;
     pendingNoticeOpen = null;
     _nativePendingUntil = null;
     // The rolling budget is deliberately not reset by account/mirror changes.
@@ -175,8 +181,10 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
         (prefs) => prefs.getString(_key(current.owner)),
       );
       current.requireCurrent();
-      if (generation != _generation || _disposed || raw == null) return;
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      if (generation != _generation || _disposed) return;
+      final decoded = raw == null
+          ? <String, dynamic>{'rules': [], 'events': [], 'states': {}}
+          : jsonDecode(raw) as Map<String, dynamic>;
       final rules = (decoded['rules'] as List)
           .map((r) => WatchRule.fromJson(Map<String, dynamic>.from(r as Map)))
           .toList();
@@ -192,14 +200,23 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
                 current.urls.forumLinkTarget(e.url) is ForumThreadLinkTarget,
           )
           .toList();
-      final states = Map<String, dynamic>.from(decoded['states'] as Map);
-      _rules.addAll(rules);
-      _events.addAll(events);
-      for (final entry in states.entries) {
+      final states = <String, Map<String, dynamic>>{};
+      for (final entry in
+          Map<String, dynamic>.from(decoded['states'] as Map).entries) {
         if (rules.any((r) => entry.key.startsWith('${r.id}/'))) {
-          _states[entry.key] = Map<String, dynamic>.from(entry.value as Map);
+          states[entry.key] = Map<String, dynamic>.from(entry.value as Map);
         }
       }
+      _rules
+        ..clear()
+        ..addAll(rules);
+      _events
+        ..clear()
+        ..addAll(events);
+      _states
+        ..clear()
+        ..addAll(states);
+      _statuses.remove('storage');
     } catch (_) {
       if (generation != _generation || _disposed) return;
       // Keep malformed local state visible as a failure instead of replacing it.
@@ -211,7 +228,18 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     if (generation == _generation && !_disposed) notifyListeners();
   }
 
-  Future<WatchSession> _ready() async {
+  Future<WatchSession> _readySession() async {
+    sessionChanged();
+    final generation = _generation;
+    await _nativeReset;
+    if (!_disposed && generation != _generation) return _readySession();
+    final current = session();
+    if (_disposed || current == null) throw StateError('登录后可使用本机关注');
+    current.requireCurrent();
+    return current;
+  }
+
+  Future<WatchSession> _ready({bool retryStorage = false}) async {
     sessionChanged();
     var pending = _loading;
     await pending;
@@ -219,14 +247,14 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       pending = _loading;
       await pending;
     }
-    final generation = _generation;
-    await _nativeReset;
-    if (!_disposed && generation != _generation) return _ready();
-    final current = session();
-    if (_disposed || current == null) throw StateError('登录后可使用本机关注');
-    current.requireCurrent();
-    if (_statuses.containsKey('storage'))
+    final current = await _readySession();
+    if (_statuses.containsKey('storage')) {
+      if (retryStorage) {
+        _loading = _load(current, _generation);
+        return _ready();
+      }
       throw StateError(_statuses['storage']!.reason);
+    }
     return current;
   }
 
@@ -451,7 +479,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       sessionChanged();
       return;
     }
-    final current = await _ready();
+    final current = await _readySession();
     final generation = _generation;
     final cache = <String, Future<dom.Document>>{};
     void requireCurrent() {
@@ -480,6 +508,33 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       });
     }
 
+    progressDone = 0;
+    progressTotal = 0;
+    pendingUntil = null;
+    requireCurrent();
+    await _consumeTap();
+    requireCurrent();
+    var nativeBudgetExhausted = false;
+    if (checkNativeNotices != null) {
+      try {
+        _nativePendingUntil = await checkNativeNotices!(
+          current,
+          _charge,
+          requireCurrent,
+        );
+        requireCurrent();
+      } on WatchBudgetExhausted {
+        nativeBudgetExhausted = true;
+      } catch (_) {
+        requireCurrent();
+        _nativePendingUntil = clock().add(budgetWindow);
+      }
+    }
+    await _ready(retryStorage: true);
+    requireCurrent();
+    await _consumeTap();
+    requireCurrent();
+    if (nativeBudgetExhausted) return;
     final reader = WatchReader(
       urls: current.urls,
       getDocument: document,
@@ -510,9 +565,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       _statuses[rule.id] = sources.first;
     }
 
-    progressDone = 0;
     progressTotal = jobs.length;
-    pendingUntil = null;
     // Resume the least recently checked source first to avoid starving later rules.
     jobs.sort(
       (a, b) => ((_states['${a.$1.id}/${a.$2.name}']?['checked'] as int?) ?? 0)
@@ -520,25 +573,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
             (_states['${b.$1.id}/${b.$2.name}']?['checked'] as int?) ?? 0,
           ),
     );
-    await _consumeTap();
-    requireCurrent();
+    WatchEvent? notification;
     try {
-      if (checkNativeNotices != null) {
-        try {
-          final deadline = await checkNativeNotices!(
-            current,
-            _charge,
-            requireCurrent,
-          );
-          requireCurrent();
-          _nativePendingUntil = deadline;
-        } on WatchBudgetExhausted {
-          rethrow;
-        } catch (_) {
-          requireCurrent();
-          _nativePendingUntil = clock().add(budgetWindow);
-        }
-      }
       while (done.length + failures.length < jobs.length) {
         for (final (rule, kind) in jobs) {
           final key = '${rule.id}/${kind.name}';
@@ -591,8 +627,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
                 event.authorUid != null &&
                 event.authorUid != current.uid &&
                 notificationPermission == WatchNotificationPermission.granted) {
-              await notifications.show(current.owner, event);
-              requireCurrent();
+              notification ??= event;
             }
           } on WatchBudgetExhausted {
             requireCurrent();
@@ -652,6 +687,13 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       }
     } on WatchBudgetExhausted {
       // A budget stop is pending, never an empty result or a new baseline.
+    } finally {
+      final event = notification;
+      if (event != null) {
+        requireCurrent();
+        await notifications.show(current.owner, event);
+        requireCurrent();
+      }
     }
     requireCurrent();
     for (final r in _rules.where((r) => r.paused)) {
@@ -662,15 +704,35 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _consumeTap() async {
     if (session() == null) return;
-    final current = await _ready();
+    final current = await _readySession();
     final generation = _generation;
-    final tap = await notifications.takeTap();
+    final received = await notifications.takeTap();
     current.requireCurrent();
     if (generation != _generation || _disposed) return;
+    final deferred = _deferredWatchTap;
+    final tap = received ?? deferred?.$2;
     if (tap == null || tap['owner'] != current.owner) return;
+    final order = received == null ? deferred!.$1 : ++_tapOrder;
     final kind = tap['kind'] ?? 'watch';
     if (kind == 'watch') {
-      pendingOpen = _events.where((e) => e.id == tap['eventId']).firstOrNull;
+      await _loading;
+      current.requireCurrent();
+      if (generation != _generation || _disposed || order <= _acceptedTapOrder)
+        return;
+      if (_statuses.containsKey('storage')) {
+        if (order > (_deferredWatchTap?.$1 ?? 0))
+          _deferredWatchTap = (order, tap);
+        return;
+      }
+      final event = _events.where((e) => e.id == tap['eventId']).firstOrNull;
+      if (event == null) {
+        if (_deferredWatchTap?.$1 == order) _deferredWatchTap = null;
+        return;
+      }
+      _acceptedTapOrder = order;
+      if ((_deferredWatchTap?.$1 ?? 0) <= order) _deferredWatchTap = null;
+      pendingNoticeOpen = null;
+      pendingOpen = event;
       notifyListeners();
     } else if (NoticeNotificationKind.values.any(
           (value) => value.name == kind,
@@ -678,7 +740,11 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
         acceptNativeNoticeTap != null) {
       final accepted = await acceptNativeNoticeTap!(tap);
       current.requireCurrent();
-      if (generation != _generation || _disposed || !accepted) return;
+      if (generation != _generation || _disposed || !accepted ||
+          order <= _acceptedTapOrder) return;
+      _acceptedTapOrder = order;
+      if ((_deferredWatchTap?.$1 ?? 0) <= order) _deferredWatchTap = null;
+      pendingOpen = null;
       pendingNoticeOpen = NoticeNotificationKind.values.byName(kind as String);
       notifyListeners();
     }
