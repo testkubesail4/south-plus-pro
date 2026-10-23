@@ -81,6 +81,13 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   bool _started = false;
   bool _foreground = true;
   bool _disposed = false;
+  // IDs stay distinct when a repository is recreated in the same engine.
+  static int _nextBackgroundRequestId = 0;
+  int _backgroundRevision = 0;
+  int? _pendingBackgroundRequestId;
+  (int, int)? _backgroundLease;
+  bool _backgroundStopped = false;
+  Future<void> _backgroundUpdate = Future.value();
   Future<void>? _loading;
   Future<void> _nativeReset = Future.value();
   Future<void>? _checking;
@@ -118,6 +125,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+    notifications.onBackgroundStopped = _onBackgroundStopped;
     notifications.listen(() => _consumeTap().catchError((_) {}));
     if (_disposed || !_started) return;
     await _resumeCheck();
@@ -132,6 +140,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     nextCheckAt = null;
     WidgetsBinding.instance.removeObserver(this);
     notifications.listen(null);
+    notifications.onBackgroundStopped = null;
+    unawaited(_syncBackgroundPolling());
   }
 
   void sessionChanged() {
@@ -156,6 +166,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       _nativeReset = _nativeReset.then((_) => notifications.cancelAll());
     final generation = _generation;
     _loading = current == null ? Future.value() : _load(current, generation);
+    unawaited(_syncBackgroundPolling());
     if (current == null) {
       _timer?.cancel();
       nextCheckAt = null;
@@ -225,7 +236,10 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
         '关注数据无法读取，请重试或检查本机存储',
       );
     }
-    if (generation == _generation && !_disposed) notifyListeners();
+    if (generation == _generation && !_disposed) {
+      unawaited(_syncBackgroundPolling());
+      notifyListeners();
+    }
   }
 
   Future<WatchSession> _readySession() async {
@@ -311,10 +325,12 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
           _statuses
             ..clear()
             ..addAll(oldStatuses);
+          unawaited(_syncBackgroundPolling());
         }
         rethrow;
       }
       if (!_disposed) {
+        unawaited(_syncBackgroundPolling());
         notifyListeners();
         if (scheduleCheck) _schedule(Duration.zero);
       }
@@ -399,8 +415,93 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   });
 
   Future<void> requestNotifications() async {
-    notificationPermission = await notifications.permission(request: true);
-    if (!_disposed) notifyListeners();
+    final permission = await notifications.permission(request: true);
+    if (_disposed) return;
+    notificationPermission = permission;
+    unawaited(_syncBackgroundPolling());
+    notifyListeners();
+  }
+
+  bool get _wantsBackgroundPolling {
+    if (!_started || _disposed ||
+        notificationPermission != WatchNotificationPermission.granted ||
+        _statuses.containsKey('storage') ||
+        !_rules.any((r) => !r.paused && r.notificationsEnabled)) return false;
+    final current = session();
+    if (current == null || current.owner != _owner || current.epoch != _epoch)
+      return false;
+    try {
+      current.requireCurrent();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool get _canCheck => _foreground ||
+      (_backgroundLease?.$2 == _backgroundRevision && _wantsBackgroundPolling);
+
+  void _pauseBackgroundChecks() {
+    if (_foreground) return;
+    _runGeneration++;
+    _timer?.cancel();
+    nextCheckAt = null;
+  }
+
+  Future<void> _syncBackgroundPolling() {
+    if (!_wantsBackgroundPolling) {
+      _backgroundRevision++;
+      _pendingBackgroundRequestId = null;
+      _pauseBackgroundChecks();
+    }
+    final update = _backgroundUpdate.catchError((_) {}).then((_) async {
+      final lease = _backgroundLease;
+      if (lease != null &&
+          (lease.$2 != _backgroundRevision || !_wantsBackgroundPolling)) {
+        _backgroundLease = null;
+        await notifications.setBackgroundPolling(
+          enabled: false, requestId: ++_nextBackgroundRequestId,
+        );
+      }
+      await _mutations.catchError((_) {});
+      if (_backgroundLease != null || !_wantsBackgroundPolling ||
+          _backgroundStopped || !_foreground) return;
+      final revision = _backgroundRevision;
+      final generation = _generation;
+      final id = ++_nextBackgroundRequestId;
+      _pendingBackgroundRequestId = id;
+      final accepted = await notifications.setBackgroundPolling(
+        enabled: true, requestId: id,
+      );
+      final pending = _pendingBackgroundRequestId == id;
+      if (pending) _pendingBackgroundRequestId = null;
+      if (accepted && pending && revision == _backgroundRevision &&
+          generation == _generation && _wantsBackgroundPolling &&
+          !_backgroundStopped) {
+        _backgroundLease = (id, revision);
+        if (!_foreground) _scheduleNextCheck();
+      } else if (accepted) {
+        await notifications.setBackgroundPolling(
+          enabled: false, requestId: ++_nextBackgroundRequestId,
+        );
+      }
+    }).catchError((_) {
+      _pendingBackgroundRequestId = null;
+      _backgroundLease = null;
+      _pauseBackgroundChecks();
+    });
+    _backgroundUpdate = update;
+    return update;
+  }
+
+  void _onBackgroundStopped(int requestId) {
+    if (_disposed || (requestId != _pendingBackgroundRequestId &&
+        requestId != _backgroundLease?.$1)) return;
+    _pendingBackgroundRequestId = null;
+    _backgroundLease = null;
+    _backgroundRevision++;
+    _backgroundStopped = true;
+    _pauseBackgroundChecks();
   }
 
   void _charge() {
@@ -416,17 +517,13 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> checkNow() {
     final existing = _checking;
     if (existing != null) return existing;
-    if (_disposed || !_foreground) return Future.value();
+    if (_disposed || !_canCheck) return Future.value();
     late Future<void> pending;
     pending = _check().whenComplete(() {
       if (identical(_checking, pending)) _checking = null;
       if (!_disposed) {
         notifyListeners();
-        var next = clock().add(interval);
-        for (final deadline in [pendingUntil, _nativePendingUntil]) {
-          if (deadline != null && deadline.isBefore(next)) next = deadline;
-        }
-        _schedule(next.difference(clock()));
+        _scheduleNextCheck();
       }
     });
     _checking = pending;
@@ -467,6 +564,8 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       notificationPermission = permission;
       notifyListeners();
     }
+    _backgroundStopped = false;
+    unawaited(_syncBackgroundPolling());
     await _checking?.catchError((_) {});
     if (_disposed || !_started || !_foreground) return;
     await checkNow().catchError((_) {});
@@ -485,7 +584,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     void requireCurrent() {
       current.requireCurrent();
       if (_disposed ||
-          !_foreground ||
+          !_canCheck ||
           generation != _generation ||
           runGeneration != _runGeneration)
         throw StateError('关注检查已暂停');
@@ -508,6 +607,14 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       });
     }
 
+    requireCurrent();
+    if (!_foreground) {
+      final permission = await notifications.permission();
+      requireCurrent();
+      notificationPermission = permission;
+      unawaited(_syncBackgroundPolling());
+      if (!_canCheck) return;
+    }
     progressDone = 0;
     progressTotal = 0;
     pendingUntil = null;
@@ -532,6 +639,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     }
     await _ready(retryStorage: true);
     requireCurrent();
+    unawaited(_syncBackgroundPolling());
     await _consumeTap();
     requireCurrent();
     if (nativeBudgetExhausted) return;
@@ -762,10 +870,18 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     return kind;
   }
 
+  void _scheduleNextCheck() {
+    var next = clock().add(interval);
+    for (final deadline in [pendingUntil, _nativePendingUntil]) {
+      if (deadline != null && deadline.isBefore(next)) next = deadline;
+    }
+    _schedule(next.difference(clock()));
+  }
+
   void _schedule(Duration delay) {
     _timer?.cancel();
     if (!_started ||
-        !_foreground ||
+        !_canCheck ||
         _disposed ||
         session() == null ||
         (activeCount == 0 && checkNativeNotices == null)) {
@@ -783,13 +899,15 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      stop();
+      return;
+    }
     _foreground = state == AppLifecycleState.resumed;
     if (_foreground) {
       unawaited(_resumeCheck());
-    } else {
-      _runGeneration++;
-      _timer?.cancel();
-      nextCheckAt = null;
+    } else if (!_canCheck) {
+      _pauseBackgroundChecks();
     }
   }
 
@@ -801,7 +919,9 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     if (_started) {
       WidgetsBinding.instance.removeObserver(this);
       notifications.listen(null);
+      notifications.onBackgroundStopped = null;
     }
+    unawaited(_syncBackgroundPolling());
     super.dispose();
   }
 }
