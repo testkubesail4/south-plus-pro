@@ -583,6 +583,10 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
   // closes the menu.
   final _current = FocusNode();
 
+  // The menu is an overlay, not a route: while it is open, back closes it
+  // instead of leaving the page.
+  var _open = false;
+
   @override
   void dispose() {
     _current.dispose();
@@ -612,34 +616,42 @@ class _ChoiceRowState<T> extends State<_ChoiceRow<T>> {
   @override
   Widget build(BuildContext context) {
     final w = widget;
-    return AppRow(
-      icon: w.icon,
-      title: Text(w.title),
-      value: w.options[w.value],
-      // The menu hangs from the trailing end, under the current value.
-      trailing: MenuAnchor(
-        controller: _menu,
-        menuChildren: [
-          for (final MapEntry(:key, value: label) in w.options.entries)
-            // Merged, so the option itself is announced as selected.
-            MergeSemantics(
-              child: Semantics(
-                selected: key == w.value,
-                child: MenuItemButton(
-                  focusNode: key == w.value ? _current : null,
-                  leadingIcon: Icon(Icons.check,
-                      color: key == w.value
-                          ? AppColors.brand
-                          : Colors.transparent),
-                  onPressed: () => _choose(key),
-                  child: Text(label),
+    return PopScope(
+      canPop: !_open,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _menu.close();
+      },
+      child: AppRow(
+        icon: w.icon,
+        title: Text(w.title),
+        value: w.options[w.value],
+        // The menu hangs from the trailing end, under the current value.
+        trailing: MenuAnchor(
+          controller: _menu,
+          onOpen: () => setState(() => _open = true),
+          onClose: () => setState(() => _open = false),
+          menuChildren: [
+            for (final MapEntry(:key, value: label) in w.options.entries)
+              // Merged, so the option itself is announced as selected.
+              MergeSemantics(
+                child: Semantics(
+                  selected: key == w.value,
+                  child: MenuItemButton(
+                    focusNode: key == w.value ? _current : null,
+                    leadingIcon: Icon(Icons.check,
+                        color: key == w.value
+                            ? AppColors.brand
+                            : Colors.transparent),
+                    onPressed: () => _choose(key),
+                    child: Text(label),
+                  ),
                 ),
               ),
-            ),
-        ],
-        child: Icon(Icons.unfold_more, color: AppColors.textFaint),
+          ],
+          child: Icon(Icons.unfold_more, color: AppColors.textFaint),
+        ),
+        onTap: _toggle,
       ),
-      onTap: _toggle,
     );
   }
 }

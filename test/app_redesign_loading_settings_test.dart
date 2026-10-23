@@ -184,6 +184,40 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('back with a choice menu open closes only the menu',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => SettingsScreen(
+              repository: AppRedesignRepository(),
+              packageInfoLoader: () async => PackageInfo(
+                  appName: 'fixture',
+                  packageName: 'fixture',
+                  version: '0.0.0',
+                  buildNumber: '0'),
+            ),
+          )),
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('主题'));
+    await tester.pumpAndSettle();
+    expect(find.byType(MenuItemButton), findsNWidgets(3));
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(MenuItemButton), findsNothing);
+    expect(find.text('主题'), findsOneWidget, reason: 'still on 设置');
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('主题'), findsNothing, reason: 'then back leaves');
+    expect(writes, isEmpty);
+  });
+
   testWidgets('a settings choice that fails to save says so and keeps the row',
       (tester) async {
     await pumpSettings(tester);
