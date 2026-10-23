@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/common/cached_forum_image.dart';
 import 'package:south_plus_rewrite/features/profile/blocking_settings_screen.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
+import 'package:south_plus_rewrite/features/thread/thread_floor_actions.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
@@ -14,6 +15,7 @@ import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/features/watch/watch_tab.dart';
 import 'package:south_plus_rewrite/models/watch_models.dart';
 import 'package:south_plus_rewrite/services/watch_service.dart';
+import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 import 'support/fake_watch.dart';
 
@@ -82,7 +84,10 @@ void main() {
       (tester) async {
     final repository = await pumpThread(tester);
     await openMenu(tester, 'floor-actions-bob-B2F');
-    expect(find.text('同步南+屏蔽配置 · 隐藏 TA 的主题与回复'), findsOneWidget);
+    expect(find.byIcon(Icons.cloud_sync_outlined), findsNWidgets(2));
+    // Read out with each row's title.
+    expect(find.bySemanticsLabel(RegExp(r'^屏蔽.*同步南\+', dotAll: true)),
+        findsNWidgets(2));
     await tester.tap(find.text('屏蔽此人'));
     await tester.pumpAndSettle();
 
@@ -381,6 +386,47 @@ void main() {
       isFalse,
     );
   });
+
+  // The only cue that a row writes the forum's own list must stay visible.
+  for (final mode in [ThemeMode.light, ThemeMode.dark]) {
+    testWidgets('the 同步南+ icon keeps 3:1 against the sheet in ${mode.name}',
+        (tester) async {
+      AppThemeController.notifier.value = mode;
+      addTearDown(() => AppThemeController.notifier.value = ThemeMode.system);
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: mode,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showThreadFloorActions(context,
+                  author: 'bob',
+                  floor: 'B2F',
+                  avatar: const SizedBox(),
+                  canShowAuthorPosts: false,
+                  block: const ThreadFloorBlockState(
+                      canBlockUser: true, canBlockContent: true)),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final sync = find.byIcon(Icons.cloud_sync_outlined);
+      expect(sync, findsNWidgets(2));
+      final sheet = Theme.of(tester.element(sync.first))
+          .bottomSheetTheme
+          .modalBackgroundColor!
+          .computeLuminance();
+      final icon = tester.widget<Icon>(sync.first).color!.computeLuminance();
+      final ratio = icon > sheet
+          ? (icon + 0.05) / (sheet + 0.05)
+          : (sheet + 0.05) / (icon + 0.05);
+      expect(ratio, greaterThanOrEqualTo(3));
+    });
+  }
 }
 
 /// A real repository whose session has not captured its own uid yet.

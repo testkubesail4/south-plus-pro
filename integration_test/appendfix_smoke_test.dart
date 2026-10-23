@@ -387,8 +387,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('本地阅读笔记'), findsOneWidget);
     expect(find.text('没有符合条件的内容'), findsNothing);
-    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
-    expect(find.text('在已加载的 1 页中找到 1 条 · 待确认 1 条'), findsOneWidget);
+    expect(find.text('已加载的页面'), findsOneWidget);
+    expect(find.text('找到 1 条 · 待确认 1 条'), findsOneWidget);
     await screenshot(tester, 'flow2_phone-light_filtered-unknown-visible');
 
     await darkLarge(tester);

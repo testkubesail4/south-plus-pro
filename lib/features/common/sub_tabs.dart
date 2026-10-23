@@ -11,6 +11,7 @@ class SubTabs<T> extends StatelessWidget {
     required this.selected,
     required this.onSelected,
     this.trailing,
+    this.padding,
   });
 
   final List<(T, String)> tabs;
@@ -18,14 +19,18 @@ class SubTabs<T> extends StatelessWidget {
   final ValueChanged<T> onSelected;
   final Widget? trailing;
 
+  /// Defaults to the page gutter; zero inside an already padded parent.
+  final EdgeInsetsGeometry? padding;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: EdgeInsets.only(
-        left: AppSpace.lg,
-        right: trailing == null ? AppSpace.lg : AppSpace.xs,
-      ),
+      padding: padding ??
+          EdgeInsets.only(
+            left: AppSpace.lg,
+            right: trailing == null ? AppSpace.lg : AppSpace.xs,
+          ),
       child: Row(
         children: [
           Expanded(

@@ -580,6 +580,8 @@ void main() {
     expect(find.text('看过的主题'), findsOneWidget);
     await tester.tap(find.byTooltip('清空浏览历史'));
     await tester.pumpAndSettle();
+    // Read positions go with it, so the confirmation says so.
+    expect(find.text('阅读位置也会一并清除'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '清空'));
     await tester.pumpAndSettle();
 
@@ -1909,7 +1911,6 @@ void main() {
     expect(find.text('只看 Bob'), findsOneWidget);
     expect(find.text('第 1 / 1 页 · 本页 0 楼'), findsOneWidget);
     expect(find.text('没有该作者内容'), findsOneWidget);
-    expect(find.text('当前筛选结果没有可展示的楼层。'), findsOneWidget);
   });
 
   testWidgets('thread detail inserts server quote draft when available',

@@ -149,7 +149,7 @@ void main() {
 
     expect(repo.queries.single.username, 'fixture*');
     expect(_submit, findsNothing);
-    expect(find.text('用户：fixture*'), findsOneWidget);
+    expect(find.text('用户 fixture*'), findsOneWidget);
     expect(find.text('Result 0'), findsOneWidget);
     expect(find.textContaining('共 30 条结果'), findsOneWidget);
 
@@ -757,7 +757,7 @@ void main() {
       gate.completeError(
           const ForumRequestException(ForumRequestKind.network, 'raw'));
       await tester.pumpAndSettle();
-      expect(find.text('未能加载版块层级，按平铺列表显示'), findsOneWidget);
+      expect(find.text('版块层级加载失败'), findsOneWidget);
       await tester.tap(find.text('Fixture zone'));
       await tester.pumpAndSettle();
       expect(find.text('Doujin'), findsNWidgets(2), reason: 'flat form list');
@@ -893,7 +893,7 @@ void main() {
     });
     await tapVisible(tester, find.text('筛选条件'));
     await tapVisible(tester, find.text('版块'));
-    expect(find.text('未能加载版块层级，按平铺列表显示'), findsOneWidget);
+    expect(find.text('版块层级加载失败'), findsOneWidget);
 
     repo.sections = [
       ForumSection(title: 'Zone', items: [
@@ -1060,17 +1060,20 @@ void main() {
     expect(find.text('kw-a'), findsNothing);
   });
 
-  testWidgets('field help shows only for the focused field', (tester) async {
+  testWidgets('keyword syntax shows while typing; 用户名 explains on 说明',
+      (tester) async {
     await pump(tester);
     const keywordHelp = '多个关键词用空格或 | 分隔';
-    const usernameHelp = '填写登录名（非显示昵称），可用 * 通配，例如 abc*';
     expect(find.text(keywordHelp), findsOneWidget);
-    expect(find.text(usernameHelp), findsNothing);
 
     await tester.tap(find.byType(TextField).at(1));
     await tester.pumpAndSettle();
     expect(find.text(keywordHelp), findsNothing);
-    expect(find.text(usernameHelp), findsOneWidget);
+    expect(find.text('填写登录名，可能与显示昵称不同'), findsNothing);
+    await tester.tap(find.byTooltip('说明'));
+    await tester.pumpAndSettle();
+    expect(find.text('填写登录名，可能与显示昵称不同'), findsOneWidget);
+    expect(find.text('可用 * 通配，例如 abc*'), findsOneWidget);
   });
 
   testWidgets('prefill from context does not submit; reset restores defaults',

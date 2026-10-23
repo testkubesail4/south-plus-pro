@@ -264,7 +264,6 @@ class _QuickListSettingsScreenState extends State<QuickListSettingsScreen> {
                 const SizedBox(height: AppSpace.xl),
                 AppGroup(
                   label: '栏目',
-                  description: '每个栏目可显示原站默认内容，或指定版块的新帖、最新回复。',
                   children: [
                     for (final (i, source) in sources.indexed)
                       AppRow(

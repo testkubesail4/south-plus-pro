@@ -321,15 +321,14 @@ class _MyBoardsState extends State<_MyBoards> {
           ),
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: SegmentedButton<_MyBoardsTab>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: _MyBoardsTab.pinned, label: Text('常用')),
-                ButtonSegment(value: _MyBoardsTab.recent, label: Text('最近')),
+            child: SubTabs<_MyBoardsTab>(
+              padding: EdgeInsets.zero,
+              tabs: const [
+                (_MyBoardsTab.pinned, '常用'),
+                (_MyBoardsTab.recent, '最近'),
               ],
-              selected: {tab},
-              onSelectionChanged: (value) =>
-                  setState(() => _chosen = value.first),
+              selected: tab,
+              onSelected: (value) => setState(() => _chosen = value),
             ),
           ),
           AppSwitcher(
@@ -511,21 +510,11 @@ class _PinnedBoardsSheetState extends State<_PinnedBoardsSheet> {
               shrinkWrap: true,
               padding: const EdgeInsets.only(bottom: AppSpace.xl),
               children: [
-                if (_pins.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpace.lg, vertical: AppSpace.md),
-                    child: Text('还没有常用版块，从下方添加。', style: textTheme.bodySmall),
-                  )
-                else ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                        AppSpace.lg, 0, AppSpace.lg, AppSpace.xs),
-                    child: Text('长按拖动调整顺序', style: textTheme.bodySmall),
-                  ),
+                if (_pins.isNotEmpty)
                   ReorderableListView(
                     shrinkWrap: true,
-                    buildDefaultDragHandles: !_saving,
+                    // A visible handle on every row, touch included.
+                    buildDefaultDragHandles: false,
                     physics: const NeverScrollableScrollPhysics(),
                     onReorder: (from, to) {
                       if (_saving) return;
@@ -534,10 +523,18 @@ class _PinnedBoardsSheetState extends State<_PinnedBoardsSheet> {
                       _commit(next);
                     },
                     children: [
-                      for (final pin in _pins)
+                      for (final (i, pin) in _pins.indexed)
                         ListTile(
                           key: ValueKey(pin.id),
-                          // The default drag handle sits at the trailing end.
+                          trailing: ReorderableDragStartListener(
+                            index: i,
+                            enabled: !_saving,
+                            child: const Padding(
+                              padding: EdgeInsets.all(AppSpace.md),
+                              child: Icon(Icons.drag_handle,
+                                  semanticLabel: '拖动排序'),
+                            ),
+                          ),
                           leading: IconButton(
                             tooltip: '移除 ${pin.label}',
                             icon: const Icon(Icons.remove_circle_outline),
@@ -553,18 +550,11 @@ class _PinnedBoardsSheetState extends State<_PinnedBoardsSheet> {
                         ),
                     ],
                   ),
-                ],
                 if (widget.groups.isNotEmpty || widget.extras.isNotEmpty) ...[
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                         AppSpace.lg, AppSpace.lg, AppSpace.lg, AppSpace.xs),
                     child: Text('添加', style: textTheme.titleSmall),
-                  ),
-                  Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: AppSpace.lg),
-                    child: Text('点箭头展开父版块；“+”只添加这一个版块，不会带上子版块。',
-                        style: textTheme.bodySmall),
                   ),
                   _BoardPicker(
                     // Opened rows stay open when the list above changes length.

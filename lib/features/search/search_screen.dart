@@ -16,11 +16,19 @@ import '../common/app_tab_header.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
 import '../common/forum_pager.dart';
+import '../common/help_sheet.dart';
 import '../common/page_end.dart';
 import '../common/thread_row.dart';
 import '../thread/thread_detail_screen.dart';
 
 const _allBoards = ForumSearchBoard(id: 'all', name: '全部版块');
+
+/// What the 用户名 field takes.
+const _usernameHelp = [
+  (Icons.badge_outlined, '填写登录名，可能与显示昵称不同'),
+  (Icons.person_search_outlined, '在用户中心点“查看登录名”'),
+  (Icons.manage_search_outlined, '可用 * 通配，例如 abc*'),
+];
 
 typedef _KeywordOwner = ({ForumRepository repository, (String?, int) session});
 
@@ -556,7 +564,6 @@ class _SearchScreenState extends State<SearchScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('清空搜索记录？'),
-        content: const Text('只清除本机的关键词记录。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -836,12 +843,16 @@ class _SearchScreenState extends State<SearchScreen> {
       return EmptyStateView(
         icon: Icons.person_off_outlined,
         title: '用户不存在',
-        message: [
-          if (_query?.username case final name? when name.isNotEmpty)
-            '用户名：“$name”',
-          '搜索需填写登录名，可能与显示昵称不同。',
-          '可在该用户的用户中心点“查看登录名”或“按人查找”。',
-        ].join('\n'),
+        message: switch (_query?.username) {
+          final name? when name.isNotEmpty => '“$name”',
+          _ => null,
+        },
+        action: TextButton.icon(
+          onPressed: () =>
+              showHelpSheet(context, title: '用户名', lines: _usernameHelp),
+          icon: const Icon(Icons.help_outline),
+          label: const Text('登录名说明'),
+        ),
       );
     }
     if (error != null) {
@@ -863,24 +874,19 @@ class _SearchScreenState extends State<SearchScreen> {
         icon: Icons.manage_search_outlined,
         title: '没有找到相关主题',
         message: [
-          if (query.keyword.isNotEmpty) '关键词：“${query.keyword}”',
-          if (query.username.isNotEmpty) '用户名：“${query.username}”',
-          '可尝试部分匹配、放宽时间范围或更换版块。',
-        ].join('\n'),
+          if (query.keyword.isNotEmpty) '“${query.keyword}”',
+          if (query.username.isNotEmpty) '用户 ${query.username}',
+        ].join(' · '),
       );
     }
     if (_resultsDropped) {
       return const EmptyStateView(
         icon: Icons.manage_accounts_outlined,
         title: '登录状态已变化',
-        message: '旧结果已隐藏，请重新搜索。',
       );
     }
-    return const EmptyStateView(
-      icon: Icons.search,
-      title: '搜索主题',
-      message: '输入关键词或用户名后搜索主题。',
-    );
+    // The form above is the idle screen.
+    return const SizedBox.shrink();
   }
 
   Widget _resultRows(List<ForumThread> shown) => DecoratedSliver(
@@ -1057,11 +1063,8 @@ class _SearchScreenState extends State<SearchScreen> {
           onSubmitted: (_) => _search(),
           decoration: InputDecoration(
             labelText: '用户名',
-            hintText: '只看该用户的主题',
-            helperText:
-                _usernameFocus.hasFocus ? '填写登录名（非显示昵称），可用 * 通配，例如 abc*' : null,
-            helperMaxLines: 2,
             prefixIcon: const Icon(Icons.person_outline),
+            suffixIcon: const HelpButton(title: '用户名', lines: _usernameHelp),
           ),
         ),
         const SizedBox(height: 8),
@@ -1511,7 +1514,7 @@ class _SearchSummary extends StatelessWidget {
                         Text(query.keyword, style: theme.textTheme.titleSmall),
                       if (query.username.isNotEmpty)
                         Text(
-                          '用户：${query.username}',
+                          '用户 ${query.username}',
                           style: theme.textTheme.titleSmall,
                         ),
                       const SizedBox(height: 2),
@@ -1744,10 +1747,13 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
       return SafeArea(
         child: SizedBox(
           height: MediaQuery.sizeOf(context).height * 0.8,
-          child: const EmptyStateView(
+          child: EmptyStateView(
             icon: Icons.manage_accounts_outlined,
             title: '登录状态已变化',
-            message: '请关闭后重新选择版块。',
+            action: TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('关闭'),
+            ),
           ),
         ),
       );
@@ -1911,7 +1917,7 @@ class _BoardPickerSheetState extends State<_BoardPickerSheet> {
     return ListTile(
       dense: true,
       leading: const Icon(Icons.info_outline),
-      title: const Text('未能加载版块层级，按平铺列表显示'),
+      title: const Text('版块层级加载失败'),
       trailing: TextButton(onPressed: _retrySections, child: const Text('重试')),
     );
   }

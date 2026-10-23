@@ -110,8 +110,8 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('清空浏览历史'),
-        content: const Text('只会清除本机记录，不会影响帖子、收藏或账号数据。'),
+        title: const Text('清空浏览历史？'),
+        content: const Text('阅读位置也会一并清除'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -279,9 +279,12 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
                                 EmptyStateView(
                                   icon: Icons.manage_search_outlined,
                                   title: '没有符合的浏览记录',
-                                  message: _dated
-                                      ? '$_dateLabel没有符合的本机记录，清除日期可查看全部 ${items.length} 条。'
-                                      : '已在全部 ${items.length} 条本机记录的标题、作者和版块中查找。',
+                                  action: _dated
+                                      ? TextButton(
+                                          onPressed: () => _setDate(null),
+                                          child: const Text('清除日期'),
+                                        )
+                                      : null,
                                 ),
                               ],
                             )
@@ -488,9 +491,6 @@ class _DatePickerSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('按日期筛选', style: theme.textTheme.titleMedium),
-            const SizedBox(height: AppSpace.xs),
-            Text('只列出本机 ${items.length} 条记录浏览过的日子，可与搜索同时使用',
-                style: theme.textTheme.bodySmall),
             row('年', '全部日期', year == null, () => onChanged(null, null, null),
                 years, '年', year, (value) => onChanged(value, null, null)),
             if (year != null)
@@ -527,7 +527,6 @@ class _EmptyHistory extends StatelessWidget {
       children: [
         const EmptyStateView(
           title: '还没有浏览历史',
-          message: '打开帖子后会自动记录在这里，之后可以快速找回看过的内容。',
           icon: Icons.history_outlined,
           padding: EdgeInsets.zero,
         ),
@@ -537,7 +536,7 @@ class _EmptyHistory extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: onBrowseHome,
               icon: Icon(Icons.home_outlined),
-              label: const Text('去首页看看'),
+              label: const Text('浏览首页'),
             ),
           ),
         ],

@@ -258,7 +258,7 @@ class _BoardPickerSheetState extends State<BoardPickerSheet> {
     return ListTile(
       dense: true,
       leading: const Icon(Icons.info_outline),
-      title: const Text('未能加载版块层级，按平铺列表显示'),
+      title: const Text('版块层级加载失败'),
       trailing: TextButton(onPressed: _retrySections, child: const Text('重试')),
     );
   }

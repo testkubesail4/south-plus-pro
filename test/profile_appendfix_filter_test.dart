@@ -78,7 +78,7 @@ void main() {
 
     expect(
         repository.queries.single.articleType, UserContentArticleType.digest);
-    expect(find.text('在已加载的 1 页中找到 0 条 · 共 3 页 · 待确认 1 条'), findsOneWidget);
+    expect(find.text('找到 0 条 · 已加载 1/3 页 · 待确认 1 条'), findsOneWidget);
     expect(find.text('已扫描 1/3 页，暂未找到匹配'), findsOneWidget);
     expect(find.text('没有符合条件的内容'), findsNothing);
     expect(find.text('第一页主题'), findsNothing);
@@ -274,7 +274,7 @@ void main() {
     await openTab(tester, repository, '主题');
     await tester.enterText(find.byType(TextField), 'alpha');
     await tester.pumpAndSettle();
-    expect(find.text('在已加载的 1 页中找到 0 条'), findsOneWidget);
+    expect(find.text('找到 0 条'), findsOneWidget);
     expect(find.text('搜索全部页面'), findsNothing);
     expect(find.text('没有符合条件的内容'), findsOneWidget);
   });

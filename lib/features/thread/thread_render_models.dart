@@ -760,12 +760,12 @@ class ThreadDetailAuthorFilterChipEntry extends ThreadDetailListEntry {
 class ThreadDetailEmptyStateEntry extends ThreadDetailListEntry {
   const ThreadDetailEmptyStateEntry({
     required this.title,
-    required this.message,
+    this.message,
     Key? key,
   }) : super(ThreadDetailListEntryType.emptyState, key: key);
 
   final String title;
-  final String message;
+  final String? message;
 }
 
 class ThreadDetailReplyEntry extends ThreadDetailListEntry {

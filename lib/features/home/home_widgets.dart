@@ -1049,11 +1049,9 @@ class _HomeActionsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    Widget row(String action, IconData icon, String label, [String? note]) =>
-        ListTile(
+    Widget row(String action, IconData icon, String label) => ListTile(
           leading: Icon(icon, color: AppColors.textMuted),
           title: Text(label),
-          subtitle: note == null ? null : Text(note),
           onTap: () => onPick(action),
         );
     return Column(
@@ -1081,7 +1079,6 @@ class _HomeActionsSheet extends StatelessWidget {
           'hide',
           Icons.visibility_off_outlined,
           board ? '在首页隐藏此版块及子版块' : '隐藏此分区',
-          '仅隐藏首页列表；最近、搜索、收藏和常用仍可进入',
         ),
         if (!board) row('manage', Icons.tune, '调整顺序与显示…'),
         Padding(

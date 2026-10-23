@@ -13,7 +13,7 @@ void main() {
       'loaded pages offer the full scan',
       const ScanProgress(
           scannedPages: 3, totalPages: 12, found: 2, unresolved: 1),
-      ('搜索范围：已加载内容', '在已加载的 3 页中找到 2 条 · 共 12 页 · 待确认 1 条'),
+      ('已加载的页面', '找到 2 条 · 已加载 3/12 页 · 待确认 1 条'),
       ['搜索全部页面'],
     ),
     (
@@ -111,4 +111,44 @@ void main() {
       expect(shown, labels);
     });
   }
+
+  testWidgets(
+      'the full-scan confirmation keeps its cost and its button at 320dp, '
+      '2.3x text and a keyboard up', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    bool? confirmed;
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: const TextScaler.linear(2.3),
+          viewInsets: const EdgeInsets.only(bottom: 250),
+        ),
+        child: child!,
+      ),
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => confirmed = await confirmFullScan(context,
+                subject: '本帖', remainingPages: 200),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    for (final line in ['剩余 200 页，约 4 分钟', '频繁读取可能触发限流']) {
+      await tester.scrollUntilVisible(find.text(line), 50,
+          scrollable: find.descendant(
+              of: find.byType(AlertDialog), matching: find.byType(Scrollable)));
+      expect(find.text(line).hitTestable(), findsOneWidget);
+    }
+    await tester.tap(find.text('开始搜索').hitTestable());
+    await tester.pumpAndSettle();
+    expect(confirmed, isTrue);
+  });
 }

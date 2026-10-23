@@ -792,7 +792,6 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         const ThreadDetailEmptyStateEntry(
           key: ValueKey('thread-empty-author-filter'),
           title: '没有该作者内容',
-          message: '当前筛选结果没有可展示的楼层。',
         ),
       for (final reply in visibleReplies) replyEntry(reply),
       for (final page in _morePages) ...[
@@ -3714,15 +3713,9 @@ class _FavoriteCategorySheetState extends State<_FavoriteCategorySheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(
                   AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Semantics(
-                    header: true,
-                    child: Text('选择收藏分类', style: theme.textTheme.titleMedium),
-                  ),
-                  Text('选好分类后才会收藏这个主题', style: theme.textTheme.bodySmall),
-                ],
+              child: Semantics(
+                header: true,
+                child: Text('选择收藏分类', style: theme.textTheme.titleMedium),
               ),
             ),
             for (final category in widget.categories)

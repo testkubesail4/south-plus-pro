@@ -328,14 +328,14 @@ void main() {
     final field = find.widgetWithText(TextField, '筛选版块');
     await tester.enterText(field, '同人志');
     await tester.pumpAndSettle();
-    expect(find.text('未能加载版块层级，按平铺列表显示'), findsOneWidget);
+    expect(find.text('版块层级加载失败'), findsOneWidget);
     expect(row('230'), findsOneWidget);
     expect(find.text('CM108'), findsNothing, reason: 'no parent without it');
 
     await tester.enterText(field, '没有这个版块');
     await tester.pumpAndSettle();
     expect(find.text('没有匹配的版块'), findsOneWidget);
-    expect(find.text('未能加载版块层级，按平铺列表显示'), findsOneWidget,
+    expect(find.text('版块层级加载失败'), findsOneWidget,
         reason: 'also with no hit');
 
     await tester.enterText(field, '同人志');
@@ -343,7 +343,7 @@ void main() {
     repository.sectionsFail = false;
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
-    expect(find.text('未能加载版块层级，按平铺列表显示'), findsNothing);
+    expect(find.text('版块层级加载失败'), findsNothing);
     expect(find.text('CM108'), findsOneWidget, reason: 'the parent shows now');
     expect(find.text('CM107'), findsOneWidget);
   });
@@ -353,7 +353,7 @@ void main() {
       'and 重试 brings the nesting', (tester) async {
     final repository = await open(tester, sectionsFail: true);
     await openSheet(tester);
-    expect(find.text('未能加载版块层级，按平铺列表显示'), findsOneWidget);
+    expect(find.text('版块层级加载失败'), findsOneWidget);
     await tester.tap(find.text('同人展会'));
     await tester.pumpAndSettle();
     expect(row('230'), findsOneWidget,
@@ -363,7 +363,7 @@ void main() {
     repository.sectionsFail = false;
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
-    expect(find.text('未能加载版块层级，按平铺列表显示'), findsNothing);
+    expect(find.text('版块层级加载失败'), findsNothing);
     expect(
         find.byKey(const ValueKey('board-filter-group:229')), findsOneWidget);
     expect(row('230'), findsNothing, reason: 'now folded under CM108');

@@ -145,15 +145,22 @@ Future<ThreadFloorAction?> showThreadFloorActions(
       Widget item(
         ThreadFloorAction action,
         IconData icon,
-        String title,
-        String subtitle, {
+        String title, {
+        // Only why the row is disabled.
+        String? subtitle,
+        // Written to the forum's own 屏蔽 list, not just this device.
+        bool synced = false,
         bool enabled = true,
       }) =>
           ListTile(
             enabled: enabled,
             leading: Icon(icon, size: 20, color: AppColors.textMuted),
             title: Text(title),
-            subtitle: Text(subtitle),
+            subtitle: subtitle == null ? null : Text(subtitle),
+            trailing: synced
+                ? Icon(Icons.cloud_sync_outlined,
+                    size: 18, color: AppColors.textMuted, semanticLabel: '同步南+')
+                : null,
             minVerticalPadding: 10,
             onTap: () => Navigator.of(context).pop(action),
           );
@@ -218,21 +225,18 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                   ThreadFloorAction.edit,
                   Icons.edit_outlined,
                   '编辑',
-                  '修改这层的标题和正文，保存到论坛',
                 ),
               if (canShowAuthorPosts)
                 item(
                   ThreadFloorAction.showAuthorPosts,
                   Icons.person_search_outlined,
                   '只看该作者',
-                  '只显示 TA 在本帖的楼层',
                 ),
               if (canEditNote)
                 item(
                   ThreadFloorAction.editNote,
                   Icons.edit_note_outlined,
                   hasNote ? '修改备注' : '添加备注',
-                  '仅本机',
                 ),
               if (canWatch) ...[
                 if (canShowAuthorPosts || canEditNote || canEdit) divider(),
@@ -242,13 +246,11 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                     ThreadFloorAction.watchUser,
                     Icons.notifications_none_outlined,
                     '关注 TA',
-                    '新主题、回复或可见收藏',
                   ),
                 item(
                   ThreadFloorAction.watchInThread,
                   Icons.forum_outlined,
                   ownFloor ? '本帖中回复我的' : '本帖中涉及 TA 的回复',
-                  ownFloor ? '回复或引用我的新楼层' : '回复或引用 TA 的新楼层',
                 ),
               ],
               if (block != null) ...[
@@ -258,8 +260,8 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                   ThreadFloorAction.blockContent,
                   Icons.comments_disabled_outlined,
                   block.contentBlocked ? '取消屏蔽内容' : '屏蔽内容',
-                  block.canBlockContent
-                      ? '仅本机 · 隐藏内容相同的楼层'
+                  subtitle: block.canBlockContent
+                      ? null
                       : block.contentBlockUnavailableReason ?? '此楼没有可匹配的文字',
                   enabled: block.canBlockContent,
                 ),
@@ -267,14 +269,16 @@ Future<ThreadFloorAction?> showThreadFloorActions(
                   ThreadFloorAction.blockUser,
                   Icons.person_off_outlined,
                   block.userBlocked ? '取消屏蔽此人' : '屏蔽此人',
-                  nativeNote ?? '同步南+屏蔽配置 · 隐藏 TA 的主题与回复',
+                  subtitle: nativeNote,
+                  synced: nativeNote == null,
                   enabled: block.canBlockUser,
                 ),
                 item(
                   ThreadFloorAction.blockAvatar,
                   Icons.hide_image_outlined,
                   block.avatarBlocked ? '取消屏蔽头像' : '屏蔽头像',
-                  nativeNote ?? '同步南+屏蔽配置 · 只隐藏 TA 的头像',
+                  subtitle: nativeNote,
+                  synced: nativeNote == null,
                   enabled: block.canBlockUser,
                 ),
               ],

@@ -54,7 +54,7 @@ void main() {
     final repository = await pumpThread(tester);
     await openFind(tester, 'needle');
     expect(find.textContaining('第 1 页'), findsOneWidget);
-    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+    expect(find.text('已加载的页面'), findsOneWidget);
 
     await confirmScan(tester);
     final scan = repository.scans.single;
@@ -80,7 +80,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'needles');
     await tester.pumpAndSettle();
     expect(scan.disposed, isTrue);
-    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+    expect(find.text('已加载的页面'), findsOneWidget);
   });
 
   testWidgets('another session empties an open sheet\'s keyword at once',
@@ -125,16 +125,13 @@ void main() {
       (tester) async {
     final repository = await pumpThread(tester);
     await openFind(tester, '');
-    expect(find.text('仅已加载（1 页）'), findsOneWidget);
-    expect(find.text('全部页面（3 页）'), findsOneWidget);
-    expect(find.text('只查已加载的页面，不发送请求'), findsOneWidget);
+    expect(find.text('已加载 1 页'), findsOneWidget);
+    expect(find.text('全部 3 页'), findsOneWidget);
 
-    // Choosing it without a keyword only says what will happen.
-    await tester.tap(find.text('全部页面（3 页）'));
+    // Choosing it without a keyword sends nothing.
+    await tester.tap(find.text('全部 3 页'));
     await tester.pumpAndSettle();
     expect(repository.scans, isEmpty);
-    expect(find.text('逐页请求剩余 2 页，可随时停止，已找到的结果会保留'), findsOneWidget);
-    expect(find.text('输入关键词后按搜索，确认后逐页读取剩余 2 页'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'needle');
     await tester.pumpAndSettle();
@@ -142,16 +139,19 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
     expect(repository.scans, isEmpty, reason: 'not before the confirmation');
+    // The confirmation says the cost.
+    expect(find.text('剩余 2 页，约 2 秒'), findsOneWidget);
+    expect(find.text('频繁读取可能触发限流'), findsOneWidget);
     await tester.tap(find.text('开始搜索'));
     await tester.pumpAndSettle();
     final scan = repository.scans.single;
     expect(find.text('正在搜索全部页面'), findsOneWidget);
 
     // Back to the loaded pages: the scan stops and its results go.
-    await tester.tap(find.text('仅已加载（1 页）'));
+    await tester.tap(find.text('已加载 1 页'));
     await tester.pumpAndSettle();
     expect(scan.disposed, isTrue);
-    expect(find.text('搜索范围：已加载内容'), findsOneWidget);
+    expect(find.text('已加载的页面'), findsOneWidget);
   });
 
   testWidgets(
@@ -305,12 +305,12 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.scrollUntilVisible(find.text('范围：只看 该作者'), 40,
+    await tester.scrollUntilVisible(find.text('只看 该作者'), 40,
         scrollable: find
             .ancestor(
                 of: find.byType(TextField), matching: find.byType(Scrollable))
             .first);
-    expect(find.text('范围：只看 该作者').hitTestable(), findsOneWidget);
+    expect(find.text('只看 该作者').hitTestable(), findsOneWidget);
   });
 
   testWidgets('pages read at different times count the most pages seen',

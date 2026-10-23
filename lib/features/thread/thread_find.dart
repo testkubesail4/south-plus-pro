@@ -9,6 +9,7 @@ import '../../services/thread_search.dart';
 import '../../theme/app_theme.dart';
 import '../common/async_state_view.dart';
 import '../common/search_scope_bar.dart';
+import '../common/sub_tabs.dart';
 
 /// 帖内查找's query and its optional scan of every page. The thread screen
 /// owns it, so both outlive the sheet; a new keyword drops the scan.
@@ -198,69 +199,43 @@ class ThreadFindSheet extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(
                         AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
                     sliver: SliverToBoxAdapter(
-                      child: Text('范围：只看 $authorFilterName',
-                          style: theme.textTheme.bodySmall),
+                      child: Row(
+                        children: [
+                          Icon(Icons.person_outline,
+                              size: 16, color: AppColors.textMuted),
+                          const SizedBox(width: AppSpace.xs),
+                          Expanded(
+                            child: Text('只看 $authorFilterName',
+                                style: theme.textTheme.bodySmall),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppSpace.lg, 0, AppSpace.lg, AppSpace.sm),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SegmentedButton<bool>(
-                          showSelectedIcon: false,
-                          segments: [
-                            ButtonSegment(
-                              value: false,
-                              label: Text('仅已加载（$loaded 页）'),
-                            ),
-                            ButtonSegment(
-                              value: true,
-                              enabled: remaining > 0,
-                              label: Text('全部页面（$total 页）'),
-                            ),
-                          ],
-                          selected: {eager},
-                          onSelectionChanged: (picked) {
-                            if (!picked.single) {
-                              find.useLoaded();
-                            } else if (keyword.isEmpty) {
-                              find.chooseEager();
-                            } else {
-                              _searchAll(context, remaining);
-                            }
-                          },
-                        ),
-                        const SizedBox(height: AppSpace.xs),
-                        Text(
-                          remaining <= 0
-                              ? '本帖共 $total 页，已全部加载，查找不发送请求'
-                              : eager
-                                  ? '逐页请求剩余 $remaining 页，可随时停止，已找到的结果会保留'
-                                  : '只查已加载的页面，不发送请求',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
+                // Every page loaded: one scope, nothing to choose.
+                if (remaining > 0)
+                  SliverPadding(
+                    padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                    sliver: SliverToBoxAdapter(
+                      child: SubTabs<bool>(
+                        tabs: [
+                          (false, '已加载 $loaded 页'),
+                          (true, '全部 $total 页'),
+                        ],
+                        selected: eager,
+                        onSelected: (all) {
+                          if (!all) {
+                            find.useLoaded();
+                          } else if (keyword.isEmpty) {
+                            find.chooseEager();
+                          } else {
+                            _searchAll(context, remaining);
+                          }
+                        },
+                      ),
                     ),
                   ),
-                ),
-                if (keyword.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: EmptyStateView(
-                      icon: Icons.find_in_page_outlined,
-                      title: '查找本帖内容',
-                      message: eager
-                          ? '输入关键词后按搜索，确认后逐页读取剩余 $remaining 页'
-                          : [
-                              '输入关键词，查找已加载的 $loaded 页内容',
-                              if (total > loaded) '（本帖共 $total 页）',
-                            ].join(),
-                    ),
-                  )
-                else
+                if (keyword.isNotEmpty)
                   ..._results(context, keyword, scan, pages,
                       loaded: loaded, total: total),
               ],
@@ -315,7 +290,6 @@ class ThreadFindSheet extends StatelessWidget {
             ? EmptyStateView(
                 icon: Icons.manage_search_outlined,
                 title: '已加载的 $loaded 页中没有找到',
-                message: '本帖共 $total 页，可搜索全部页面。',
               )
             : const EmptyStateView(
                 icon: Icons.manage_search_outlined,

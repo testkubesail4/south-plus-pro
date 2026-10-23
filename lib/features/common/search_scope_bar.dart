@@ -240,11 +240,11 @@ String _reason(ForumRequestKind? kind) =>
   ].join(' · ');
   return switch (p.state) {
     ScanState.idle => (
-        '搜索范围：已加载内容',
+        '已加载的页面',
         [
-          '在已加载的 ${p.scannedPages} 页中找到 ${p.found} 条',
+          '找到 ${p.found} 条',
           if (p.totalPages case final total? when total > p.scannedPages)
-            '共 $total 页',
+            '已加载 ${p.scannedPages}/$total 页',
           if (p.unresolved > 0) '待确认 ${p.unresolved} 条',
         ].join(' · '),
       ),
@@ -308,14 +308,32 @@ Future<bool> confirmFullScan(
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
+      // Large text with a keyboard up leaves little room: scroll, not clip.
+      scrollable: true,
       title: Text('$verb全部页面？'),
-      content: Text(
-        [
-          pages == null
-              ? '$subject的页数未知，可能需要较长时间。'
-              : '将逐页读取$subject剩余的 $pages 页，至少需要$time。',
-          '读取期间可随时停止，已找到的结果会保留。频繁读取会增加站点负担，可能触发限流或失败。',
-        ].join('\n'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final (icon, line) in [
+            (
+              Icons.schedule_outlined,
+              pages == null ? '$subject页数未知，可能较久' : '剩余 $pages 页，$time',
+            ),
+            (Icons.speed_outlined, '频繁读取可能触发限流'),
+          ])
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpace.sm),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(icon, size: 18, color: AppColors.textMuted),
+                  const SizedBox(width: AppSpace.sm),
+                  Expanded(child: Text(line)),
+                ],
+              ),
+            ),
+        ],
       ),
       actions: [
         TextButton(
