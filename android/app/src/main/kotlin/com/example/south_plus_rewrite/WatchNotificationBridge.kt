@@ -11,7 +11,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
@@ -26,6 +26,8 @@ internal class WatchNotificationBridge(
     private val taps = WatchNotificationTapState()
     private var pendingPermission: MethodChannel.Result? = null
     private val tapAction = "${activity.packageName}.WATCH_NOTIFICATION"
+    private val backgroundHost = Any()
+    private var closed = false
 
     init {
         receiveIntent(activity.intent, false)
@@ -33,6 +35,34 @@ internal class WatchNotificationBridge(
             when (call.method) {
                 "permission" -> result.success(permission())
                 "requestPermission" -> requestPermission(result)
+                "setBackgroundPolling" -> {
+                    val arguments = call.arguments as? Map<*, *>
+                    val enabled = arguments?.get("enabled") as? Boolean
+                    val requestId = when (val value = arguments?.get("requestId")) {
+                        is Int -> value.toLong()
+                        is Long -> value
+                        else -> null
+                    }
+                    if (enabled == null || requestId == null || requestId < 0) {
+                        result.error("invalid_request", "Invalid background request", null)
+                    } else if (!enabled) {
+                        WatchPollingService.stop(activity, backgroundHost)
+                        result.success(false)
+                    } else if (!permission() ||
+                        (!WatchPollingService.runningFor(backgroundHost) &&
+                            activity.lifecycle.currentState != Lifecycle.State.RESUMED)) {
+                        WatchPollingService.stop(activity, backgroundHost)
+                        result.success(false)
+                    } else {
+                        WatchPollingService.start(
+                            activity, backgroundHost, requestId,
+                            { running -> result.success(running) },
+                            { stoppedId ->
+                                if (!closed) channel.invokeMethod("backgroundStopped", stoppedId)
+                            }
+                        )
+                    }
+                }
                 "show" -> {
                     val arguments = call.arguments as? Map<*, *>
                     val owner = arguments?.get("owner")
@@ -60,6 +90,7 @@ internal class WatchNotificationBridge(
                 }
                 "openSettings" -> result.success(openSettings())
                 "cancelAll" -> {
+                    WatchPollingService.stop(activity, backgroundHost)
                     manager.cancelAll()
                     taps.clear()
                     clearTapExtras()
@@ -97,12 +128,7 @@ internal class WatchNotificationBridge(
         activity.intent?.removeExtra(EXTRA_KIND)
     }
 
-    private fun permission(): Boolean {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED) return false
-        return NotificationManagerCompat.from(activity).areNotificationsEnabled()
-    }
+    private fun permission(): Boolean = WatchPollingService.notificationsAllowed(activity)
 
     private fun requestPermission(result: MethodChannel.Result) {
         if (pendingPermission != null) {
@@ -139,8 +165,8 @@ internal class WatchNotificationBridge(
         }
         try {
             val (channelId, channelName, channelDescription) = when (kind) {
-                "pm" -> Triple("pm_messages", "短消息", "App 打开时检查到的新短消息")
-                "reply" -> Triple("reply_notices", "回复提醒", "App 打开时检查到的新回复提醒")
+                "pm" -> Triple("pm_messages", "短消息", "检查到的新短消息")
+                "reply" -> Triple("reply_notices", "回复提醒", "检查到的新回复提醒")
                 else -> Triple(CHANNEL_ID, "关注动态", "本机关注检查发现的新动态")
             }
             if (Build.VERSION.SDK_INT >= 26) {
@@ -157,7 +183,14 @@ internal class WatchNotificationBridge(
                 }
             }
             val eventIdentity = identity(owner, kind, eventId)
-            val tag = if (kind == "watch") eventIdentity else identity(owner, kind, null)
+            val tag = identity(owner, kind, null)
+            if (kind == "watch" && Build.VERSION.SDK_INT >= 26) {
+                for (previous in manager.activeNotifications) {
+                    if (previous.notification.channelId == CHANNEL_ID && previous.tag != tag) {
+                        manager.cancel(previous.tag, previous.id)
+                    }
+                }
+            }
             val intent = Intent(activity, MainActivity::class.java)
                 .setAction(tapAction)
                 .addCategory("${activity.packageName}.watch.$eventIdentity")
@@ -180,7 +213,7 @@ internal class WatchNotificationBridge(
                 .setContentText(when (kind) {
                     "pm" -> "你有新的短消息，打开 App 查看"
                     "reply" -> "你有新的回复提醒，打开 App 查看"
-                    else -> "你关注的内容有新动态，打开 App 查看"
+                    else -> "关注有新动态"
                 })
                 .setOnlyAlertOnce(kind != "watch" && manager.activeNotifications.any {
                     it.tag == tag && it.notification.contentIntent == pendingIntent
@@ -218,6 +251,8 @@ internal class WatchNotificationBridge(
     }
 
     fun close() {
+        closed = true
+        WatchPollingService.stop(activity, backgroundHost)
         channel.setMethodCallHandler(null)
         pendingPermission?.success(false)
         pendingPermission = null

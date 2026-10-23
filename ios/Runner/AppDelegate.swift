@@ -23,6 +23,7 @@ private class WatchNotificationBridge: NSObject, UNUserNotificationCenterDelegat
   private let channel: FlutterMethodChannel
   private let center = UNUserNotificationCenter.current()
   private var pendingTap: [String: String]?
+  private var notificationGeneration = 0
   private let prefix = "south-plus-watch/"
 
   init(messenger: FlutterBinaryMessenger) {
@@ -51,38 +52,66 @@ private class WatchNotificationBridge: NSObject, UNUserNotificationCenterDelegat
         let content = UNMutableNotificationContent()
         // No forum title, author, body or account name is exposed on the lock screen.
         content.title = "南+"
-        content.body = "你关注的内容有新动态，打开 App 查看"
+        content.body = "关注有新动态"
         content.sound = .default
         content.userInfo = ["owner": owner, "eventId": event]
-        let identity = Data(owner.utf8).base64EncodedString() + ":" + Data(event.utf8).base64EncodedString()
-        let request = UNNotificationRequest(identifier: self.prefix + identity, content: content, trigger: nil)
-        self.center.add(request) { error in
-          DispatchQueue.main.async {
-            if error != nil {
-              result(FlutterError(code: "notification_failed", message: "系统通知不可用", details: nil))
-            } else { result(nil) }
+        let ownerPrefix = self.prefix + Data(owner.utf8).base64EncodedString() + ":"
+        let request = UNNotificationRequest(identifier: ownerPrefix + "summary", content: content, trigger: nil)
+        let generation = self.notificationGeneration
+        self.clearNotifications(prefix: ownerPrefix) {
+          guard generation == self.notificationGeneration else { result(nil); return }
+          self.center.add(request) { error in
+            DispatchQueue.main.async {
+              if error != nil {
+                result(FlutterError(code: "notification_failed", message: "系统通知不可用", details: nil))
+              } else { result(nil) }
+            }
           }
         }
+      case "openSettings":
+        self.openSettings(result)
       case "cancelAll":
+        self.notificationGeneration += 1
         self.pendingTap = nil
-        let cancellation = DispatchGroup()
-        cancellation.enter()
-        self.center.getDeliveredNotifications { delivered in
-          self.center.removeDeliveredNotifications(withIdentifiers: delivered.map { $0.request.identifier }.filter { $0.hasPrefix(self.prefix) })
-          cancellation.leave()
-        }
-        cancellation.enter()
-        self.center.getPendingNotificationRequests { pending in
-          self.center.removePendingNotificationRequests(withIdentifiers: pending.map { $0.identifier }.filter { $0.hasPrefix(self.prefix) })
-          cancellation.leave()
-        }
-        cancellation.notify(queue: .main) { result(nil) }
+        self.clearNotifications(prefix: self.prefix) { result(nil) }
       case "takeTap":
         result(self.pendingTap)
         self.pendingTap = nil
       default: result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  private func openSettings(_ result: @escaping FlutterResult) {
+    DispatchQueue.main.async {
+      guard let fallback = URL(string: UIApplication.openSettingsURLString) else {
+        result(false); return
+      }
+      if #available(iOS 16.0, *),
+         let notifications = URL(string: UIApplication.openNotificationSettingsURLString) {
+        UIApplication.shared.open(notifications, options: [:]) { opened in
+          if opened { result(true) }
+          else { UIApplication.shared.open(fallback, options: [:]) { result($0) } }
+        }
+      } else {
+        UIApplication.shared.open(fallback, options: [:]) { result($0) }
+      }
+    }
+  }
+
+  private func clearNotifications(prefix: String, completion: @escaping () -> Void) {
+    let cancellation = DispatchGroup()
+    cancellation.enter()
+    center.getDeliveredNotifications { delivered in
+      self.center.removeDeliveredNotifications(withIdentifiers: delivered.map { $0.request.identifier }.filter { $0.hasPrefix(prefix) })
+      cancellation.leave()
+    }
+    cancellation.enter()
+    center.getPendingNotificationRequests { pending in
+      self.center.removePendingNotificationRequests(withIdentifiers: pending.map { $0.identifier }.filter { $0.hasPrefix(prefix) })
+      cancellation.leave()
+    }
+    cancellation.notify(queue: .main, execute: completion)
   }
 
   private func valid(_ value: String) -> Bool {

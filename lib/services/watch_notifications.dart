@@ -12,12 +12,21 @@ class WatchNotifications {
     'south_plus_rewrite/watch_notifications',
   );
 
+  void Function(int requestId)? onBackgroundStopped;
+
   void listen(Future<void> Function()? onTap) {
     channel.setMethodCallHandler(
       onTap == null
           ? null
           : (call) async {
-              if (call.method == 'tap') await onTap();
+              if (call.method == 'tap') {
+                await onTap();
+              } else if (call.method == 'backgroundStopped') {
+                final requestId = call.arguments;
+                if (requestId is int && requestId >= 0) {
+                  onBackgroundStopped?.call(requestId);
+                }
+              }
             },
     );
   }
@@ -89,8 +98,30 @@ class WatchNotifications {
     }
   }
 
-  Future<bool> openSettings() async {
+  Future<bool> setBackgroundPolling({
+    required bool enabled,
+    required int requestId,
+  }) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+    try {
+      return await channel.invokeMethod<bool>('setBackgroundPolling', {
+            'enabled': enabled,
+            'requestId': requestId,
+          }) ==
+          true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<bool> openSettings() async {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS)) {
+      return false;
+    }
     try {
       return await channel.invokeMethod<bool>('openSettings') == true;
     } on MissingPluginException {
