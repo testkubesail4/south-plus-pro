@@ -3398,7 +3398,22 @@ class ForumRepository {
       return const ReplyResult(success: false, message: '回复内容不能为空');
     }
 
-    final html = await _client.get(_urls.relativePath(thread.url));
+    final client = _client;
+    final urls = _urls;
+    final epoch = _sessionEpoch.value;
+    final credentialGeneration = client.credentialGeneration;
+    void requireCurrentSession() {
+      if (!identical(client, _client) ||
+          epoch != _sessionEpoch.value ||
+          !client.isCredentialCurrent(credentialGeneration)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+      }
+    }
+
+    requireCurrentSession();
+    final html = await client.get(urls.relativePath(thread.url));
+    requireCurrentSession();
     _throwIfBlockedPage(html);
     final document = html_parser.parse(html);
     final form = document.querySelector('form[name="FORM"]');
@@ -3414,8 +3429,10 @@ class ForumRepository {
       ..['Submit'] = ' 提 交 ';
 
     final action = form.attributes['action'] ?? 'post.php?';
-    final response = await _client.post(
-        _urls.relativePath(_urls.absoluteUrl(action)), fields);
+    final response = await client.postForm(
+        urls.relativePath(urls.absoluteUrl(action)), fields.entries.toList(),
+        requireCurrentSession: requireCurrentSession);
+    requireCurrentSession();
     return _replyResult(response, '回复已提交');
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -574,6 +575,85 @@ void main() {
       ),
     );
   });
+
+  for (final change in ['session', 'credentials']) {
+    for (final phase in ['form read', 'paced send', 'response']) {
+      test('reply rejects $change change during $phase', () async {
+        const thread = ForumThread(
+          title: 'Synthetic thread',
+          url: 'https://south-plus.net/read.php?tid-100.html',
+          replies: 0,
+          section: 'Synthetic board',
+        );
+        final held = _HoldClock();
+        client = _LocalForumClient(
+          client.baseUri,
+          transport,
+          now: phase == 'paced send' ? held.call : clock.call,
+          delay: phase == 'paced send' ? held.delay : clock.delay,
+        )..authenticated = true;
+        final repository = ForumRepository(client: client);
+        final epoch = repository.sessionEpoch.value;
+        final generation = client.credentialGeneration;
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        final bodies = <String>[];
+        void respond(HttpRequest request, String body, bool hold) {
+          if (hold) {
+            entered.complete();
+            release.future.then((_) => _text(body)(request));
+          } else {
+            _text(body)(request);
+          }
+        }
+
+        _scripted.addAll([
+          (request) => respond(request, _postForm, phase == 'form read'),
+          (request) async {
+            bodies.add(await utf8.decoder.bind(request).join());
+            respond(
+                request, '<html><body>发表成功</body></html>', phase == 'response');
+          },
+        ]);
+        final reply = repository.submitReply(
+            thread: thread,
+            title: 'Synthetic subject',
+            content: 'Private draft');
+        final rejected = expectLater(
+          reply,
+          throwsA(isA<ForumRequestException>().having(
+              (error) => error.kind, 'kind', ForumRequestKind.loginRequired)),
+        );
+        if (phase == 'paced send') {
+          await _until(() => held.pending != null);
+        } else {
+          await entered.future;
+        }
+        if (change == 'session') {
+          await repository.clearSession();
+          expect(repository.sessionEpoch.value, epoch + 1);
+        } else {
+          await client.clearSession();
+          expect(repository.sessionEpoch.value, epoch,
+              reason:
+                  'credential invalidation must not rely on an epoch change');
+        }
+        expect(client.isCredentialCurrent(generation), isFalse);
+        if (phase == 'paced send') {
+          held.elapse();
+        } else {
+          release.complete();
+        }
+        await rejected;
+        expect(
+            hits,
+            phase == 'response'
+                ? ['GET /read.php', 'POST /post.php']
+                : ['GET /read.php']);
+        expect(bodies, phase == 'response' ? hasLength(1) : isEmpty);
+      });
+    }
+  }
 
   test(
       'compose uncertainty never retries while replies retain transport errors',
