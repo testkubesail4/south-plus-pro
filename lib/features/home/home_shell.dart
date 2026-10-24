@@ -161,8 +161,12 @@ class _HomeShellState extends State<HomeShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Navigator.of(context).overlay!.insert(_banner);
+      _bannerInserted = true;
     });
   }
+
+  // Inserted is not yet mounted: the entry builds a frame later.
+  var _bannerInserted = false;
 
   late final _banner = OverlayEntry(
     builder: (_) => LiveNoticeBanner(
@@ -186,7 +190,7 @@ class _HomeShellState extends State<HomeShell> {
     _repository.watch.removeListener(_onWatch);
     _repository.watch.stop();
     _repository.liveSync.stop();
-    if (_banner.mounted) _banner.remove();
+    if (_bannerInserted) _banner.remove();
     _banner.dispose();
     super.dispose();
   }
@@ -636,15 +640,16 @@ class _ForumHomePageState extends State<ForumHomePage> {
       _future = next;
     });
     // After the home read starts, so the notice check can share its page.
+    // Handled from the start: it may fail while the home still loads.
     final messages = pulled && widget.repository.isLoggedIn
-        ? widget.repository.liveSync.syncMessages(user: true)
+        ? _awaitMessages(widget.repository.liveSync.syncMessages(user: true))
         : null;
     try {
       await next;
     } catch (_) {
       // FutureBuilder renders the error state.
     }
-    if (messages != null) await _awaitMessages(messages);
+    await messages;
   }
 
   Future<void> _awaitMessages(Future<void> messages) async {

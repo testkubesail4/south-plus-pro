@@ -114,6 +114,37 @@ void main() {
       await tester.pumpAndSettle();
       expect(repo.sync.userSyncs, 2);
     });
+
+    testWidgets('消息 failing while a slow home still loads is handled',
+        (tester) async {
+      final repo = await pumpShell(tester);
+      repo.sync.fail = true;
+      repo.homeGate = Completer<void>();
+      await tester.fling(
+          find.byType(ListView).first, const Offset(0, 400), 1000);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      // The sync has failed; the home has not answered.
+      expect(repo.sync.userSyncs, 1);
+      repo.homeGate!.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('消息同步失败'), findsOneWidget);
+    });
+
+    testWidgets('a shell gone before its banner mounts leaves no entry',
+        (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester
+          .pumpWidget(MaterialApp(home: HomeShell(repository: _Repo())));
+      // The banner is inserted after the first frame, built in the next.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(LiveNoticeBanner), findsNothing);
+    });
   });
 
   group('消息', () {
@@ -267,6 +298,7 @@ class _Repo extends ForumRepository {
   var latestTitle = 'Latest 1';
   var homeReads = 0;
   var failHome = false;
+  Completer<void>? homeGate;
 
   @override
   ForumLiveSync get liveSync => sync;
@@ -290,6 +322,7 @@ class _Repo extends ForumRepository {
   @override
   Future<ForumHomeSnapshot> fetchHome() async {
     homeReads++;
+    await homeGate?.future;
     if (failHome) throw StateError('offline');
     return ForumHomeSnapshot(
       latest: [_thread(latestTitle)],
