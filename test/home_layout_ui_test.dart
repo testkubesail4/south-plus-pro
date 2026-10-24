@@ -260,7 +260,8 @@ void main() {
           ];
 
       void directoryPending() {
-        expect(find.byKey(const ValueKey('home-directory-pending')), findsOneWidget);
+        expect(find.byKey(const ValueKey('home-directory-pending')),
+            findsOneWidget);
         expect(find.byKey(const ValueKey('home-section-0')), findsNothing);
         expect(find.byKey(const ValueKey('home-grid-1')), findsNothing);
       }
@@ -298,7 +299,8 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('home-grid-1')), findsNothing);
-    expect(find.byKey(const ValueKey('home-directory-pending')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('home-directory-pending')), findsOneWidget);
     repo.homeGate!.complete();
     await tester.pumpAndSettle();
     expect(find.text('Fixture board'), findsOneWidget);

@@ -95,23 +95,16 @@ String watchRuleSummary(
   }
 }
 
-String _clock(DateTime at) => '${at.hour.toString().padLeft(2, '0')}:'
-    '${at.minute.toString().padLeft(2, '0')}';
-
-/// Where a rule's checking stands, in a few words.
-String watchStatusText(WatchService watch, WatchRule rule) {
-  if (rule.paused) return '已暂停';
+/// A rule's status, only when it is paused or cannot be checked; a rule
+/// that is working says nothing.
+String? watchStatusText(WatchService watch, WatchRule rule) {
   final status = watch.statuses[rule.id];
-  final checked = status?.checkedAt;
   return switch (status?.phase) {
-    null || WatchPhase.baseline => '等待首次检查',
-    WatchPhase.pending => watch.pendingUntil == null ? '等待检查' : '待继续（已达请求上限）',
-    WatchPhase.current =>
-      checked == null ? '已检查' : '${_clock(checked.toLocal())} 已检查',
-    WatchPhase.incomplete => '有内容待确认，下次继续',
+    _ when rule.paused => '已暂停',
+    WatchPhase.paused => '已暂停',
     WatchPhase.unavailable =>
       status!.reason.isEmpty ? '无法检查' : '无法检查：${status.reason}',
-    WatchPhase.paused => '已暂停',
+    _ => null,
   };
 }
 
@@ -448,7 +441,10 @@ class _WatchSheetState extends State<WatchSheet> {
         ListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(watchRuleSummary(rule, _selfUid, _names)),
-          subtitle: Text(watchStatusText(_watch, rule)),
+          subtitle: switch (watchStatusText(_watch, rule)) {
+            final status? => Text(status),
+            null => null,
+          },
           trailing: const Icon(Icons.chevron_right),
           onTap: () => setState(() => _open(rule)),
         ),

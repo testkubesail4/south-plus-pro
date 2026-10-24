@@ -128,52 +128,66 @@ class _WatchTabState extends State<WatchTab> {
           color: AppColors.brand,
           onRefresh: () => _watch.checkNow().catchError((_) {}),
           child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.only(top: AppSpace.sm, bottom: 88),
-          children: [
-            AppContentWidth(
-              maxWidth: AppWidths.list,
-              child: SubTabs<bool>(
-                tabs: [
-                  (false, '动态'),
-                  (
-                    true,
-                    unreadable
-                        ? '规则'
-                        : '规则 ${_watch.activeCount}/${WatchService.maxActiveRules}'
-                  ),
-                ],
-                selected: _showRules,
-                onSelected: (value) => setState(() => _showRules = value),
-                trailing: HelpButton(title: '关注', lines: watchHelpLines),
-              ),
-            ),
-            const SizedBox(height: AppSpace.md),
-            AppContentWidth(
-              maxWidth: AppWidths.list,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: unreadable
-                    ? [
-                        EmptyStateView(
-                          icon: Icons.error_outline,
-                          iconColor: AppColors.textMuted,
-                          title: '关注数据无法读取',
-                          action: FilledButton.tonalIcon(
-                            onPressed: _watch.running
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.only(top: AppSpace.sm, bottom: 88),
+            children: [
+              AppContentWidth(
+                maxWidth: AppWidths.list,
+                child: SubTabs<bool>(
+                  tabs: [
+                    (false, '动态'),
+                    (
+                      true,
+                      unreadable
+                          ? '规则'
+                          : '规则 ${_watch.activeCount}/${WatchService.maxActiveRules}'
+                    ),
+                  ],
+                  selected: _showRules,
+                  onSelected: (value) => setState(() => _showRules = value),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Pulling needs touch; this serves mouse and keyboard.
+                      IconButton(
+                        tooltip: '立即检查',
+                        icon: const Icon(Icons.refresh),
+                        onPressed:
+                            _watch.running || rules.every((rule) => rule.paused)
                                 ? null
                                 : () => _watch.checkNow().catchError((_) {}),
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('重试'),
-                          ),
-                        ),
-                      ]
-                    : _showRules
-                        ? _rules(context, rules)
-                        : _events(context, rules),
+                      ),
+                      HelpButton(title: '关注', lines: watchHelpLines),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: AppSpace.md),
+              AppContentWidth(
+                maxWidth: AppWidths.list,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: unreadable
+                      ? [
+                          EmptyStateView(
+                            icon: Icons.error_outline,
+                            iconColor: AppColors.textMuted,
+                            title: '关注数据无法读取',
+                            action: FilledButton.tonalIcon(
+                              onPressed: _watch.running
+                                  ? null
+                                  : () => _watch.checkNow().catchError((_) {}),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('重试'),
+                            ),
+                          ),
+                        ]
+                      : _showRules
+                          ? _rules(context, rules)
+                          : _events(context, rules),
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -237,10 +251,7 @@ class _WatchTabState extends State<WatchTab> {
                   rule,
                   watchSelfUid(widget.repository),
                 ),
-                // Rows only speak up when something is off.
-                status: rule.paused || failed(rule)
-                    ? watchStatusText(_watch, rule)
-                    : null,
+                status: watchStatusText(_watch, rule),
                 failed: failed(rule),
                 onEdit: () => showWatchSheet(
                   context,
@@ -549,11 +560,11 @@ class _RuleRow extends StatelessWidget {
                       Text(
                         status,
                         maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: failed ? theme.colorScheme.error : null,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: failed ? theme.colorScheme.error : null,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -177,10 +178,19 @@ void main() {
       expect(watch.checks, 1);
     });
 
+    testWidgets('立即检查 runs a check with a mouse', (tester) async {
+      final watch = FakeWatch(rules: [_rule('r1')]);
+      await pumpTab(tester, watch);
+      await tester.tap(find.byTooltip('立即检查'), kind: PointerDeviceKind.mouse);
+      expect(watch.checks, 1);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+
     testWidgets('no rules: nothing to check, and 说明 says where to add one',
         (tester) async {
       await pumpTab(tester, FakeWatch());
       expect(find.text('还没有关注'), findsOneWidget);
+      final check = find.widgetWithIcon(IconButton, Icons.refresh);
+      expect(tester.widget<IconButton>(check).onPressed, isNull);
       await tester.tap(find.byTooltip('说明'));
       await tester.pumpAndSettle();
       expect(find.textContaining('楼层作者菜单'), findsOneWidget);
@@ -188,8 +198,7 @@ void main() {
   });
 
   group('规则', () {
-    testWidgets('only paused and failed rules show a status',
-        (tester) async {
+    testWidgets('only paused and failed rules show a status', (tester) async {
       final watch = FakeWatch(
         rules: [
           _rule('a', label: 'current'),
