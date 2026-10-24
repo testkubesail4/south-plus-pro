@@ -820,7 +820,7 @@ void main() {
         findsOneWidget);
     expect(tester.widget<ButtonStyleButton>(submit).enabled, isFalse);
     await tester.tap(submit);
-    expect(repository.replyNotices, [true], reason: 'no double submit');
+    expect(repository.replyNoticeOptions, [true], reason: 'no double submit');
     repository.pending!.complete();
     await tester.pumpAndSettle();
     expect(tester.widget<ButtonStyleButton>(submit).enabled, isTrue);
@@ -830,7 +830,7 @@ void main() {
     await tester.tap(submit);
     await tester.pumpAndSettle();
 
-    expect(repository.replyNotices, [true, false]);
+    expect(repository.replyNoticeOptions, [true, false]);
   });
 
   testWidgets(
@@ -2215,7 +2215,7 @@ class _FakeBoardRepository extends ForumRepository {
 }
 
 class _FakeComposeRepository extends ForumRepository {
-  final replyNotices = <bool>[];
+  final replyNoticeOptions = <bool>[];
   Completer<void>? pending;
 
   // A plain board: no categories, no bounty.
@@ -2244,7 +2244,7 @@ class _FakeComposeRepository extends ForumRepository {
     int? helpfulAmount,
     bool confirmBounty = false,
   }) async {
-    replyNotices.add(enableReplyNotice);
+    replyNoticeOptions.add(enableReplyNotice);
     await pending?.future;
     // Fail so the screen stays open for the next submit.
     return const ReplyResult(success: false, message: 'rejected');

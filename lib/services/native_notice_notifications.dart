@@ -17,6 +17,7 @@ class NativeNoticeNotifications {
     required this.loadInbox,
     required this.loadReplies,
     required this.notifications,
+    this.onNotice,
     DateTime Function()? clock,
   }) : clock = clock ?? DateTime.now;
 
@@ -25,6 +26,10 @@ class NativeNoticeNotifications {
   final Future<ForumPmPage> Function(String? path) loadInbox;
   final Future<List<ForumReplyNotice>> Function() loadReplies;
   final WatchNotifications notifications;
+  final void Function(NoticeNotificationKind kind, int count, String? title)?
+      onNotice;
+  (int, String?)? _pmEventDetails;
+  (int, String?)? _replyEventDetails;
   final DateTime Function() clock;
   static const maxSends = 8;
   static const window = Duration(minutes: 5);
@@ -35,6 +40,7 @@ class NativeNoticeNotifications {
   Map<String, dynamic> _state = {};
   Future<void>? _loading;
   bool _loadFailed = false;
+  Object? lastError;
 
   String _key(String owner) =>
       'account/${Uri.encodeComponent(owner)}/native_notice_notifications_v1';
@@ -208,6 +214,12 @@ class NativeNoticeNotifications {
     final id =
         fresh.isEmpty ? null : _issue(next, NoticeNotificationKind.pm, fresh);
     await _save(scope, next, guard);
+    if (id != null) {
+      _pmEventDetails = (
+        fresh.length,
+        page.messages[keys.indexOf(fresh.first)].title,
+      );
+    }
     return id;
   }
 
@@ -243,6 +255,12 @@ class NativeNoticeNotifications {
         ? null
         : _issue(next, NoticeNotificationKind.reply, fresh);
     await _save(scope, next, guard);
+    if (id != null) {
+      _replyEventDetails = (
+        fresh.length,
+        rows.firstWhere((row) => _replyKey(row) == fresh.first).title,
+      );
+    }
     if (!hasNotice) {
       await notifications.cancelKind(scope.owner, NoticeNotificationKind.reply);
       guard();
@@ -254,10 +272,14 @@ class NativeNoticeNotifications {
   Future<DateTime?> check(
     WatchSession scope,
     void Function() beforeSend,
-    void Function() guard,
-  ) async {
+    void Function() guard, {
+    bool refreshInbox = false,
+  }) async {
+    lastError = null;
     String? pmEvent;
     String? replyEvent;
+    _pmEventDetails = null;
+    _replyEventDetails = null;
     var hasMore = false;
     DateTime? pendingUntil;
     try {
@@ -277,7 +299,8 @@ class NativeNoticeNotifications {
         () async {
           final flags = await refreshFlags(scope);
           guard();
-          final needsPm = flags.unreadPm ||
+          final needsPm = refreshInbox ||
+              flags.unreadPm ||
               _state['pmInitialized'] != true ||
               _state['pmNext'] != null;
           if (needsPm) {
@@ -287,11 +310,13 @@ class NativeNoticeNotifications {
               rethrow;
             } on WatchBudgetExhausted {
               rethrow;
-            } catch (_) {
+            } catch (error) {
               guard();
+              lastError = error;
               hasMore = true;
             }
-          } else {
+          }
+          if (!flags.unreadPm) {
             await notifications.cancelKind(
               scope.owner,
               NoticeNotificationKind.pm,
@@ -305,8 +330,9 @@ class NativeNoticeNotifications {
             rethrow;
           } on WatchBudgetExhausted {
             rethrow;
-          } catch (_) {
+          } catch (error) {
             guard();
+            lastError = error;
             hasMore = true;
           }
           while (_state['pmNext'] != null) {
@@ -322,11 +348,22 @@ class NativeNoticeNotifications {
       pendingUntil = _sends.first.add(window);
     } on WatchBudgetExhausted {
       rethrow;
-    } catch (_) {
+    } catch (error) {
       guard();
+      lastError = error;
       hasMore = true;
     } finally {
       guard();
+      if (pmEvent != null && _pmEventDetails != null) {
+        final details = _pmEventDetails!;
+        onNotice?.call(NoticeNotificationKind.pm, details.$1, details.$2);
+        guard();
+      }
+      if (replyEvent != null && _replyEventDetails != null) {
+        final details = _replyEventDetails!;
+        onNotice?.call(NoticeNotificationKind.reply, details.$1, details.$2);
+        guard();
+      }
       final permission = await notifications.permission();
       guard();
       if (permission == WatchNotificationPermission.granted) {

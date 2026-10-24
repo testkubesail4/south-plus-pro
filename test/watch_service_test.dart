@@ -229,6 +229,76 @@ void main() {
     expect(restored.events, isEmpty);
   });
 
+  test('a full check arriving during notices-only still runs the watch jobs',
+      () async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    final held = Completer<void>();
+    final entered = Completer<void>();
+    var checks = 0;
+    final service = WatchService(
+      session: rig.service.session,
+      notifications: rig.notices,
+      checkNativeNotices: (scope, reserve, guard) async {
+        checks++;
+        if (checks == 1) {
+          entered.complete();
+          await held.future;
+        }
+        guard();
+        return null;
+      },
+    );
+    addTearDown(service.dispose);
+    await service.addRule(rule('due'));
+    final notices = service.checkNotices();
+    await entered.future;
+    final full = service.checkNow();
+    final otherFull = service.checkNow();
+    held.complete();
+    await Future.wait([notices, full, otherFull]);
+    expect(checks, 2, reason: 'one notices flight and one shared full round');
+    expect(rig.client.paths, hasLength(1));
+    expect(service.statuses['due']!.phase, WatchPhase.current);
+    expect(service.events, isEmpty);
+  });
+
+  testWidgets(
+      'minute notice checks do not postpone the fifteen-minute watch round',
+      (tester) async {
+    final rig = Rig();
+    addTearDown(rig.dispose);
+    var nativeChecks = 0;
+    final service = WatchService(
+      session: rig.service.session,
+      notifications: rig.notices,
+      clock: () => rig.now,
+      checkNativeNotices: (scope, reserve, guard) async {
+        nativeChecks++;
+        guard();
+        return null;
+      },
+    );
+    addTearDown(service.dispose);
+    await service.addRule(rule('scheduled'));
+    await service.start();
+    final deadline = service.nextCheckAt;
+    expect(rig.client.paths, hasLength(1));
+    for (var minute = 1; minute < 15; minute++) {
+      rig.now = rig.now.add(const Duration(minutes: 1));
+      await tester.pump(const Duration(minutes: 1));
+      await service.checkNotices();
+      expect(service.nextCheckAt, deadline);
+      expect(rig.client.paths, hasLength(1));
+    }
+    rig.now = rig.now.add(const Duration(minutes: 1));
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pump();
+    expect(rig.client.paths, hasLength(2));
+    expect(nativeChecks, 16);
+    service.stop();
+  });
+
   test('unreadable watch state does not block native polls or validated taps',
       () async {
     final rig = Rig();

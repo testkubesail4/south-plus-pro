@@ -90,6 +90,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
   Future<void>? _loading;
   Future<void> _nativeReset = Future.value();
   Future<void>? _checking;
+  bool _noticesOnly = false;
   Future<void> _writes = Future.value();
   Future<void> _mutations = Future.value();
   final _sourceStatuses = <String, WatchStatus>{};
@@ -530,16 +531,27 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     _sends.add(now);
   }
 
-  Future<void> checkNow() {
+  Future<void> checkNow() => _runCheck(noticesOnly: false);
+
+  Future<void> checkNotices() => _runCheck(noticesOnly: true);
+
+  Future<void> _runCheck({required bool noticesOnly}) {
     final existing = _checking;
-    if (existing != null) return existing;
+    if (existing != null) {
+      // A due watch round must survive a foreground notices-only check.
+      if (!noticesOnly && _noticesOnly) {
+        return existing.catchError((_) {}).then((_) => checkNow());
+      }
+      return existing;
+    }
     if (_disposed || !_canCheck) return Future.value();
+    _noticesOnly = noticesOnly;
     late Future<void> pending;
-    pending = _check().whenComplete(() {
+    pending = _check(noticesOnly: noticesOnly).whenComplete(() {
       if (identical(_checking, pending)) _checking = null;
       if (!_disposed) {
         notifyListeners();
-        _scheduleNextCheck();
+        if (!noticesOnly) _scheduleNextCheck();
       }
     });
     _checking = pending;
@@ -587,7 +599,7 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
     await checkNow().catchError((_) {});
   }
 
-  Future<void> _check() async {
+  Future<void> _check({required bool noticesOnly}) async {
     final runGeneration = _runGeneration;
     await _mutations.catchError((_) {});
     if (session() == null) {
@@ -628,9 +640,11 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       unawaited(_syncBackgroundPolling());
       if (!_canCheck) return;
     }
-    progressDone = 0;
-    progressTotal = 0;
-    pendingUntil = null;
+    if (!noticesOnly) {
+      progressDone = 0;
+      progressTotal = 0;
+      pendingUntil = null;
+    }
     requireCurrent();
     await _consumeTap();
     requireCurrent();
@@ -648,8 +662,10 @@ class WatchService extends ChangeNotifier with WidgetsBindingObserver {
       } catch (_) {
         requireCurrent();
         _nativePendingUntil = clock().add(budgetWindow);
+        if (noticesOnly) rethrow;
       }
     }
+    if (noticesOnly) return;
     await _ready(retryStorage: true);
     requireCurrent();
     unawaited(_syncBackgroundPolling());

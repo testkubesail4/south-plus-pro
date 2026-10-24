@@ -36,6 +36,55 @@ void main() {
   });
 
   test(
+      'first inbox reads coalesce, preserve snapshots on error and ignore other boxes',
+      () async {
+    final gate = Completer<void>();
+    final client = _PmClient()
+      ..responses.add(_inbox)
+      ..responseGate = gate;
+    final repository = ForumRepository(client: client);
+    final first = repository.fetchPmBox(ForumPmBox.inbox);
+    final second = repository.fetchPmBox(ForumPmBox.inbox);
+    expect(second, same(first));
+    gate.complete();
+    final inbox = await first;
+    expect(client.getPaths, hasLength(1));
+    expect(repository.pmInbox.value, same(inbox));
+    client.responseGate = null;
+    client.responses.add('<html>Unexpected response</html>');
+    await expectLater(repository.fetchPmBox(ForumPmBox.inbox),
+        throwsA(isA<ForumRequestException>()));
+    expect(repository.pmInbox.value, same(inbox));
+    client.responses.add(_emptyBox(ForumPmBox.sendbox));
+    await repository.fetchPmBox(ForumPmBox.sendbox);
+    expect(repository.pmInbox.value, same(inbox));
+    await repository.clearSession();
+    expect(repository.pmInbox.value, isNull);
+  });
+
+  test('new credentials do not adopt an older inbox flight or its late result',
+      () async {
+    final gate = Completer<void>();
+    final client = _PmClient()
+      ..responses.add(_inbox)
+      ..responseGate = gate;
+    final repository = ForumRepository(client: client);
+    final stale = repository.fetchPmBox(ForumPmBox.inbox);
+    await client.reachedGate.future;
+    client.credentialOverride = client.credentialGeneration + 1;
+    client.responseGate = null;
+    client.responses
+        .add(_inbox.replaceAll('Fixture personal', 'Fresh personal'));
+    final fresh = await repository.fetchPmBox(ForumPmBox.inbox);
+    final rejected = expectLater(stale, throwsA(isA<ForumRequestException>()));
+    gate.complete();
+    await rejected;
+    expect(repository.pmInbox.value, same(fresh));
+    expect(fresh.messages.first.title, 'Fresh personal');
+    expect(client.getPaths, hasLength(2));
+  });
+
+  test(
       'native pagination separates adjacent text and selected digits, and rejects incomplete or clamped pages',
       () async {
     final client = _PmClient();
@@ -665,6 +714,7 @@ void main() {
           throwsA(isA<ForumRequestException>().having(
               (error) => error.kind, 'kind', ForumRequestKind.loginRequired)),
           reason: mode);
+      expect(repository.pmInbox.value, isNull, reason: mode);
     }
   });
 

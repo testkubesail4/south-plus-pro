@@ -13,6 +13,7 @@ import '../models/user_content_query.dart';
 import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
 import 'forum_client.dart';
+import 'forum_live_sync.dart';
 import 'full_scan.dart';
 import 'thread_search.dart';
 import 'forum_account_service.dart';
@@ -71,7 +72,9 @@ class ForumRepository {
     UserProfileCache? profileCache,
     BrowsingHistoryStore? historyStore,
     ForumTaskStateStore? taskStateStore,
-  })  : _client = client ??
+    DateTime Function()? clock,
+  })  : _clock = clock ?? DateTime.now,
+        _client = client ??
             ForumClient(
               config: config ??
                   const ForumNetworkConfig(
@@ -110,6 +113,15 @@ class ForumRepository {
       _blocking?.reset();
       _blockingLoadedEpoch = null;
       _noticeFlags.value = const ForumNoticeFlags();
+      _noticeFlagsUpdatedAt = null;
+      _noticeFlagsUid = null;
+      _pmInbox.value = null;
+      _replyNotices.value = null;
+      _pmInboxRequest = null;
+      _replyNoticesRequest = null;
+      _homeRequest = null;
+      _homeRequestKey = null;
+      _liveSync?.sessionChanged();
       _accountIdentity.value = null;
       _accountNicknameFuture = null;
       _taskReadRequests.clear();
@@ -132,31 +144,95 @@ class ForumRepository {
     });
   }
 
+  final DateTime Function() _clock;
   WatchService? _watch;
+  ForumLiveSync? _liveSync;
+  ForumLiveSync get liveSync => _liveSync ??= ForumLiveSync(
+        checkMessages: () => watch.checkNotices(),
+        clock: _clock,
+      );
+  final _pmInbox = ValueNotifier<ForumPmPage?>(null);
+  ValueListenable<ForumPmPage?> get pmInbox => _pmInbox;
+  final _replyNotices = ValueNotifier<List<ForumReplyNotice>?>(null);
+  ValueListenable<List<ForumReplyNotice>?> get replyNotices => _replyNotices;
+  Future<ForumPmPage>? _pmInboxRequest;
+  Object? _pmInboxRequestScope;
+  Future<List<ForumReplyNotice>>? _replyNoticesRequest;
+  Object? _replyNoticesRequestScope;
+  Future<ForumHomeSnapshot>? _homeRequest;
+  Object? _homeRequestKey;
+  DateTime? _noticeFlagsUpdatedAt;
+  String? _noticeFlagsUid;
+  DateTime? _nativeNextCheckAt;
+  bool _nativeHasContinuation = false;
   NativeNoticeNotifications? _nativeNotifications;
   NativeNoticeNotifications get nativeNotifications =>
       _nativeNotifications ??= NativeNoticeNotifications(
         session: _watchSession,
+        clock: _clock,
         refreshFlags: _refreshNotificationFlags,
         loadInbox: (path) => fetchPmBox(ForumPmBox.inbox, pagePath: path),
         loadReplies: () => _fetchReplyNotices(allowVerifyRefresh: false),
         notifications: watch.notifications,
+        onNotice: (kind, count, title) =>
+            _liveSync?.noticeReceived(kind, count, title),
       );
   WatchService get watch => _watch ??= WatchService(
         session: _watchSession,
-        checkNativeNotices:
-            !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-                ? (scope, reserve, guard) =>
-                    nativeNotifications.check(scope, reserve, guard)
-                : null,
-        acceptNativeNoticeTap:
-            !kIsWeb && defaultTargetPlatform == TargetPlatform.android
-                ? (tap) => nativeNotifications.acceptTap(tap)
-                : null,
+        clock: _clock,
+        checkNativeNotices: _checkNativeNotices,
+        acceptNativeNoticeTap: (tap) => nativeNotifications.acceptTap(tap),
       );
+
+  Future<DateTime?> _checkNativeNotices(WatchSession scope,
+      void Function() reserve, void Function() guard) async {
+    guard();
+    final now = _clock();
+    final next = _nativeNextCheckAt;
+    if (next != null && next.isAfter(now)) {
+      return _nativeHasContinuation ? next : null;
+    }
+    _nativeNextCheckAt = now.add(ForumLiveSync.messageInterval);
+    final DateTime? continuation;
+    try {
+      continuation = await nativeNotifications.check(scope, reserve, guard,
+          refreshInbox: true);
+    } on WatchBudgetExhausted {
+      _nativeNextCheckAt =
+          watch.pendingUntil ?? now.add(WatchService.budgetWindow);
+      _nativeHasContinuation = true;
+      rethrow;
+    }
+    guard();
+    _nativeHasContinuation = continuation != null;
+    _nativeNextCheckAt =
+        continuation ?? _clock().add(ForumLiveSync.messageInterval);
+    final error = nativeNotifications.lastError;
+    if (error != null) throw error;
+    if (!_noticeFlags.value.replyNotice) {
+      _replyNotices.value = const [];
+    }
+    return continuation;
+  }
 
   Future<ForumNoticeFlags> _refreshNotificationFlags(WatchSession scope) async {
     scope.requireCurrent();
+    // A pull-to-refresh already reads index.php; share its verified header.
+    final home = _homeRequest;
+    if (home != null) {
+      try {
+        await home;
+      } catch (_) {
+        scope.requireCurrent();
+      }
+    }
+    scope.requireCurrent();
+    final updated = _noticeFlagsUpdatedAt;
+    if (_noticeFlagsUid == scope.uid &&
+        updated != null &&
+        _clock().difference(updated) < ForumLiveSync.messageInterval) {
+      return _noticeFlags.value;
+    }
     final response = await scope.client.getForm('index.php',
         requireCurrentSession: scope.requireCurrent, followRedirects: false);
     scope.requireCurrent();
@@ -183,6 +259,8 @@ class ForumRepository {
     _replyNoticeVerify = verify;
     _replyNoticeCredentialGeneration = scope.client.credentialGeneration;
     _noticeFlags.value = flags;
+    _noticeFlagsUpdatedAt = _clock();
+    _noticeFlagsUid = scope.uid;
     return flags;
   }
 
@@ -761,6 +839,15 @@ class ForumRepository {
       replyNotice: _replyNoticeParser.hasReplyNotice(document),
       unreadPm: _replyNoticeParser.hasUnreadPm(document),
     );
+    final knownPm = _noticeFlags.value.unreadPm ||
+        document.querySelectorAll('#td_msg img[src]').any((image) =>
+            Uri.tryParse(image.attributes['src']!)?.path.split('/').last ==
+            'no-shortmail.gif');
+    if (knownPm &&
+        (!_noticeFlags.value.replyNotice || _replyNoticeVerify != null)) {
+      _noticeFlagsUpdatedAt = _clock();
+      _noticeFlagsUid = _userProfileParser.parseAccountIdentity(document)?.uid;
+    }
     _maybeLoadBlocking();
   }
 
@@ -820,9 +907,33 @@ class ForumRepository {
   Future<List<ForumReplyNotice>> fetchReplyNotices() => _fetchReplyNotices();
 
   Future<List<ForumReplyNotice>> _fetchReplyNotices(
-      {bool allowVerifyRefresh = true}) async {
+      {bool allowVerifyRefresh = true}) {
+    final scope = (_client, _sessionEpoch.value, _client.credentialGeneration);
+    final existing = _replyNoticesRequest;
+    if (existing != null && scope == _replyNoticesRequestScope) return existing;
+    late Future<List<ForumReplyNotice>> pending;
+    pending = _loadReplyNotices(allowVerifyRefresh: allowVerifyRefresh)
+        .whenComplete(() {
+      if (identical(_replyNoticesRequest, pending)) _replyNoticesRequest = null;
+    });
+    _replyNoticesRequestScope = scope;
+    _replyNoticesRequest = pending;
+    return pending;
+  }
+
+  Future<List<ForumReplyNotice>> _loadReplyNotices(
+      {required bool allowVerifyRefresh}) async {
+    final epoch = _sessionEpoch.value;
+    final client = _client;
+    final credentials = client.credentialGeneration;
     final response = await _postReplyNotice({'action': 'newrp'},
         allowVerifyRefresh: allowVerifyRefresh);
+    if (epoch != _sessionEpoch.value ||
+        !identical(client, _client) ||
+        !client.isCredentialCurrent(credentials)) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变');
+    }
     final List<ForumReplyNotice> notices;
     if (response.trim() == '您的回复列表为空') {
       notices = const [];
@@ -838,6 +949,7 @@ class ForumRepository {
       replyNotice: notices.isNotEmpty,
       unreadPm: _noticeFlags.value.unreadPm,
     );
+    _replyNotices.value = List.unmodifiable(notices);
     return notices;
   }
 
@@ -898,7 +1010,23 @@ class ForumRepository {
     return response;
   }
 
-  Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
+  Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) {
+    if (box != ForumPmBox.inbox || pagePath != null) {
+      return _loadPmBox(box, pagePath: pagePath);
+    }
+    final scope = (_client, _sessionEpoch.value, _client.credentialGeneration);
+    final existing = _pmInboxRequest;
+    if (existing != null && scope == _pmInboxRequestScope) return existing;
+    late Future<ForumPmPage> pending;
+    pending = _loadPmBox(box).whenComplete(() {
+      if (identical(_pmInboxRequest, pending)) _pmInboxRequest = null;
+    });
+    _pmInboxRequestScope = scope;
+    _pmInboxRequest = pending;
+    return pending;
+  }
+
+  Future<ForumPmPage> _loadPmBox(ForumPmBox box, {String? pagePath}) async {
     final target = _pmParser.requireRoute(
       pagePath ?? 'message.php?action-${box.wireName}.html',
       {box.wireName},
@@ -911,6 +1039,9 @@ class ForumRepository {
             currentPage: int.tryParse(target.fields['page'] ?? '') ?? 1));
     for (final message in page.messages) {
       _pmSessions[message] = session;
+    }
+    if (box == ForumPmBox.inbox && page.currentPage == 1) {
+      _pmInbox.value = page;
     }
     return page;
   }
@@ -1361,7 +1492,30 @@ class ForumRepository {
     return List.unmodifiable(lists);
   }
 
-  Future<ForumHomeSnapshot> fetchHome() async {
+  Future<ForumHomeSnapshot> fetchHome() {
+    final key = (
+      _client,
+      _sessionEpoch.value,
+      _client.credentialGeneration,
+      localPreferenceAccount,
+      HomeReadingPreferences.quickSourcesRevision(
+          account: localPreferenceAccount),
+    );
+    final existing = _homeRequest;
+    if (existing != null && key == _homeRequestKey) return existing;
+    late Future<ForumHomeSnapshot> pending;
+    pending = _fetchHome().whenComplete(() {
+      if (identical(_homeRequest, pending)) {
+        _homeRequest = null;
+        _homeRequestKey = null;
+      }
+    });
+    _homeRequestKey = key;
+    _homeRequest = pending;
+    return pending;
+  }
+
+  Future<ForumHomeSnapshot> _fetchHome() async {
     _invalidateQuickLists();
     final generation = _homeGeneration;
     // Consume session verification once; refreshes still fetch a fresh directory.

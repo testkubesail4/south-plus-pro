@@ -94,6 +94,7 @@ class _Fixture {
   late HttpClient transport;
   late _Client client;
   final bridge = _Bridge();
+  final inApp = <(NoticeNotificationKind, int, String?)>[];
   String owner = 'A';
   int epoch = 0;
   String? headerUid;
@@ -154,6 +155,7 @@ class _Fixture {
       session: scope,
       notifications: bridge,
       clock: () => now,
+      onNotice: (kind, count, title) => inApp.add((kind, count, title)),
       refreshFlags: (_) async {
         final doc = html.parse(
           await client.getForm('index.php', followRedirects: false),
@@ -217,6 +219,13 @@ class _Fixture {
     final form = await utf8.decoder.bind(request).join();
     if (request.uri.path == '/index.php') {
       request.response.write(index());
+    } else if (request.uri.path == '/simple/index.php') {
+      request.response.write(
+        '<a href="read.php?tid-123.html">Fixture title</a>'
+        '<table><tr><th><h2>Fixture section</h2></th></tr><tr><th>'
+        '<h3><a href="thread.php?fid-42.html">Fixture board</a></h3>'
+        '</th><td>1 / 2</td></tr></table>',
+      );
     } else if (request.uri.path == '/message.php') {
       final body = inbox(pageOf(request.uri.toString()));
       if (releasePm != null) {
@@ -346,6 +355,82 @@ void main() {
       expect(f.requests.every((r) => r.$2 != '/read.php'), isTrue);
     },
   );
+
+  test(
+      'home pull and message entry share the index header, cooldown and native budget',
+      () async {
+    final f = await fixture();
+    f.pmFlag = true;
+    f.replyFlag = true;
+    f.replies = [(70, '2026-01-01')];
+    final repository = ForumRepository(client: f.client, clock: () => f.now);
+    addTearDown(repository.liveSync.dispose);
+    addTearDown(repository.watch.dispose);
+    expect(await repository.restoreSession(), isTrue);
+    final home = repository.fetchHome();
+    final sync = repository.liveSync.syncMessages(user: true);
+    await Future.wait([home, sync]);
+    expect(f.requests.where((r) => r.$2 == '/index.php'), hasLength(1),
+        reason:
+            'reuse the verified desktop header instead of fetching it twice');
+    expect(repository.pmInbox.value!.messages.single.id, '1');
+    expect(repository.replyNotices.value!.single.tid, 70);
+    int noticeSends() =>
+        f.requests
+            .where((r) => {'/index.php', '/message.php'}.contains(r.$2))
+            .length +
+        f.replyActions.where((action) => action == 'newrp').length;
+    final count = noticeSends();
+    await Future.wait([
+      repository.liveSync.syncMessages(),
+      repository.liveSync.syncMessages(user: true),
+      repository.watch.checkNow(),
+    ]);
+    expect(noticeSends(), count, reason: 'all entry points share freshness');
+    for (var minute = 1; minute <= 3; minute++) {
+      f.now = f.now.add(const Duration(minutes: 1));
+      await repository.liveSync.syncMessages(user: true);
+    }
+    expect(noticeSends() - count, 6,
+        reason: 'two three-send rounds use the remaining native reservation');
+    final exhausted = noticeSends();
+    f.now = f.now.add(const Duration(minutes: 1));
+    await repository.liveSync.syncMessages(user: true);
+    expect(noticeSends(), exhausted,
+        reason:
+            'continuation blocks more requests until the rolling budget opens');
+  });
+
+  test('in-app notices ignore OS permission but require persisted fresh IDs',
+      () async {
+    final f = await fixture();
+    f.bridge.granted = WatchNotificationPermission.denied;
+    f.pmFlag = true;
+    f.replyFlag = true;
+    f.replies = [(70, '2026-01-01')];
+    await f.watch.checkNow();
+    expect(f.inApp, isEmpty, reason: 'initial baselines stay silent');
+    f.nextWindow();
+    f.pm[0] = [('2', true), ('1', false)];
+    f.replies.add((71, '2026-01-01'));
+    rejectWrites = true;
+    await f.watch.checkNow();
+    expect(f.inApp, isEmpty, reason: 'no event before ledger acknowledgement');
+    expect(f.native.lastError, isNotNull);
+    rejectWrites = false;
+    f.nextWindow();
+    await f.watch.checkNow();
+    expect(f.inApp, [
+      (NoticeNotificationKind.pm, 1, 'private synthetic title'),
+      (NoticeNotificationKind.reply, 1, 'private thread title'),
+    ]);
+    expect(f.bridge.shown, isEmpty);
+    f.nextWindow();
+    await f.watch.checkNow();
+    expect(f.inApp, hasLength(2), reason: 'same IDs never replay');
+    expect(persisted.values.join(), isNot(contains('private synthetic title')));
+    expect(persisted.values.join(), isNot(contains('private thread title')));
+  });
 
   test(
     'reply fingerprints union while true, reset only false, changed dates are best-effort distinct',
@@ -733,10 +818,12 @@ void main() {
           }
           return null;
         });
-        final repository = ForumRepository(client: f.client);
+        final repository =
+            ForumRepository(client: f.client, clock: () => f.now);
         addTearDown(repository.watch.dispose);
         expect(await repository.restoreSession(), isTrue);
         await repository.watch.checkNow();
+        f.nextWindow();
         final ledgerKey = persisted.keys.firstWhere(
           (key) => key.contains('native_notice_notifications_v1'),
         );
@@ -788,10 +875,11 @@ void main() {
         WatchNotifications.channel,
         (call) async => call.method == 'permission' ? true : null,
       );
-      final repository = ForumRepository(client: f.client);
+      final repository = ForumRepository(client: f.client, clock: () => f.now);
       addTearDown(repository.watch.dispose);
       expect(await repository.restoreSession(), isTrue);
       await repository.watch.checkNow();
+      f.nextWindow();
       expect(repository.noticeFlags.value.replyNotice, isFalse);
       f.replyFlag = true;
       f.replies = [(70, '2026-01-01')];
@@ -814,7 +902,7 @@ void main() {
       );
       f.replyFlag = true;
       f.replies = [(70, '2026-01-01')];
-      final repository = ForumRepository(client: f.client);
+      final repository = ForumRepository(client: f.client, clock: () => f.now);
       addTearDown(repository.watch.dispose);
       expect(await repository.restoreSession(), isTrue);
       final entered = Completer<void>();
@@ -839,7 +927,7 @@ void main() {
   );
 
   test(
-    'real repository rejects mismatched native header UID and new kinds make no HTTP or OS calls on iOS',
+    'real repository rejects mismatched UID; iOS syncs lists without OS notice calls',
     () async {
       final f = await fixture();
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -854,10 +942,11 @@ void main() {
         }
         return null;
       });
-      final repository = ForumRepository(client: f.client);
+      final repository = ForumRepository(client: f.client, clock: () => f.now);
       addTearDown(repository.watch.dispose);
       expect(await repository.restoreSession(), isTrue);
       await repository.watch.checkNow();
+      f.nextWindow();
       f.pmFlag = true;
       f.pm[0] = [('2', true)];
       f.headerUid = '999';
@@ -866,15 +955,21 @@ void main() {
       expect(f.requests.length, before + 1);
       expect(shown, isEmpty);
       f.headerUid = null;
+      f.nextWindow();
       await repository.watch.checkNow();
       expect(shown, hasLength(1));
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      final ios = ForumRepository(client: f.client);
+      final ios = ForumRepository(client: f.client, clock: () => f.now);
       addTearDown(ios.watch.dispose);
       expect(await ios.restoreSession(), isTrue);
       final count = f.requests.length;
       await ios.watch.checkNow();
-      expect(f.requests.length, count);
+      expect(f.requests.sublist(count).where((r) => r.$2 == '/message.php'),
+          [('GET', '/message.php')]);
+      expect(
+          f.requests.sublist(count).where((r) => r.$2 == '/index.php'), isEmpty,
+          reason: 'reuse the restored index header');
+      expect(ios.pmInbox.value, isNotNull);
       expect(
         await ios.watch.notifications.showNotice(
           'A',

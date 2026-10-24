@@ -67,6 +67,51 @@ void main() {
         ));
   });
 
+  test('concurrent home refreshes share one flight instead of invalidating it',
+      () async {
+    final client = _NoticeClient();
+    final repository = ForumRepository(client: client);
+    final first = repository.fetchHome();
+    final second = repository.fetchHome();
+    expect(second, same(first));
+    final snapshots = await Future.wait([first, second]);
+    expect(snapshots[0], same(snapshots[1]));
+    expect(client.gets, ['simple/index.php', 'index.php']);
+    await repository.fetchHome();
+    expect(
+        client.gets,
+        [
+          'simple/index.php',
+          'index.php',
+          'simple/index.php',
+          'index.php',
+        ],
+        reason: 'a settled refresh never turns into a permanent cache');
+  });
+
+  test('reply single-flight publishes snapshots and keeps them on failure',
+      () async {
+    final client = _NoticeClient()..pending = Completer<String>();
+    final repository = ForumRepository(client: client);
+    final first = repository.fetchReplyNotices();
+    final second = repository.fetchReplyNotices();
+    expect(second, same(first));
+    client.pending!.complete(_list);
+    final rows = await first;
+    expect(client.forms, [
+      {'action': 'newrp'}
+    ]);
+    expect(repository.replyNotices.value!.single.tid, rows.single.tid);
+    final snapshot = repository.replyNotices.value;
+    client.pending = null;
+    client.list = '<html>Unexpected response</html>';
+    await expectLater(
+        repository.fetchReplyNotices(), throwsA(isA<ForumRequestException>()));
+    expect(repository.replyNotices.value, same(snapshot));
+    await repository.clearSession();
+    expect(repository.replyNotices.value, isNull);
+  });
+
   test('home publishes unread flags and reuses its verification token',
       () async {
     final client = _NoticeClient();
@@ -143,6 +188,7 @@ void main() {
     client.pending!.complete(_list);
     await assertion;
     expect(repository.noticeFlags.value.replyNotice, isFalse);
+    expect(repository.replyNotices.value, isNull);
   });
 
   test(
