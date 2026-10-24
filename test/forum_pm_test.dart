@@ -69,7 +69,9 @@ void main() {
     'unread-error',
     'delete-error',
     'send',
-    'send-error'
+    'send-error',
+    'chatlog',
+    'chatlog-error'
   ]) {
     test('$operation retires an older inbox flight before the quiet reread',
         () async {
@@ -91,11 +93,12 @@ void main() {
           stale.then((_) => 'accepted', onError: (_) => 'retired');
       await client.reachedGate.future;
       client.responseGate = null;
-      client.responses.add(operation == 'read'
-          ? _detail
-          : operation.startsWith('unread')
-              ? _inbox
-              : _successInbox);
+      client.responses.add(switch (operation) {
+        'read' => _detail,
+        'unread' || 'unread-error' => _inbox,
+        'chatlog' || 'chatlog-error' => _chatlog,
+        _ => _successInbox,
+      });
       if (operation.endsWith('-error')) {
         client.responseError =
             StateError('connection closed before confirmation');
@@ -103,6 +106,8 @@ void main() {
       final action = switch (operation) {
         'read' => repository.fetchPmDetail(initial.messages.first),
         'unread' || 'unread-error' => repository.markPmUnread(detail),
+        'chatlog' || 'chatlog-error' => repository
+            .fetchPmChatlog('message.php?action-chatlog-withuid-901.html'),
         'send' || 'send-error' => repository.submitPm(
             compose: compose!,
             recipientUid: '901',

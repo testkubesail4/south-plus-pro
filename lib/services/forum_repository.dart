@@ -1178,7 +1178,8 @@ class ForumRepository {
 
   Future<ForumPmChatlog> fetchPmChatlog(String path) async {
     final target = _pmParser.requireRoute(path, {'chatlog'});
-    final response = await _requestPm(_pmSession(), target.path);
+    final response =
+        await _requestPm(_pmSession(), target.path, changesInbox: true);
     return _parsePm(
         response,
         (document) => _pmParser.parseChatlog(
