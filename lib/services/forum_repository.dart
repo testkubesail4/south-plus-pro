@@ -155,6 +155,7 @@ class ForumRepository {
   ValueListenable<ForumPmPage?> get pmInbox => _pmInbox;
   final _replyNotices = ValueNotifier<List<ForumReplyNotice>?>(null);
   ValueListenable<List<ForumReplyNotice>?> get replyNotices => _replyNotices;
+  int _pmInboxGeneration = 0;
   Future<ForumPmPage>? _pmInboxRequest;
   Object? _pmInboxRequestScope;
   Future<List<ForumReplyNotice>>? _replyNoticesRequest;
@@ -998,16 +999,27 @@ class ForumRepository {
   }
 
   Future<String> _requestPm(_PmSession session, String path,
-      {Map<String, String>? fields}) async {
+      {Map<String, String>? fields, bool changesInbox = false}) async {
     void requireCurrent() => _checkPmSession(session);
     requireCurrent();
-    final response = fields == null
-        ? await session.client.getForm(path,
-            requireCurrentSession: requireCurrent, followRedirects: false)
-        : await session.client.postForm(path, fields.entries.toList(),
-            requireCurrentSession: requireCurrent);
-    requireCurrent();
-    return response;
+    try {
+      final response = fields == null
+          ? await session.client.getForm(path,
+              requireCurrentSession: requireCurrent, followRedirects: false)
+          : await session.client.postForm(path, fields.entries.toList(),
+              requireCurrentSession: requireCurrent);
+      requireCurrent();
+      return response;
+    } finally {
+      // A lost acknowledgement can still have changed the server's inbox.
+      if (changesInbox &&
+          identical(session.client, _client) &&
+          session.epoch == _sessionEpoch.value &&
+          session.client.isCredentialCurrent(session.credentialGeneration)) {
+        _pmInboxGeneration++;
+        _pmInboxRequest = null;
+      }
+    }
   }
 
   Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) {
@@ -1027,12 +1039,17 @@ class ForumRepository {
   }
 
   Future<ForumPmPage> _loadPmBox(ForumPmBox box, {String? pagePath}) async {
+    final generation = _pmInboxGeneration;
     final target = _pmParser.requireRoute(
       pagePath ?? 'message.php?action-${box.wireName}.html',
       {box.wireName},
     );
     final session = _pmSession();
     final response = await _requestPm(session, target.path);
+    if (box == ForumPmBox.inbox && generation != _pmInboxGeneration) {
+      throw const ForumRequestException(
+          ForumRequestKind.server, '短消息已更新，请重新加载');
+    }
     final page = _parsePm(
         response,
         (document) => _pmParser.parseBox(document, box,
@@ -1050,7 +1067,8 @@ class ForumRepository {
     final target = _pmParser.requireDetail(message);
     final session = _pmSession(source: message);
     _pmSessions[message] = session;
-    final response = await _requestPm(session, target.path);
+    final response = await _requestPm(session, target.path,
+        changesInbox: message.box == ForumPmBox.inbox);
     final detail = _parsePm(
         response, (document) => _pmParser.parseDetail(document, message));
     _pmSessions[detail] = session;
@@ -1096,8 +1114,8 @@ class ForumRepository {
       'atc_content': body,
     }..remove('ifsave');
     if (saveToSendbox) fields['ifsave'] = 'Y';
-    final response =
-        await _requestPm(session, compose.actionPath, fields: fields);
+    final response = await _requestPm(session, compose.actionPath,
+        fields: fields, changesInbox: true);
     _throwIfBlockedPage(response);
     return _pmParser.parseActionResult(html_parser.parse(response));
   }
@@ -1112,7 +1130,8 @@ class ForumRepository {
       throw const ForumRepositoryException('服务器未提供此消息的标记未读入口');
     }
     final session = _pmSession(source: detail, loaded: true);
-    final response = await _requestPm(session, target.path);
+    final response = await _requestPm(session, target.path,
+        changesInbox: message.box == ForumPmBox.inbox);
     return _parsePm(
         response, (document) => _pmParser.parseUnreadResult(document, message));
   }
@@ -1140,7 +1159,8 @@ class ForumRepository {
           target.fields['delids'] != message.id) {
         throw const ForumRepositoryException('私讯删除入口与所属箱不一致');
       }
-      response = await _requestPm(session, target.path);
+      response = await _requestPm(session, target.path,
+          changesInbox: message.box == ForumPmBox.inbox);
     } else {
       if (!message.canDelete) {
         throw const ForumRepositoryException('服务器未提供此消息的删除入口');
@@ -1149,7 +1169,8 @@ class ForumRepository {
           session, 'message.php?action-${message.box.wireName}.html');
       final fields = _parsePm(
           fresh, (document) => _pmParser.singleDeleteFields(document, message));
-      response = await _requestPm(session, 'message.php', fields: fields);
+      response = await _requestPm(session, 'message.php',
+          fields: fields, changesInbox: message.box == ForumPmBox.inbox);
     }
     _throwIfBlockedPage(response);
     return _pmParser.parseActionResult(html_parser.parse(response));

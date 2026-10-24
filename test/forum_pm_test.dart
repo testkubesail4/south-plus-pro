@@ -62,6 +62,75 @@ void main() {
     expect(repository.pmInbox.value, isNull);
   });
 
+  for (final operation in [
+    'read',
+    'unread',
+    'delete',
+    'unread-error',
+    'delete-error',
+    'send',
+    'send-error'
+  ]) {
+    test('$operation retires an older inbox flight before the quiet reread',
+        () async {
+      final client = _PmClient()..responses.addAll([_inbox, _detail]);
+      final repository = ForumRepository(client: client);
+      final initial = await repository.fetchPmBox(ForumPmBox.inbox);
+      final detail = await repository.fetchPmDetail(initial.messages.first);
+      ForumPmCompose? compose;
+      if (operation.startsWith('send')) {
+        client.responses.add(_compose);
+        compose = await repository.fetchPmCompose(
+            path: 'message.php?action-write-edmid-801.html');
+      }
+      final gate = Completer<void>();
+      client.responses.add(_inbox);
+      client.responseGate = gate;
+      final stale = repository.fetchPmBox(ForumPmBox.inbox);
+      final staleOutcome =
+          stale.then((_) => 'accepted', onError: (_) => 'retired');
+      await client.reachedGate.future;
+      client.responseGate = null;
+      client.responses.add(operation == 'read'
+          ? _detail
+          : operation.startsWith('unread')
+              ? _inbox
+              : _successInbox);
+      if (operation.endsWith('-error')) {
+        client.responseError =
+            StateError('connection closed before confirmation');
+      }
+      final action = switch (operation) {
+        'read' => repository.fetchPmDetail(initial.messages.first),
+        'unread' || 'unread-error' => repository.markPmUnread(detail),
+        'send' || 'send-error' => repository.submitPm(
+            compose: compose!,
+            recipientUid: '901',
+            title: 'Synthetic',
+            body: 'Synthetic'),
+        _ => repository.deletePm(initial.messages.first, detail: detail),
+      };
+      if (operation.endsWith('-error')) {
+        await expectLater(action, throwsStateError);
+      } else {
+        await action;
+      }
+      client.responses
+          .add(_inbox.replaceAll('Fixture personal', 'After action'));
+      final reread = repository.fetchPmBox(ForumPmBox.inbox);
+      final joinedOldFlight = identical(reread, stale);
+      final fresh = joinedOldFlight ? null : await reread;
+      gate.complete();
+      final outcome = await staleOutcome;
+      expect(joinedOldFlight, isFalse,
+          reason: 'read-after-write must fetch again');
+      expect(outcome, 'retired');
+      expect(fresh!.messages.first.title, 'After action');
+      expect(repository.pmInbox.value, same(fresh),
+          reason: 'the late old response cannot overwrite the newer snapshot');
+    });
+  }
+
   test('new credentials do not adopt an older inbox flight or its late result',
       () async {
     final gate = Completer<void>();
@@ -820,6 +889,7 @@ class _PmClient extends ForumClient {
       ? super.isCredentialCurrent(generation)
       : generation == credentialOverride;
   Completer<void>? responseGate;
+  Object? responseError;
   final reachedGate = Completer<void>();
   Completer<void>? loginGate;
   final loginReached = Completer<void>();
@@ -834,6 +904,9 @@ class _PmClient extends ForumClient {
     requireCurrentSession?.call();
     getPaths.add(path);
     final response = responses.removeAt(0);
+    final error = responseError;
+    responseError = null;
+    if (error != null) throw error;
     if (responseGate != null) {
       reachedGate.complete();
       await responseGate!.future;
@@ -849,7 +922,11 @@ class _PmClient extends ForumClient {
       void Function()? requireCurrentSession}) async {
     requireCurrentSession?.call();
     posts.add((path, Map.fromEntries(fields)));
-    return responses.removeAt(0);
+    final response = responses.removeAt(0);
+    final error = responseError;
+    responseError = null;
+    if (error != null) throw error;
+    return response;
   }
 
   @override
