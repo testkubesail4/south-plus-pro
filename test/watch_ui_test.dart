@@ -168,20 +168,12 @@ void main() {
       expect(find.byIcon(Icons.circle), findsOneWidget);
     });
 
-    testWidgets('a spent request budget reads as waiting, not as nothing new',
-        (tester) async {
-      final watch = FakeWatch(rules: [_rule('r1')])
-        ..pendingUntil = DateTime.now().add(const Duration(minutes: 3));
-      await pumpTab(tester, watch);
-      expect(find.textContaining('已达请求上限'), findsOneWidget);
-      final check = find.widgetWithText(TextButton, '立即检查');
-      expect(tester.widget<TextButton>(check).onPressed, isNull);
-    });
-
-    testWidgets('立即检查 runs a check', (tester) async {
+    testWidgets('pulling down runs a check', (tester) async {
       final watch = FakeWatch(rules: [_rule('r1')]);
       await pumpTab(tester, watch);
-      await tester.tap(find.widgetWithText(TextButton, '立即检查'));
+      expect(find.textContaining('已检查'), findsNothing);
+      await tester.fling(find.text('还没有新动态'), const Offset(0, 300), 1000);
+      await tester.pumpAndSettle();
       expect(watch.checks, 1);
     });
 
@@ -189,7 +181,6 @@ void main() {
         (tester) async {
       await pumpTab(tester, FakeWatch());
       expect(find.text('还没有关注'), findsOneWidget);
-      expect(find.text('立即检查'), findsNothing);
       await tester.tap(find.byTooltip('说明'));
       await tester.pumpAndSettle();
       expect(find.textContaining('楼层作者菜单'), findsOneWidget);
@@ -197,7 +188,7 @@ void main() {
   });
 
   group('规则', () {
-    testWidgets('each status reads plainly, failures in the error colour',
+    testWidgets('only paused and failed rules show a status',
         (tester) async {
       final watch = FakeWatch(
         rules: [
@@ -217,10 +208,11 @@ void main() {
       )..pendingUntil = DateTime.now().add(const Duration(minutes: 2));
       await pumpTab(tester, watch, rules: true);
 
-      expect(find.text('已启用 4/10'), findsOneWidget);
-      expect(find.text('14:32 已检查'), findsOneWidget);
-      expect(find.text('待继续（已达请求上限）'), findsOneWidget);
-      expect(find.text('有内容待确认，下次继续'), findsOneWidget);
+      expect(find.text('规则 4/10'), findsOneWidget);
+      // Rules that are fine say nothing.
+      expect(find.text('14:32 已检查'), findsNothing);
+      expect(find.text('待继续（已达请求上限）'), findsNothing);
+      expect(find.text('有内容待确认，下次继续'), findsNothing);
       expect(find.text('已暂停'), findsOneWidget);
       final failed = tester.widget<Text>(find.text('无法检查：帖子不存在'));
       expect(failed.style?.color,
@@ -255,7 +247,7 @@ void main() {
       await tester.tap(find.text('暂停'));
       await tester.pumpAndSettle();
       expect(watch.rules.single.paused, isTrue);
-      expect(find.text('已启用 0/10'), findsOneWidget);
+      expect(find.text('规则 0/10'), findsOneWidget);
     });
 
     testWidgets('删除 asks first', (tester) async {

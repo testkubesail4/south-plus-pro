@@ -139,7 +139,6 @@ void main() {
     expect(repository.pages, [1, 2, 3]);
     // Repeated floors show once.
     expect(find.text('reply 30', findRichText: true), findsOneWidget);
-    expect(find.text('后续页面的内容已被过滤或重复'), findsOneWidget);
     // A tap starts a fresh run: page 4 repeats too, so 5 follows on.
     await tester.tap(find.text('继续加载第 4 页'));
     await tester.pumpAndSettle();

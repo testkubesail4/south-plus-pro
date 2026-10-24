@@ -219,7 +219,7 @@ void main() {
     repo.signedIn = false;
     tester.element(find.byType(ForumTasksScreen)).markNeedsBuild();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('去登录'));
+    await tester.tap(find.text('登录'));
     await tester.pumpAndSettle();
     expect(find.byType(LoginScreen), findsOneWidget);
     expect(find.text('A 的私信', skipOffstage: false), findsNothing);

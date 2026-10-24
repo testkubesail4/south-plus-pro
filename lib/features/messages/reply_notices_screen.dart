@@ -129,7 +129,7 @@ class _ReplyNoticesScreenState extends State<ReplyNoticesScreen> {
               onRetry: _load,
             )
           : notices == null
-              ? const Center(child: CircularProgressIndicator())
+              ? const ThreadListSkeleton(itemCount: 6)
               : RefreshIndicator(
                   color: AppColors.brand,
                   onRefresh: _load,

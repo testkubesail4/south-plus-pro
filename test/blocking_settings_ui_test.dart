@@ -59,7 +59,6 @@ void main() {
     final server = await pump(tester);
     expect(find.text('Synced author'), findsOneWidget);
     expect(find.text('替换头像'), findsOneWidget);
-    expect(find.textContaining('已同步'), findsOneWidget);
     expect(find.text('Local author'), findsOneWidget);
     expect(find.text('只屏蔽主题帖'), findsOneWidget);
     expect(find.text('synthetic reply〔表情〕'), findsOneWidget);

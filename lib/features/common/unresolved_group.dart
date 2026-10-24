@@ -8,7 +8,6 @@ class UnresolvedGroup extends StatelessWidget {
   const UnresolvedGroup({
     super.key,
     required this.title,
-    required this.description,
     required this.expanded,
     required this.onToggle,
     required this.child,
@@ -17,8 +16,6 @@ class UnresolvedGroup extends StatelessWidget {
   /// The heading with its count, e.g. 标题不完整 (2).
   final String title;
 
-  /// Why these rows may match.
-  final String description;
   final bool expanded;
   final VoidCallback onToggle;
 
@@ -28,18 +25,7 @@ class UnresolvedGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final body = expanded
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpace.sm),
-                child: Text(description, style: theme.textTheme.bodySmall),
-              ),
-              child,
-            ],
-          )
-        : const SizedBox(width: double.infinity);
+    final body = expanded ? child : const SizedBox(width: double.infinity);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

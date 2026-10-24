@@ -123,7 +123,12 @@ class _WatchTabState extends State<WatchTab> {
         final rules = _watch.rules;
         // Unread local state is not an empty list; 重试 reads it again.
         final unreadable = _watch.statuses.containsKey('storage');
-        return ListView(
+        // Pulling waits for the check; at the request limit it just returns.
+        return RefreshIndicator(
+          color: AppColors.brand,
+          onRefresh: () => _watch.checkNow().catchError((_) {}),
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.only(top: AppSpace.sm, bottom: 88),
           children: [
             AppContentWidth(
@@ -169,6 +174,7 @@ class _WatchTabState extends State<WatchTab> {
               ),
             ),
           ],
+          ),
         );
       },
     );
@@ -179,8 +185,20 @@ class _WatchTabState extends State<WatchTab> {
     final labels = {for (final rule in rules) rule.id: rule.label};
     if (rules.isEmpty) return const [_NoRules()];
     return [
-      _StatusStrip(watch: _watch),
-      const SizedBox(height: AppSpace.md),
+      if (_watch.running)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpace.lg, 0, AppSpace.lg, AppSpace.md),
+          child: LinearProgressIndicator(
+            value: _watch.progressTotal == 0
+                ? null
+                : (_watch.progressDone / _watch.progressTotal)
+                    .clamp(0, 1)
+                    .toDouble(),
+            minHeight: 2,
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
       if (events.isEmpty)
         const EmptyStateView(
           icon: Icons.notifications_none_outlined,
@@ -203,12 +221,14 @@ class _WatchTabState extends State<WatchTab> {
   }
 
   List<Widget> _rules(BuildContext context, List<WatchRule> rules) {
+    bool failed(WatchRule rule) =>
+        !rule.paused &&
+        _watch.statuses[rule.id]?.phase == WatchPhase.unavailable;
     return [
       if (rules.isEmpty)
         const _NoRules()
       else
         AppGroup(
-          label: '已启用 ${_watch.activeCount}/${WatchService.maxActiveRules}',
           children: [
             for (final rule in rules)
               _RuleRow(
@@ -217,9 +237,11 @@ class _WatchTabState extends State<WatchTab> {
                   rule,
                   watchSelfUid(widget.repository),
                 ),
-                status: watchStatusText(_watch, rule),
-                failed: !rule.paused &&
-                    _watch.statuses[rule.id]?.phase == WatchPhase.unavailable,
+                // Rows only speak up when something is off.
+                status: rule.paused || failed(rule)
+                    ? watchStatusText(_watch, rule)
+                    : null,
+                failed: failed(rule),
                 onEdit: () => showWatchSheet(
                   context,
                   repository: widget.repository,
@@ -310,80 +332,6 @@ String _when(DateTime at) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(local.month)}-${two(local.day)} '
       '${two(local.hour)}:${two(local.minute)}';
-}
-
-/// When the checks last ran and will run, with 立即检查.
-class _StatusStrip extends StatelessWidget {
-  const _StatusStrip({required this.watch});
-
-  final WatchService watch;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final now = DateTime.now();
-    final pending = watch.pendingUntil;
-    final waiting = pending != null && pending.isAfter(now);
-    final last = [
-      for (final status in watch.statuses.values)
-        if (status.checkedAt case final at?) at,
-    ].fold<DateTime?>(null, (a, b) => a == null || b.isAfter(a) ? b : a);
-    String clock(DateTime at) {
-      final local = at.toLocal();
-      return '${local.hour.toString().padLeft(2, '0')}:'
-          '${local.minute.toString().padLeft(2, '0')}';
-    }
-
-    final text = watch.running
-        ? (watch.progressTotal > 0
-            ? '正在检查 ${watch.progressDone}/${watch.progressTotal}'
-            : '正在检查')
-        : waiting
-            ? '已达请求上限，约 ${clock(pending)} 继续'
-            : [
-                last == null ? '尚未检查' : '${clock(last)} 已检查',
-                if (watch.nextCheckAt case final next?) '下次约 ${clock(next)}',
-              ].join(' · ');
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(AppSpace.lg, 0, AppSpace.sm, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Semantics(
-                  liveRegion: true,
-                  child: Text(text, style: theme.textTheme.bodySmall),
-                ),
-              ),
-              TextButton(
-                onPressed: watch.running ||
-                        waiting ||
-                        watch.rules.every((rule) => rule.paused)
-                    ? null
-                    : () => watch.checkNow().catchError((_) {}),
-                child: const Text('立即检查'),
-              ),
-            ],
-          ),
-          if (watch.running)
-            Padding(
-              padding: const EdgeInsets.only(right: AppSpace.sm),
-              child: LinearProgressIndicator(
-                value: watch.progressTotal == 0
-                    ? null
-                    : (watch.progressDone / watch.progressTotal)
-                        .clamp(0, 1)
-                        .toDouble(),
-                minHeight: 3,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 class _NoRules extends StatelessWidget {
@@ -549,7 +497,7 @@ class _RuleRow extends StatelessWidget {
 
   final WatchRule rule;
   final String summary;
-  final String status;
+  final String? status;
   final bool failed;
   final VoidCallback onEdit;
   final VoidCallback onOpen;
@@ -597,9 +545,10 @@ class _RuleRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall,
                     ),
-                    Text(
-                      status,
-                      maxLines: 2,
+                    if (status case final status?)
+                      Text(
+                        status,
+                        maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: failed ? theme.colorScheme.error : null,

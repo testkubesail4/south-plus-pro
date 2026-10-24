@@ -112,7 +112,7 @@ void main() {
     await selectTab(tester, '消息');
     expect(find.byType(PmBoxScreen), findsNothing);
 
-    await tester.tap(find.text('去登录'));
+    await tester.tap(find.text('登录'));
     await tester.pumpAndSettle();
     expect(find.byType(LoginScreen), findsOneWidget);
     await tester.enterText(find.byType(TextField).at(0), _userA);

@@ -345,7 +345,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   builder: (context, snapshot) => _sessionChanged
                       ? AsyncErrorView(
                           title: '登录状态已变化',
-                          message: '之前加载的好友已隐藏，重试将按当前账号重新加载。',
                           onRetry: _reloadAll,
                         )
                       : AppSwitcher(

@@ -427,7 +427,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     Expanded(
                       child: AsyncErrorView(
                         title: '登录状态已变化',
-                        message: '之前加载的资料已隐藏，重试将按当前账号重新加载。',
                         onRetry: _refresh,
                       ),
                     ),

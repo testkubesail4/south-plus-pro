@@ -59,7 +59,7 @@ void main() {
     // limiter spaces those sends by at least 1s; let that timer finish.
     await tester.pump(const Duration(seconds: 1));
 
-    expect(find.text('欢迎来到南+'), findsOneWidget);
+    expect(find.text('南+'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
   });
 
@@ -401,7 +401,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('论坛任务'), findsWidgets);
-    expect(find.text('去登录'), findsOneWidget);
+    expect(find.text('登录'), findsOneWidget);
   });
 
   testWidgets('home task shortcut claims rewards in one tap', (tester) async {
@@ -791,7 +791,7 @@ void main() {
     // The session restore and the first home request are paced, as in the
     // boot test above; the home header is there once they have run.
     await tester.pump(const Duration(seconds: 1));
-    final scaler = MediaQuery.textScalerOf(tester.element(find.text('欢迎来到南+')));
+    final scaler = MediaQuery.textScalerOf(tester.element(find.text('南+')));
     expect(scaler.scale(10), closeTo(10 * 1.5 * 1.15, 0.001));
     // Let the home page's paced request timer finish before teardown.
     await tester.pump(const Duration(seconds: 2));

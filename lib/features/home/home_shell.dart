@@ -219,7 +219,6 @@ class _HomeShellState extends State<HomeShell> {
                               Expanded(
                                 child: LoginPrompt(
                                   icon: Icons.mail_outline,
-                                  title: '消息',
                                   onLogin: () =>
                                       openLogin(context, _repository),
                                 ),
@@ -694,7 +693,6 @@ class _ForumHomePageState extends State<ForumHomePage> {
       _SectionHeader(
         section.title,
         key: ValueKey('home-section-$i'),
-        note: '${boards.length} 个版块',
         collapsed: collapsed,
         // Taps while a write is in flight are ignored inside; the header
         // keeps its look.
@@ -815,14 +813,21 @@ class _ForumHomePageState extends State<ForumHomePage> {
                             onOpen: _openCategory,
                           ),
                           if (data == null || !_prefsReady)
-                            SizedBox(
-                                height: 120,
-                                child: Center(
-                                    child: _prefsError == null
-                                        ? const Text('版块加载中…')
-                                        : TextButton(
-                                            onPressed: _loadPrefs,
-                                            child: const Text('首页设置加载失败，重试'))))
+                            if (_prefsError == null)
+                              // One quiet block: order and hiding are not
+                              // known yet, so no section takes its place.
+                              const Padding(
+                                key: ValueKey('home-directory-pending'),
+                                padding: EdgeInsets.only(top: 32),
+                                child: ThreadRowSkeleton(itemCount: 6),
+                              )
+                            else
+                              _HomeFootnote(
+                                key: const ValueKey('home-layout-retry'),
+                                text: '首页设置未能读取',
+                                action: '重试',
+                                onAction: _loadPrefs,
+                              )
                           else ...[
                             for (final section
                                 in prefs.orderedSections(sections))

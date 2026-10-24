@@ -154,7 +154,6 @@ void main() {
     expect(find.text('Message 111', skipOffstage: false), findsOneWidget);
     // No next page, but no page count either: the end is not claimed.
     expect(find.text('已到最后一页'), findsNothing);
-    expect(find.text('论坛未给出下一页，页数未能确认'), findsOneWidget);
     // The page links are page 2's: page 1's 下一页 would lead back to 2.
     expect(find.widgetWithText(OutlinedButton, '下一页'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, '上一页'), findsOneWidget);
@@ -342,7 +341,6 @@ void main() {
     expect(find.text('暂无消息'), findsNothing);
     expect(find.text('本页没有消息'), findsOneWidget);
     expect(find.text('已到最后一页'), findsNothing);
-    expect(find.text('论坛未给出下一页，页数未能确认'), findsOneWidget);
     expect(find.widgetWithText(OutlinedButton, '4'), findsOneWidget);
   });
 }

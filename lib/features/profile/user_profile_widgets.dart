@@ -1833,7 +1833,6 @@ class _ContentTabState extends State<_ContentTab>
             const SizedBox(height: AppSpace.md),
             UnresolvedGroup(
               title: '待确认 (${unresolved.length})',
-              description: '这些内容的标题、版块、分类或类型暂时无法核实，可能符合条件。',
               expanded: _unresolvedOpen,
               onToggle: () =>
                   setState(() => _unresolvedOpen = !_unresolvedOpen),

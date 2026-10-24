@@ -851,7 +851,6 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
         Expanded(
           child: LoginPrompt(
             icon: Icons.star_outline,
-            title: '收藏',
             onLogin: widget.onLoginTap ??
                 () => openLogin(context, widget.repository),
           ),
@@ -991,7 +990,6 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
             const SizedBox(height: AppSpace.md),
             UnresolvedGroup(
               title: '标题不完整 (${undecided.length})',
-              description: '这些收藏的标题被截断，可能符合条件；搜索全部页面会补全标题。',
               expanded: _unresolvedOpen,
               onToggle: () =>
                   setState(() => _unresolvedOpen = !_unresolvedOpen),
@@ -1196,19 +1194,16 @@ class _FavoriteThreadsPageState extends State<FavoriteThreadsPage>
           const EmptyStateView(
             icon: Icons.manage_search_outlined,
             title: '没有确认符合的收藏',
-            message: '下方标题不完整的收藏仍可能符合。',
           )
         else
           const EmptyStateView(
             icon: Icons.manage_search_outlined,
             title: '暂未找到',
-            message: '搜索未完成，结果可能不全。',
           ),
         if (unresolved.isNotEmpty) ...[
           const SizedBox(height: AppSpace.md),
           UnresolvedGroup(
             title: '标题不完整 (${unresolved.length})',
-            description: '这些收藏的标题被截断且无法补全，可能符合条件。',
             expanded: _unresolvedOpen,
             onToggle: () => setState(() => _unresolvedOpen = !_unresolvedOpen),
             child: rows(unresolved),

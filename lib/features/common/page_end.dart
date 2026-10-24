@@ -125,8 +125,14 @@ class PageEndFooter extends StatelessWidget {
         ],
       );
     } else if (page == null && !endConfirmed) {
-      child =
-          Text('论坛未给出下一页，页数未能确认', textAlign: TextAlign.center, style: muted);
+      // The count is unconfirmed, so the end is not claimed.
+      child = onRefresh == null
+          ? const SizedBox.shrink()
+          : TextButton.icon(
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('刷新本页'),
+            );
     } else if (page == null) {
       final refresh = onRefresh;
       child = Column(
@@ -141,14 +147,9 @@ class PageEndFooter extends StatelessWidget {
         ],
       );
     } else if (paused) {
-      child = Column(
-        children: [
-          Text('后续页面的内容已被过滤或重复', textAlign: TextAlign.center, style: muted),
-          TextButton(
-            onPressed: onNext,
-            child: Text(nextLabel ?? '继续加载$name'),
-          ),
-        ],
+      child = TextButton(
+        onPressed: onNext,
+        child: Text(nextLabel ?? '继续加载$name'),
       );
     } else if (manual) {
       child = FilledButton.icon(

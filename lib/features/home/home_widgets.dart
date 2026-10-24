@@ -58,7 +58,7 @@ class _Bone extends StatelessWidget {
   }
 }
 
-/// Section title, with an optional muted note and a trailing action; a
+/// Section title, with an optional trailing action; a
 /// null [title] is a placeholder. A non-null [collapsed] makes the header a
 /// 48px toggle (chevron, [onToggle]); a null [onToggle] keeps the room but
 /// is inert, so a placeholder holds the loaded height.
@@ -66,7 +66,6 @@ class _SectionHeader extends StatelessWidget {
   const _SectionHeader(
     this.title, {
     super.key,
-    this.note,
     this.trailing,
     this.collapsed,
     this.onToggle,
@@ -74,7 +73,6 @@ class _SectionHeader extends StatelessWidget {
   });
 
   final String? title;
-  final String? note;
   final Widget? trailing;
   final bool? collapsed;
   final VoidCallback? onToggle;
@@ -85,39 +83,18 @@ class _SectionHeader extends StatelessWidget {
     final collapsed = this.collapsed;
     final row = Row(
       children: [
-        // One line at any text size, so a placeholder's height holds: the
-        // title keeps the room it needs and the note takes what is left.
+        // One line at any text size, so a placeholder's height holds.
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) => Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                  child: title == null
-                      ? _Bone(_sectionTitleStyle(context), text: '　' * 4)
-                      : Text(
-                          title!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _sectionTitleStyle(context),
-                        ),
-                ),
-                if (note != null)
-                  Flexible(
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 10),
-                      child: Text(
-                        note!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: title == null
+                ? _Bone(_sectionTitleStyle(context), text: '　' * 4)
+                : Text(
+                    title!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _sectionTitleStyle(context),
                   ),
-              ],
-            ),
           ),
         ),
         if (trailing != null) trailing!,
@@ -214,7 +191,7 @@ class _HomeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!repository.isLoggedIn) {
       return AppTabHeader(
-        title: '欢迎来到南+',
+        title: '南+',
         maxWidth: _homeMaxWidth,
         leading: const BrandMark(size: 32),
         actions: [

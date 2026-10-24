@@ -26,13 +26,13 @@ class AsyncErrorView extends StatelessWidget {
   const AsyncErrorView({
     super.key,
     required this.title,
-    required this.message,
+    this.message,
     required this.onRetry,
     this.padding = const EdgeInsets.all(24),
   });
 
   final String title;
-  final String message;
+  final String? message;
   final FutureOr<void> Function() onRetry;
   final EdgeInsetsGeometry padding;
 
@@ -56,7 +56,7 @@ class AsyncErrorView extends StatelessWidget {
 class EmptyStateView extends StatelessWidget {
   const EmptyStateView({
     super.key,
-    required this.title,
+    this.title,
     this.message,
     this.icon = Icons.inbox_outlined,
     this.iconColor,
@@ -64,7 +64,7 @@ class EmptyStateView extends StatelessWidget {
     this.action,
   });
 
-  final String title;
+  final String? title;
   final String? message;
   final IconData icon;
   final Color? iconColor;
@@ -95,12 +95,14 @@ class EmptyStateView extends StatelessWidget {
                       size: 28, color: iconColor ?? AppColors.textFaint),
                 ),
               ),
-              const SizedBox(height: AppSpace.lg),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleMedium,
-              ),
+              if (title case final title?) ...[
+                const SizedBox(height: AppSpace.lg),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleMedium,
+                ),
+              ],
               if (message != null) ...[
                 const SizedBox(height: AppSpace.xs),
                 Text(

@@ -412,7 +412,7 @@ void main() {
       await toEnd(tester);
       expect(repo.avatarReads, [1, 2, 3],
           reason: 'Two pages with no fresh picture stop automatic reads');
-      expect(find.text('后续页面的内容已被过滤或重复'), findsOneWidget);
+      expect(resume, findsOneWidget);
       await tester.ensureVisible(resume);
       await tester.pumpAndSettle();
       expect(resume.hitTestable(), findsOneWidget);
@@ -421,7 +421,7 @@ void main() {
       expect(repo.avatarReads, [1, 2, 3, 4]);
       final picture = find.byTooltip('p4-0.gif');
       expect(picture, findsOneWidget);
-      expect(find.text('后续页面的内容已被过滤或重复'), findsNothing);
+      expect(resume, findsNothing);
       await tester.ensureVisible(picture);
       await tester.pumpAndSettle();
       expect(picture.hitTestable(), findsOneWidget);
@@ -444,7 +444,7 @@ void main() {
       await toEnd(tester);
       await toEnd(tester);
       expect(repo.avatarReads, [1, 2, 3]);
-      expect(find.text('论坛未给出下一页，页数未能确认', skipOffstage: false), findsOneWidget);
+      expect(find.text('已到最后一页', skipOffstage: false), findsNothing);
       // Back to 手动翻页, the pages stay and it turns from page 3, the last.
       await LoadingPreferences.save(LoadingDomain.avatars, LoadingMode.manual);
       await tester.pumpAndSettle();

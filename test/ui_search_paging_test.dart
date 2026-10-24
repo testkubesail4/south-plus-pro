@@ -110,7 +110,6 @@ void main() {
         scrollable: find.byType(Scrollable).first);
     // A tap on a list still moving only stops it.
     await tester.pumpAndSettle();
-    expect(find.text('后续页面的内容已被过滤或重复'), findsOneWidget);
     await tester.tap(find.text('继续加载第 4 页'));
     await tester.pump();
     expect(repo.paths[2], 'search.php?step=2&page=4');
@@ -142,7 +141,6 @@ void main() {
     expect(find.text('Result 100'), findsOneWidget);
     // No next link, and no page count: the end is not claimed.
     expect(find.text('已到最后一页'), findsNothing);
-    expect(find.text('论坛未给出下一页，页数未能确认'), findsOneWidget);
   });
 
   testWidgets('the pager arrow follows the forum next link too',

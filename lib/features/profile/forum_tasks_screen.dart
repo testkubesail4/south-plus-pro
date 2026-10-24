@@ -155,7 +155,6 @@ class _ForumTasksScreenState extends State<ForumTasksScreen> {
         appBar: AppBar(title: const Text('论坛任务')),
         body: LoginPrompt(
           icon: Icons.fact_check_outlined,
-          title: '论坛任务',
           onLogin: () async {
             if (!await openLogin(context, widget.repository)) return;
             if (!mounted) return;

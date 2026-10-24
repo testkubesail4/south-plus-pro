@@ -260,7 +260,7 @@ void main() {
           ];
 
       void directoryPending() {
-        expect(find.text('版块加载中…'), findsOneWidget);
+        expect(find.byKey(const ValueKey('home-directory-pending')), findsOneWidget);
         expect(find.byKey(const ValueKey('home-section-0')), findsNothing);
         expect(find.byKey(const ValueKey('home-grid-1')), findsNothing);
       }
@@ -298,7 +298,7 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('home-grid-1')), findsNothing);
-    expect(find.text('版块加载中…'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-directory-pending')), findsOneWidget);
     repo.homeGate!.complete();
     await tester.pumpAndSettle();
     expect(find.text('Fixture board'), findsOneWidget);
@@ -306,14 +306,14 @@ void main() {
 
   testWidgets('guests: welcome and 登录, hot boards, no notices', (tester) async {
     await pumpAt(tester, 1440, guest: true);
-    expect(find.text('欢迎来到南+'), findsOneWidget);
+    expect(find.text('南+'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '登录'), findsOneWidget);
     expect(find.text('回复提醒'), findsNothing);
     expect(find.text('热门版块'), findsOneWidget);
     expect(find.widgetWithText(ActionChip, 'Hot board'), findsOneWidget);
 
     await pumpAt(tester, 400, guest: true);
-    expect(find.text('欢迎来到南+'), findsOneWidget);
+    expect(find.text('南+'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '登录'), findsOneWidget);
     expect(find.byTooltip('回复提醒'), findsNothing);
   });

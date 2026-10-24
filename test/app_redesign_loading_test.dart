@@ -104,7 +104,7 @@ void main() {
     await _end(tester);
     expect(repository.requests, [1, 2, 3],
         reason: 'No-progress must stop network requests even when total=6');
-    expect(find.textContaining(RegExp('过滤|重复')), findsWidgets);
+    expect(find.textContaining(RegExp(r'继续加载.*4')), findsOneWidget);
     expect(find.text('已到最后一页'), findsNothing);
     final resume = find.textContaining(RegExp(r'继续加载.*4'));
     await tester.ensureVisible(resume.first);

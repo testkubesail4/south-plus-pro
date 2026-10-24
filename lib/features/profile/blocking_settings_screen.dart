@@ -196,11 +196,7 @@ class _BlockingSettingsScreenState extends State<BlockingSettingsScreen> {
                 ],
               );
             } else {
-              final synced = _blocking.nativeSyncedAt;
-              status = Text(
-                synced == null ? '' : '已同步 · ${_clock(synced)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              );
+              status = const SizedBox.shrink();
             }
             return Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -357,11 +353,6 @@ class _RowProgress extends StatelessWidget {
           ),
         ),
       );
-}
-
-String _clock(DateTime time) {
-  String two(int value) => value.toString().padLeft(2, '0');
-  return '${two(time.hour)}:${two(time.minute)}';
 }
 
 /// Stored content keeps the matcher's tokens; show them as words.

@@ -212,10 +212,9 @@ void main() {
     await toEnd(tester);
     await tester.tap(key('page-end-next'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('页数未能确认'), findsOneWidget);
+    expect(find.text('已到最后一页'), findsNothing);
     await toEnd(tester);
     expect(find.text('已到最后一页'), findsNothing);
-    expect(find.text('论坛未给出下一页，页数未能确认'), findsOneWidget);
   });
 
   testWidgets('a row chosen on page 3 moves to a category made on the way',
@@ -260,7 +259,6 @@ void main() {
           ..pageCount = 9);
     await toEnd(tester);
     expect(repo.calls, ['all:1', 'all:2', 'all:3']);
-    expect(find.text('后续页面的内容已被过滤或重复'), findsOneWidget);
     await tester.tap(find.text('继续加载第 4 页'));
     await tester.pump();
     expect(repo.calls[3], 'all:4');

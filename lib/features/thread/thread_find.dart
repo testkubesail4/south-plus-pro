@@ -284,7 +284,6 @@ class ThreadFindSheet extends StatelessWidget {
         ? EmptyStateView(
             icon: Icons.manage_search_outlined,
             title: '本帖没有找到“$keyword”',
-            message: '不含已屏蔽楼层、图片、附件和未解锁内容。',
           )
         : scan == null
             ? EmptyStateView(
@@ -294,7 +293,6 @@ class ThreadFindSheet extends StatelessWidget {
             : const EmptyStateView(
                 icon: Icons.manage_search_outlined,
                 title: '暂未找到',
-                message: '搜索未完成，结果可能不全。',
               );
     return [
       // The loaded pages are all there is: nothing to scan, no bar.
