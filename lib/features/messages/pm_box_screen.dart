@@ -108,10 +108,12 @@ class _PmBoxViewState extends State<_PmBoxView> {
     _scroll.addListener(_maybeLoadMore);
     LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
     if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
+    widget.repository.pmInbox.addListener(_onInboxSnapshot);
   }
 
   @override
   void dispose() {
+    widget.repository.pmInbox.removeListener(_onInboxSnapshot);
     LoadingPreferences.notifier.removeListener(_onLoadingModeChanged);
     _scroll.dispose();
     for (final scroll in _leftScrolls) {
@@ -121,6 +123,28 @@ class _PmBoxViewState extends State<_PmBoxView> {
   }
 
   void _maybeLoadMore() => _more.maybeLoad(_first, _scroll);
+
+  // A fresher inbox first page read elsewhere (a background check) swaps in
+  // quietly, but only while the reader is at the top of a one-page inbox:
+  // rows never move under someone reading further down.
+  void _onInboxSnapshot() {
+    final page = widget.repository.pmInbox.value;
+    final first = _first;
+    if (!mounted ||
+        page == null ||
+        first == null ||
+        identical(page, first) ||
+        _box != ForumPmBox.inbox ||
+        _pagePath != null ||
+        _more.pages.isNotEmpty ||
+        (_scroll.hasClients && _scroll.offset > 0)) {
+      return;
+    }
+    setState(() {
+      _landed[-1] = ++_quietCount;
+      _showQuietly(page, null);
+    });
+  }
 
   // The footer follows the mode; a page already on its way still lands.
   // 自动接续 starts at the next scroll to the end, never by itself.

@@ -23,6 +23,28 @@ class MessagesScreen extends StatefulWidget {
   /// The 关注 tab's index.
   static const watchTab = 2;
 
+  static _MessagesScreenState? _shownState;
+  static final _tabRequest = ValueNotifier<NoticeNotificationKind?>(null);
+
+  /// The list on screen right now, with nothing over it; null otherwise.
+  static NoticeNotificationKind? get visibleKind {
+    final state = _shownState;
+    if (state == null || !(ModalRoute.of(state.context)?.isCurrent ?? true)) {
+      return null;
+    }
+    return switch (state._tabs.index) {
+      0 => NoticeNotificationKind.pm,
+      1 => NoticeNotificationKind.reply,
+      _ => null,
+    };
+  }
+
+  /// Turns to [kind]'s list once the tab shows, as an in-app notice asks.
+  static void requestTab(NoticeNotificationKind kind) =>
+      _tabRequest.value = kind;
+
+  static void cancelTabRequest() => _tabRequest.value = null;
+
   @override
   State<MessagesScreen> createState() => _MessagesScreenState();
 }
@@ -41,6 +63,7 @@ class _MessagesScreenState extends State<MessagesScreen>
     super.initState();
     repository.watch.addListener(_onWatch);
     _tabs.addListener(_cancelShownKind);
+    MessagesScreen._tabRequest.addListener(_onTabRequest);
   }
 
   @override
@@ -49,15 +72,39 @@ class _MessagesScreenState extends State<MessagesScreen>
     final shown = TickerMode.of(context);
     if (shown == _shown) return;
     _shown = shown;
+    if (shown) {
+      MessagesScreen._shownState = this;
+    } else if (MessagesScreen._shownState == this) {
+      MessagesScreen._shownState = null;
+    }
     _cancelShownKind();
-    if (shown) _onWatch(building: true);
+    if (!shown) return;
+    _onWatch(building: true);
+    _onTabRequest();
+    // Coming to 消息 checks for news; the lists stay up meanwhile. After
+    // the frame: the check notifies listeners being built right now.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _shown == true) {
+        unawaited(repository.liveSync.syncMessages());
+      }
+    });
   }
 
   @override
   void dispose() {
+    if (MessagesScreen._shownState == this) MessagesScreen._shownState = null;
+    MessagesScreen._tabRequest.removeListener(_onTabRequest);
     repository.watch.removeListener(_onWatch);
     _tabs.dispose();
     super.dispose();
+  }
+
+  void _onTabRequest() {
+    if (_shown != true) return;
+    final kind = MessagesScreen._tabRequest.value;
+    if (kind == null) return;
+    MessagesScreen._tabRequest.value = null;
+    _tabs.animateTo(kind == NoticeNotificationKind.pm ? 0 : 1);
   }
 
   // A tapped system notification turns to its tab: 关注 opens the 动态;
@@ -153,6 +200,26 @@ class _MessagesScreenState extends State<MessagesScreen>
                   ],
                 );
               },
+            ),
+          ),
+          // A check in flight: a hairline under the tabs, the lists usable.
+          AppContentWidth(
+            maxWidth: AppWidths.list,
+            child: SizedBox(
+              height: 2,
+              child: ValueListenableBuilder<bool>(
+                valueListenable: repository.liveSync.messagesSyncing,
+                builder: (context, syncing, _) => AnimatedOpacity(
+                  opacity: syncing ? 1 : 0,
+                  duration: AppMotion.of(context, AppMotion.short),
+                  child: syncing
+                      ? const LinearProgressIndicator(
+                          key: ValueKey('messages-syncing'),
+                          minHeight: 2,
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ),
             ),
           ),
           AppContentWidth(

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show SynchronousFuture, listEquals;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,6 +13,7 @@ import '../../services/forum_request_exception.dart';
 import '../../services/forum_search_preferences.dart';
 import '../../services/forum_trace_logger.dart';
 import '../../services/home_reading_preferences.dart';
+import '../../services/watch_notifications.dart';
 import '../../theme/app_theme.dart';
 import '../auth/login_screen.dart';
 import '../board/board_thread_list_screen.dart';
@@ -22,6 +23,7 @@ import '../common/async_state_view.dart';
 import '../common/brand_mark.dart';
 import '../common/sub_tabs.dart';
 import '../common/thread_row.dart';
+import '../messages/live_notice_banner.dart';
 import '../messages/messages_screen.dart';
 import '../profile/account_screen.dart';
 import '../profile/favorite_threads_page.dart';
@@ -141,6 +143,7 @@ class _HomeShellState extends State<HomeShell> {
       _repository.watch
         ..takePendingOpen()
         ..takePendingNoticeOpen();
+      MessagesScreen.cancelTabRequest();
     } else {
       _showMessages();
     }
@@ -153,6 +156,28 @@ class _HomeShellState extends State<HomeShell> {
     // The repository owns the service; the shell only starts its checks.
     _repository.watch.addListener(_onWatch);
     unawaited(_repository.watch.start());
+    _repository.liveSync.start();
+    // Above every page, so a notice shows wherever the reader is.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).overlay!.insert(_banner);
+    });
+  }
+
+  late final _banner = OverlayEntry(
+    builder: (_) => LiveNoticeBanner(
+      notices: _repository.liveSync.latestNotice,
+      suppressed: (kind) => MessagesScreen.visibleKind == kind,
+      onOpen: _openNotice,
+    ),
+  );
+
+  // Like a tapped system notification, without reloading the list: the
+  // sync that raised the notice has just refreshed it.
+  void _openNotice(NoticeNotificationKind kind) {
+    if (_asking != null) return;
+    MessagesScreen.requestTab(kind);
+    _showMessages();
   }
 
   @override
@@ -160,6 +185,9 @@ class _HomeShellState extends State<HomeShell> {
     _tabRequests.removeListener(_onTabRequest);
     _repository.watch.removeListener(_onWatch);
     _repository.watch.stop();
+    _repository.liveSync.stop();
+    if (_banner.mounted) _banner.remove();
+    _banner.dispose();
     super.dispose();
   }
 
@@ -484,12 +512,52 @@ class _ForumHomePageState extends State<ForumHomePage> {
     // Visits, row count and folds change elsewhere too (a board route, the
     // search tab), so any write reloads them.
     HomeReadingPreferences.revision.addListener(_loadPrefs);
+    widget.repository.liveSync.homeRevision.addListener(_onHomeRevision);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Hidden behind another tab or page; a revision missed meanwhile is
+    // caught up on return.
+    final shown = TickerMode.of(context);
+    if (shown == _shown) return;
+    _shown = shown;
+    if (shown && _stale) _quietRefresh();
   }
 
   @override
   void dispose() {
+    widget.repository.liveSync.homeRevision.removeListener(_onHomeRevision);
     HomeReadingPreferences.revision.removeListener(_loadPrefs);
     super.dispose();
+  }
+
+  bool _shown = true;
+  bool _stale = false;
+  // Numbers every home load, so a quiet one never lands over a newer one.
+  int _homeLoads = 0;
+
+  void _onHomeRevision() {
+    _stale = true;
+    if (_shown) _quietRefresh();
+  }
+
+  /// Reads the home again behind what is shown; it swaps in only once read,
+  /// and a failure keeps the page as it is.
+  Future<void> _quietRefresh() async {
+    _stale = false;
+    final load = ++_homeLoads;
+    final ForumHomeSnapshot data;
+    try {
+      data = await _fetchHome();
+    } catch (_) {
+      return; // The next revision tries again.
+    }
+    if (!_current || load != _homeLoads) return;
+    setState(() {
+      _future = SynchronousFuture(data);
+    });
   }
 
   Future<void> _loadPrefs() async {
@@ -560,15 +628,38 @@ class _ForumHomePageState extends State<ForumHomePage> {
     });
   }
 
-  Future<void> _refresh() async {
+  /// Reloads the home; a [pulled] refresh brings 消息 up to date with it.
+  Future<void> _refresh({bool pulled = false}) async {
     final next = _fetchHome();
+    _homeLoads++;
     setState(() {
       _future = next;
     });
+    // After the home read starts, so the notice check can share its page.
+    final messages = pulled && widget.repository.isLoggedIn
+        ? widget.repository.liveSync.syncMessages(user: true)
+        : null;
     try {
       await next;
     } catch (_) {
       // FutureBuilder renders the error state.
+    }
+    if (messages != null) await _awaitMessages(messages);
+  }
+
+  Future<void> _awaitMessages(Future<void> messages) async {
+    try {
+      await messages;
+    } catch (_) {
+      if (!_current) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('消息同步失败'),
+        action: SnackBarAction(
+          label: '重试',
+          onPressed: () => _awaitMessages(
+              widget.repository.liveSync.syncMessages(user: true)),
+        ),
+      ));
     }
   }
 
@@ -676,6 +767,15 @@ class _ForumHomePageState extends State<ForumHomePage> {
     }
   }
 
+  static String _quickListsKey(ForumHomeSnapshot? data) => data == null
+      ? 'loading'
+      : [
+          'lists',
+          for (final list in data.quickLists)
+            '${list.title}/${list.source.kind.name}/${list.source.fid}/'
+                '${list.source.order.name}',
+        ].join('|');
+
   static String _hiddenSummary(int sections, int boards) => '首页已隐藏 ${[
         if (sections > 0) '$sections 个分区',
         if (boards > 0) '$boards 个版块',
@@ -738,7 +838,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
               final inner = width - 2 * gutter;
               return RefreshIndicator(
                 color: AppColors.brand,
-                onRefresh: _refresh,
+                onRefresh: () => _refresh(pulled: true),
                 child: FutureBuilder<ForumHomeSnapshot>(
                   future: _future,
                   builder: (context, snapshot) {
@@ -788,8 +888,10 @@ class _ForumHomePageState extends State<ForumHomePage> {
                             ),
                           ),
                           _QuickLists(
-                            // Lazy lists reload with the snapshot they came from.
-                            key: ObjectKey(data),
+                            // A new set of lists starts over; a fresher
+                            // snapshot of the same ones swaps in place, so
+                            // the open tab stays.
+                            key: ValueKey(_quickListsKey(data)),
                             lists: data?.quickLists,
                             latest: data?.latest ?? const [],
                             // Large text gives up the side-by-side lists.

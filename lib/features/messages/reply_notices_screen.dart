@@ -35,6 +35,23 @@ class _ReplyNoticesScreenState extends State<ReplyNoticesScreen> {
   void initState() {
     super.initState();
     _load();
+    widget.repository.replyNotices.addListener(_onSnapshot);
+  }
+
+  @override
+  void dispose() {
+    widget.repository.replyNotices.removeListener(_onSnapshot);
+    super.dispose();
+  }
+
+  // Any read of the list (a background check included) shows here.
+  void _onSnapshot() {
+    final notices = widget.repository.replyNotices.value;
+    if (!mounted || notices == null || identical(notices, _notices)) return;
+    setState(() {
+      _notices = List.of(notices);
+      _error = null;
+    });
   }
 
   Future<void> _load() async {

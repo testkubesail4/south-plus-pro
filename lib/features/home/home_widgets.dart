@@ -299,17 +299,46 @@ Widget _quickRows(BuildContext context, List<Widget> rows) => Column(
 
 class _QuickListsState extends State<_QuickLists>
     with SingleTickerProviderStateMixin {
-  late final _lists = switch (widget.lists) {
-    null => const [
-        ForumQuickList(title: ''),
-        ForumQuickList(title: ''),
-        ForumQuickList(title: ''),
-      ],
-    [] => [ForumQuickList(title: '最新讨论', threads: widget.latest)],
-    final lists => lists,
-  };
+  late var _lists = _listsOf(widget);
   late final TabController _tabs;
   final _loads = <int, Future<List<ForumThread>>>{};
+
+  static List<ForumQuickList> _listsOf(_QuickLists widget) =>
+      switch (widget.lists) {
+        null => const [
+            ForumQuickList(title: ''),
+            ForumQuickList(title: ''),
+            ForumQuickList(title: ''),
+          ],
+        [] => [ForumQuickList(title: '最新讨论', threads: widget.latest)],
+        final lists => lists,
+      };
+
+  // A fresher snapshot of the same lists (the parent keys them by source):
+  // rows swap in place, and a list read on demand keeps its rows until its
+  // new read lands, so nothing flashes back to placeholders.
+  @override
+  void didUpdateWidget(covariant _QuickLists oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(oldWidget.lists, widget.lists) &&
+        identical(oldWidget.latest, widget.latest)) {
+      return;
+    }
+    final next = _listsOf(widget);
+    if (next.length != _lists.length) return;
+    _lists = next;
+    for (var i = 0; i < _lists.length; i++) {
+      if (_lists[i].threads != null || !_loads.containsKey(i)) continue;
+      final load = widget.repository.fetchQuickList(_lists[i]);
+      load.then((_) {
+        if (mounted && identical(_lists, next)) {
+          setState(() {
+            _loads[i] = load;
+          });
+        }
+      }, onError: (_) {});
+    }
+  }
 
   @override
   void initState() {
