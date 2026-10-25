@@ -105,6 +105,7 @@ class _Fixture {
   bool omitPager = false;
   bool repeatFirstPage = false;
   bool missingToken = false;
+  bool omitPmIndicator = false;
   List<List<(String, bool)>> pm = [
     [('1', false)],
   ];
@@ -196,7 +197,7 @@ class _Fixture {
       '<html><head>${missingToken ? '' : '<script>var verifyhash="TESTTOK1";</script>'}</head><body>'
       '<div id="user-login"><a href="u.php">Synthetic $owner</a></div>'
       '<div id="menu_profile"><div class="ul2"><a href="u.php?action-show-uid-${headerUid ?? (owner == 'A' ? '9' : '10')}.html">个人资料</a></div></div>'
-      '<div id="td_msg"><img src="images/${pmFlag ? 'shortmail.gif' : 'no-shortmail.gif'}"></div>'
+      '${omitPmIndicator ? '' : '<div id="td_msg"><img src="images/${pmFlag ? 'shortmail.gif' : 'no-shortmail.gif'}"></div>'}'
       '${replyFlag ? '<a id="newrp">回复提醒</a>' : ''}</body></html>';
   String inbox(int requested) {
     if (brokenPm) return '<html>not a native list</html>';
@@ -355,6 +356,41 @@ void main() {
       expect(f.requests.every((r) => r.$2 != '/read.php'), isTrue);
     },
   );
+
+  for (final missing in ['PM indicator', 'reply token']) {
+    test('a home header missing its $missing invalidates native freshness',
+        () async {
+      final f = await fixture();
+      final initial = f.now;
+      final repository = ForumRepository(client: f.client, clock: () => f.now);
+      addTearDown(repository.liveSync.dispose);
+      addTearDown(repository.watch.dispose);
+      expect(await repository.restoreSession(), isTrue);
+      await repository.watch.checkNow();
+      expect(repository.pmInbox.value, isNotNull);
+
+      f.now = initial.add(const Duration(seconds: 50));
+      await repository.fetchHome();
+      // Keep the account and directory valid, but replace the notice header
+      // while the previous verified stamp is still within its minute.
+      f.omitPmIndicator = missing == 'PM indicator';
+      f.replyFlag = missing == 'reply token';
+      f.missingToken = missing == 'reply token';
+      f.now = initial.add(const Duration(seconds: 70));
+      await repository.fetchHome();
+      expect(repository.accountIdentity.value!.uid, '9');
+
+      f.now = initial.add(const Duration(seconds: 90));
+      final before = f.requests.length;
+      await expectLater(
+        repository.liveSync.syncMessages(user: true),
+        throwsA(isA<ForumRequestException>()
+            .having((error) => error.kind, 'kind', ForumRequestKind.server)),
+      );
+      expect(f.requests.sublist(before), [('GET', '/index.php')],
+          reason: 'verify unknown flags before reading either notice list');
+    });
+  }
 
   test(
       'home pull and message entry share the index header, cooldown and native budget',

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
@@ -57,6 +59,7 @@ Future<void> _sources(
 class _Client extends ForumClient {
   final paths = <String>[];
   Future<String> Function(String)? response;
+  bool failHome = false;
 
   @override
   Future<void> clearSession() async {}
@@ -70,6 +73,10 @@ class _Client extends ForumClient {
     paths.add(path);
     final String body;
     if (path == 'simple/index.php') {
+      if (failHome) {
+        throw const ForumRequestException(
+            ForumRequestKind.network, 'Fixture home offline');
+      }
       body = _simple;
     } else if (path == 'index.php') {
       body = _directory;
@@ -337,6 +344,87 @@ void main() {
       }
       expect(client.paths, hasLength(3),
           reason: 'no obsolete fallback or unrelated reload');
+    });
+  }
+
+  testWidgets('quick-list retry recovers after a failed quiet home refresh',
+      (tester) async {
+    await HomeReadingPreferences.saveQuickSources(const [
+      HomeQuickSource(kind: HomeQuickSourceKind.board, fid: '6'),
+      HomeQuickSource(kind: HomeQuickSourceKind.hidden),
+      HomeQuickSource(kind: HomeQuickSourceKind.hidden),
+    ]);
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var failFeed = true;
+    var now = DateTime.utc(2026);
+    final client = _Client()
+      ..response = (_) async {
+        if (failFeed) {
+          throw const ForumRequestException(
+              ForumRequestKind.network, 'Fixture feed offline');
+        }
+        return _feed('Recovered topic');
+      };
+    final repo = ForumRepository(client: client, clock: () => now);
+    addTearDown(repo.liveSync.dispose);
+    addTearDown(repo.watch.dispose);
+    repo.liveSync.start();
+    await tester.pumpWidget(MaterialApp(home: ForumHomePage(repository: repo)));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('加载失败'), findsOneWidget);
+
+    client.failHome = true;
+    repo.liveSync.didChangeAppLifecycleState(AppLifecycleState.paused);
+    now = now.add(const Duration(minutes: 1));
+    repo.liveSync.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    repo.liveSync.stop();
+    await tester.pumpAndSettle();
+    expect(client.paths.where((p) => p == 'simple/index.php'), hasLength(2));
+    expect(find.text('主页加载失败'), findsNothing);
+
+    client.failHome = false;
+    failFeed = false;
+    await tester.tap(find.textContaining('加载失败'));
+    await tester.pumpAndSettle();
+    expect(find.text('Recovered topic 0'), findsOneWidget);
+    expect(client.paths.where((p) => p.startsWith('new.php')), hasLength(2));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  for (final succeeds in [false, true]) {
+    test(
+        'pending quick list survives only an unsuccessful home replacement '
+        '(success=$succeeds)', () async {
+      await _sources();
+      final feed = Completer<String>();
+      final client = _Client()..response = (_) => feed.future;
+      final repo = ForumRepository(client: client);
+      final home = await repo.fetchHome();
+      final pending = repo.fetchQuickList(home.quickLists.first);
+      final rejected = succeeds
+          ? expectLater(pending, throwsA(isA<ForumRepositoryException>()))
+          : null;
+      client.failHome = !succeeds;
+      if (succeeds) {
+        await repo.fetchHome();
+      } else {
+        await expectLater(
+            repo.fetchHome(), throwsA(isA<ForumRequestException>()));
+      }
+      feed.complete(_feed('Retained topic'));
+      if (rejected != null) {
+        await rejected;
+        await expectLater(repo.fetchQuickList(home.quickLists.first),
+            throwsA(isA<ForumRepositoryException>()));
+      } else {
+        expect((await pending).first.title, 'Retained topic 0');
+        expect((await repo.fetchQuickList(home.quickLists.first)).first.title,
+            'Retained topic 0');
+      }
+      expect(client.paths.where((p) => p.startsWith('new.php')), hasLength(1));
     });
   }
 

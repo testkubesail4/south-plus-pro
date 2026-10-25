@@ -24,9 +24,11 @@ class PmBoxScreen extends StatelessWidget {
     required this.repository,
     this.embedded = false,
     this.initialPath,
+    this.onInboxVisibility,
   });
 
   final ForumRepository repository;
+  final ValueChanged<ValueGetter<bool>>? onInboxVisibility;
 
   /// A native box page (from a forum link) to open on.
   final String? initialPath;
@@ -40,6 +42,7 @@ class PmBoxScreen extends StatelessWidget {
       repository: repository,
       embedded: embedded,
       initialPath: initialPath,
+      onInboxVisibility: onInboxVisibility,
     );
     // The shell replaces embedded tabs itself; it owns the root route.
     return embedded
@@ -53,11 +56,13 @@ class _PmBoxView extends StatefulWidget {
     required this.repository,
     required this.embedded,
     this.initialPath,
+    this.onInboxVisibility,
   });
 
   final ForumRepository repository;
   final bool embedded;
   final String? initialPath;
+  final ValueChanged<ValueGetter<bool>>? onInboxVisibility;
 
   @override
   State<_PmBoxView> createState() => _PmBoxViewState();
@@ -109,6 +114,15 @@ class _PmBoxViewState extends State<_PmBoxView> {
     LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
     if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
     widget.repository.pmInbox.addListener(_onInboxSnapshot);
+    // Check at notice arrival, without making passive updates move the list.
+    widget.onInboxVisibility?.call(() =>
+        mounted &&
+        _box == ForumPmBox.inbox &&
+        _pagePath == null &&
+        _first?.currentPage == 1 &&
+        identical(_first, widget.repository.pmInbox.value) &&
+        _more.pages.isEmpty &&
+        (!_scroll.hasClients || _scroll.offset <= 0));
   }
 
   @override

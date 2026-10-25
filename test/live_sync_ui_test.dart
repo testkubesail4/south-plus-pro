@@ -11,6 +11,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
 import 'package:south_plus_rewrite/services/forum_live_sync.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/loading_preferences.dart';
 import 'package:south_plus_rewrite/services/watch_notifications.dart';
 
 // Synthetic titles, boards and tids only.
@@ -41,13 +42,17 @@ ForumPmSummary _pm(String id) => ForumPmSummary(
     );
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await LoadingPreferences.load();
+    await LoadingPreferences.save(LoadingDomain.pm, LoadingMode.manual);
+  });
 
-  Future<_Repo> pumpShell(WidgetTester tester) async {
+  Future<_Repo> pumpShell(WidgetTester tester, [_Repo? repository]) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repo = _Repo();
+    final repo = repository ?? _Repo();
     await tester.pumpWidget(MaterialApp(home: HomeShell(repository: repo)));
     await tester.pumpAndSettle();
     return repo;
@@ -211,6 +216,37 @@ void main() {
       expect(find.text('Fixture topic 7'), findsNothing);
     });
 
+    for (final kind in NoticeNotificationKind.values) {
+      testWidgets('a ${kind.name} banner keeps refreshed rows when offline',
+          (tester) async {
+        final repo = await pumpShell(tester);
+        await selectTab(tester, '消息');
+        final pm = kind == NoticeNotificationKind.pm;
+        if (!pm) {
+          await tester.tap(find.text('回复提醒'));
+          await tester.pumpAndSettle();
+        }
+        final reads = pm ? repo.pmReads.length : repo.replyReads;
+        await selectTab(tester, '首页');
+        if (pm) {
+          repo.inbox.value =
+              ForumPmPage(box: ForumPmBox.inbox, messages: [_pm('fresh')]);
+          repo.failPm = true;
+        } else {
+          repo.replies.value = [_notice(2), _notice(1)];
+          repo.failReplies = true;
+        }
+        repo.sync.notify(kind, 1, 'Incoming banner');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Incoming banner'));
+        await tester.pumpAndSettle();
+        expect(find.text(pm ? 'Message fresh' : 'Fixture topic 2'),
+            findsOneWidget);
+        expect(find.text(pm ? '短消息加载失败' : '回复提醒加载失败'), findsNothing);
+        expect(pm ? repo.pmReads.length : repo.replyReads, reads);
+      });
+    }
+
     testWidgets('without a title it names its kind, and leaves by itself',
         (tester) async {
       final repo = await pumpShell(tester);
@@ -229,6 +265,95 @@ void main() {
       await tester.fling(find.text('New peer'), const Offset(0, -80), 800);
       await tester.pumpAndSettle();
       expect(find.text('New peer'), findsNothing);
+    });
+
+    for (final retained in ['发件箱', '跟踪', '下一页']) {
+      Future<_Repo> openRetained(WidgetTester tester) async {
+        final repo = await pumpShell(tester, _Repo()..pmNext = true);
+        await selectTab(tester, '消息');
+        await tester.tap(find.text(retained));
+        await tester.pumpAndSettle();
+        expect(repo.pmReads.last, isNot((ForumPmBox.inbox, null)));
+        return repo;
+      }
+
+      testWidgets('a PM banner opens a fresh inbox after retaining $retained',
+          (tester) async {
+        final repo = await openRetained(tester);
+        await selectTab(tester, '首页');
+        repo.sync.notify(NoticeNotificationKind.pm, 1, 'Incoming peer');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Incoming peer'));
+        await tester.pumpAndSettle();
+        expect(repo.pmReads.last, (ForumPmBox.inbox, null));
+        expect(find.text('Message 1'), findsOneWidget);
+        expect(find.text('Message older'), findsNothing);
+        repo.sync.notify(NoticeNotificationKind.pm, 1, 'Next peer');
+        await tester.pumpAndSettle();
+        expect(find.text('Next peer'), findsNothing);
+      });
+
+      testWidgets('a PM banner is visible over $retained', (tester) async {
+        final repo = await openRetained(tester);
+        repo.sync.notify(NoticeNotificationKind.pm, 1, 'Incoming peer');
+        await tester.pumpAndSettle();
+        expect(find.text('Incoming peer'), findsOneWidget);
+      });
+    }
+
+    testWidgets('a PM banner stays visible while the inbox is loading',
+        (tester) async {
+      final repo = await pumpShell(tester, _Repo()..pmGate = Completer<void>());
+      await selectTab(tester, '消息');
+      repo.sync.notify(NoticeNotificationKind.pm, 1, 'Incoming peer');
+      await tester.pumpAndSettle();
+      expect(find.text('Incoming peer'), findsOneWidget);
+      repo.pmGate!.complete();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a skipped inbox snapshot leaves scroll and the banner intact',
+        (tester) async {
+      final repo = await pumpShell(tester, _Repo()..pmCount = 20);
+      await selectTab(tester, '消息');
+      final list = find.descendant(
+          of: find.byType(MessagesScreen), matching: find.byType(ListView));
+      await tester.drag(list, const Offset(0, -250));
+      await tester.pumpAndSettle();
+      final scroll = tester.state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)));
+      final offset = scroll.position.pixels;
+      expect(offset, greaterThan(0));
+      repo.inbox.value =
+          ForumPmPage(box: ForumPmBox.inbox, messages: [_pm('fresh')]);
+      repo.sync.notify(NoticeNotificationKind.pm, 1, 'Incoming peer');
+      await tester.pumpAndSettle();
+      expect(scroll.position.pixels, offset);
+      expect(find.text('Message fresh'), findsNothing);
+      expect(find.text('Incoming peer'), findsOneWidget);
+      // Returning to the top does not quietly replace a page left stale.
+      scroll.position.jumpTo(0);
+      repo.sync.notify(NoticeNotificationKind.pm, 1, 'Another peer');
+      await tester.pumpAndSettle();
+      expect(find.text('Message 1'), findsOneWidget);
+      expect(find.text('Message fresh'), findsNothing);
+      expect(find.text('Another peer'), findsOneWidget);
+      final reads = repo.pmReads.length;
+      await tester.tap(find.text('Another peer'));
+      await tester.pumpAndSettle();
+      expect(repo.pmReads.length, reads + 1);
+      expect(repo.pmReads.last, (ForumPmBox.inbox, null));
+    });
+
+    testWidgets('appended inbox pages do not suppress incoming PM banners',
+        (tester) async {
+      await LoadingPreferences.save(LoadingDomain.pm, LoadingMode.continuous);
+      final repo = await pumpShell(tester, _Repo()..pmNext = true);
+      await selectTab(tester, '消息');
+      expect(find.text('Message older'), findsOneWidget);
+      repo.sync.notify(NoticeNotificationKind.pm, 1, 'Incoming peer');
+      await tester.pumpAndSettle();
+      expect(find.text('Incoming peer'), findsOneWidget);
     });
 
     testWidgets('nothing shows over the list it would open', (tester) async {
@@ -299,6 +424,13 @@ class _Repo extends ForumRepository {
   var homeReads = 0;
   var failHome = false;
   Completer<void>? homeGate;
+  Completer<void>? pmGate;
+  var pmCount = 1;
+  var pmNext = false;
+  var failPm = false;
+  var failReplies = false;
+  var replyReads = 0;
+  final pmReads = <(ForumPmBox, String?)>[];
 
   @override
   ForumLiveSync get liveSync => sync;
@@ -336,11 +468,38 @@ class _Repo extends ForumRepository {
   }
 
   @override
-  Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async =>
-      ForumPmPage(box: box, messages: [_pm('1')]);
+  Future<ForumPmPage> fetchPmBox(ForumPmBox box, {String? pagePath}) async {
+    pmReads.add((box, pagePath));
+    if (failPm) throw StateError('offline');
+    await pmGate?.future;
+    const next = 'message.php?action-receivebox-page-2.html';
+    final page = ForumPmPage(
+      box: box,
+      currentPage: pagePath == null ? 1 : 2,
+      pageLinks: pmNext && box == ForumPmBox.inbox && pagePath == null
+          ? const [ForumPmPageLink(label: '下一页', path: next)]
+          : const [],
+      nextPagePath:
+          pmNext && box == ForumPmBox.inbox && pagePath == null ? next : null,
+      messages: [
+        if (pagePath != null)
+          _pm('older')
+        else if (box != ForumPmBox.inbox)
+          _pm(box.wireName)
+        else
+          for (var i = 1; i <= pmCount; i++) _pm('$i'),
+      ],
+    );
+    if (box == ForumPmBox.inbox && pagePath == null) inbox.value = page;
+    return page;
+  }
 
   @override
-  Future<List<ForumReplyNotice>> fetchReplyNotices() async => [_notice(1)];
+  Future<List<ForumReplyNotice>> fetchReplyNotices() async {
+    replyReads++;
+    if (failReplies) throw StateError('offline');
+    return [_notice(1)];
+  }
 
   @override
   Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() async => null;

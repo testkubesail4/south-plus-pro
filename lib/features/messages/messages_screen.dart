@@ -33,7 +33,7 @@ class MessagesScreen extends StatefulWidget {
       return null;
     }
     return switch (state._tabs.index) {
-      0 => NoticeNotificationKind.pm,
+      0 when state._inboxVisible?.call() == true => NoticeNotificationKind.pm,
       1 => NoticeNotificationKind.reply,
       _ => null,
     };
@@ -56,6 +56,7 @@ class _MessagesScreenState extends State<MessagesScreen>
   // Bumped by a tapped notification, which reloads that list from the top.
   var _pmLoads = 0;
   var _replyLoads = 0;
+  ValueGetter<bool>? _inboxVisible;
   bool? _shown;
 
   @override
@@ -80,7 +81,7 @@ class _MessagesScreenState extends State<MessagesScreen>
     _cancelShownKind();
     if (!shown) return;
     _onWatch(building: true);
-    _onTabRequest();
+    _onTabRequest(building: true);
     // Coming to 消息 checks for news; the lists stay up meanwhile. After
     // the frame: the check notifies listeners being built right now.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -99,12 +100,17 @@ class _MessagesScreenState extends State<MessagesScreen>
     super.dispose();
   }
 
-  void _onTabRequest() {
+  void _onTabRequest({bool building = false}) {
     if (_shown != true) return;
     final kind = MessagesScreen._tabRequest.value;
     if (kind == null) return;
     MessagesScreen._tabRequest.value = null;
-    _tabs.animateTo(kind == NoticeNotificationKind.pm ? 0 : 1);
+    // Keep fresh rows already delivered by the check that raised the banner.
+    if (kind == NoticeNotificationKind.pm && _inboxVisible?.call() != true) {
+      _openNotice(kind, building: building);
+    } else {
+      _tabs.animateTo(kind == NoticeNotificationKind.pm ? 0 : 1);
+    }
   }
 
   // A tapped system notification turns to its tab: 关注 opens the 动态;
@@ -119,8 +125,19 @@ class _MessagesScreenState extends State<MessagesScreen>
     if (watch.pendingNoticeOpen == null) return;
     final kind = watch.takePendingNoticeOpen();
     if (kind == null) return;
-    void reload() =>
-        kind == NoticeNotificationKind.pm ? _pmLoads++ : _replyLoads++;
+    _openNotice(kind, building: building);
+  }
+
+  void _openNotice(NoticeNotificationKind kind, {bool building = false}) {
+    void reload() {
+      if (kind == NoticeNotificationKind.pm) {
+        _pmLoads++;
+        _inboxVisible = null;
+      } else {
+        _replyLoads++;
+      }
+    }
+
     building ? reload() : setState(reload);
     _tabs.animateTo(kind == NoticeNotificationKind.pm ? 0 : 1);
   }
@@ -232,7 +249,11 @@ class _MessagesScreenState extends State<MessagesScreen>
               children: [
                 _KeepAlive(
                   key: ValueKey(('pm', _pmLoads)),
-                  PmBoxScreen(repository: repository, embedded: true),
+                  PmBoxScreen(
+                    repository: repository,
+                    embedded: true,
+                    onInboxVisibility: (visible) => _inboxVisible = visible,
+                  ),
                 ),
                 _KeepAlive(
                   key: ValueKey(('reply', _replyLoads)),

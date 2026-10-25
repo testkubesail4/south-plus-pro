@@ -834,6 +834,8 @@ class ForumRepository {
   void _captureIndexNotices(dom.Document document,
       {required int credentialGeneration}) {
     if (!_client.isCredentialCurrent(credentialGeneration)) return;
+    _noticeFlagsUpdatedAt = null;
+    _noticeFlagsUid = null;
     _replyNoticeVerify = _replyNoticeParser.verifyToken(document);
     _replyNoticeCredentialGeneration = credentialGeneration;
     _noticeFlags.value = ForumNoticeFlags(
@@ -1538,7 +1540,6 @@ class ForumRepository {
   }
 
   Future<ForumHomeSnapshot> _fetchHome() async {
-    _invalidateQuickLists();
     final generation = _homeGeneration;
     // Consume session verification once; refreshes still fetch a fresh directory.
     final restoredCache = _restoredDesktopHtml;
@@ -1619,6 +1620,8 @@ class ForumRepository {
     if (quickLists.isEmpty) {
       throw const ForumRequestException(ForumRequestKind.server, '没有找到速览栏目');
     }
+    // A failed quiet refresh leaves the displayed snapshot usable, including Retry.
+    _invalidateQuickLists();
     _homeQuickLists = quickLists.toSet();
     _homePreferenceAccount = account;
     _homeSourcesRevision = sourcesRevision;
