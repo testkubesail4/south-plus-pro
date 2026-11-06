@@ -143,6 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _captcha = TextEditingController();
   bool _loading = false;
   bool _succeeded = false;
+  bool _closed = false;
   String? _error;
   String _loginType = '0';
   bool _hideLogin = false;
@@ -161,7 +162,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    if (!_succeeded) _cancelStaging();
+    _cancelStaging();
     _username.dispose();
     _password.dispose();
     _captcha.dispose();
@@ -169,6 +170,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _cancelStaging() {
+    if (_closed) return;
+    _closed = true;
+    if (_succeeded) return;
     switch (widget.mode) {
       case LoginMode.signIn:
         unawaited(_repo.cancelLogin());
@@ -192,6 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
       };
 
   Future<LoginChallenge?> _loadChallenge() async {
+    if (_closed) return null;
     try {
       final challenge = switch (widget.mode) {
         LoginMode.signIn => await _repo.fetchLoginChallenge(),
@@ -223,6 +228,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
+  bool get _canHandleResult =>
+      mounted && !_closed && (ModalRoute.of(context)?.isCurrent ?? true);
+
   Future<void> _submit() async {
     final challenge = _challenge;
     if (challenge == null) {
@@ -251,7 +259,7 @@ class _LoginScreenState extends State<LoginScreen> {
             captcha: _captcha.text,
             fields: fields,
           );
-          if (!mounted) return;
+          if (!_canHandleResult) return;
           setState(() => _loading = false);
           if (!result.success) {
             _refreshChallenge(error: result.message);
@@ -269,7 +277,7 @@ class _LoginScreenState extends State<LoginScreen> {
             captcha: _captcha.text,
             fields: fields,
           );
-          if (!mounted) return;
+          if (!_canHandleResult) return;
           setState(() => _loading = false);
           _succeeded = true;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -285,7 +293,7 @@ class _LoginScreenState extends State<LoginScreen> {
             captcha: _captcha.text,
             fields: fields,
           );
-          if (!mounted) return;
+          if (!_canHandleResult) return;
           setState(() => _loading = false);
           _succeeded = true;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -295,7 +303,7 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!_canHandleResult) return;
       setState(() => _loading = false);
       _refreshChallenge(error: '$error');
     }
@@ -305,7 +313,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // No card: the form sits on the canvas in one narrow column.
-    return Scaffold(
+    final scaffold = Scaffold(
       appBar: AppBar(),
       body: SafeArea(
         top: false,
@@ -461,6 +469,12 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+    );
+    return PopScope<bool>(
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) _cancelStaging();
+      },
+      child: scaffold,
     );
   }
 

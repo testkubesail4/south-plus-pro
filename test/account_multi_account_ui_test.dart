@@ -57,6 +57,8 @@ class _FakeRepo extends ForumRepository {
   Completer<LoginChallenge>? loginChallengeGate;
   Completer<LoginResult>? loginSubmitGate;
 
+  Completer<AccountSummary>? accountSubmitGate;
+
   int addChallengeCalls = 0;
   int cancelAddCalls = 0;
   int reauthChallengeCalls = 0;
@@ -276,6 +278,25 @@ class _FakeRepo extends ForumRepository {
       ]),
     );
   }
+
+  @override
+  Future<AccountSummary> submitAddAccount({
+    required String username,
+    required String password,
+    required String captcha,
+    Map<String, String> fields = const {},
+  }) =>
+      accountSubmitGate!.future;
+
+  @override
+  Future<AccountSummary> submitReauthAccount(
+    String accountId, {
+    required String username,
+    required String password,
+    required String captcha,
+    Map<String, String> fields = const {},
+  }) =>
+      accountSubmitGate!.future;
 
   @override
   Future<void> cancelAddAccount() async {
@@ -657,6 +678,58 @@ void main() {
     expect(repo.sessionEpoch.value, epochBefore);
     expect(repo.cancelAddCalls, greaterThanOrEqualTo(1));
   });
+
+  for (final reauthenticate in [false, true]) {
+    for (final succeeds in [false, true]) {
+      testWidgets(
+          'back during account submission ignores late result (reauth=$reauthenticate, success=$succeeds)',
+          (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        tester.view.physicalSize = const Size(400, 1400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final gate = Completer<AccountSummary>();
+        final repo = _FakeRepo(accounts: [alice], active: alice)
+          ..accountSubmitGate = gate;
+        final navigator = GlobalKey<NavigatorState>();
+        await tester.pumpWidget(MaterialApp(
+          navigatorKey: navigator,
+          home: const Scaffold(body: Text('root')),
+        ));
+        unawaited(navigator.currentState!.push(MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('private page')),
+        )));
+        await tester.pumpAndSettle();
+        final context = tester.element(find.text('private page'));
+        unawaited(reauthenticate
+            ? openReauthAccount(context, repo, accountId: alice.id)
+            : openAddAccount(context, repo));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(
+            FilledButton, reauthenticate ? '重新登录' : '添加账号'));
+        await tester.pump();
+        navigator.currentState!.pop();
+        await tester.pump();
+        final cancelledOnPop =
+            reauthenticate ? repo.cancelReauthCalls : repo.cancelAddCalls;
+        if (succeeds) {
+          gate.complete(alice);
+        } else {
+          gate.completeError(StateError('late account failure'));
+        }
+        await tester.pumpAndSettle();
+        expect(find.text('private page'), findsOneWidget);
+        expect(cancelledOnPop, 1);
+        expect(
+            reauthenticate ? repo.cancelReauthCalls : repo.cancelAddCalls, 1);
+        expect(
+            reauthenticate ? repo.reauthChallengeCalls : repo.addChallengeCalls,
+            1);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   testWidgets('a completed switch never closes a route opened after its sheet',
       (tester) async {

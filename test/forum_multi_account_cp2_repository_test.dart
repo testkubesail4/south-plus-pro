@@ -31,6 +31,59 @@ void main() {
     HttpOverrides.global = null;
   });
 
+  test('late guest login header cannot promote cookies from a switched account',
+      () async {
+    await _withCp2Fixture((fx) async {
+      final b = await fx.addAccount(username: 'userB', uid: '102');
+      final bCookies = await fx.cookieSnapshot(b.id);
+      await fx.repo.updateNetworkConfig(
+          _config.copyWith(site: const ForumSite('localhost')));
+      await fx.repo.updateNetworkConfig(_config);
+      expect(fx.repo.activeAccount.value, isNull);
+      await fx.repo.clearSession();
+      fx.server.loginResponseUsername = 'Synthetic A';
+      final challenge = await fx.repo.fetchLoginChallenge();
+      fx.server.headerUidToHold = '101';
+      fx.server.headerStarted = Completer<void>();
+      fx.server.releaseHeader = Completer<void>();
+      final login = fx.repo
+          .submitLogin(
+            username: 'userA',
+            password: 'pw',
+            captcha: '1234',
+            fields: challenge.fields,
+          )
+          .then<Object?>((result) => result, onError: (Object error) => error);
+      try {
+        await fx.server.headerStarted!.future
+            .timeout(const Duration(seconds: 5));
+        final observer = ForumClient(config: _config);
+        expect(observer.credentialGeneration, fx.client.credentialGeneration,
+            reason: 'different slots can have the same generation');
+        observer.close(force: true);
+        await fx.repo.switchAccount(b.id);
+        final epochB = fx.repo.sessionEpoch.value;
+        fx.server.releaseHeader!.complete();
+        await login;
+        expect(fx.repo.activeAccount.value?.id, b.id);
+        expect(fx.repo.accountIdentity.value?.uid, '102');
+        expect(fx.repo.sessionEpoch.value, epochB);
+        expect(await fx.cookieSnapshot(b.id), bCookies);
+        expect(fx.repo.accounts.value.any((account) => account.uid == '101'),
+            isFalse);
+        expect(
+            fx.repo.accounts.value
+                .singleWhere((account) => account.id == b.id)
+                .status,
+            AccountReadyState.ready);
+      } finally {
+        if (!fx.server.releaseHeader!.isCompleted)
+          fx.server.releaseHeader!.complete();
+        await login;
+      }
+    });
+  });
+
   for (final remove in [false, true]) {
     test(
         'late ${remove ? 'remove' : 'logout'} A must retain explicitly selected B',
@@ -1957,6 +2010,7 @@ class _Cp2Http {
   Completer<void>? headerStarted;
   Completer<void>? releaseHeader;
   String tokenSuffix = '';
+  String? loginResponseUsername;
   Completer<void>? holdIdentity;
   Completer<void>? identitySeen;
   Completer<void>? holdFirstChallenge;
@@ -2037,6 +2091,10 @@ class _Cp2Http {
               'winduser=token-$uid$tokenSuffix; Path=/');
           request.response.headers.contentType = ContentType.html;
           request.response.write('登录成功');
+          if (loginResponseUsername != null) {
+            request.response.write('<div id="user-login"><a href="u.php">'
+                '$loginResponseUsername</a></div>');
+          }
         }
       } else if (path == '/index.php' || path == '/' || path.isEmpty) {
         if (heldIdentity != null) {

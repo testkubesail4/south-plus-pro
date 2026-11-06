@@ -2096,6 +2096,8 @@ class ForumRepository {
 
     _sessionEpoch.value++;
     final client = _client;
+    final slotId = client.slotId;
+    final epoch = _sessionEpoch.value;
     final receipt = await client.postLogin({
       ...fields,
       'step': fields['step'] ?? '2',
@@ -2110,6 +2112,8 @@ class ForumRepository {
 
     void requireCurrent() {
       if (!identical(client, _client) ||
+          client.slotId != slotId ||
+          _sessionEpoch.value != epoch ||
           !client.isCredentialCurrent(receipt.credentialGeneration)) {
         throw const ForumRequestException(
             ForumRequestKind.loginRequired, '登录状态已改变，请重试');
