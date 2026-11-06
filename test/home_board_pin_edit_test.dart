@@ -21,7 +21,7 @@ class _Repo extends ForumRepository {
   String? get currentUsername => _account;
 
   @override
-  String? get localPreferenceAccount => _account;
+  String get localPreferenceAccount => _account;
 
   @override
   final accountIdentity = ValueNotifier(const ForumAccountIdentity(

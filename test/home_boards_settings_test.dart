@@ -29,7 +29,7 @@ class _Repo extends ForumRepository {
   bool failDirectory = false;
 
   @override
-  String? get localPreferenceAccount => 'fixture';
+  String get localPreferenceAccount => 'fixture';
   @override
   Future<List<ForumSection>> fetchForumSections() async {
     if (failDirectory) throw StateError('directory unavailable');

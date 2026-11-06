@@ -9,6 +9,8 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
+import 'package:south_plus_rewrite/services/account_scoped_keys.dart';
+import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
 
 const _simple = '''<div class="carousel-item active"><div>最新讨论</div>
@@ -41,6 +43,9 @@ String _board(String fid, {List<String> titles = const []}) => '''
 <span class="section-intro"><a class="bl" href="u.php?uid-${index + 1}.html">Author $index</a>2026-01-01</span></li>'''
     ].join()}</ul>''';
 
+String get _guestScope =>
+    AccountScope.guest(ForumNetworkConfig.defaultSite.baseUri);
+
 Future<void> _sources(
         {String fid = '6',
         String? path = 'Root / Games',
@@ -54,7 +59,7 @@ Future<void> _sources(
           order: order),
       const HomeQuickSource(),
       const HomeQuickSource(kind: HomeQuickSourceKind.hidden),
-    ], account: account);
+    ], account: account ?? _guestScope);
 
 class _Client extends ForumClient {
   final paths = <String>[];
@@ -105,7 +110,7 @@ void main() {
           fid: '36',
           order: QuickOrder.replied),
       HomeQuickSource(kind: HomeQuickSourceKind.hidden),
-    ]);
+    ], account: _guestScope);
     final client = _Client()
       ..response = (path) async =>
           _feed('Feed ${Uri.parse(path).queryParameters['fidin']}');
@@ -154,7 +159,7 @@ void main() {
           fid: '36',
           order: QuickOrder.replied),
       HomeQuickSource(kind: HomeQuickSourceKind.hidden),
-    ]);
+    ], account: _guestScope);
     final client = _Client()
       ..response = (path) async {
         if (path.startsWith('new.php')) return '';
@@ -182,7 +187,6 @@ void main() {
 
   test('wall aliases use canonical breadcrumbs and reapply the requested order',
       () async {
-    await _sources(fid: '222');
     final loop = await _loopback((request) {
       if (request.uri.path == '/new.php') return;
       if (request.uri.query.contains('fid-222-')) {
@@ -197,6 +201,7 @@ void main() {
         ]));
       }
     });
+    await _sources(fid: '222', account: loop.repo.localPreferenceAccount);
     final home = await loop.repo.fetchHome();
     expect((await loop.repo.fetchQuickList(home.quickLists.first)).single.title,
         'canonical posted order');
@@ -217,7 +222,6 @@ void main() {
     ('/login.php', ForumRequestKind.loginRequired),
   ]) {
     test('board source redirect rejects $location before following', () async {
-      await _sources(fid: '222');
       final loop = await _loopback((request) {
         if (request.uri.path == '/new.php') return;
         if (request.uri.query.contains('fid-222-')) {
@@ -227,6 +231,7 @@ void main() {
           request.response.write('<body>must not be requested</body>');
         }
       });
+      await _sources(fid: '222', account: loop.repo.localPreferenceAccount);
       final home = await loop.repo.fetchHome();
       await expectLater(
           loop.repo.fetchQuickList(home.quickLists.first),
@@ -353,7 +358,7 @@ void main() {
       HomeQuickSource(kind: HomeQuickSourceKind.board, fid: '6'),
       HomeQuickSource(kind: HomeQuickSourceKind.hidden),
       HomeQuickSource(kind: HomeQuickSourceKind.hidden),
-    ]);
+    ], account: _guestScope);
     tester.view.physicalSize = const Size(400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -429,16 +434,17 @@ void main() {
   }
 
   test('a source changed while paced never dispatches the old feed', () async {
-    await _sources();
     final loop = await _loopback(
         (request) => request.response.write(_feed('must not leave')));
+    final scope = loop.repo.localPreferenceAccount;
+    await _sources(account: scope);
     final home = await loop.repo.fetchHome();
     loop.clock.hold = Completer<void>();
     final result = loop.repo.fetchQuickList(home.quickLists.first);
     final rejected =
         expectLater(result, throwsA(isA<ForumRepositoryException>()));
     await loop.clock.waiting.future;
-    await _sources(fid: '36');
+    await _sources(fid: '36', account: scope);
     loop.clock.hold!.complete();
     await rejected;
     expect(loop.hits, ['/simple/index.php', '/index.php']);

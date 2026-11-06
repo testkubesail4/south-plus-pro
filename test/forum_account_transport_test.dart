@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
@@ -18,8 +18,29 @@ void main() {
   late ForumClient client;
   late _RecordingStore store;
   late Future<void> Function(Duration) delay;
+  const channel = MethodChannel('plugins.flutter.io/shared_preferences');
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final persisted = <String, Object>{};
+  Future<void> Function()? beforeCookieSave;
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.resetStatic();
+    persisted.clear();
+    beforeCookieSave = null;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getAll') return Map<String, Object>.of(persisted);
+      final args = call.arguments as Map;
+      final key = args['key'] as String;
+      if (call.method == 'remove') {
+        persisted.remove(key);
+      } else {
+        if (key.startsWith('flutter.forum_session_cookies_')) {
+          await beforeCookieSave?.call();
+        }
+        persisted[key] = args['value'] as Object;
+      }
+      return true;
+    });
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     transport = HttpOverrides.runWithHttpOverrides(HttpClient.new, _RealHttp());
     delay = (_) async {};
@@ -28,8 +49,11 @@ void main() {
         store, (duration) => delay(duration));
   });
   tearDown(() async {
+    beforeCookieSave = null;
     transport.close(force: true);
     await server.close(force: true);
+    SharedPreferences.resetStatic();
+    messenger.setMockMethodCallHandler(channel, null);
   });
 
   test('account URL encoding preserves repeated groups and Unicode text',
@@ -356,6 +380,10 @@ void main() {
         if (!releaseSave.isCompleted) releaseSave.complete();
       });
       var logins = 0;
+      // Promote-after-login syncs via index; hardcoding the eventual winner
+      // here republishes B/C during A's promote and breaks the mid-persist
+      // username gate. Track the last successful login owner instead.
+      var sessionOwner = 'A';
       String? observedCookie;
       server.listen((request) async {
         await request.drain<void>();
@@ -369,14 +397,14 @@ void main() {
           if (owner == 'C' && acceptedBeforeFailure) {
             request.response.write('<body>登录失败</body>');
           } else {
+            sessionOwner = owner;
             request.response.headers.add(HttpHeaders.setCookieHeader,
                 'winduser=synthetic-$owner; Path=/');
             request.response.write(_sessionHeader(owner));
           }
         } else if (request.uri.path == '/index.php' ||
             request.uri.path == '/simple/index.php') {
-          request.response
-              .write(_sessionHeader(acceptedBeforeFailure ? 'B' : 'C'));
+          request.response.write(_sessionHeader(sessionOwner));
         } else {
           observedCookie = request.headers.value(HttpHeaders.cookieHeader);
           request.response.write('ok');
@@ -389,9 +417,14 @@ void main() {
           await repository.login(
               username: 'Synthetic A', password: 'fixture', captcha: 'fixture'),
           isTrue);
+      Completer<void>? saveStarted;
       if (acceptedBeforeFailure) {
-        store.saveStarted = Completer<void>();
-        store.releaseSave = releaseSave;
+        saveStarted = Completer<void>();
+        beforeCookieSave = () async {
+          if (!saveStarted!.isCompleted) saveStarted.complete();
+          await releaseSave.future;
+        };
+        addTearDown(() => beforeCookieSave = null);
       }
       final older = repository
           .login(
@@ -399,7 +432,7 @@ void main() {
           .then<Object?>((result) => result, onError: (Object error) => error);
       await olderReceived.future.timeout(const Duration(seconds: 5));
       if (acceptedBeforeFailure) {
-        await store.saveStarted!.future.timeout(const Duration(seconds: 5));
+        await saveStarted!.future.timeout(const Duration(seconds: 5));
         expect(repository.currentUsername, 'Synthetic A');
       }
       final newer = await repository
@@ -409,7 +442,7 @@ void main() {
       releaseOlder.complete();
       releaseSave.complete();
       final olderResult = await older;
-      final persisted = await store.loadCookies();
+      final persisted = await _slotCookies(client);
       final privateRead = await client
           .getForm('profile.php?action=bbsset', requireCurrentSession: () {})
           .then<Object?>((result) => result, onError: (Object error) => error);
@@ -468,6 +501,8 @@ void main() {
     });
     var logins = 0;
     var guardedHits = 0;
+    // Promote-after-login syncs via index; only hold the intentional stale read.
+    var holdIndex = false;
     String? observedCookie;
     server.listen((request) async {
       await request.drain<void>();
@@ -478,7 +513,7 @@ void main() {
         request.response.write(_sessionHeader(owner));
       } else if (request.uri.path == '/index.php' ||
           request.uri.path == '/old-public') {
-        if (request.uri.path == '/index.php') {
+        if (request.uri.path == '/index.php' && holdIndex) {
           readReceived.complete();
           await releaseRead.future;
         }
@@ -492,35 +527,38 @@ void main() {
       await request.response.close();
     });
     final oldRepository = ForumRepository(client: client);
-    addTearDown(oldRepository.clearSession);
     expect(
         await oldRepository.login(
             username: 'Synthetic A', password: 'fixture', captcha: 'fixture'),
         isTrue);
+    holdIndex = true;
     final oldRead = client
         .getOnce('index.php')
         .then<Object?>((_) => null, onError: (Object error) => error);
     await readReceived.future.timeout(const Duration(seconds: 5));
     final replacement = _LocalClient(
         client.baseUri, transport, _RecordingStore(), (_) async {});
+    replacement.inheritSessionFrom(client);
+    client.close();
     final newRepository = ForumRepository(client: replacement);
     addTearDown(newRepository.clearSession);
     expect(
         await newRepository.login(
             username: 'Synthetic B', password: 'fixture', captcha: 'fixture'),
         isTrue);
-    expect((await store.loadCookies()).values.map((cookie) => cookie.value),
+    expect(
+        (await _slotCookies(replacement)).values.map((cookie) => cookie.value),
         ['synthetic-B']);
     await client
         .getOnce('old-public')
         .then<Object?>((_) => null, onError: (Object error) => error);
-    final afterFreshPublic = await store.loadCookies();
+    final afterFreshPublic = await _slotCookies(replacement);
     final rejected = await client
         .getForm('profile.php?action=bbsset', requireCurrentSession: () {})
         .then<Object?>((_) => null, onError: (Object error) => error);
     releaseRead.complete();
     await oldRead;
-    final persisted = await store.loadCookies();
+    final persisted = await _slotCookies(replacement);
     await replacement.getOnce('echo');
     expect([
       ...afterFreshPublic.values.map((cookie) => cookie.value),
@@ -570,7 +608,13 @@ void main() {
         'attachment' => '/job.php',
         _ => '/index.php',
       };
+      // Arm after A login so promote-after-login sync is not trapped.
+      var holdStaleRead = false;
       server.listen((request) async {
+        final requestOwner = request.headers.value(HttpHeaders.cookieHeader) ==
+                'winduser=synthetic-B'
+            ? 'B'
+            : 'A';
         await request.drain<void>();
         request.response.headers.contentType = ContentType.html;
         if (request.uri.path == '/login.php') {
@@ -586,7 +630,7 @@ void main() {
             request.uri.path == '/u.php' ||
             request.uri.path == '/message.php' ||
             request.uri.path == '/job.php') {
-          final held = request.uri.path == heldPath;
+          final held = holdStaleRead && request.uri.path == heldPath;
           if (held) {
             readReceived.complete();
             await releaseRead.future;
@@ -603,9 +647,9 @@ void main() {
             request.response.add([1, 2, 3]);
           } else {
             request.response.write(request.uri.path == '/index.php'
-                ? _sessionHeader('A')
+                ? _sessionHeader(requestOwner)
                 : request.uri.path == '/message.php'
-                    ? _composeForm('A')
+                    ? _composeForm(requestOwner)
                     : '''<form method="post" action="u.php?action=friend">
 <input type="hidden" name="uid" value="901">
 <input type="hidden" name="verify" value="synthetic-A">
@@ -627,10 +671,14 @@ void main() {
           await repository.login(
               username: 'Synthetic A', password: 'fixture', captcha: 'fixture'),
           isTrue);
+      final aSlot = client.slotId;
+      final aEpoch = repository.sessionEpoch.value;
+      final aGeneration = client.credentialGeneration;
+      holdStaleRead = true;
       final switching = repository.login(
           username: 'Synthetic B', password: 'fixture', captcha: 'fixture');
       await loginReceived.future.timeout(const Duration(seconds: 5));
-      // Both operations start after B's epoch bump, before its identity arrives.
+      // A remains usable while B authenticates in a separate jar.
       final attachmentDirectory = boundary == 'attachment'
           ? await Directory.systemTemp.createTemp('forum_cookie_canary_')
           : null;
@@ -653,18 +701,24 @@ void main() {
       addTearDown(() {
         if (!releaseBSave.isCompleted) releaseBSave.complete();
       });
+      Completer<void>? saveStarted;
       if (!usernamePublished) {
-        store.saveStarted = Completer<void>();
-        store.releaseSave = releaseBSave;
+        saveStarted = Completer<void>();
+        beforeCookieSave = () async {
+          if (!saveStarted!.isCompleted) saveStarted.complete();
+          await releaseBSave.future;
+        };
+        addTearDown(() => beforeCookieSave = null);
       }
       releaseLogin.complete();
       if (usernamePublished) {
         expect(await switching, isTrue);
         expect(repository.currentUsername, 'Synthetic B');
-        expect((await store.loadCookies()).values.map((cookie) => cookie.value),
+        expect(
+            (await _slotCookies(client)).values.map((cookie) => cookie.value),
             ['synthetic-B']);
       } else {
-        await store.saveStarted!.future.timeout(const Duration(seconds: 5));
+        await saveStarted!.future.timeout(const Duration(seconds: 5));
         expect(repository.currentUsername, 'Synthetic A');
       }
       final oldHeadersObserved = Completer<void>();
@@ -684,22 +738,44 @@ void main() {
         ]).timeout(const Duration(seconds: 5));
         await client.getOnce('echo');
         duringPublication = observedCookie;
+        expect([
+          repository.currentUsername,
+          repository.accountIdentity.value?.uid,
+          repository.sessionEpoch.value,
+          client.slotId,
+          client.isCredentialCurrent(aGeneration),
+        ], [
+          'Synthetic A',
+          '901',
+          aEpoch,
+          aSlot,
+          true,
+        ],
+            reason:
+                'A stays published until the authenticated B commit completes');
         releaseBSave.complete();
         expect(await switching, isTrue);
         expect(repository.currentUsername, 'Synthetic B');
       }
       final error = await outcome;
-      final persisted = await store.loadCookies();
+      final persisted = await _slotCookies(client);
       await client.getOnce('echo');
       expect([
         if (!usernamePublished) duringPublication,
         ...persisted.values.map((cookie) => cookie.value),
         observedCookie,
       ], [
-        if (!usernamePublished) 'winduser=synthetic-B',
+        if (!usernamePublished) 'winduser=synthetic-stale-A',
         'synthetic-B',
         'winduser=synthetic-B'
-      ], reason: 'stale A cookies must never replace B in memory or storage');
+      ],
+          reason:
+              'A responses stay with A and cannot replace the committed B jar');
+      expect(
+          await ForumSessionStore.forSlot(slotId: aSlot, origin: client.baseUri)
+              .loadCookies(),
+          isEmpty,
+          reason: 'a deferred A save cannot revive its retired credentials');
       if (boundary != 'public' &&
           boundary != 'redirect' &&
           boundary != 'attachment') {
@@ -943,6 +1019,12 @@ class _LocalClient extends ForumClient {
                   requireCurrentSession();
                 },
           followRedirects: followRedirects);
+}
+
+Future<Map<String, ForumStoredCookie>> _slotCookies(ForumClient client) {
+  return ForumSessionStore.forSlot(
+          slotId: client.slotId, origin: client.baseUri)
+      .loadCookies();
 }
 
 class _RecordingStore extends ForumSessionStore {

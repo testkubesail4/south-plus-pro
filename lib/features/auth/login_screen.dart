@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -9,17 +10,71 @@ import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/brand_mark.dart';
 
+/// How [LoginScreen] talks to [ForumRepository].
+enum LoginMode {
+  /// Standard sign-in. May replace the current account.
+  signIn,
+
+  /// Staging add; failure/cancel leaves active + epoch alone.
+  addAccount,
+
+  /// Staging reauth for one saved [LoginScreen.reauthAccountId].
+  reauth,
+}
+
 /// Opens the login page; true once a login succeeded. The app shell follows
 /// the session itself, so callers only refresh their own screen.
 ///
 /// Pages pushed under the old session may hold its private content, so
-/// login starts from the shell: every pushed page closes first, the caller's
-/// own included unless it is a shell tab.
+/// sign-in starts from the shell: every pushed page closes first, the
+/// caller's own included unless it is a shell tab.
 Future<bool> openLogin(BuildContext context, ForumRepository repository) async {
   final navigator = Navigator.of(context, rootNavigator: true)
     ..popUntil((route) => route.isFirst);
   final loggedIn = await navigator.push<bool>(
-    MaterialPageRoute(builder: (_) => LoginScreen(repository: repository)),
+    MaterialPageRoute(
+      builder: (_) => LoginScreen(
+        repository: repository,
+        mode: LoginMode.signIn,
+      ),
+    ),
+  );
+  return loggedIn ?? false;
+}
+
+/// Adds an account on a staging jar. Does not [Navigator.popUntil] — private
+/// pages under the current account stay mounted on cancel/failure.
+Future<bool> openAddAccount(
+  BuildContext context,
+  ForumRepository repository,
+) async {
+  final loggedIn = await Navigator.of(context, rootNavigator: true).push<bool>(
+    MaterialPageRoute(
+      builder: (_) => LoginScreen(
+        repository: repository,
+        mode: LoginMode.addAccount,
+      ),
+    ),
+  );
+  return loggedIn ?? false;
+}
+
+/// Reauthenticates [accountId] on a staging jar. Same stack rule as add.
+Future<bool> openReauthAccount(
+  BuildContext context,
+  ForumRepository repository, {
+  required String accountId,
+  String? initialUsername,
+}) async {
+  final loggedIn = await Navigator.of(context, rootNavigator: true).push<bool>(
+    MaterialPageRoute(
+      builder: (_) => LoginScreen(
+        repository: repository,
+        mode: LoginMode.reauth,
+        reauthAccountId: accountId,
+        initialUsername: initialUsername,
+      ),
+    ),
   );
   return loggedIn ?? false;
 }
@@ -55,10 +110,23 @@ class LoginPrompt extends StatelessWidget {
 }
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, ForumRepository? repository})
-      : repository = repository;
+  LoginScreen({
+    super.key,
+    ForumRepository? repository,
+    this.mode = LoginMode.signIn,
+    this.reauthAccountId,
+    this.initialUsername,
+  })  : repository = repository,
+        assert(
+          mode != LoginMode.reauth ||
+              (reauthAccountId != null && reauthAccountId.isNotEmpty),
+          'reauth needs reauthAccountId',
+        );
 
   final ForumRepository? repository;
+  final LoginMode mode;
+  final String? reauthAccountId;
+  final String? initialUsername;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -74,6 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   final _captcha = TextEditingController();
   bool _loading = false;
+  bool _succeeded = false;
   String? _error;
   String _loginType = '0';
   bool _hideLogin = false;
@@ -83,20 +152,53 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialUsername?.trim();
+    if (initial != null && initial.isNotEmpty) {
+      _username.text = initial;
+    }
     _challengeFuture = _newChallengeFuture();
   }
 
   @override
   void dispose() {
+    if (!_succeeded) _cancelStaging();
     _username.dispose();
     _password.dispose();
     _captcha.dispose();
     super.dispose();
   }
 
+  void _cancelStaging() {
+    switch (widget.mode) {
+      case LoginMode.signIn:
+        unawaited(_repo.cancelLogin());
+      case LoginMode.addAccount:
+        unawaited(_repo.cancelAddAccount());
+      case LoginMode.reauth:
+        unawaited(_repo.cancelReauthAccount());
+    }
+  }
+
+  String get _headline => switch (widget.mode) {
+        LoginMode.signIn => '登录南+',
+        LoginMode.addAccount => '添加账号',
+        LoginMode.reauth => '重新登录',
+      };
+
+  String get _submitLabel => switch (widget.mode) {
+        LoginMode.signIn => '登录',
+        LoginMode.addAccount => '添加账号',
+        LoginMode.reauth => '重新登录',
+      };
+
   Future<LoginChallenge?> _loadChallenge() async {
     try {
-      final challenge = await _repo.fetchLoginChallenge();
+      final challenge = switch (widget.mode) {
+        LoginMode.signIn => await _repo.fetchLoginChallenge(),
+        LoginMode.addAccount => await _repo.fetchAddAccountChallenge(),
+        LoginMode.reauth =>
+          await _repo.fetchReauthChallenge(widget.reauthAccountId!),
+      };
       _challenge = challenge;
       _challengeLoadError = null;
       return challenge;
@@ -133,30 +235,70 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
 
-    final result = await _repo.submitLogin(
-      username: _username.text,
-      password: _password.text,
-      captcha: _captcha.text,
-      fields: {
-        ...challenge.fields,
-        'lgt': _loginType,
-        'hideid': _hideLogin ? '1' : '0',
-        'cktime': _cookieTime,
-      },
-    );
+    final fields = {
+      ...challenge.fields,
+      'lgt': _loginType,
+      'hideid': _hideLogin ? '1' : '0',
+      'cktime': _cookieTime,
+    };
 
-    if (!mounted) return;
-    setState(() => _loading = false);
-    if (!result.success) {
-      _refreshChallenge(error: result.message);
-      return;
+    try {
+      switch (widget.mode) {
+        case LoginMode.signIn:
+          final result = await _repo.submitLogin(
+            username: _username.text,
+            password: _password.text,
+            captcha: _captcha.text,
+            fields: fields,
+          );
+          if (!mounted) return;
+          setState(() => _loading = false);
+          if (!result.success) {
+            _refreshChallenge(error: result.message);
+            return;
+          }
+          _succeeded = true;
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(result.message)));
+          Navigator.of(context).maybePop(true);
+          return;
+        case LoginMode.addAccount:
+          final summary = await _repo.submitAddAccount(
+            username: _username.text,
+            password: _password.text,
+            captcha: _captcha.text,
+            fields: fields,
+          );
+          if (!mounted) return;
+          setState(() => _loading = false);
+          _succeeded = true;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已添加 ${summary.displayName}')),
+          );
+          Navigator.of(context).maybePop(true);
+          return;
+        case LoginMode.reauth:
+          final summary = await _repo.submitReauthAccount(
+            widget.reauthAccountId!,
+            username: _username.text,
+            password: _password.text,
+            captcha: _captcha.text,
+            fields: fields,
+          );
+          if (!mounted) return;
+          setState(() => _loading = false);
+          _succeeded = true;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已重新登录 ${summary.displayName}')),
+          );
+          Navigator.of(context).maybePop(true);
+          return;
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _refreshChallenge(error: '$error');
     }
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(result.message)));
-    // Back to the screen that asked for login; never a second app shell.
-    Navigator.of(context).maybePop(true);
   }
 
   @override
@@ -185,7 +327,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: BrandMark(size: 48),
                   ),
                   const SizedBox(height: AppSpace.lg),
-                  Text('登录南+', style: theme.textTheme.headlineSmall),
+                  Text(_headline, style: theme.textTheme.headlineSmall),
                   const SizedBox(height: AppSpace.xl),
                   AutofillGroup(
                     child: Column(
@@ -303,7 +445,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       duration: AppMotion.of(context, AppMotion.short),
                       child: _loading
                           ? const _LoadingButtonLabel()
-                          : const Text('登录'),
+                          : Text(_submitLabel),
                     ),
                   ),
                   const SizedBox(height: AppSpace.sm),

@@ -366,11 +366,14 @@ void main() {
     await tester.pumpAndSettle();
     final after = tester.getTopLeft(find.text('全部主题'));
     expect(after.dy, lessThan(before.dy), reason: 'the grid folded away');
-    expect((await HomeReadingPreferences.load()).collapsedIds, {'board:901'});
+    final scope = repo.localPreferenceAccount;
+    expect((await HomeReadingPreferences.load(account: scope)).collapsedIds,
+        {'board:901'});
 
     await tester.tap(find.text('子版块'));
     await tester.pumpAndSettle();
-    expect((await HomeReadingPreferences.load()).collapsedIds, isEmpty);
+    expect((await HomeReadingPreferences.load(account: scope)).collapsedIds,
+        isEmpty);
   });
 
   testWidgets('switching forum origin while open never writes to the old one',

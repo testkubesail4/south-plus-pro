@@ -360,6 +360,10 @@ class _Repo extends ForumRepository {
   @override
   String? get currentUsername => 'fixture_login';
 
+  // Prefs/shape keys follow stable localPreferenceAccount, not display name.
+  @override
+  String get localPreferenceAccount => 'fixture_login';
+
   final flags = ValueNotifier(const ForumNoticeFlags());
 
   @override

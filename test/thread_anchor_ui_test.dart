@@ -259,7 +259,11 @@ class _FakeRepository extends ForumRepository {
 
 class _History extends BrowsingHistoryStore {
   @override
-  Future<void> recordThread(ForumThread thread, {DateTime? viewedAt}) async {}
+  Future<void> recordThreadForScope(
+    String scope,
+    ForumThread thread, {
+    DateTime? viewedAt,
+  }) async {}
 }
 
 class _MarkupClient extends ForumClient {

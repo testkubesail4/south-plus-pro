@@ -19,7 +19,7 @@ class _Repo extends ForumRepository {
   @override
   ValueListenable<int> get sessionEpoch => epoch;
   @override
-  String? get localPreferenceAccount => 'reader';
+  String get localPreferenceAccount => 'reader';
 }
 
 Color? _fill(WidgetTester tester, String tag) => (tester

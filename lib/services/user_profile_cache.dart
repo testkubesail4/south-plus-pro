@@ -19,9 +19,9 @@ class UserProfileCache {
   final Duration maxAge;
   final Future<LocalDatabase> Function() _databaseProvider;
 
-  Future<UserProfile?> loadOverview(String url) async {
+  Future<UserProfile?> loadOverview(String url, {String? viewerScope}) async {
     final db = await _databaseProvider();
-    final cached = db.profileOverview(_cacheKey(url));
+    final cached = db.profileOverview(_cacheKey(url, viewerScope: viewerScope));
     if (cached == null || cached.payloadJson.isEmpty) return null;
     final decoded = jsonDecode(cached.payloadJson);
     if (decoded is! Map<String, dynamic>) return null;
@@ -31,12 +31,19 @@ class UserProfileCache {
     return _overviewFromCache(decoded);
   }
 
-  Future<void> saveOverview(String requestedUrl, UserProfile profile) async {
+  Future<void> saveOverview(
+    String requestedUrl,
+    UserProfile profile, {
+    String? viewerScope,
+  }) async {
     final db = await _databaseProvider();
     final keys = {
-      _cacheKey(requestedUrl),
-      _cacheKey(profile.url),
-      _cacheKey(urls.userTabUrl(profile.uid, UserProfileTab.profile)),
+      _cacheKey(requestedUrl, viewerScope: viewerScope),
+      _cacheKey(profile.url, viewerScope: viewerScope),
+      _cacheKey(
+        urls.userTabUrl(profile.uid, UserProfileTab.profile),
+        viewerScope: viewerScope,
+      ),
     };
     db.saveProfileOverview(
       cacheKeys: keys,
@@ -47,8 +54,13 @@ class UserProfileCache {
     );
   }
 
-  String _cacheKey(String url) {
-    return '$_keyPrefix${urls.absoluteUrl(url)}';
+  String _cacheKey(String url, {String? viewerScope}) {
+    final absolute = urls.absoluteUrl(url);
+    if (viewerScope == null || viewerScope.isEmpty) {
+      return '$_keyPrefix$absolute';
+    }
+    // Viewer-scoped cache; legacy unscoped keys stay unowned.
+    return '$_keyPrefix$viewerScope:$absolute';
   }
 
   Map<String, dynamic> _overviewToCache(UserProfile profile) {

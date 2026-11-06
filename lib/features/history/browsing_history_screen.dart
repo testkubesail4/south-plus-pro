@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../models/forum_models.dart';
@@ -7,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../common/app_switcher.dart';
 import '../common/async_state_view.dart';
 import '../common/content_width.dart';
+import '../common/session_bound.dart';
 import '../common/thread_row.dart';
 import '../thread/thread_detail_screen.dart';
 
@@ -34,6 +37,10 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
   int? _year;
   int? _month;
   int? _day;
+  // Frozen when the page opens; a switch rebuilds the list for the new scope.
+  late String? _scope = widget.repository.localPreferenceAccount;
+  late int _epoch = widget.repository.sessionEpoch.value;
+  int _fetchSeq = 0;
 
   bool get _dated => _year != null;
 
@@ -54,24 +61,52 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
         isScrollControlled: true,
         showDragHandle: true,
         constraints: const BoxConstraints(maxWidth: AppWidths.sheet),
-        builder: (sheetContext) => StatefulBuilder(
-          builder: (sheetContext, setSheet) => _DatePickerSheet(
-            items: _items,
-            year: _year,
-            month: _month,
-            day: _day,
-            onChanged: (year, month, day) {
-              _setDate(year, month, day);
-              setSheet(() {});
-            },
+        builder: (sheetContext) => SessionBound(
+          repository: widget.repository,
+          title: '按日期筛选',
+          child: StatefulBuilder(
+            builder: (sheetContext, setSheet) => _DatePickerSheet(
+              items: _items,
+              year: _year,
+              month: _month,
+              day: _day,
+              onChanged: (year, month, day) {
+                _setDate(year, month, day);
+                setSheet(() {});
+              },
+            ),
           ),
         ),
       );
 
   @override
+  void initState() {
+    super.initState();
+    widget.repository.sessionEpoch.addListener(_onSessionScope);
+    widget.repository.sessionUser.addListener(_onSessionScope);
+  }
+
+  @override
   void dispose() {
+    widget.repository.sessionEpoch.removeListener(_onSessionScope);
+    widget.repository.sessionUser.removeListener(_onSessionScope);
     _query.dispose();
     super.dispose();
+  }
+
+  void _onSessionScope() {
+    if (!mounted) return;
+    final scope = widget.repository.localPreferenceAccount;
+    final epoch = widget.repository.sessionEpoch.value;
+    if (scope == _scope && epoch == _epoch) return;
+    _scope = scope;
+    _epoch = epoch;
+    _year = null;
+    _month = null;
+    _day = null;
+    _items = const [];
+    _closeSearch();
+    unawaited(_refresh());
   }
 
   void _openSearch() => setState(() => _searchOpen = true);
@@ -82,14 +117,18 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
       });
 
   Future<List<BrowsingHistoryEntry>> _fetch() async {
+    final scope = widget.repository.localPreferenceAccount;
+    final epoch = widget.repository.sessionEpoch.value;
+    final seq = ++_fetchSeq;
     final items = await widget.repository.browsingHistory();
-    if (mounted) {
-      setState(() {
-        _items = items;
-      });
-    } else {
+    final current = mounted &&
+        seq == _fetchSeq &&
+        scope == widget.repository.localPreferenceAccount &&
+        epoch == widget.repository.sessionEpoch.value;
+    if (!current) return items;
+    setState(() {
       _items = items;
-    }
+    });
     return items;
   }
 
@@ -107,6 +146,8 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
 
   Future<void> _clearHistory() async {
     if (_items.isEmpty || _clearing) return;
+    final scope = widget.repository.localPreferenceAccount;
+    final epoch = widget.repository.sessionEpoch.value;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -125,6 +166,10 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    if (scope != widget.repository.localPreferenceAccount ||
+        epoch != widget.repository.sessionEpoch.value) {
+      return;
+    }
 
     setState(() {
       _clearing = true;
@@ -132,6 +177,10 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
     try {
       await widget.repository.clearBrowsingHistory();
       if (!mounted) return;
+      if (scope != widget.repository.localPreferenceAccount ||
+          epoch != widget.repository.sessionEpoch.value) {
+        return;
+      }
       _setDate(null);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('浏览历史已清空')),
@@ -236,6 +285,8 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
                 ),
         ),
         body: FutureBuilder<List<BrowsingHistoryEntry>>(
+          // A new scope must not reuse the previous future's snapshot.
+          key: ValueKey((_scope, _epoch)),
           future: _future,
           // Loading, the list and each date filter fade into one another;
           // typing a keyword filters in place.
@@ -256,6 +307,12 @@ class _BrowsingHistoryScreenState extends State<BrowsingHistoryScreen> {
 
                 final items = snapshot.data;
                 if (items == null) {
+                  return const ThreadListSkeleton(itemCount: 6);
+                }
+                final current =
+                    widget.repository.localPreferenceAccount == _scope &&
+                        widget.repository.sessionEpoch.value == _epoch;
+                if (!current) {
                   return const ThreadListSkeleton(itemCount: 6);
                 }
                 _items = items;

@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/search/search_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/account_scoped_keys.dart';
+import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_search_preferences.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
@@ -16,6 +18,8 @@ const _boards = [
   ForumSearchBoard(id: 'all', name: '全部版块'),
   ForumSearchBoard(id: '12', name: 'Fixture board', depth: 1),
 ];
+
+final _guestScope = AccountScope.guest(ForumNetworkConfig.defaultSite.baseUri);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -98,7 +102,8 @@ void main() {
     rejectWrites = false;
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
-    expect((await ForumSearchPreferences.load()).defaultMatch,
+    expect(
+        (await ForumSearchPreferences.load(account: _guestScope)).defaultMatch,
         ForumSearchMatch.exact);
     expect(find.text('设为默认'), findsNothing);
   });
@@ -187,7 +192,9 @@ void main() {
     expect(find.text('版块捷径'), findsOneWidget);
     expect(find.text('Mine'), findsOneWidget);
     expect(
-      (await ForumSearchPreferences.load()).pinnedBoards.map((b) => b.label),
+      (await ForumSearchPreferences.load(account: _guestScope))
+          .pinnedBoards
+          .map((b) => b.label),
       ['Mine'],
     );
   });
@@ -198,7 +205,7 @@ void main() {
     await ForumSearchPreferences.savePinnedBoards(const [
       ForumSearchPinnedBoard(id: '12', label: 'Pin one'),
       ForumSearchPinnedBoard(id: '99', label: 'Pin two'),
-    ]);
+    ], account: _guestScope);
     SharedPreferences.resetStatic();
     await pump(tester);
     await tapText(tester, '筛选条件');
@@ -225,7 +232,9 @@ void main() {
     expect(find.text('Pin two'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsNothing);
     expect(
-      (await ForumSearchPreferences.load()).pinnedBoards.map((b) => b.label),
+      (await ForumSearchPreferences.load(account: _guestScope))
+          .pinnedBoards
+          .map((b) => b.label),
       ['Pin one', 'Pin two'],
     );
 
@@ -234,7 +243,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Pin two'), findsNothing);
     expect(
-      (await ForumSearchPreferences.load()).pinnedBoards.map((b) => b.label),
+      (await ForumSearchPreferences.load(account: _guestScope))
+          .pinnedBoards
+          .map((b) => b.label),
       ['Pin one'],
     );
   });
@@ -243,8 +254,8 @@ void main() {
       'a pin list that fails to load offers a retry; search still opens',
       (tester) async {
     await ForumSearchPreferences.savePinnedBoards(
-      const [ForumSearchPinnedBoard(id: '12', label: 'Kept pin')],
-    );
+        const [ForumSearchPinnedBoard(id: '12', label: 'Kept pin')],
+        account: _guestScope);
     SharedPreferences.resetStatic();
 
     await pump(tester);
@@ -272,6 +283,11 @@ class _Repo extends ForumRepository {
 
   @override
   String? get currentUsername => account;
+
+  @override
+  String get localPreferenceAccount => (account == null || account!.isEmpty)
+      ? super.localPreferenceAccount
+      : account!;
 
   @override
   Future<List<ForumSearchBoard>> fetchSearchBoards() async => _boards;

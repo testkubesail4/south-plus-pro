@@ -13,12 +13,13 @@ class _Repository extends ForumRepository {
   final epoch = ValueNotifier<int>(0);
 
   @override
-  String? get localPreferenceAccount => scope;
+  String get localPreferenceAccount => scope;
 
   @override
   ValueListenable<int> get sessionEpoch => epoch;
 
-  void switchAccount() {
+  // Test-only scope flip; must not collide with ForumRepository.switchAccount.
+  void flipTestScope() {
     scope = 'account-b';
     epoch.value++;
   }
@@ -193,7 +194,7 @@ void main() {
     // editor's awaited note save can continue into its second storage stage.
     void switchAfterAcknowledgement() {
       switched = true;
-      repository.switchAccount();
+      repository.flipTestScope();
     }
 
     UserNoteStore.revision.addListener(switchAfterAcknowledgement);

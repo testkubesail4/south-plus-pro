@@ -22,7 +22,8 @@ const _thread = ForumThread(
 class _History extends BrowsingHistoryStore {
   int writes = 0;
   @override
-  Future<void> recordThread(ForumThread thread, {DateTime? viewedAt}) async {
+  Future<void> recordThreadForScope(String scope, ForumThread thread,
+      {DateTime? viewedAt}) async {
     writes++;
   }
 }

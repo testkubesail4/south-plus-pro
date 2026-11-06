@@ -434,12 +434,16 @@ class _Cache extends UserProfileCache {
   Completer<UserProfile?>? gate;
   final started = Completer<void>();
   @override
-  Future<UserProfile?> loadOverview(String url) async {
+  Future<UserProfile?> loadOverview(String url, {String? viewerScope}) async {
     loadedUrl = url;
     if (!started.isCompleted) started.complete();
     return gate?.future;
   }
 
   @override
-  Future<void> saveOverview(String requestedUrl, UserProfile profile) async {}
+  Future<void> saveOverview(
+    String requestedUrl,
+    UserProfile profile, {
+    String? viewerScope,
+  }) async {}
 }

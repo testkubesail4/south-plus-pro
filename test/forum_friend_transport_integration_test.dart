@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_friend_models.dart';
+import 'package:south_plus_rewrite/services/forum_account_id.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
+import 'package:south_plus_rewrite/services/forum_session_slots.dart';
 import 'package:south_plus_rewrite/services/forum_session_store.dart';
 import 'package:south_plus_rewrite/services/forum_trace_logger.dart';
 
@@ -79,9 +81,15 @@ void main() {
     release.complete();
     await rejected;
     expect(sentCookie, 'winduser=synthetic-A');
-    final persisted =
-        await ForumSessionStore(origin: fixture.client.baseUri).loadCookies();
+    final accountB = ForumAccountId(origin: fixture.client.baseUri, uid: '903');
+    final persisted = await ForumSessionStore.forSlot(
+      slotId: ForumSessionSlots.account(accountB.value),
+      origin: fixture.client.baseUri,
+    ).loadCookies();
     expect(persisted.values.map((cookie) => cookie.value), ['synthetic-B']);
+    expect(
+        await ForumSessionStore(origin: fixture.client.baseUri).loadCookies(),
+        isEmpty);
     await fixture.client.getOnce('fixture-echo');
     expect(fixture.echoCookie, 'winduser=synthetic-B');
     expect(fixture.repository.currentUsername, 'Synthetic B');

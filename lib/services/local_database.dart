@@ -13,15 +13,21 @@ class LocalDatabase {
     return LocalDatabase._(sqlite3.openInMemory());
   }
 
+  factory LocalDatabase.open(String path) {
+    return LocalDatabase._(sqlite3.open(path));
+  }
+
   static LocalDatabase? _instance;
+
+  /// Local schema epoch. Migrations are idempotent and restart-safe.
+  static const schemaVersion = 2;
 
   static Future<LocalDatabase> instance() async {
     final existing = _instance;
     if (existing != null) return existing;
 
     final dir = await getApplicationSupportDirectory();
-    final db = sqlite3.open(p.join(dir.path, 'south_plus.sqlite'));
-    _instance = LocalDatabase._(db);
+    _instance = LocalDatabase.open(p.join(dir.path, 'south_plus.sqlite'));
     return _instance!;
   }
 
@@ -61,6 +67,40 @@ class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_browsing_history_viewed_at
       ON browsing_history(viewed_at DESC);
     ''');
+    // Keep legacy browsing_history rows unowned; never copy into every scope.
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS schema_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    ''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS browsing_history_v2 (
+        account_scope TEXT NOT NULL,
+        thread_url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        replies INTEGER NOT NULL,
+        section TEXT NOT NULL,
+        body_preview TEXT,
+        last_post TEXT,
+        author TEXT,
+        author_url TEXT,
+        author_avatar_url TEXT,
+        author_posts_url TEXT,
+        is_sticky INTEGER NOT NULL DEFAULT 0,
+        viewed_at INTEGER NOT NULL,
+        PRIMARY KEY (account_scope, thread_url)
+      );
+    ''');
+    _db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_browsing_history_v2_scope_viewed
+      ON browsing_history_v2(account_scope, viewed_at DESC);
+    ''');
+    _db.execute(
+      "INSERT INTO schema_meta(key, value) VALUES('version', ?) "
+      "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+      [schemaVersion.toString()],
+    );
   }
 
   CachedProfileOverviewRow? profileOverview(String cacheKey) {
@@ -194,6 +234,105 @@ class LocalDatabase {
     }
   }
 
+  /// Scoped history only. Legacy unowned rows stay in [browsing_history].
+  List<BrowsingHistoryEntry> browsingHistoryForScope(
+    String accountScope, {
+    int limit = browsingHistoryLimit,
+  }) {
+    final normalizedLimit = limit.clamp(1, browsingHistoryLimit).toInt();
+    final rows = _db.select(
+      '''
+      SELECT thread_url, title, replies, section, body_preview, last_post,
+        author, author_url, author_avatar_url, author_posts_url, is_sticky,
+        viewed_at
+      FROM browsing_history_v2
+      WHERE account_scope = ?
+      ORDER BY viewed_at DESC
+      LIMIT ?;
+      ''',
+      [accountScope, normalizedLimit],
+    );
+    return rows.map(BrowsingHistoryRow.fromSql).toList(growable: false);
+  }
+
+  void saveBrowsingHistoryForScope({
+    required String accountScope,
+    required ForumThread thread,
+    required DateTime viewedAt,
+    int maxEntries = browsingHistoryLimit,
+  }) {
+    final statement = _db.prepare('''
+      INSERT INTO browsing_history_v2 (
+        account_scope, thread_url, title, replies, section, body_preview,
+        last_post, author, author_url, author_avatar_url, author_posts_url,
+        is_sticky, viewed_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(account_scope, thread_url) DO UPDATE SET
+        title = excluded.title,
+        replies = excluded.replies,
+        section = excluded.section,
+        body_preview = excluded.body_preview,
+        last_post = excluded.last_post,
+        author = excluded.author,
+        author_url = excluded.author_url,
+        author_avatar_url = excluded.author_avatar_url,
+        author_posts_url = excluded.author_posts_url,
+        is_sticky = excluded.is_sticky,
+        viewed_at = excluded.viewed_at;
+    ''');
+    try {
+      _db.execute('BEGIN TRANSACTION;');
+      statement.execute([
+        accountScope,
+        thread.url,
+        thread.title,
+        thread.replies,
+        thread.section,
+        thread.bodyPreview,
+        thread.lastPost,
+        thread.author,
+        thread.authorUrl,
+        thread.authorAvatarUrl,
+        thread.authorPostsUrl,
+        thread.isSticky ? 1 : 0,
+        viewedAt.toUtc().millisecondsSinceEpoch,
+      ]);
+      _db.execute(
+        '''
+        DELETE FROM browsing_history_v2
+        WHERE account_scope = ?
+          AND thread_url NOT IN (
+            SELECT thread_url
+            FROM browsing_history_v2
+            WHERE account_scope = ?
+            ORDER BY viewed_at DESC
+            LIMIT ?
+          );
+        ''',
+        [
+          accountScope,
+          accountScope,
+          maxEntries.clamp(1, browsingHistoryLimit).toInt(),
+        ],
+      );
+      _db.execute('COMMIT;');
+    } catch (_) {
+      _db.execute('ROLLBACK;');
+      rethrow;
+    } finally {
+      statement.close();
+    }
+  }
+
+  void clearBrowsingHistoryForScope(String accountScope) {
+    _db.execute(
+      'DELETE FROM browsing_history_v2 WHERE account_scope = ?;',
+      [accountScope],
+    );
+  }
+
+  /// Clears the unowned legacy table only; does not touch scoped v2 rows.
   void clearBrowsingHistory() {
     _db.execute('DELETE FROM browsing_history;');
   }

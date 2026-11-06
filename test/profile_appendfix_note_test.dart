@@ -6,6 +6,8 @@ import 'package:south_plus_rewrite/features/profile/user_profile_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/user_display_name_store.dart';
 import 'package:south_plus_rewrite/services/user_note_store.dart';
+import 'package:south_plus_rewrite/services/account_scoped_keys.dart';
+import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/user_tag_store.dart';
 
 import 'profile_appendfix_support.dart';
@@ -18,6 +20,8 @@ class _NamedProfileRepository extends FakeProfileRepository {
   @override
   Future<UserProfile> fetchUserProfileOverview(String url) async => profile;
 }
+
+final _guestScope = AccountScope.guest(ForumNetworkConfig.defaultSite.baseUri);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -71,14 +75,18 @@ void main() {
         url: 'u.php?action-show-uid-1834429.html',
         info: [UserProfileField(label: '昵称', value: '禁止事项')]));
     await openProfile(tester, repository);
-    expect(await UserDisplayNameStore.load(), isEmpty,
+    expect(
+        await UserDisplayNameStore.load(
+            account: repository.localPreferenceAccount),
+        isEmpty,
         reason: 'unannotated users are not recorded');
     await tester.tap(find.text('添加备注'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, '熟人');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    final names = await UserDisplayNameStore.load();
+    final names = await UserDisplayNameStore.load(
+        account: repository.localPreferenceAccount);
     expect(names['1834429']?.nickname, '禁止事项');
     expect(names['1834429']?.hashName, '3f365ae9');
   });
@@ -95,8 +103,14 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '无名');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect((await UserNoteStore.load())['77'], '无名');
-    expect(await UserDisplayNameStore.load(), isEmpty);
+    expect(
+        (await UserNoteStore.load(
+            account: repository.localPreferenceAccount))['77'],
+        '无名');
+    expect(
+        await UserDisplayNameStore.load(
+            account: repository.localPreferenceAccount),
+        isEmpty);
   });
 
   testWidgets('profile header adds, edits and clears a local UID note',
@@ -116,7 +130,8 @@ void main() {
 
     expect(find.text('备注 老朋友'), findsOneWidget);
     expect(find.text('Alice'), findsOneWidget, reason: 'original name stays');
-    expect(await UserNoteStore.load(), {'123': '老朋友'});
+    expect(await UserNoteStore.load(account: repository.localPreferenceAccount),
+        {'123': '老朋友'});
 
     await tester.tap(find.text('备注 老朋友'));
     await tester.pumpAndSettle();
@@ -128,18 +143,20 @@ void main() {
     expect(
         tester.widget<TextField>(find.byType(TextField).first).controller!.text,
         isEmpty);
-    expect(await UserNoteStore.load(), {'123': '老朋友'});
+    expect(await UserNoteStore.load(account: repository.localPreferenceAccount),
+        {'123': '老朋友'});
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
     expect(find.text('添加备注'), findsOneWidget);
-    expect(await UserNoteStore.load(), isEmpty);
+    expect(await UserNoteStore.load(account: repository.localPreferenceAccount),
+        isEmpty);
   });
 
   testWidgets('clearing the note never commits a pending tag removal',
       (tester) async {
-    await UserNoteStore.save('123', '老朋友');
-    await UserTagStore.save('123', ['Keep me', 'Other']);
+    await UserNoteStore.save('123', '老朋友', account: _guestScope);
+    await UserTagStore.save('123', ['Keep me', 'Other'], account: _guestScope);
     final repository = FakeProfileRepository();
     await openProfile(tester, repository);
     await tester.tap(find.text('备注 老朋友'));
@@ -148,8 +165,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('清除备注'));
     await tester.pumpAndSettle();
-    expect(await UserNoteStore.load(), {'123': '老朋友'});
-    expect((await UserTagStore.load())['123'], ['Keep me', 'Other'],
+    expect(await UserNoteStore.load(account: repository.localPreferenceAccount),
+        {'123': '老朋友'});
+    expect(
+        (await UserTagStore.load(
+            account: repository.localPreferenceAccount))['123'],
+        ['Keep me', 'Other'],
         reason: 'a note-only clear must not persist the tag draft');
     expect(find.widgetWithText(InputChip, 'Keep me'), findsNothing,
         reason: 'the pending tag draft is preserved');
@@ -157,8 +178,12 @@ void main() {
     expect(find.text('备注与标签'), findsOneWidget, reason: 'the editor stays open');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect(await UserNoteStore.load(), isEmpty);
-    expect((await UserTagStore.load())['123'], ['Other']);
+    expect(await UserNoteStore.load(account: repository.localPreferenceAccount),
+        isEmpty);
+    expect(
+        (await UserTagStore.load(
+            account: repository.localPreferenceAccount))['123'],
+        ['Other']);
   });
 
   testWidgets(
@@ -192,12 +217,14 @@ void main() {
     expect(find.text('原名 2860844 · UID 123'), findsOneWidget);
   });
 
-  Future<void> openTagPicker(WidgetTester tester) async {
-    await openProfile(tester, FakeProfileRepository());
+  Future<FakeProfileRepository> openTagPicker(WidgetTester tester) async {
+    final repository = FakeProfileRepository();
+    await openProfile(tester, repository);
     await tester.tap(find.text('添加备注'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('+ 添加标签'));
     await tester.pumpAndSettle();
+    return repository;
   }
 
   Finder suggestion(String label) =>
@@ -206,10 +233,10 @@ void main() {
   testWidgets(
       'the tag picker offers this account\'s tags with user counts and reuses the stored spelling',
       (tester) async {
-    await UserTagStore.save('7', ['Artist', '资源佬']);
-    await UserTagStore.save('8', ['资源佬']);
-    await UserTagStore.save('123', ['Keep']);
-    await openTagPicker(tester);
+    await UserTagStore.save('7', ['Artist', '资源佬'], account: _guestScope);
+    await UserTagStore.save('8', ['资源佬'], account: _guestScope);
+    await UserTagStore.save('123', ['Keep'], account: _guestScope);
+    final repository = await openTagPicker(tester);
     expect(find.text('资源佬 · 2'), findsOneWidget);
     expect(find.text('Artist · 1'), findsOneWidget);
     expect(suggestion('Keep'), findsNothing,
@@ -243,7 +270,8 @@ void main() {
 
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    final stored = await UserTagStore.load();
+    final stored =
+        await UserTagStore.load(account: repository.localPreferenceAccount);
     expect(stored['123'], ['Keep', 'Artist', '资源佬', '新词']);
     expect(stored['7'], ['Artist', '资源佬'],
         reason: 'other users are never written');
@@ -253,10 +281,10 @@ void main() {
   testWidgets(
       'a word another user gained after the editor opened is resolved before adding',
       (tester) async {
-    await UserTagStore.save('123', ['Keep']);
+    await UserTagStore.save('123', ['Keep'], account: _guestScope);
     await openTagPicker(tester);
     expect(suggestion('Artist'), findsNothing);
-    await UserTagStore.save('7', ['Artist']);
+    await UserTagStore.save('7', ['Artist'], account: _guestScope);
     await tester.enterText(
         find.byKey(const ValueKey('user-tag-input')), 'ARTIST');
     await tester.tap(find.byTooltip('添加标签'));
@@ -270,10 +298,10 @@ void main() {
       'an exact match beyond the twelve shown still supplies the stored spelling',
       (tester) async {
     for (var i = 1; i <= 13; i++) {
-      await UserTagStore.save('${100 + i}', ['ab$i']);
-      await UserTagStore.save('${200 + i}', ['ab$i']);
+      await UserTagStore.save('${100 + i}', ['ab$i'], account: _guestScope);
+      await UserTagStore.save('${200 + i}', ['ab$i'], account: _guestScope);
     }
-    await UserTagStore.save('300', ['Ab']);
+    await UserTagStore.save('300', ['Ab'], account: _guestScope);
     await openTagPicker(tester);
     await tester.enterText(find.byKey(const ValueKey('user-tag-input')), 'AB');
     await tester.pump();
@@ -284,9 +312,9 @@ void main() {
   });
 
   testWidgets('prefix matches rank before substring matches', (tester) async {
-    await UserTagStore.save('1', ['xab']);
-    await UserTagStore.save('2', ['xab']);
-    await UserTagStore.save('3', ['abc']);
+    await UserTagStore.save('1', ['xab'], account: _guestScope);
+    await UserTagStore.save('2', ['xab'], account: _guestScope);
+    await UserTagStore.save('3', ['abc'], account: _guestScope);
     await openTagPicker(tester);
     await tester.enterText(find.byKey(const ValueKey('user-tag-input')), 'ab');
     await tester.pump();
@@ -296,8 +324,9 @@ void main() {
 
   testWidgets('a too long tag says why, and an eighth tag closes adding',
       (tester) async {
-    await UserTagStore.save('123', ['1', '2', '3', '4', '5', '6', '7']);
-    await UserTagStore.save('9', ['eighth']);
+    await UserTagStore.save('123', ['1', '2', '3', '4', '5', '6', '7'],
+        account: _guestScope);
+    await UserTagStore.save('9', ['eighth'], account: _guestScope);
     await openTagPicker(tester);
     await tester.enterText(
         find.byKey(const ValueKey('user-tag-input')), '字' * 17);
@@ -322,7 +351,10 @@ void main() {
     await tester.enterText(find.byType(TextField), '字' * 60);
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect((await UserNoteStore.load())['123'], hasLength(userNoteMaxLength));
+    expect(
+        (await UserNoteStore.load(
+            account: repository.localPreferenceAccount))['123'],
+        hasLength(userNoteMaxLength));
   });
 
   testWidgets(
@@ -341,16 +373,24 @@ void main() {
     expect(find.text('17/16'), findsOneWidget);
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect(await UserNoteStore.load(), isEmpty);
-    expect(await UserTagStore.load(), isEmpty);
+    expect(await UserNoteStore.load(account: repository.localPreferenceAccount),
+        isEmpty);
+    expect(await UserTagStore.load(account: repository.localPreferenceAccount),
+        isEmpty);
     expect(find.text('备注与标签'), findsOneWidget);
     await tester.enterText(
         find.byKey(const ValueKey('user-tag-input')), '😀' * 16);
     await tester.pump();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect((await UserNoteStore.load())['123'], '新备注');
-    expect((await UserTagStore.load())['123'], ['😀' * 16]);
+    expect(
+        (await UserNoteStore.load(
+            account: repository.localPreferenceAccount))['123'],
+        '新备注');
+    expect(
+        (await UserTagStore.load(
+            account: repository.localPreferenceAccount))['123'],
+        ['😀' * 16]);
   });
 
   testWidgets('UserNoteLabel cuts the note before the original name',

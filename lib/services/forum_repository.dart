@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,7 +13,12 @@ import '../models/forum_friend_models.dart';
 import '../models/user_content_query.dart';
 import '../models/forum_pm_models.dart';
 import 'browsing_history_store.dart';
+import 'account_scoped_keys.dart';
+import 'forum_account_id.dart';
+import 'forum_account_registry.dart';
 import 'forum_client.dart';
+import 'forum_multi_account_session.dart';
+import 'forum_session_slots.dart';
 import 'forum_live_sync.dart';
 import 'full_scan.dart';
 import 'thread_search.dart';
@@ -65,6 +71,13 @@ typedef _ProfileDetailsData = ({
   Map<UserProfileTab, Object> contentErrors,
 });
 
+class _LegacyLoginAttempt {
+  _LegacyLoginAttempt(this.client, this.requireSource);
+
+  final ForumClient client;
+  final void Function() requireSource;
+}
+
 class ForumRepository {
   ForumRepository({
     ForumClient? client,
@@ -104,6 +117,10 @@ class ForumRepository {
         _historyStore = historyStore ?? BrowsingHistoryStore(),
         _taskStateStore = taskStateStore ?? const ForumTaskStateStore() {
     ForumHttpRouting.updateConfig(_config);
+    _multiAccount = ForumMultiAccountSession(
+      client: _client,
+      sessionEpoch: _sessionEpoch,
+    );
     _sessionEpoch.addListener(_clearProfileDetails);
     _sessionEpoch.addListener(() {
       _restoredDesktopHtml = null;
@@ -122,6 +139,10 @@ class ForumRepository {
       _homeRequest = null;
       _homeRequestKey = null;
       _liveSync?.sessionChanged();
+      // Clear identity on epoch; keep sessionUser until an explicit publish/
+      // clear/switch updates it so an overlapping login can still observe the
+      // previous username while new cookies are mid-persist (transport races).
+      // Account switches must set sessionUser via _syncRepoStateAfterAccountSwitch.
       _accountIdentity.value = null;
       _accountNicknameFuture = null;
       _taskReadRequests.clear();
@@ -270,7 +291,6 @@ class ForumRepository {
     final owner = localPreferenceAccount;
     final uid = identity?.uid;
     if (!isLoggedIn ||
-        owner == null ||
         uid == null ||
         !RegExp(r'^[1-9]\d*$').hasMatch(uid) ||
         identity?.credentialGeneration == null ||
@@ -300,6 +320,13 @@ class ForumRepository {
   }
 
   ForumClient _client;
+  late final ForumMultiAccountSession _multiAccount;
+  _LegacyLoginAttempt? _pendingLogin;
+  ForumClient? _pendingAddClient;
+  ForumClient? _pendingReauthClient;
+  String? _pendingReauthAccountId;
+  bool Function()? _pendingReauthTargetIsCurrent;
+  final _stagingNonce = Random.secure();
   ({String html, int credentialGeneration})? _restoredDesktopHtml;
   ForumNetworkConfig _config;
   ForumUrlResolver _urls;
@@ -375,6 +402,14 @@ class ForumRepository {
   int? _blockingLoadedEpoch;
   ForumBlockingSettings get blocking => _blocking ??= ForumBlockingSettings(
         accountUid: () => isLoggedIn ? _accountIdentity.value?.uid : null,
+        accountScope: () {
+          if (!isLoggedIn) return null;
+          final active = activeAccount.value;
+          if (active != null) return active.id;
+          final uid = _accountIdentity.value?.uid;
+          if (uid == null || !ForumAccountId.isValidUid(uid)) return null;
+          return AccountScope.accountFrom(origin: _client.baseUri, uid: uid);
+        },
         request: _requestBlocking,
       );
 
@@ -498,16 +533,519 @@ class ForumRepository {
 
   bool get isLoggedIn => _client.isLoggedIn;
 
+  ValueListenable<List<AccountSummary>> get accounts => _multiAccount.accounts;
+  ValueListenable<AccountSummary?> get activeAccount =>
+      _multiAccount.activeAccount;
+
+  void _requireCurrentAccountOrigin(String accountId) {
+    if (ForumAccountId.parse(accountId).origin !=
+        ForumAccountId.normalizeOrigin(_client.baseUri)) {
+      throw const ForumRepositoryException('请先切换到账号所属站点');
+    }
+  }
+
+  Future<void> switchAccount(String accountId) async {
+    _requireCurrentAccountOrigin(accountId);
+    try {
+      await _multiAccount.switchAccount(accountId);
+    } on StateError catch (error) {
+      if (error.message.startsWith('Account needs reauth:')) {
+        await _syncRepoStateAfterAccountSwitch();
+        throw const ForumRepositoryException('账号需要重新登录');
+      }
+      rethrow;
+    }
+    await _syncRepoStateAfterAccountSwitch();
+  }
+
+  Future<void> selectAccount(String accountId) => switchAccount(accountId);
+
+  Future<void> logoutAccount(String accountId) async {
+    await _multiAccount.logoutAccount(accountId);
+    _forgetOriginIdentityForAccount(accountId);
+    if (_multiAccount.activeAccount.value == null && !_client.isLoggedIn) {
+      _clearRepoIdentityForGuest();
+    }
+  }
+
+  Future<void> logoutCurrent() async {
+    final activeId = _multiAccount.activeAccount.value?.id;
+    if (activeId == null) {
+      await _multiAccount.logoutCurrent();
+      if (_multiAccount.activeAccount.value == null && !_client.isLoggedIn) {
+        _clearRepoIdentityForGuest();
+      }
+      return;
+    }
+    await logoutAccount(activeId);
+  }
+
+  Future<void> removeAccount(String accountId) async {
+    await _multiAccount.removeAccount(accountId);
+    _forgetOriginIdentityForAccount(accountId);
+    if (_multiAccount.activeAccount.value == null && !_client.isLoggedIn) {
+      _clearRepoIdentityForGuest();
+    }
+  }
+
+  /// Drop cached origin identity for [accountId] without wiping a same-origin
+  /// peer that is still ready/active (Medium). Deleted account A's cache must
+  /// never remain under that origin key.
+  void _forgetOriginIdentityForAccount(String accountId) {
+    if (_multiAccount.registry.find(accountId)?.status ==
+        AccountReadyState.ready) return;
+    final parsed = ForumAccountId.tryParse(accountId);
+    if (parsed == null) return;
+    final originKey = parsed.origin.origin;
+    final removedUid = parsed.uid;
+    final cached = _originIdentities[originKey];
+
+    final peersRemain = _multiAccount.accounts.value.any((account) {
+      if (account.id == accountId) return false;
+      final id = ForumAccountId.tryParse(account.id);
+      if (id == null || id.origin.origin != originKey) return false;
+      if (account.status == AccountReadyState.ready) return true;
+      return _multiAccount.activeAccount.value?.id == account.id;
+    });
+
+    if (!peersRemain) {
+      _originIdentities.remove(originKey);
+      return;
+    }
+
+    // Peers remain: only drop the cache when it is clearly the removed uid,
+    // or when it has no uid (ambiguous name-only — never keep as A's stand-in).
+    if (cached == null) {
+      // Fall through to optional active-peer rebuild below.
+    } else if (cached.uid == removedUid || cached.uid == null) {
+      _originIdentities.remove(originKey);
+    }
+    // else cached.uid belongs to another account — keep.
+
+    final active = _multiAccount.activeAccount.value;
+    if (active == null || active.id == accountId) return;
+    final activeParsed = ForumAccountId.tryParse(active.id);
+    if (activeParsed == null || activeParsed.origin.origin != originKey) {
+      return;
+    }
+    // Same-origin active peer: keep live identity coherent and re-seed cache
+    // from the live B identity when present so a later same-origin mode change
+    // still publishes B (not a hole, and never A).
+    final live = _accountIdentity.value;
+    if (live != null &&
+        live.uid == activeParsed.uid &&
+        live.uid != removedUid &&
+        live.credentialGeneration != null &&
+        _client.isCredentialCurrent(live.credentialGeneration!)) {
+      _originIdentities[originKey] = live;
+      if (_sessionUser.value == null ||
+          _sessionUser.value != (live.systemName)) {
+        _sessionUserGeneration = live.credentialGeneration;
+        _sessionUser.value = live.systemName;
+      }
+    }
+  }
+
+  Future<LoginChallenge> fetchAddAccountChallenge() async {
+    await cancelAddAccount();
+    final staging = _openStagingClient();
+    _pendingAddClient = staging;
+    try {
+      return await _fetchLoginChallengeOn(staging);
+    } catch (_) {
+      if (identical(_pendingAddClient, staging)) await cancelAddAccount();
+      rethrow;
+    }
+  }
+
+  Future<AccountSummary> submitAddAccount({
+    required String username,
+    required String password,
+    required String captcha,
+    Map<String, String> fields = const {},
+  }) async {
+    final staging = _pendingAddClient;
+    if (staging == null) {
+      throw const ForumRepositoryException('请先获取添加账号验证码');
+    }
+    void requirePending() {
+      if (!identical(_pendingAddClient, staging)) {
+        throw const ForumRepositoryException('添加账号已取消');
+      }
+    }
+
+    final AccountSummary committed;
+    try {
+      requirePending();
+      final loggedIn = await _submitLoginOn(
+        staging,
+        username: username,
+        password: password,
+        captcha: captcha,
+        fields: fields,
+      );
+      requirePending();
+      if (!loggedIn.success) {
+        throw ForumRepositoryException(loggedIn.message);
+      }
+      final identity = await _identityFromLoggedInClient(staging);
+      requirePending();
+      final uid = identity.uid;
+      if (uid == null || !ForumAccountId.isValidUid(uid)) {
+        throw const ForumRepositoryException('登录成功但未解析到 uid，请重试');
+      }
+      final accountId = ForumAccountId(
+        origin: ForumAccountId.normalizeOrigin(staging.baseUri),
+        uid: uid,
+      ).value;
+      committed = await _multiAccount.commitAuthenticatedAccount(
+        accountId: accountId,
+        systemName: identity.systemName,
+        nickname: identity.nickname,
+        avatarUrl: identity.avatarUrl,
+        cookies: staging.exportCookies(),
+        requireCurrent: requirePending,
+      );
+    } catch (_) {
+      if (!identical(_pendingAddClient, staging)) {
+        throw const ForumRepositoryException('添加账号已取消');
+      }
+      rethrow;
+    }
+    if (identical(_pendingAddClient, staging)) await cancelAddAccount();
+    await _syncRepoStateAfterAccountSwitch();
+    return committed;
+  }
+
+  Future<void> cancelAddAccount() async {
+    final staging = _pendingAddClient;
+    _pendingAddClient = null;
+    staging?.close(force: true);
+  }
+
+  Future<AccountSummary> addAccount({
+    required String username,
+    required String password,
+    String captcha = '',
+    Map<String, String> fields = const {},
+  }) async {
+    if (_pendingAddClient == null) {
+      await fetchAddAccountChallenge();
+    }
+    return submitAddAccount(
+      username: username,
+      password: password,
+      captcha: captcha,
+      fields: fields,
+    );
+  }
+
+  Future<LoginChallenge> fetchReauthChallenge(String accountId) async {
+    _requireCurrentAccountOrigin(accountId);
+    await cancelReauthAccount();
+    if (_multiAccount.registry.find(accountId) == null) {
+      throw ForumRepositoryException('账号不存在');
+    }
+    final staging = _openStagingClient();
+    final targetIsCurrent = ForumClient.captureSlotGenerationGuard(accountId);
+    _pendingReauthClient = staging;
+    _pendingReauthAccountId = accountId;
+    _pendingReauthTargetIsCurrent = targetIsCurrent;
+    try {
+      final challenge = await _fetchLoginChallengeOn(staging);
+      if (!identical(_pendingReauthClient, staging) ||
+          _pendingReauthAccountId != accountId ||
+          !targetIsCurrent() ||
+          _multiAccount.registry.find(accountId) == null) {
+        throw const ForumRepositoryException('重新登录已取消');
+      }
+      return challenge;
+    } catch (_) {
+      if (identical(_pendingReauthClient, staging)) await cancelReauthAccount();
+      rethrow;
+    }
+  }
+
+  Future<AccountSummary> submitReauthAccount(
+    String accountId, {
+    required String username,
+    required String password,
+    required String captcha,
+    Map<String, String> fields = const {},
+  }) async {
+    _requireCurrentAccountOrigin(accountId);
+    final staging = _pendingReauthClient;
+    final pendingId = _pendingReauthAccountId;
+    final targetIsCurrent = _pendingReauthTargetIsCurrent;
+    if (staging == null || pendingId != accountId || targetIsCurrent == null) {
+      throw const ForumRepositoryException('请先获取重新登录验证码');
+    }
+    final expected = ForumAccountId.parse(accountId);
+    void requirePending() {
+      if (!identical(_pendingReauthClient, staging) ||
+          _pendingReauthAccountId != accountId ||
+          !targetIsCurrent() ||
+          _multiAccount.registry.find(accountId) == null) {
+        throw const ForumRepositoryException('重新登录已取消');
+      }
+    }
+
+    final AccountSummary committed;
+    try {
+      requirePending();
+      final loggedIn = await _submitLoginOn(
+        staging,
+        username: username,
+        password: password,
+        captcha: captcha,
+        fields: fields,
+      );
+      requirePending();
+      if (!loggedIn.success) {
+        throw ForumRepositoryException(loggedIn.message);
+      }
+      final identity = await _identityFromLoggedInClient(staging);
+      requirePending();
+      final uid = identity.uid;
+      if (uid == null || uid != expected.uid) {
+        await cancelReauthAccount();
+        throw ForumAccountUidMismatchException(
+          expectedUid: expected.uid,
+          actualUid: uid ?? '',
+        );
+      }
+      committed = await _multiAccount.commitAuthenticatedAccount(
+        accountId: accountId,
+        systemName: identity.systemName,
+        nickname: identity.nickname,
+        avatarUrl: identity.avatarUrl,
+        cookies: staging.exportCookies(),
+        requireCurrent: requirePending,
+      );
+    } catch (error) {
+      if (error is ForumAccountUidMismatchException) rethrow;
+      if (!identical(_pendingReauthClient, staging) ||
+          _pendingReauthAccountId != accountId) {
+        throw const ForumRepositoryException('重新登录已取消');
+      }
+      rethrow;
+    }
+    if (identical(_pendingReauthClient, staging)) await cancelReauthAccount();
+    await _syncRepoStateAfterAccountSwitch();
+    return committed;
+  }
+
+  Future<void> cancelReauthAccount() async {
+    final staging = _pendingReauthClient;
+    _pendingReauthClient = null;
+    _pendingReauthAccountId = null;
+    _pendingReauthTargetIsCurrent = null;
+    staging?.close(force: true);
+  }
+
+  Future<AccountSummary> reauthAccount(
+    String accountId, {
+    required String username,
+    required String password,
+    String captcha = '',
+    Map<String, String> fields = const {},
+  }) async {
+    if (_pendingReauthClient == null || _pendingReauthAccountId != accountId) {
+      await fetchReauthChallenge(accountId);
+    }
+    return submitReauthAccount(
+      accountId,
+      username: username,
+      password: password,
+      captcha: captcha,
+      fields: fields,
+    );
+  }
+
+  ForumClient _openStagingClient() {
+    final client = ForumClient(config: _config);
+    final nonce =
+        '${DateTime.now().toUtc().microsecondsSinceEpoch.toRadixString(16)}'
+        '${List.generate(6, (_) => _stagingNonce.nextInt(16).toRadixString(16)).join()}';
+    client.bindSlot(ForumSessionSlots.staging(client.baseUri, nonce));
+    return client;
+  }
+
+  Future<LoginChallenge> _fetchLoginChallengeOn(ForumClient client) async {
+    final html = await client.get('login.php');
+    final document = html_parser.parse(html);
+    final form = document.querySelector('form[name="login"]') ??
+        document.querySelector('form[action*="login.php"]') ??
+        _loginFormFromFields(document);
+    if (form == null) {
+      throw ForumRepositoryException(
+        _responseParser.pageMessage(html) == '登录失败'
+            ? '没有找到登录表单'
+            : _responseParser.pageMessage(html),
+      );
+    }
+    final fields = _formParser.defaults(form)
+      ..remove('pwuser')
+      ..remove('pwpwd')
+      ..remove('gdcode');
+    final captchaSrc = form.querySelector('#ckcode')?.attributes['src'] ??
+        form.querySelector('img[src*="ck.php"]')?.attributes['src'] ??
+        form.querySelector('img[src*="gdcode"]')?.attributes['src'] ??
+        form.querySelector('img[src*="captcha"]')?.attributes['src'];
+    if (captchaSrc == null || captchaSrc.isEmpty) {
+      throw const ForumRepositoryException('没有找到验证码图片');
+    }
+    return LoginChallenge(
+      fields: fields,
+      captchaBytes: await client.getBytes(_urls.captchaPath(captchaSrc)),
+    );
+  }
+
+  Future<LoginResult> _submitLoginOn(
+    ForumClient client, {
+    required String username,
+    required String password,
+    required String captcha,
+    required Map<String, String> fields,
+  }) async {
+    if (username.trim().isEmpty) {
+      return const LoginResult(success: false, message: '用户名不能为空');
+    }
+    if (password.isEmpty) {
+      return const LoginResult(success: false, message: '密码不能为空');
+    }
+    if (captcha.trim().isEmpty) {
+      return const LoginResult(success: false, message: '验证码不能为空');
+    }
+    final receipt = await client.postLogin({
+      ...fields,
+      'step': fields['step'] ?? '2',
+      'lgt': fields['lgt'] ?? '0',
+      'hideid': fields['hideid'] ?? '0',
+      'cktime': fields['cktime'] ?? '31536000',
+      'pwuser': username.trim(),
+      'pwpwd': password,
+      'gdcode': captcha.trim(),
+      'submit': '登 录',
+    });
+    if (!client.isCredentialCurrent(receipt.credentialGeneration)) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+    }
+    final response = receipt.response;
+    if ((receipt.installedCredentials && client.isLoggedIn) ||
+        response.contains('登录成功')) {
+      return const LoginResult(success: true, message: '登录成功');
+    }
+    return LoginResult(
+      success: false,
+      message: _responseParser.pageMessage(response),
+    );
+  }
+
+  Future<ForumAccountIdentity> _identityFromLoggedInClient(
+      ForumClient client) async {
+    final html = await client.get('/');
+    if (!client.isLoggedIn) {
+      throw const ForumRepositoryException('登录状态已改变，请重试');
+    }
+    final document = html_parser.parse(html);
+    final parsed = _userProfileParser.parseAccountIdentity(document);
+    if (parsed == null) {
+      throw const ForumRepositoryException('无法解析登录账号');
+    }
+    return ForumAccountIdentity(
+      systemName: parsed.systemName,
+      uid: parsed.uid,
+      nickname: parsed.nickname,
+      avatarUrl: parsed.avatarUrl,
+      credentialGeneration: client.credentialGeneration,
+    );
+  }
+
+  Future<void> _syncRepoStateAfterAccountSwitch() async {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final credentialGeneration = client.credentialGeneration;
+    final activeId = _multiAccount.activeAccount.value?.id;
+    _sessionUserGeneration = credentialGeneration;
+    if (!_client.isLoggedIn) {
+      _clearRepoIdentityForGuest();
+      return;
+    }
+    final summary = _multiAccount.activeAccount.value;
+    var registryComplete = false;
+    if (summary != null) {
+      // Align from registry before network so a failed header cannot leave
+      // the previous account's username / prefs scope on the new jar.
+      final alignedName = summary.systemName ?? summary.displayName;
+      _sessionUser.value = alignedName;
+      final uid = summary.uid;
+      if (uid != null && ForumAccountId.isValidUid(uid)) {
+        // displayName falls back to systemName when no 昵称 was stored; that
+        // must not look like a loaded nickname to callers.
+        final nickname = summary.systemName != null &&
+                summary.displayName != summary.systemName
+            ? summary.displayName
+            : null;
+        _accountIdentity.value = ForumAccountIdentity(
+          systemName: alignedName,
+          uid: uid,
+          nickname: nickname,
+          avatarUrl: summary.avatarUrl,
+          credentialGeneration: credentialGeneration,
+        );
+        registryComplete = alignedName.trim().isNotEmpty;
+      }
+    } else {
+      _sessionUser.value = null;
+      _accountIdentity.value = null;
+    }
+    // The registry already supplies the switched account identity.
+    if (registryComplete) return;
+    try {
+      final header = await _fetchSessionHeader();
+      if (!identical(client, _client) ||
+          epoch != _sessionEpoch.value ||
+          activeId != _multiAccount.activeAccount.value?.id ||
+          !client.isCredentialCurrent(credentialGeneration)) return;
+      final username = header.username;
+      if (username != null) {
+        _sessionUser.value = username;
+      }
+      if (header.desktopHtml != null) {
+        _captureAccountIdentity(html_parser.parse(header.desktopHtml!),
+            credentialGeneration: credentialGeneration);
+      }
+    } catch (_) {
+      // Keep AccountSummary-aligned identity; cookies already switched.
+    }
+  }
+
+  void _clearRepoIdentityForGuest() {
+    _sessionUserGeneration = null;
+    _originIdentities.remove(_client.baseUri.origin);
+    _sessionUser.value = null;
+    _accountIdentity.value = null;
+  }
+
   String? get currentUsername => _sessionUser.value;
 
-  String? get localPreferenceAccount {
-    final account = currentUsername;
-    if (ForumNetworkConfig.sites.contains(_config.site)) return account;
-    final origin = _config.baseUri.origin;
-    return account == null
-        ? '$origin:anonymous'
-        : '$origin:account:${Uri.encodeComponent(account)}';
+  /// Stable local-data scope: ForumAccountId.value, or guest per origin.
+  /// Capture at request start for async writes; do not re-read after await.
+  String get localDataScope {
+    final active = activeAccount.value;
+    if (active != null) return active.id;
+    final uid = _accountIdentity.value?.uid;
+    if (isLoggedIn && uid != null && ForumAccountId.isValidUid(uid)) {
+      return AccountScope.accountFrom(origin: _client.baseUri, uid: uid);
+    }
+    return AccountScope.guest(_client.baseUri);
   }
+
+  /// Prefs / notes / tags / home / search / watch owner key.
+  /// Always the stable [localDataScope] (never a display username).
+  String get localPreferenceAccount => localDataScope;
 
   ForumNetworkConfig get networkConfig => _config;
 
@@ -613,65 +1151,119 @@ class ForumRepository {
   Future<void> _applyNetworkConfig(ForumNetworkConfig config) async {
     if (config == _config) return;
     config = ForumNetworkConfig.fromJson(config.toJson());
+    final previous = _client;
+    final previousConfig = _config;
     final nextClient = ForumClient(config: config);
+    var settingsSaved = false;
+    var installed = false;
     try {
-      await _client.restoreCookies();
-      await nextClient.restoreCookies();
+      await previous.restoreCookies();
+      await _multiAccount.registry.load();
+      if (!identical(previous, _client)) {
+        throw const ForumRepositoryException('登录状态已改变，请重试');
+      }
+      final sourceSlot = previous.slotId;
+      final sourceEpoch = _sessionEpoch.value;
+      void requireCurrent() {
+        if (!identical(previous, _client) ||
+            previous.slotId != sourceSlot ||
+            _sessionEpoch.value != sourceEpoch) {
+          throw const ForumRepositoryException('登录状态已改变，请重试');
+        }
+      }
+
+      final nextOrigin = ForumAccountId.normalizeOrigin(nextClient.baseUri);
+      if (_multiAccount.accounts.value.any((account) =>
+          ForumAccountId.tryParse(account.id)?.origin == nextOrigin)) {
+        nextClient.markRestoredEmpty();
+      } else {
+        await nextClient.restoreCookies();
+      }
+      requireCurrent();
       await ForumNetworkSettings.save(config);
+      settingsSaved = true;
+      requireCurrent();
+      await cancelLogin();
+      await cancelAddAccount();
+      await cancelReauthAccount();
+      requireCurrent();
+
+      final previousOrigin = previous.baseUri.origin;
+      final sameOrigin = nextClient.baseUri.origin == previousOrigin;
+      final username = currentUsername;
+      final generation = _sessionUserGeneration;
+      final knownIdentity = _accountIdentity.value;
+      ForumAccountIdentity? identity;
+      void installClient() {
+        requireCurrent();
+        if (previous.isLoggedIn &&
+            knownIdentity?.credentialGeneration != null &&
+            previous
+                .isCredentialCurrent(knownIdentity!.credentialGeneration!)) {
+          _originIdentities[previousOrigin] = knownIdentity;
+        } else if (username != null &&
+            generation != null &&
+            previous.isLoggedIn &&
+            previous.isCredentialCurrent(generation)) {
+          _originIdentities[previousOrigin] = ForumAccountIdentity(
+              systemName: username, credentialGeneration: generation);
+        } else {
+          _originIdentities.remove(previousOrigin);
+        }
+        if (sameOrigin) {
+          nextClient.inheritSessionFrom(previous);
+          final saved = _originIdentities[previousOrigin];
+          if (nextClient.isLoggedIn &&
+              saved?.credentialGeneration != null &&
+              nextClient.isCredentialCurrent(saved!.credentialGeneration!)) {
+            identity = saved;
+          }
+        }
+        _config = config;
+        ForumHttpRouting.updateConfig(config);
+        _urls = ForumUrlResolver(baseUri: config.baseUri);
+        _boardThreadPageParser = BoardThreadPageParser(urls: _urls);
+        _homePageParser = HomePageParser(urls: _urls);
+        _searchResultParser = SearchResultParser(urls: _urls);
+        _threadDetailParser = ThreadDetailParser(
+          urls: _urls,
+          contentParser: ThreadContentParser(urls: _urls),
+        );
+        _userProfileParser = UserProfileParser(urls: _urls);
+        _userContentQueries = UserContentQueryService(
+          getDocument: _fetchUserContentDocument,
+          urls: _urls,
+          sessionEpoch: () => _sessionEpoch.value,
+        );
+        _profileCache = UserProfileCache(urls: _urls);
+        _client = nextClient;
+        _multiAccount.attachClient(nextClient);
+        previous.close(force: true);
+        installed = true;
+      }
+
+      void publishSession() {
+        _sessionUserGeneration = identity?.credentialGeneration;
+        _sessionUser.value = identity?.systemName;
+        _sessionEpoch.value++;
+        _accountIdentity.value = identity;
+      }
+
+      if (sameOrigin) {
+        installClient();
+        publishSession();
+      } else {
+        // Keep the old route until persistence succeeds; site changes select no account.
+        await _multiAccount.registry.setActive(null,
+            beforePublish: installClient, beforeNotify: publishSession);
+      }
     } catch (_) {
-      nextClient.close(force: true);
+      if (!installed) {
+        nextClient.close(force: true);
+        if (settingsSaved) await ForumNetworkSettings.save(previousConfig);
+      }
       rethrow;
     }
-    final previous = _client;
-    final previousOrigin = previous.baseUri.origin;
-    final username = currentUsername;
-    final generation = _sessionUserGeneration;
-    final knownIdentity = _accountIdentity.value;
-    if (previous.isLoggedIn &&
-        knownIdentity?.credentialGeneration != null &&
-        previous.isCredentialCurrent(knownIdentity!.credentialGeneration!)) {
-      _originIdentities[previousOrigin] = knownIdentity;
-    } else if (username != null &&
-        generation != null &&
-        previous.isLoggedIn &&
-        previous.isCredentialCurrent(generation)) {
-      _originIdentities[previousOrigin] = ForumAccountIdentity(
-          systemName: username, credentialGeneration: generation);
-    } else {
-      _originIdentities.remove(previousOrigin);
-    }
-    if (nextClient.baseUri.origin == previousOrigin) {
-      nextClient.inheritSessionFrom(previous);
-    }
-    final savedIdentity = _originIdentities[nextClient.baseUri.origin];
-    final identity = nextClient.isLoggedIn &&
-            savedIdentity?.credentialGeneration != null &&
-            nextClient.isCredentialCurrent(savedIdentity!.credentialGeneration!)
-        ? savedIdentity
-        : null;
-    _sessionEpoch.value++;
-    previous.close(force: true);
-    _config = config;
-    ForumHttpRouting.updateConfig(config);
-    _urls = ForumUrlResolver(baseUri: config.baseUri);
-    _boardThreadPageParser = BoardThreadPageParser(urls: _urls);
-    _homePageParser = HomePageParser(urls: _urls);
-    _searchResultParser = SearchResultParser(urls: _urls);
-    _threadDetailParser = ThreadDetailParser(
-      urls: _urls,
-      contentParser: ThreadContentParser(urls: _urls),
-    );
-    _userProfileParser = UserProfileParser(urls: _urls);
-    _userContentQueries = UserContentQueryService(
-      getDocument: _fetchUserContentDocument,
-      urls: _urls,
-      sessionEpoch: () => _sessionEpoch.value,
-    );
-    _profileCache = UserProfileCache(urls: _urls);
-    _client = nextClient;
-    _sessionUserGeneration = identity?.credentialGeneration;
-    _sessionUser.value = identity?.systemName;
-    _accountIdentity.value = identity;
   }
 
   ForumPmParser get _pmParser => ForumPmParser(baseUri: _config.baseUri);
@@ -803,7 +1395,9 @@ class ForumRepository {
     final generation = _profileDetailsGeneration;
     final profileUrl = _urls.userTabUrl(uid, UserProfileTab.profile);
     try {
-      var profile = await _profileCache.loadOverview(profileUrl);
+      final viewerScope = localDataScope;
+      var profile = await _profileCache.loadOverview(profileUrl,
+          viewerScope: viewerScope);
       if (epoch != _sessionEpoch.value) return;
       if (profile?.uid != uid) profile = null;
       profile ??= await fetchUserProfileOverview(profileUrl);
@@ -1190,12 +1784,28 @@ class ForumRepository {
   }
 
   Future<bool> restoreSession() async {
-    await _client.restoreCookies();
-    if (!_client.isLoggedIn) {
+    await _multiAccount.registry.load();
+    final origin = ForumAccountId.normalizeOrigin(_client.baseUri);
+    final registeredOrigin = ForumSessionSlots.isOrigin(_client.slotId) &&
+        _multiAccount.accounts.value.any(
+            (account) => ForumAccountId.tryParse(account.id)?.origin == origin);
+    if (!registeredOrigin) await _client.restoreCookies();
+    if (registeredOrigin || !_client.isLoggedIn) {
+      // Origin jar empty: bootstrap ready persisted active + its jar.
+      // Do not enterGuest (which persists active=null) over a ready v3 active.
+      await _multiAccount.bootstrap();
+      if (_client.isLoggedIn && _multiAccount.activeAccount.value != null) {
+        await _syncRepoStateAfterAccountSwitch();
+        return true;
+      }
+      // Empty jar / needsReauth / no active: bootstrap already entered guest
+      // and marked needsReauth when the v3 jar was empty. Never leave
+      // ready+active with empty cookies for the account sheet.
+      if (_multiAccount.activeAccount.value != null) {
+        await _multiAccount.enterGuest(bumpEpoch: false);
+      }
       _sessionEpoch.value++;
-      _sessionUserGeneration = null;
-      _originIdentities.remove(_client.baseUri.origin);
-      _sessionUser.value = null;
+      _clearRepoIdentityForGuest();
       return false;
     }
 
@@ -1208,26 +1818,143 @@ class ForumRepository {
         !client.isCredentialCurrent(credentialGeneration)) return false;
     final username = header.username;
     if (username == null) {
-      await clearSession();
+      if (_multiAccount.activeAccount.value != null) {
+        await logoutCurrent();
+      } else {
+        await clearSession();
+      }
       return false;
     }
     if (username != currentUsername) _sessionEpoch.value++;
     _sessionUserGeneration = credentialGeneration;
     _sessionUser.value = username;
+    final document = header.desktopHtml == null
+        ? null
+        : html_parser.parse(header.desktopHtml!);
+    if (document != null) {
+      _captureAccountIdentity(document,
+          credentialGeneration: credentialGeneration);
+    }
+    final identityEpoch = _sessionEpoch.value;
+    await _multiAccount.registry.load();
+    if (!identical(client, _client) ||
+        identityEpoch != _sessionEpoch.value ||
+        !client.isCredentialCurrent(credentialGeneration)) return false;
+    final restoredSession = await _promoteLegacySessionIfReady();
+    if (_multiAccount.activeAccount.value != null) {
+      await _syncRepoStateAfterAccountSwitch();
+    }
+    if (!identical(client, _client) ||
+        !identical(restoredSession.client, client) ||
+        restoredSession.slotId != client.slotId ||
+        restoredSession.epoch != _sessionEpoch.value ||
+        !client.isLoggedIn ||
+        !client.isCredentialCurrent(restoredSession.credentialGeneration)) {
+      return false;
+    }
+    // Promotion clears epoch-bound caches; retain only this verified session's header.
     _restoredDesktopHtml = header.desktopHtml == null
         ? null
         : (
             html: header.desktopHtml!,
-            credentialGeneration: credentialGeneration
+            credentialGeneration: restoredSession.credentialGeneration
           );
-    if (header.desktopHtml != null) {
-      final document = html_parser.parse(header.desktopHtml!);
+    if (document != null) {
       _captureAccountIdentity(document,
-          credentialGeneration: credentialGeneration);
+          credentialGeneration: restoredSession.credentialGeneration);
       _captureIndexNotices(document,
-          credentialGeneration: credentialGeneration);
+          credentialGeneration: restoredSession.credentialGeneration);
     }
     return true;
+  }
+
+  /// When restore still sits on a legacy origin slot and uid is known, write v3
+  /// then bind that account. Persist failure leaves the v2 jar recoverable.
+  Future<
+      ({
+        ForumClient client,
+        String slotId,
+        int credentialGeneration,
+        int epoch
+      })> _promoteLegacySessionIfReady() async {
+    final client = _client;
+    final sourceSlot = client.slotId;
+    final sourceGeneration = client.credentialGeneration;
+    final sourceEpoch = _sessionEpoch.value;
+    void requireSource() {
+      if (!identical(client, _client) ||
+          sourceSlot != client.slotId ||
+          sourceEpoch != _sessionEpoch.value ||
+          !client.isCredentialCurrent(sourceGeneration)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+      }
+    }
+
+    ({ForumClient client, String slotId, int credentialGeneration, int epoch})
+        receipt() => (
+              client: client,
+              slotId: client.slotId,
+              credentialGeneration: client.credentialGeneration,
+              epoch: _sessionEpoch.value,
+            );
+    requireSource();
+    final identity = _accountIdentity.value;
+    final uid = identity?.uid;
+    if (uid == null || !ForumAccountId.isValidUid(uid)) return receipt();
+    final cookies = client.exportCookies();
+    if (cookies.isEmpty) return receipt();
+    final previousAccount = ForumSessionSlots.isAccount(sourceSlot)
+        ? ForumAccountId.parse(sourceSlot)
+        : null;
+    if (previousAccount?.uid == uid) {
+      await _multiAccount.registry.upsert(
+        accountId: sourceSlot,
+        systemName: identity?.systemName ?? uid,
+        nickname: identity?.nickname,
+        avatarUrl: identity?.avatarUrl,
+        status: AccountReadyState.ready,
+        activate: true,
+        beforePublish: requireSource,
+      );
+      requireSource();
+      return receipt();
+    }
+    if (previousAccount == null && !ForumSessionSlots.isOrigin(sourceSlot)) {
+      return receipt();
+    }
+
+    final accountId = ForumAccountId(origin: client.baseUri, uid: uid).value;
+    try {
+      await _multiAccount.commitAuthenticatedAccount(
+        accountId: accountId,
+        systemName: identity?.systemName ?? uid,
+        nickname: identity?.nickname,
+        avatarUrl: identity?.avatarUrl,
+        cookies: cookies,
+        retireSourceSlot: sourceSlot,
+        retireAccountId: previousAccount?.value,
+        requireCurrent: requireSource,
+      );
+      if (!identical(client, _client) ||
+          client.slotId != accountId ||
+          !client.isCredentialCurrent(client.credentialGeneration) ||
+          _sessionEpoch.value != sourceEpoch + 1) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+      }
+    } on FileSystemException {
+      if (previousAccount != null) {
+        await _multiAccount.logoutAccount(previousAccount.value);
+        _clearRepoIdentityForGuest();
+      } else if (!client.isCredentialCurrent(sourceGeneration)) {
+        await _multiAccount.enterGuest(bumpEpoch: true);
+        _clearRepoIdentityForGuest();
+      } else {
+        requireSource();
+      }
+    }
+    return receipt();
   }
 
   Future<void> clearSession() async {
@@ -1257,7 +1984,59 @@ class ForumRepository {
     return result.success;
   }
 
+  _LegacyLoginAttempt _beginLegacyLogin() {
+    final source = _client;
+    final accountId = activeAccount.value!.id;
+    final slotId = source.slotId;
+    final generation = source.credentialGeneration;
+    final epoch = _sessionEpoch.value;
+    final staging = source.forkForLogin();
+    final nonce =
+        '${DateTime.now().toUtc().microsecondsSinceEpoch.toRadixString(16)}'
+        '${List.generate(6, (_) => _stagingNonce.nextInt(16).toRadixString(16)).join()}';
+    staging.bindSlot(ForumSessionSlots.staging(staging.baseUri, nonce));
+    staging.markRestoredEmpty();
+    final attempt = _LegacyLoginAttempt(staging, () {
+      if (!identical(source, _client) ||
+          source.slotId != slotId ||
+          !source.isCredentialCurrent(generation) ||
+          epoch != _sessionEpoch.value ||
+          activeAccount.value?.id != accountId) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+      }
+    });
+    _pendingLogin = attempt;
+    return attempt;
+  }
+
+  void _requireLegacyLogin(_LegacyLoginAttempt attempt) {
+    if (!identical(_pendingLogin, attempt)) {
+      throw const ForumRequestException(
+          ForumRequestKind.loginRequired, '登录已取消，请重新加载');
+    }
+    attempt.requireSource();
+  }
+
+  Future<void> cancelLogin() async {
+    final attempt = _pendingLogin;
+    _pendingLogin = null;
+    attempt?.client.close(force: true);
+  }
+
   Future<LoginChallenge> fetchLoginChallenge() async {
+    await cancelLogin();
+    if (activeAccount.value != null) {
+      final attempt = _beginLegacyLogin();
+      try {
+        final challenge = await _fetchLoginChallengeOn(attempt.client);
+        _requireLegacyLogin(attempt);
+        return challenge;
+      } catch (_) {
+        if (identical(_pendingLogin, attempt)) await cancelLogin();
+        rethrow;
+      }
+    }
     final html = await _client.get('login.php');
     final document = html_parser.parse(html);
     final form = document.querySelector('form[name="login"]') ??
@@ -1306,6 +2085,15 @@ class ForumRepository {
       return const LoginResult(success: false, message: '验证码不能为空');
     }
 
+    if (_pendingLogin != null || activeAccount.value != null) {
+      return _submitIsolatedLegacyLogin(
+        username: username,
+        password: password,
+        captcha: captcha,
+        fields: fields,
+      );
+    }
+
     _sessionEpoch.value++;
     final client = _client;
     final receipt = await client.postLogin({
@@ -1340,6 +2128,27 @@ class ForumRepository {
       _sessionUser.value = name;
       _captureAccountIdentity(html_parser.parse(response),
           credentialGeneration: receipt.credentialGeneration);
+      // Login success page often has no uid; pull index identity before promote.
+      if (_accountIdentity.value?.uid == null) {
+        try {
+          final header = await _fetchSessionHeader();
+          requireCurrent();
+          if (header.desktopHtml != null) {
+            _captureAccountIdentity(html_parser.parse(header.desktopHtml!),
+                credentialGeneration: receipt.credentialGeneration);
+          }
+        } catch (_) {
+          // Leave origin jar loaded; promote stays skipped without uid.
+        }
+      }
+      // Compatible single-jar login: once uid is known, promote/upsert v3 so
+      // a later addAccount can switch back to this account.
+      await _multiAccount.registry.load();
+      requireCurrent();
+      await _promoteLegacySessionIfReady();
+      if (_multiAccount.activeAccount.value != null) {
+        await _syncRepoStateAfterAccountSwitch();
+      }
       return const LoginResult(success: true, message: '登录成功');
     }
 
@@ -1347,6 +2156,72 @@ class ForumRepository {
       success: false,
       message: _responseParser.pageMessage(response),
     );
+  }
+
+  Future<LoginResult> _submitIsolatedLegacyLogin({
+    required String username,
+    required String password,
+    required String captcha,
+    required Map<String, String> fields,
+  }) async {
+    final attempt = _pendingLogin ?? _beginLegacyLogin();
+    _requireLegacyLogin(attempt);
+    final previousId = activeAccount.value!.id;
+    final client = attempt.client;
+    final receipt = await client.postLogin({
+      ...fields,
+      'step': fields['step'] ?? '2',
+      'lgt': fields['lgt'] ?? '0',
+      'hideid': fields['hideid'] ?? '0',
+      'cktime': fields['cktime'] ?? '31536000',
+      'pwuser': username.trim(),
+      'pwpwd': password,
+      'gdcode': captcha.trim(),
+      'submit': '登 录',
+    });
+    void requireCurrent() {
+      _requireLegacyLogin(attempt);
+      if (!client.isCredentialCurrent(receipt.credentialGeneration)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '登录状态已改变，请重试');
+      }
+    }
+
+    requireCurrent();
+    final response = receipt.response;
+    if (!client.isLoggedIn ||
+        (!receipt.installedCredentials && !response.contains('登录成功'))) {
+      return LoginResult(
+        success: false,
+        message: _responseParser.pageMessage(response),
+      );
+    }
+    var identity =
+        _userProfileParser.parseAccountIdentity(html_parser.parse(response));
+    if (identity?.uid == null) {
+      final header = await client.get('index.php');
+      requireCurrent();
+      identity =
+          _userProfileParser.parseAccountIdentity(html_parser.parse(header));
+    }
+    final uid = identity?.uid;
+    if (uid == null || !ForumAccountId.isValidUid(uid)) {
+      return const LoginResult(success: false, message: '登录成功但未解析到 uid，请重试');
+    }
+    final accountId = ForumAccountId(origin: client.baseUri, uid: uid).value;
+    await _multiAccount.commitAuthenticatedAccount(
+      accountId: accountId,
+      systemName: identity!.systemName,
+      nickname: identity.nickname,
+      avatarUrl: identity.avatarUrl,
+      cookies: client.exportCookies(),
+      retireSourceSlot: accountId == previousId ? null : previousId,
+      retireAccountId: accountId == previousId ? null : previousId,
+      requireCurrent: requireCurrent,
+    );
+    if (identical(_pendingLogin, attempt)) await cancelLogin();
+    await _syncRepoStateAfterAccountSwitch();
+    return const LoginResult(success: true, message: '登录成功');
   }
 
   void _invalidateQuickLists() {
@@ -2169,13 +3044,12 @@ class ForumRepository {
         text.contains('login.php');
   }
 
-  String? get _taskSnapshotScope => currentUsername == null
-      ? null
-      : '${_urls.baseUri.origin}:$currentUsername';
+  String get _taskSnapshotScope => localDataScope;
 
   Future<ForumTaskSnapshot?> loadCachedForumTaskSnapshot() async {
     final epoch = _sessionEpoch.value;
-    final snapshot = await _taskStateStore.load(scope: _taskSnapshotScope);
+    final scope = _taskSnapshotScope;
+    final snapshot = await _taskStateStore.load(scope: scope);
     return epoch == _sessionEpoch.value ? snapshot : null;
   }
 
@@ -2476,13 +3350,16 @@ class ForumRepository {
   }
 
   Future<List<BrowsingHistoryEntry>> browsingHistory(
-      {int limit = browsingHistoryLimit}) {
-    return _historyStore.recent(limit: limit);
+      {int limit = browsingHistoryLimit}) async {
+    final scope = localDataScope;
+    return _historyStore.recentForScope(scope, limit: limit);
   }
 
   Future<void> clearBrowsingHistory() async {
-    await _historyStore.clear();
-    await _readPositions.clear();
+    // Capture before any await so a mid-clear account switch cannot wipe B.
+    final scope = localDataScope;
+    await _historyStore.clearForScope(scope);
+    await _readPositions.clearForScope(scope);
   }
 
   String? firstThreadPageUrl(ForumThread thread) =>
@@ -2499,14 +3376,17 @@ class ForumRepository {
 
   Future<ThreadReadPosition?> loadThreadReadPosition(ForumThread thread) {
     final key = _threadReadKey(thread);
-    return key == null ? SynchronousFuture(null) : _readPositions.load(key);
+    if (key == null) return SynchronousFuture(null);
+    final scope = localDataScope;
+    return _readPositions.loadForScope(scope, key);
   }
 
   Future<void> saveThreadReadPosition(
-      ForumThread thread, ThreadReadPosition position) {
+      ForumThread thread, ThreadReadPosition position) async {
     final key = _threadReadKey(thread);
-    if (key == null) return Future.error(ArgumentError('Invalid thread URL'));
-    return _readPositions.save(key, position);
+    if (key == null) throw ArgumentError('Invalid thread URL');
+    final scope = localDataScope;
+    await _readPositions.saveForScope(scope, key, position);
   }
 
   Future<List<ForumCategory>> fetchHotCategories() async {
@@ -3051,6 +3931,7 @@ class ForumRepository {
   Future<UserProfile> fetchUserProfileOverview(String url) async {
     final epoch = _sessionEpoch.value;
     final generation = _profileDetailsGeneration;
+    final viewerScope = localDataScope;
     final client = _client;
     final profileUrl = _urls.absoluteUrl(url);
     final uid = await _uidFromProfileUrl(profileUrl);
@@ -3073,10 +3954,13 @@ class ForumRepository {
       profileDocument: profileDocument,
     );
     if (generation == _profileDetailsGeneration) {
-      await _profileCache.saveOverview(url, profile);
+      // Write under the captured viewer scope, never the post-await current.
+      await _profileCache.saveOverview(url, profile, viewerScope: viewerScope);
       if (epoch == _sessionEpoch.value &&
-          generation == _profileDetailsGeneration)
+          generation == _profileDetailsGeneration &&
+          viewerScope == localDataScope) {
         _applyAccountProfile(profile);
+      }
     }
     return profile;
   }
@@ -3088,15 +3972,17 @@ class ForumRepository {
       final epoch = _sessionEpoch.value;
       final client = _client;
       final uid = await _uidFromProfileUrl(target.userUrl);
-      final cached = await _profileCache
-          .loadOverview(_urls.userTabUrl(uid, UserProfileTab.profile));
+      final viewerScope = localDataScope;
+      final cached = await _profileCache.loadOverview(
+          _urls.userTabUrl(uid, UserProfileTab.profile),
+          viewerScope: viewerScope);
       if (epoch != _sessionEpoch.value || !identical(client, _client)) {
         throw const ForumRequestException(
             ForumRequestKind.loginRequired, '登录状态已改变，请重新加载');
       }
       return cached;
     }
-    return _profileCache.loadOverview(url);
+    return _profileCache.loadOverview(url, viewerScope: localDataScope);
   }
 
   Future<FavoriteCollections> fetchFavoriteCollections({String? categoryId}) =>
@@ -3932,8 +4818,9 @@ class ForumRepository {
   }
 
   Future<void> _recordThreadView(ForumThread thread) async {
+    final scope = localDataScope;
     try {
-      await _historyStore.recordThread(thread);
+      await _historyStore.recordThreadForScope(scope, thread);
     } catch (_) {
       // Browsing must keep working even if local history persistence fails.
     }
@@ -4001,6 +4888,17 @@ class ForumRepositoryException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Reauth logged in as a different uid than the target account.
+class ForumAccountUidMismatchException extends ForumRepositoryException {
+  ForumAccountUidMismatchException({
+    required this.expectedUid,
+    required this.actualUid,
+  }) : super('重新登录的账号与目标不一致（需要 uid $expectedUid）');
+
+  final String expectedUid;
+  final String actualUid;
 }
 
 enum _ForumTaskActionExpectation {

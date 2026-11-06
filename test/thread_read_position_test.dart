@@ -4,6 +4,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/browsing_history_store.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/thread_read_position_store.dart';
 
 const _thread = ForumThread(
     title: 'Fixture thread',
@@ -90,8 +91,10 @@ void main() {
 
   test('malformed saved data is ignored and can be replaced', () async {
     for (final raw in ['not json', '{"123:42":{"page":"bad"}}']) {
-      SharedPreferences.setMockInitialValues({'thread_read_positions_v1': raw});
       final repository = ForumRepository();
+      SharedPreferences.setMockInitialValues({
+        ThreadReadPositionStore.keyForScope(repository.localDataScope): raw,
+      });
       expect(await repository.loadThreadReadPosition(_thread), isNull);
       await repository.saveThreadReadPosition(
           _thread, const ThreadReadPosition(page: 3));
@@ -116,9 +119,10 @@ void main() {
 
 class _History extends BrowsingHistoryStore {
   @override
-  Future<void> recordThread(ForumThread thread, {DateTime? viewedAt}) async {}
+  Future<void> recordThreadForScope(String scope, ForumThread thread,
+      {DateTime? viewedAt}) async {}
   @override
-  Future<void> clear() async {}
+  Future<void> clearForScope(String scope) async {}
 }
 
 class _ThreadClient extends ForumClient {

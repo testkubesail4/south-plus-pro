@@ -35,7 +35,7 @@ void main() {
     for (final title in ['我的回复', '浏览历史', '论坛任务', '屏蔽配置']) {
       expect(iconColor(title), neutral, reason: title);
     }
-    expect(iconColor('退出登录'), isNot(neutral), reason: 'destructive');
+    expect(iconColor('退出当前账号'), isNot(neutral), reason: 'destructive');
   });
 
   test('icons come from the outlined family app-wide', () {

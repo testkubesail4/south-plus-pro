@@ -16,6 +16,7 @@ import 'blocking_settings_screen.dart';
 import 'forum_preferences_screen.dart';
 import 'forum_tasks_screen.dart';
 import 'friends_screen.dart';
+import 'account_switcher_binding.dart';
 import 'settings_screen.dart';
 import 'user_profile_screen.dart';
 
@@ -44,6 +45,9 @@ class AccountScreen extends StatefulWidget {
 /// The 我的 tab: who is signed in and everything that belongs to them.
 /// Device settings live one level deeper in [SettingsScreen].
 class _AccountScreenState extends State<AccountScreen> {
+  bool _confirmingLogout = false;
+  bool _loggingOut = false;
+
   @override
   void initState() {
     super.initState();
@@ -51,32 +55,59 @@ class _AccountScreenState extends State<AccountScreen> {
     widget.repository.loadAccountNickname().ignore();
   }
 
-  Future<void> _logout() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('退出登录？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('退出登录'),
-          ),
-        ],
-      ),
-    );
+  Future<void> _logoutCurrent() async {
+    if (!mounted || _confirmingLogout || _loggingOut) return;
+    _confirmingLogout = true;
+    bool? confirmed;
+    try {
+      confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('退出当前账号？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('退出当前账号'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      _confirmingLogout = false;
+    }
     if (confirmed != true || !mounted) return;
-    // The shell rebuilds this tab as soon as the session owner clears, so
-    // everything needed afterwards is captured before awaiting.
     final messenger = ScaffoldMessenger.of(context);
+    final repository = widget.repository;
     final onLoggedOut = widget.onLoggedOut;
-    await widget.repository.clearSession();
-    onLoggedOut();
-    messenger.showSnackBar(const SnackBar(content: Text('已退出登录')));
+    setState(() => _loggingOut = true);
+    try {
+      await repository.logoutCurrent();
+      onLoggedOut();
+      if (messenger.mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('已退出当前账号')),
+        );
+      }
+    } catch (_) {
+      if (messenger.mounted) {
+        messenger.showSnackBar(SnackBar(
+          content: const Text('退出失败，请重试'),
+          action: mounted
+              ? SnackBarAction(label: '重试', onPressed: _logoutCurrent)
+              : null,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
   }
+
+  Future<void> _openSwitcher() =>
+      openAccountSwitcher(context, widget.repository);
 
   void _push(Widget screen) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
@@ -136,6 +167,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     onTap: loggedIn
                         ? () => _openProfile(UserProfileTab.home)
                         : null,
+                    onSwitchAccounts: _openSwitcher,
                     action: loggedIn
                         ? null
                         : FilledButton.icon(
@@ -150,25 +182,46 @@ class _AccountScreenState extends State<AccountScreen> {
                   );
                 },
               ),
-              if (loggedIn) ...[
-                const SizedBox(height: AppSpace.xl),
-                AppGroup(
-                  children: [
-                    AppRow(
-                      icon: Icons.edit_outlined,
-                      title: const Text('编辑资料'),
-                      onTap: () => _push(AccountProfileEditScreen(
-                          repository: widget.repository)),
-                    ),
-                    AppRow(
-                      icon: Icons.tune_outlined,
-                      title: const Text('论坛偏好'),
-                      onTap: () => _push(ForumPreferencesScreen(
-                          repository: widget.repository)),
-                    ),
-                  ],
-                ),
-              ],
+              ValueListenableBuilder(
+                valueListenable: widget.repository.accounts,
+                builder: (context, _, __) {
+                  final showSwitcher = loggedIn ||
+                      accountsForCurrentSite(widget.repository).isNotEmpty;
+                  if (!showSwitcher && !loggedIn) {
+                    return const SizedBox.shrink();
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: AppSpace.xl),
+                      AppGroup(
+                        children: [
+                          if (showSwitcher)
+                            AppRow(
+                              icon: Icons.swap_horiz,
+                              title: const Text('切换账号'),
+                              onTap: _openSwitcher,
+                            ),
+                          if (loggedIn) ...[
+                            AppRow(
+                              icon: Icons.edit_outlined,
+                              title: const Text('编辑资料'),
+                              onTap: () => _push(AccountProfileEditScreen(
+                                  repository: widget.repository)),
+                            ),
+                            AppRow(
+                              icon: Icons.tune_outlined,
+                              title: const Text('论坛偏好'),
+                              onTap: () => _push(ForumPreferencesScreen(
+                                  repository: widget.repository)),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  );
+                },
+              ),
               const SizedBox(height: AppSpace.xl),
               AppGroup(
                 children: [
@@ -223,9 +276,20 @@ class _AccountScreenState extends State<AccountScreen> {
                   children: [
                     AppRow(
                       icon: Icons.logout,
-                      title: const Text('退出登录'),
+                      title: const Text('退出当前账号'),
                       destructive: true,
-                      onTap: _logout,
+                      enabled: !_loggingOut,
+                      onTap: _loggingOut ? null : _logoutCurrent,
+                      trailing: _loggingOut
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                semanticsLabel: '正在退出',
+                              ),
+                            )
+                          : null,
                     ),
                   ],
                 ),
@@ -245,6 +309,7 @@ class _AccountHeader extends StatelessWidget {
     required this.subtitle,
     required this.avatarUrl,
     this.onTap,
+    this.onSwitchAccounts,
     this.action,
   });
 
@@ -254,6 +319,9 @@ class _AccountHeader extends StatelessWidget {
 
   /// Opens the own profile.
   final VoidCallback? onTap;
+
+  /// Opens the multi-account sheet without leaving the profile affordance.
+  final VoidCallback? onSwitchAccounts;
   final Widget? action;
 
   @override
@@ -292,6 +360,12 @@ class _AccountHeader extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (onSwitchAccounts != null)
+                      IconButton(
+                        tooltip: '切换账号',
+                        onPressed: onSwitchAccounts,
+                        icon: const Icon(Icons.swap_horiz),
+                      ),
                     if (onTap != null)
                       Icon(Icons.chevron_right, color: AppColors.textFaint),
                   ],

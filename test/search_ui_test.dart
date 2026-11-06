@@ -11,6 +11,7 @@ import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
+import 'package:south_plus_rewrite/services/account_scoped_keys.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
 import 'package:south_plus_rewrite/services/forum_search_preferences.dart';
@@ -37,6 +38,8 @@ ForumThread _thread(int i) => ForumThread(
     );
 
 final _submit = find.byKey(const ValueKey('search-submit'));
+
+final _guestScope = AccountScope.guest(ForumNetworkConfig.defaultSite.baseUri);
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -190,7 +193,8 @@ void main() {
 
   testWidgets('match and time defaults save separately and apply next time',
       (tester) async {
-    await pump(tester);
+    final first = await pump(tester);
+    final scope = first.localPreferenceAccount;
     await tapVisible(tester, find.text('筛选条件'));
     expect(find.text('设为默认'), findsNothing);
 
@@ -202,13 +206,13 @@ void main() {
 
     // Saving the time default must not save the unsaved match choice.
     await tapVisible(tester, find.text('设为默认').last);
-    var prefs = await ForumSearchPreferences.load();
+    var prefs = await ForumSearchPreferences.load(account: scope);
     expect(prefs.defaultTime, ForumSearchTime.month);
     expect(prefs.defaultMatch, ForumSearchMatch.partial);
     expect(find.text('设为默认'), findsOneWidget);
 
     await tapVisible(tester, find.text('设为默认'));
-    prefs = await ForumSearchPreferences.load();
+    prefs = await ForumSearchPreferences.load(account: scope);
     expect(prefs.defaultMatch, ForumSearchMatch.exact);
     expect(find.text('设为默认'), findsNothing);
 
@@ -291,7 +295,7 @@ void main() {
       (tester) async {
     await ForumSearchPreferences.savePinnedBoards(const [
       ForumSearchPinnedBoard(id: '99', label: 'Gone board'),
-    ]);
+    ], account: _guestScope);
     final repo = await pump(tester);
     await tapVisible(tester, find.text('筛选条件'));
     await tapVisible(tester, find.text('版块'));
@@ -321,7 +325,9 @@ void main() {
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(
-      (await ForumSearchPreferences.load()).pinnedBoards.map((b) => b.label),
+      (await ForumSearchPreferences.load(account: _guestScope))
+          .pinnedBoards
+          .map((b) => b.label),
       ['Gone board', 'Mine'],
     );
 
@@ -550,7 +556,7 @@ void main() {
       (tester) async {
     await ForumSearchPreferences.savePinnedBoards(const [
       ForumSearchPinnedBoard(id: '12', label: 'Pinned'),
-    ]);
+    ], account: _guestScope);
     final repo = await pump(tester);
     repo.boardGate = Completer();
     await tapVisible(tester, find.text('筛选条件'));
@@ -558,12 +564,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await tester.ensureVisible(find.text('版块'));
     await tester.tap(find.text('版块'));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     // Pinned shortcuts load from real async preferences.
     await tester
         .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await tester.pump();
     expect(find.text('版块列表加载后可选'), findsOneWidget);
+    await tester.ensureVisible(find.text('Pinned'));
+    await tester.pump();
+    expect(find.text('Pinned').hitTestable(), findsOneWidget);
     await tester.tap(find.text('Pinned'));
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('版块列表加载后可选'), findsOneWidget, reason: 'sheet stays');
@@ -580,6 +590,9 @@ void main() {
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
     expect(find.text('版块列表加载后可选'), findsNothing);
+    await tester.ensureVisible(find.text('Pinned'));
+    await tester.pump();
+    expect(find.text('Pinned').hitTestable(), findsOneWidget);
     await tester.tap(find.text('Pinned'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'kw');
@@ -939,7 +952,9 @@ void main() {
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(find.text('登录状态已变化'), findsOneWidget);
-    expect((await ForumSearchPreferences.load()).pinnedBoards, isEmpty);
+    expect(
+        (await ForumSearchPreferences.load(account: _guestScope)).pinnedBoards,
+        isEmpty);
     expect(find.textContaining('unusually'), findsNothing);
 
     // Reopening loads the new session's list and works.
@@ -1027,7 +1042,10 @@ void main() {
     await tester.tap(find.byTooltip('删除“alpha”'));
     await tester.pumpAndSettle();
     expect(find.text('最近搜索'), findsNothing);
-    expect((await ForumSearchPreferences.load()).recentKeywords, isEmpty);
+    expect(
+        (await ForumSearchPreferences.load(account: _guestScope))
+            .recentKeywords,
+        isEmpty);
   });
 
   testWidgets('recent keywords follow the login; a stale clear writes nothing',
@@ -1219,6 +1237,11 @@ class _Repo extends ForumRepository {
 
   @override
   String? get currentUsername => account;
+
+  @override
+  String get localPreferenceAccount => (account == null || account!.isEmpty)
+      ? super.localPreferenceAccount
+      : account!;
 
   final session = ValueNotifier<int>(0);
 

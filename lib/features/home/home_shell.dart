@@ -492,7 +492,7 @@ class _ForumHomePageState extends State<ForumHomePage> {
   late Future<ForumHomeSnapshot> _future;
   _HomeShape _shape = _guessedShape;
   // The account is fixed per page: a new owner rebuilds the whole tab.
-  late final String? _account = widget.repository.localPreferenceAccount;
+  late final String _account = widget.repository.localPreferenceAccount;
   HomeReadingPreferences _prefs = const HomeReadingPreferences();
   int _prefsRun = 0;
   bool _prefsReady = false;
@@ -509,8 +509,10 @@ class _ForumHomePageState extends State<ForumHomePage> {
   void initState() {
     super.initState();
     _future = _fetchHome();
-    _loadShape(widget.repository.currentUsername).then((shape) {
-      if (mounted) setState(() => _shape = shape);
+    // Prefer stable localPreferenceAccount (origin+uid / guest scope), not
+    // display username — same name on two origins must not share shape.
+    _loadShape(_account).then((shape) {
+      if (_current) setState(() => _shape = shape);
     });
     _loadPrefs();
     // Visits, row count and folds change elsewhere too (a board route, the
@@ -625,9 +627,9 @@ class _ForumHomePageState extends State<ForumHomePage> {
   }
 
   Future<ForumHomeSnapshot> _fetchHome() {
-    final account = widget.repository.currentUsername;
+    final account = _account;
     return widget.repository.fetchHome().then((data) {
-      unawaited(_saveShape(account, data));
+      if (_current) unawaited(_saveShape(account, data));
       return data;
     });
   }

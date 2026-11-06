@@ -147,8 +147,11 @@ void main() {
     addTearDown(db.close);
     final store = BrowsingHistoryStore(databaseProvider: () async => db);
     final repository = ForumRepository(historyStore: store);
+    // Repository reads scoped v2 history; seed the active localDataScope.
+    final scope = repository.localPreferenceAccount;
     for (var index = 0; index < 205; index++) {
-      await store.recordThread(
+      await store.recordThreadForScope(
+        scope,
         ForumThread(
           title: 'topic $index',
           url: 'https://south-plus.net/read.php?tid-${index + 1}.html',
@@ -161,15 +164,15 @@ void main() {
     }
     final history = await repository.browsingHistory();
     expect(history, hasLength(200));
-    expect((await store.recent()), hasLength(200));
-    expect(db.browsingHistory(), hasLength(200));
+    expect((await store.recentForScope(scope)), hasLength(200));
+    expect(db.browsingHistoryForScope(scope), hasLength(200));
     expect(history.first.thread.title, 'topic 204');
     expect(history.last.thread.title, 'topic 5');
     final older =
         history.singleWhere((entry) => entry.thread.title == 'topic 54');
     expect(
         (older.thread.author, older.thread.section), ('Author 54', 'Board 54'));
-    await store.recordThread(older.thread,
+    await store.recordThreadForScope(scope, older.thread,
         viewedAt: DateTime(2026, 2, 3, 10).toUtc());
     final retained = await repository.browsingHistory();
     expect(retained, hasLength(200),

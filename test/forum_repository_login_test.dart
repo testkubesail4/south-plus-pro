@@ -1267,9 +1267,9 @@ void main() {
       ],
     );
     const store = ForumTaskStateStore();
-    await store.save(snapshot);
     final client = _PathForumClient({}, loggedIn: true);
     final repository = ForumRepository(client: client, taskStateStore: store);
+    await store.save(snapshot, scope: repository.localDataScope);
 
     final result = await repository.autoClaimForumTaskRewardsIfDue();
 
@@ -1300,7 +1300,6 @@ void main() {
       ],
     );
     const store = ForumTaskStateStore();
-    await store.save(snapshot);
     final client = _PathForumClient({
       'plugin.php?H_name=tasks&action=ajax&actions=job&cid=15':
           '<?xml version="1.0" encoding="utf-8"?><ajax><![CDATA[success\t已经申请[日常]完成,请赶紧去完成任务吧!]]></ajax>',
@@ -1356,6 +1355,7 @@ void main() {
       ],
     }, loggedIn: true);
     final repository = ForumRepository(client: client, taskStateStore: store);
+    await store.save(snapshot, scope: repository.localDataScope);
 
     final result = await repository.autoClaimForumTaskRewardsIfDue();
 

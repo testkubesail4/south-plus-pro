@@ -32,7 +32,7 @@ class _Repo extends ForumRepository {
       fixedAccount ? _account : super.currentUsername;
 
   @override
-  String? get localPreferenceAccount =>
+  String get localPreferenceAccount =>
       fixedAccount ? _account : super.localPreferenceAccount;
 
   @override

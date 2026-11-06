@@ -99,7 +99,10 @@ void main() {
     expect(find.text('备注与标签'), findsNothing);
     expect(find.text('open'), findsOneWidget);
     expect(editorResult, isTrue);
-    expect((await UserNoteStore.load())['1'], 'new note');
+    expect(
+        (await UserNoteStore.load(
+            account: repository.localPreferenceAccount))['1'],
+        'new note');
   });
 
   testWidgets('a scope change before the first frame never shows the old note',

@@ -34,13 +34,14 @@ void main() {
     tester.view.physicalSize = const Size(400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    final repository = _Repo();
     await HomeReadingPreferences.saveQuickSources(const [
       HomeQuickSource(),
       HomeQuickSource(kind: HomeQuickSourceKind.hidden),
       HomeQuickSource(kind: HomeQuickSourceKind.hidden),
-    ]);
+    ], account: repository.localPreferenceAccount);
     await tester.pumpWidget(
-        MaterialApp(home: QuickListSettingsScreen(repository: _Repo())));
+        MaterialApp(home: QuickListSettingsScreen(repository: repository)));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('栏目 1'));
@@ -51,7 +52,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect((await HomeReadingPreferences.load()).quickSources.first,
+    expect(
+        (await HomeReadingPreferences.load(
+                account: repository.localPreferenceAccount))
+            .quickSources
+            .first,
         const HomeQuickSource());
 
     await tester.tap(find.text('栏目 2'));
@@ -73,7 +78,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      (await HomeReadingPreferences.load()).quickSources[1],
+      (await HomeReadingPreferences.load(
+              account: repository.localPreferenceAccount))
+          .quickSources[1],
       const HomeQuickSource(
           kind: HomeQuickSourceKind.board,
           fid: '12',
@@ -87,6 +94,7 @@ void main() {
     tester.view.physicalSize = const Size(400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    final repository = _Repo();
     await HomeReadingPreferences.saveQuickSources(const [
       HomeQuickSource(),
       HomeQuickSource(
@@ -94,11 +102,17 @@ void main() {
           fid: '12',
           order: QuickOrder.replied),
       HomeQuickSource(),
-    ]);
+    ], account: repository.localPreferenceAccount);
     await tester.pumpWidget(
-        MaterialApp(home: QuickListSettingsScreen(repository: _Repo())));
+        MaterialApp(home: QuickListSettingsScreen(repository: repository)));
     await tester.pumpAndSettle();
 
+    expect(find.text('版块 12 · 最新回复'), findsOneWidget);
+    expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, '恢复默认'))
+            .onPressed,
+        isNotNull);
     await tester.tap(find.text('栏目 2'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('原站默认').last);
@@ -110,6 +124,12 @@ void main() {
             .widget<TextButton>(find.widgetWithText(TextButton, '恢复默认'))
             .onPressed,
         isNull);
+    expect(
+      (await HomeReadingPreferences.load(
+              account: repository.localPreferenceAccount))
+          .quickSources[1],
+      const HomeQuickSource(),
+    );
   });
 
   testWidgets('the same board found under a new parent keeps its new path',
@@ -117,6 +137,7 @@ void main() {
     tester.view.physicalSize = const Size(400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    final repository = _Repo();
     await HomeReadingPreferences.saveQuickSources(const [
       HomeQuickSource(),
       HomeQuickSource(
@@ -125,9 +146,9 @@ void main() {
           boardPath: 'Old parent / Fixture board',
           order: QuickOrder.replied),
       HomeQuickSource(),
-    ]);
+    ], account: repository.localPreferenceAccount);
     await tester.pumpWidget(
-        MaterialApp(home: QuickListSettingsScreen(repository: _Repo())));
+        MaterialApp(home: QuickListSettingsScreen(repository: repository)));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('栏目 2'));
@@ -140,7 +161,11 @@ void main() {
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
-    expect((await HomeReadingPreferences.load()).quickSources[1].boardPath,
+    expect(
+        (await HomeReadingPreferences.load(
+                account: repository.localPreferenceAccount))
+            .quickSources[1]
+            .boardPath,
         '示例分区 / Fixture board');
     expect(find.text('示例分区 / Fixture board · 最新回复'), findsOneWidget);
   });

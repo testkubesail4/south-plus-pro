@@ -4,18 +4,47 @@ import 'dart:math' as math;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'forum_session_slots.dart';
+
 class ForumSessionStore {
-  ForumSessionStore({this.origin});
+  ForumSessionStore({this.origin})
+      : slotId = origin == null ? null : ForumSessionSlots.origin(origin);
+
+  ForumSessionStore.forSlot({
+    required String this.slotId,
+    required Uri this.origin,
+  });
+
   final Uri? origin;
+  final String? slotId;
+
   static const _legacyKey = 'forum_session_cookies_v1';
-  String get _cookiesKey => origin == null
-      ? _legacyKey
-      : 'forum_session_cookies_v2:${origin!.host.toLowerCase()}';
+
+  bool get isMemoryOnly =>
+      slotId != null && ForumSessionSlots.isStaging(slotId!);
+
+  String? get _cookiesKey {
+    final id = slotId;
+    if (id != null) {
+      return ForumSessionSlots.cookiesPrefsKey(id, origin: origin);
+    }
+    return origin == null
+        ? _legacyKey
+        : 'forum_session_cookies_v2:${origin!.host.toLowerCase()}';
+  }
 
   Future<Map<String, ForumStoredCookie>> loadCookies() async {
+    if (isMemoryOnly) return {};
+    final key = _cookiesKey;
+    if (key == null) return {};
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_cookiesKey) ??
-        (origin == null ? null : prefs.getString(_legacyKey));
+    var raw = prefs.getString(key);
+    // Legacy v1 fallback only for origin-scoped / unscoped stores.
+    if ((raw == null || raw.isEmpty) &&
+        (slotId == null || ForumSessionSlots.isOrigin(slotId!)) &&
+        origin != null) {
+      raw = prefs.getString(_legacyKey);
+    }
     if (raw == null || raw.isEmpty) return {};
     final Object? decoded;
     try {
@@ -38,6 +67,9 @@ class ForumSessionStore {
   }
 
   Future<void> saveCookies(Map<String, ForumStoredCookie> cookies) async {
+    if (isMemoryOnly) return;
+    final key = _cookiesKey;
+    if (key == null) return;
     final active = Map<String, ForumStoredCookie>.from(cookies)
       ..removeWhere((_, cookie) =>
           cookie.isExpired ||
@@ -47,18 +79,53 @@ class ForumSessionStore {
     await _checkedWrite(
         prefs,
         prefs.setString(
-            _cookiesKey,
+            key,
             jsonEncode(
                 active.map((key, cookie) => MapEntry(key, cookie.toJson())))));
   }
 
   Future<void> clear() async {
+    if (isMemoryOnly) return;
+    final key = _cookiesKey;
+    if (key == null) return;
     final prefs = await SharedPreferences.getInstance();
     await _checkedWrite(
         prefs,
-        origin == null
-            ? prefs.remove(_cookiesKey)
-            : prefs.setString(_cookiesKey, '{}'));
+        // Unscoped legacy remove; scoped keys get `{}` tombstones.
+        key == _legacyKey ? prefs.remove(key) : prefs.setString(key, '{}'));
+  }
+
+  /// Save and verify the account jar before its registry entry is committed.
+  static Future<void> promoteToAccount({
+    required String accountId,
+    required Uri origin,
+    required Map<String, ForumStoredCookie> cookies,
+  }) async {
+    final target = ForumSessionStore.forSlot(
+      slotId: ForumSessionSlots.account(accountId),
+      origin: origin,
+    );
+    await target.saveCookies(cookies);
+    final verified = await target.loadCookies();
+    if (!_sameCookiePayload(verified, cookies)) {
+      throw const FileSystemException('会话保存校验失败');
+    }
+  }
+
+  static bool _sameCookiePayload(Map<String, ForumStoredCookie> loaded,
+      Map<String, ForumStoredCookie> expected) {
+    final activeExpected = Map<String, ForumStoredCookie>.from(expected)
+      ..removeWhere((_, c) => c.isExpired);
+    if (loaded.length != activeExpected.length) return false;
+    for (final entry in activeExpected.entries) {
+      final got = loaded[entry.key];
+      if (got == null ||
+          got.value != entry.value.value ||
+          got.name != entry.value.name) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<void> _checkedWrite(

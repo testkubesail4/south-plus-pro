@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/common/user_note.dart';
+import 'package:south_plus_rewrite/services/account_scoped_keys.dart';
+import 'package:south_plus_rewrite/services/forum_account_id.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
@@ -11,10 +13,19 @@ import 'package:south_plus_rewrite/services/user_tag_store.dart';
 class _LoginClient extends ForumClient {
   String? username;
   bool loggedIn = false;
+
+  String _loggedInHtml(String name) =>
+      '<div id="user-login"><a href="u.php">$name</a></div>'
+      '<a href="login.php?action-quit">退出</a>'
+      '<div id="menu_profile"><ul class="ul2"><li>'
+      '<a href="u.php?action-show-uid-42.html">查看个人资料</a></li></ul></div>';
+
   @override
   bool get isLoggedIn => loggedIn;
+
   @override
   Future<void> restoreCookies() async {}
+
   @override
   Future<void> clearSession() async {
     loggedIn = false;
@@ -23,7 +34,7 @@ class _LoginClient extends ForumClient {
 
   @override
   Future<String> get(String path) async =>
-      username == null ? '' : '<a href="u.php">$username</a>';
+      username == null ? '' : _loggedInHtml(username!);
 
   @override
   Future<
@@ -44,7 +55,7 @@ class _LoginClient extends ForumClient {
   Future<String> post(String path, Map<String, String> form) async {
     username = form['pwuser'];
     loggedIn = true;
-    return '<a href="u.php">$username</a>';
+    return _loggedInHtml(username!);
   }
 }
 
@@ -54,11 +65,16 @@ void main() {
 
   test('notes follow the final account on login and logout, never the old one',
       () async {
-    await UserNoteStore.save('1', 'guest note');
-    await UserNoteStore.save('1', 'account note', account: 'Fixture One');
-    await UserTagStore.save('1', ['guest tag']);
-    await UserTagStore.save('1', ['account tag'], account: 'Fixture One');
     final repository = ForumRepository(client: _LoginClient());
+    final guestScope = repository.localPreferenceAccount;
+    final accountScope = AccountScope.accountFrom(
+      origin: ForumAccountId.normalizeOrigin(repository.networkConfig.baseUri),
+      uid: '42',
+    );
+    await UserNoteStore.save('1', 'guest note', account: guestScope);
+    await UserNoteStore.save('1', 'account note', account: accountScope);
+    await UserTagStore.save('1', ['guest tag'], account: guestScope);
+    await UserTagStore.save('1', ['account tag'], account: accountScope);
     final notes = UserNoteController(repository);
     addTearDown(notes.dispose);
     await pumpEventQueue();
@@ -67,19 +83,22 @@ void main() {
     await repository.login(
         username: 'Fixture One', password: 'fixture', captcha: '1234');
     await pumpEventQueue();
+    expect(repository.localPreferenceAccount, accountScope);
     expect(notes.noteFor('1'), 'account note');
     expect(notes.tagsFor('1'), ['account tag']);
 
-    await repository.clearSession();
+    await repository.logoutCurrent();
     await pumpEventQueue();
+    expect(repository.localPreferenceAccount, guestScope);
     expect(notes.noteFor('1'), 'guest note');
     expect(notes.tagsFor('1'), ['guest tag']);
   });
 
   test('a custom origin guest has its own notes and never sees official ones',
       () async {
-    await UserNoteStore.save('1', 'official guest');
     final repository = ForumRepository(client: _LoginClient());
+    final officialGuest = repository.localPreferenceAccount;
+    await UserNoteStore.save('1', 'official guest', account: officialGuest);
     final notes = UserNoteController(repository);
     addTearDown(notes.dispose);
     await pumpEventQueue();

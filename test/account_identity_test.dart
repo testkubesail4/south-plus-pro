@@ -31,7 +31,7 @@ void main() {
         ['index.php', 'simple/index.php', 'u.php?action-show-uid-42.html']);
     await repository.loadAccountNickname();
     expect(client.gets, hasLength(3));
-    await repository.clearSession();
+    await repository.logoutCurrent();
     expect(repository.accountIdentity.value, isNull);
   });
 
@@ -52,7 +52,7 @@ void main() {
     await repository.loadAccountNickname();
     expect(repository.accountIdentity.value!.nickname, isNull);
     expect(cache.requested, endsWith('u.php?action-show-uid-42.html'));
-    expect(client.gets, hasLength(2));
+    expect(client.gets, ['index.php', 'simple/index.php']);
   });
 
   test('a cache response from an old session cannot restore account identity',
@@ -62,7 +62,7 @@ void main() {
         ForumRepository(client: _AccountClient(), profileCache: cache);
     await repository.restoreSession();
     final loading = repository.loadAccountNickname();
-    await repository.clearSession();
+    await repository.logoutCurrent();
     cache.pending!.complete(const UserProfile(
         uid: '42', name: 'Old name', url: 'u.php?action-show-uid-42.html'));
     await loading;
@@ -85,15 +85,20 @@ class _Cache extends UserProfileCache {
   UserProfile? profile;
   String? requested;
   Completer<UserProfile?>? pending;
+
   @override
-  Future<UserProfile?> loadOverview(String url) async {
+  Future<UserProfile?> loadOverview(String url, {String? viewerScope}) async {
     requested = url;
     if (pending != null) return pending!.future;
     return profile;
   }
 
   @override
-  Future<void> saveOverview(String requestedUrl, UserProfile profile) async {
+  Future<void> saveOverview(
+    String requestedUrl,
+    UserProfile profile, {
+    String? viewerScope,
+  }) async {
     this.profile = profile;
   }
 }

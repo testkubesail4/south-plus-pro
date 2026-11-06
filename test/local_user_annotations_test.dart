@@ -23,7 +23,7 @@ class _Repo extends ForumRepository {
   @override
   ValueListenable<int> get sessionEpoch => epoch;
   @override
-  String? get localPreferenceAccount => scope;
+  String get localPreferenceAccount => scope ?? '';
   @override
   Future<UserProfile?> cachedUserProfileOverview(String url) async {
     profileRequests++;

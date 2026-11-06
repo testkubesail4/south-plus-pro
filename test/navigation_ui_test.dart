@@ -10,6 +10,7 @@ import 'package:south_plus_rewrite/features/auth/login_screen.dart';
 import 'package:south_plus_rewrite/features/home/home_shell.dart';
 import 'package:south_plus_rewrite/features/messages/pm_box_screen.dart';
 import 'package:south_plus_rewrite/features/profile/settings_screen.dart';
+import 'package:south_plus_rewrite/features/profile/account_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/forum_pm_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
@@ -103,7 +104,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
     expect(find.text('外观'), findsOneWidget);
-    expect(find.text('退出登录'), findsNothing);
+    expect(find.text('退出当前账号'), findsNothing);
   });
 
   testWidgets('login returns to the same shell and unlocks messages',
@@ -133,23 +134,131 @@ void main() {
     expect(find.text('我的主题'), findsOneWidget);
   });
 
+  Future<State<AccountScreen>> confirmLogout(WidgetTester tester) async {
+    await selectTab(tester, '我的');
+    await tester.scrollUntilVisible(find.text('退出当前账号'), 200,
+        scrollable: find.byType(Scrollable).last);
+    await tester.ensureVisible(find.text('退出当前账号'));
+    await tester.pumpAndSettle();
+    final accountState =
+        tester.state<State<AccountScreen>>(find.byType(AccountScreen));
+    await tester.tap(find.text('退出当前账号').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '退出当前账号'));
+    return accountState;
+  }
+
+  testWidgets('logout failure displays an error and can be retried',
+      (tester) async {
+    final repository = await pumpShell(tester, user: _userA);
+    repository.clearBeforeGate = false;
+    repository.failLogout = true;
+    await confirmLogout(tester);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('退出失败，请重试'), findsOneWidget);
+    expect(repository.currentUsername, _userA);
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      HomeShell.accountTab,
+    );
+    repository.failLogout = false;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '退出当前账号'));
+    await tester.pumpAndSettle();
+    expect(repository.logoutCalls, 2);
+    expect(repository.currentUsername, isNull);
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      HomeShell.homeTab,
+    );
+  });
+
+  testWidgets('pending logout disables the real row at large text sizes',
+      (tester) async {
+    final repository = await pumpShell(
+      tester,
+      user: _userA,
+      size: const Size(320, 720),
+      textScale: 1.8,
+    );
+    repository.clearBeforeGate = false;
+    repository.clearGate = Completer<void>();
+    await confirmLogout(tester);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(repository.logoutCalls, 1);
+    await tester.tap(find.text('退出当前账号').first);
+    await tester.pump();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(repository.logoutCalls, 1);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    repository.clearGate!.complete();
+    await tester.pumpAndSettle();
+    expect(repository.currentUsername, isNull);
+  });
+
+  for (final disposeMessenger in [false, true]) {
+    testWidgets(
+        'late logout failure is safe after tab disposal (messenger disposed=$disposeMessenger)',
+        (tester) async {
+      final repository = await pumpShell(tester, user: _userA);
+      repository.clearGate = Completer<void>();
+      repository.failLogout = true;
+      final accountState = await confirmLogout(tester);
+      await tester.pump();
+      await tester.pump();
+      expect(accountState.mounted, isFalse);
+      expect(find.text('未登录'), findsOneWidget);
+      if (disposeMessenger) {
+        final messenger = tester
+            .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger));
+        await tester.pumpWidget(const MaterialApp(
+          key: ValueKey('replacement-root'),
+          home: Scaffold(body: Text('Replacement root')),
+        ));
+        await tester.pumpAndSettle();
+        expect(messenger.mounted, isFalse);
+      }
+
+      repository.clearGate!.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      if (disposeMessenger) {
+        expect(find.text('Replacement root'), findsOneWidget);
+      } else {
+        expect(find.text('退出失败，请重试'), findsOneWidget);
+        expect(
+          tester
+              .widget<NavigationBar>(find.byType(NavigationBar))
+              .selectedIndex,
+          HomeShell.accountTab,
+        );
+      }
+    });
+  }
+
   testWidgets('logout asks first, then returns to the home tab',
       (tester) async {
     final repository = await pumpShell(tester, user: _userA);
     await selectTab(tester, '我的');
-    await tester.scrollUntilVisible(find.text('退出登录'), 200,
+    await tester.scrollUntilVisible(find.text('退出当前账号'), 200,
         scrollable: find.byType(Scrollable).last);
-    await tester.ensureVisible(find.text('退出登录'));
+    await tester.ensureVisible(find.text('退出当前账号'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('退出登录').first);
+    await tester.tap(find.text('退出当前账号').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(repository.currentUsername, _userA);
 
-    await tester.tap(find.text('退出登录').first);
+    await tester.tap(find.text('退出当前账号').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, '退出登录'));
+    await tester.tap(find.widgetWithText(FilledButton, '退出当前账号'));
     await tester.pumpAndSettle();
     expect(repository.currentUsername, isNull);
     expect(
@@ -164,13 +273,13 @@ void main() {
     final repository = await pumpShell(tester, user: _userA);
     repository.clearGate = Completer<void>();
     await selectTab(tester, '我的');
-    await tester.scrollUntilVisible(find.text('退出登录'), 200,
+    await tester.scrollUntilVisible(find.text('退出当前账号'), 200,
         scrollable: find.byType(Scrollable).last);
-    await tester.ensureVisible(find.text('退出登录'));
+    await tester.ensureVisible(find.text('退出当前账号'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('退出登录').first);
+    await tester.tap(find.text('退出当前账号').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, '退出登录'));
+    await tester.tap(find.widgetWithText(FilledButton, '退出当前账号'));
     // The owner is gone (tab rebuilt) while cookie deletion is still pending.
     await tester.pump();
     await tester.pump();
@@ -226,7 +335,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.scrollUntilVisible(find.text('退出登录'), 200,
+    await tester.scrollUntilVisible(find.text('退出当前账号'), 200,
         scrollable: find.byType(Scrollable).last);
     expect(tester.takeException(), isNull);
   });
@@ -249,12 +358,19 @@ class _NavRepository extends ForumRepository {
   bool get isLoggedIn => _session.value != null;
 
   Completer<void>? clearGate;
+  bool clearBeforeGate = true;
+  bool failLogout = false;
+  int logoutCalls = 0;
 
-  // Like the real repository: the owner clears first, persistence follows.
   @override
-  Future<void> clearSession() async {
-    _session.value = null;
+  Future<void> logoutCurrent() async {
+    logoutCalls++;
+    if (clearBeforeGate) _session.value = null;
     await clearGate?.future;
+    if (failLogout) {
+      throw const ForumRepositoryException('退出失败，请重试');
+    }
+    if (!clearBeforeGate) _session.value = null;
   }
 
   @override

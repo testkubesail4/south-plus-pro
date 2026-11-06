@@ -78,11 +78,17 @@ class BlockingRules {
 class ForumBlockingSettings {
   ForumBlockingSettings(
       {required String? Function() accountUid,
+      String? Function()? accountScope,
       required Future<String> Function(String, Map<String, String>) request})
       : _accountUid = accountUid,
+        _accountScope = accountScope,
         _request = request;
 
   final String? Function() _accountUid;
+
+  /// Preferred multi-account owner: ForumAccountId.value (origin+uid).
+  /// When null, falls back to legacy uid-only key (unowned across origins).
+  final String? Function()? _accountScope;
   final Future<String> Function(String, Map<String, String>) _request;
   final notifier = ValueNotifier<BlockingRules>(const BlockingRules());
   final _responseParser = const ForumResponseParser();
@@ -106,13 +112,20 @@ class ForumBlockingSettings {
     notifier.value = const BlockingRules();
   }
 
-  String? _syncOwner() {
+  String? _ownerKey() {
+    final scope = _accountScope?.call();
+    if (scope != null && scope.isNotEmpty) return scope;
     final uid = _accountUid();
-    if (uid != _owner) {
-      reset();
-      _owner = uid;
-    }
     return _validUid(uid) ? uid : null;
+  }
+
+  String? _syncOwner() {
+    final owner = _ownerKey();
+    if (owner != _owner) {
+      reset();
+      _owner = owner;
+    }
+    return owner;
   }
 
   Future<void> _enqueue(Future<void> Function() action) {
@@ -122,7 +135,9 @@ class ForumBlockingSettings {
   }
 
   void _requireOwner(String owner, int generation) {
-    if (_accountUid() != owner || generation != _generation) {
+    // Compare against the captured owner key (scope or legacy uid), not a
+    // live singleton that may have switched mid-await.
+    if (_ownerKey() != owner || generation != _generation) {
       throw const ForumRequestException(
           ForumRequestKind.loginRequired, '登录状态已改变，请重新打开屏蔽配置');
     }

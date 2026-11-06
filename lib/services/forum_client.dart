@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'forum_network_config.dart';
 import 'forum_request_exception.dart';
+import 'forum_session_slots.dart';
 import 'forum_session_store.dart';
 import 'forum_trace_logger.dart';
 
@@ -56,6 +57,7 @@ class ForumClient {
               dohProvider: ForumNetworkConfig.defaultProvider,
             ),
         _sessionStore = sessionStore,
+        _originOverride = null,
         _ownsHttpClient = httpClient == null,
         _pacer = _ForumRequestPacer(
           clock ?? DateTime.now,
@@ -71,35 +73,242 @@ class ForumClient {
                   ),
             );
 
+  ForumClient._forkForLogin(ForumClient source)
+      : config = source.config,
+        _originOverride = source.baseUri,
+        _ownsHttpClient = false,
+        _pacer = source._pacer,
+        _httpClient = source._httpClient;
+
+  /// Keep the transport and pacing while giving login its own cookie jar.
+  ForumClient forkForLogin() {
+    _requireOpen();
+    return ForumClient._forkForLogin(this);
+  }
+
   final HttpClient _httpClient;
+  final Set<HttpClientRequest> _requests = {};
   final bool _ownsHttpClient;
   ForumSessionStore? _sessionStore;
   ForumSessionStore get _sessions =>
-      _sessionStore ??= ForumSessionStore(origin: baseUri);
+      _sessionStore ??= ForumSessionStore.forSlot(
+        slotId: _slotId,
+        origin: baseUri,
+      );
   final ForumNetworkConfig config;
-  Uri get baseUri => config.baseUri;
+  final Uri? _originOverride;
+  Uri get baseUri => _originOverride ?? config.baseUri;
   final Map<String, ForumStoredCookie> _cookies = <String, ForumStoredCookie>{};
   final _ForumRequestPacer _pacer;
   Future<void>? _restoreFuture;
   static Future<void>? _cookieWrites;
+
+  /// Per-slot generations (replaces host-keyed maps).
   static final _storeGenerations = <String, int>{};
   static final _loginAttempts = <String, int>{};
-  int get _cookieStoreGeneration => _storeGenerations[baseUri.host] ?? 0;
-  set _cookieStoreGeneration(int value) =>
-      _storeGenerations[baseUri.host] = value;
-  int get _loginAttemptSequence => _loginAttempts[baseUri.host] ?? 0;
-  set _loginAttemptSequence(int value) => _loginAttempts[baseUri.host] = value;
+
+  /// Floor so remove+re-add of the same accountId never reuses a generation.
+  static final _slotGenerationFloor = <String, int>{};
+  late String _slotId = ForumSessionSlots.origin(baseUri);
+  String get slotId => _slotId;
+  int get _cookieStoreGeneration => _storeGenerations[_slotId] ?? 0;
+  set _cookieStoreGeneration(int value) => _storeGenerations[_slotId] = value;
+  int get _loginAttemptSequence => _loginAttempts[_slotId] ?? 0;
+  set _loginAttemptSequence(int value) => _loginAttempts[_slotId] = value;
   int _cookieGeneration = 0;
   bool _closed = false;
-  late int _credentialGeneration = _cookieStoreGeneration;
+  late int _credentialGeneration = _ensureSlotGeneration(_slotId);
   int get credentialGeneration => _credentialGeneration;
   bool isCredentialCurrent(int generation) =>
       !_closed &&
       generation == _credentialGeneration &&
       generation == _cookieStoreGeneration;
 
+  static int _ensureSlotGeneration(String slotId) {
+    final floor = _slotGenerationFloor[slotId] ?? 0;
+    final current = _storeGenerations[slotId] ?? 0;
+    if (current <= floor) {
+      _storeGenerations[slotId] = floor + 1;
+    } else {
+      _storeGenerations.putIfAbsent(slotId, () => current);
+    }
+    return _storeGenerations[slotId]!;
+  }
+
+  /// Retire [slotId] so a later account with the same id gets a fresh generation.
+  static void retireSlot(String slotId) {
+    final current = _storeGenerations[slotId] ?? 0;
+    final floor = _slotGenerationFloor[slotId] ?? 0;
+    final nextFloor = current > floor ? current : floor;
+    _slotGenerationFloor[slotId] = nextFloor;
+    _storeGenerations[slotId] = nextFloor + 1;
+    _loginAttempts.remove(slotId);
+  }
+
+  /// Capture a slot generation before an asynchronous account operation.
+  static bool Function() captureSlotGenerationGuard(String slotId) {
+    final generation = _ensureSlotGeneration(slotId);
+    return () => (_storeGenerations[slotId] ?? 0) == generation;
+  }
+
+  /// Finish earlier saves before clearing a slot; the receipt guards its generation.
+  static Future<bool Function()> retireAndClearSlot(String slotId,
+      {required Uri origin}) {
+    retireSlot(slotId);
+    final generation = _storeGenerations[slotId];
+    final store = ForumSessionStore.forSlot(slotId: slotId, origin: origin);
+    return _writeCookies(() async {
+      await store.clear();
+      return () => _storeGenerations[slotId] == generation;
+    });
+  }
+
+  /// Persist credentials before publishing them with their registry entry.
+  Future<void> commitAccountCookies({
+    required String accountId,
+    required Map<String, ForumStoredCookie> cookies,
+    required Future<void> Function(void Function() install) commitMetadata,
+    required void Function() requireCurrent,
+    String? retireSourceSlot,
+  }) {
+    _requireOpen();
+    final sourceSlot = _slotId;
+    final sourceMemoryGeneration = _cookieGeneration;
+    final sourceStoreGeneration = _cookieStoreGeneration;
+    final targetGeneration = _ensureSlotGeneration(accountId);
+    final target =
+        ForumSessionStore.forSlot(slotId: accountId, origin: baseUri);
+    final prepared = Map<String, ForumStoredCookie>.from(cookies)
+      ..removeWhere((_, cookie) =>
+          cookie.isExpired || !cookie.appliesToHost(baseUri.host));
+    void requireUnchanged() {
+      _requireOpen();
+      requireCurrent();
+      if (_slotId != sourceSlot ||
+          _cookieGeneration != sourceMemoryGeneration ||
+          _cookieStoreGeneration != sourceStoreGeneration ||
+          (_storeGenerations[accountId] ?? 0) != targetGeneration ||
+          !_hasLoginCookies(prepared.values)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '账号状态已改变，请重试');
+      }
+    }
+
+    return _writeCookies(() async {
+      requireUnchanged();
+      final previous = await target.loadCookies();
+      requireUnchanged();
+      var installed = false;
+      try {
+        await ForumSessionStore.promoteToAccount(
+            accountId: accountId, origin: baseUri, cookies: prepared);
+        requireUnchanged();
+        await commitMetadata(() {
+          requireUnchanged();
+          retireSlot(accountId);
+          if (retireSourceSlot != null && retireSourceSlot != accountId) {
+            retireSlot(retireSourceSlot);
+          }
+          bindSlot(accountId);
+          _cookies.addEntries(prepared.values
+              .map((cookie) => MapEntry(_cookieKey(cookie), cookie)));
+          _restoreFuture = Future<void>.value();
+          installed = true;
+        });
+        if (!installed) throw StateError('Account credentials not published');
+      } catch (_) {
+        if (!installed) await target.saveCookies(previous);
+        rethrow;
+      }
+      if (retireSourceSlot != null && retireSourceSlot != accountId) {
+        try {
+          await ForumSessionStore.forSlot(
+                  slotId: retireSourceSlot, origin: baseUri)
+              .clear();
+        } catch (_) {
+          // The verified account is committed. Known origins no longer import
+          // this source; logout and removal retry its cleanup.
+          ForumTraceLogger.log('session', 'Retired source cleanup deferred');
+        }
+      }
+    });
+  }
+
+  Future<void Function()?> prepareAccountSwitch(String slotId) async {
+    _requireOpen();
+    final sourceSlot = _slotId;
+    final sourceMemoryGeneration = _cookieGeneration;
+    final sourceStoreGeneration = _cookieStoreGeneration;
+    final targetGeneration = _ensureSlotGeneration(slotId);
+    final store = ForumSessionStore.forSlot(slotId: slotId, origin: baseUri);
+    void requireCurrent() {
+      _requireOpen();
+      if (_slotId != sourceSlot ||
+          _cookieGeneration != sourceMemoryGeneration ||
+          _cookieStoreGeneration != sourceStoreGeneration ||
+          (_storeGenerations[slotId] ?? 0) != targetGeneration) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '账号状态已改变，请重试');
+      }
+    }
+
+    final cookies = await _writeCookies(() async {
+      requireCurrent();
+      return store.loadCookies();
+    });
+    requireCurrent();
+    if (!_hasLoginCookies(cookies.values)) return null;
+    return () {
+      requireCurrent();
+      if (!_hasLoginCookies(cookies.values)) {
+        throw const ForumRequestException(
+            ForumRequestKind.loginRequired, '账号登录已过期，请重新登录');
+      }
+      bindSlot(slotId);
+      _cookies.addEntries(cookies.values
+          .where((cookie) =>
+              !cookie.isExpired && cookie.appliesToHost(baseUri.host))
+          .map((cookie) => MapEntry(_cookieKey(cookie), cookie)));
+      _credentialGeneration = targetGeneration;
+      _restoreFuture = Future<void>.value();
+    };
+  }
+
+  /// Bind this client to [slotId]. Staging slots stay memory-only.
+  void bindSlot(String slotId, {bool clearMemory = true}) {
+    _requireOpen();
+    _slotId = slotId;
+    // Always bind the store to this slot. Keeping an unscoped/old injected
+    // store across a slot change would write one jar through another key.
+    if (_sessionStore?.slotId != slotId) {
+      _sessionStore =
+          ForumSessionStore.forSlot(slotId: slotId, origin: baseUri);
+    }
+    _ensureSlotGeneration(slotId);
+    if (clearMemory) {
+      _cookieGeneration++;
+      _cookies.clear();
+      _restoreFuture = null;
+      _credentialGeneration = _cookieStoreGeneration;
+    }
+  }
+
+  /// Snapshot of the currently loaded jar (for promote/commit).
+  Map<String, ForumStoredCookie> exportCookies() {
+    _cookies.removeWhere((_, cookie) => cookie.isExpired);
+    return Map<String, ForumStoredCookie>.unmodifiable(_cookies);
+  }
+
   Future<void> restoreCookies() {
     return _restoreFuture ??= _restoreCookies();
+  }
+
+  /// Mark restore complete with an empty jar (guest). Skips prefs load.
+  void markRestoredEmpty() {
+    _requireOpen();
+    _cookies.clear();
+    _restoreFuture = Future<void>.value();
+    _credentialGeneration = _cookieStoreGeneration;
   }
 
   void inheritSessionFrom(ForumClient previous) {
@@ -108,6 +317,8 @@ class ForumClient {
       throw ArgumentError('Session origins differ');
     }
     if (!previous.isCredentialCurrent(previous.credentialGeneration)) return;
+    _slotId = previous._slotId;
+    _sessionStore = ForumSessionStore.forSlot(slotId: _slotId, origin: baseUri);
     _cookies
       ..clear()
       ..addEntries(
@@ -303,6 +514,7 @@ class ForumClient {
       throw const AttachmentDownloadException('不是当前论坛的附件链接');
     }
     var storeGeneration = _credentialGeneration;
+    final admitSlot = _slotId;
     final restoring = _restoreFuture == null;
     await restoreCookies();
     if (restoring) storeGeneration = _credentialGeneration;
@@ -313,7 +525,10 @@ class ForumClient {
       request.followRedirects = false;
       _applyCookies(request);
       final response = await _pacer.send(uri, request.close);
-      await _storeCookies(response, uri, storeGeneration: storeGeneration);
+      // Snapshot the admit slot: a later bindSlot must not let this response
+      // cross-write another jar when per-slot generations collide (both start@1).
+      await _storeCookies(response, uri,
+          storeGeneration: storeGeneration, slotId: admitSlot);
       if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
         final location = response.headers.value(HttpHeaders.locationHeader);
         await response.listen(null).cancel();
@@ -669,26 +884,32 @@ class ForumClient {
     int? credentialGeneration,
     int? loginAttempt,
     bool acceptedLogin = false,
+    String? admitSlotId,
   }) async {
     _requireOpen();
     final isLogin =
         loginAttempt != null || (method == 'POST' && uri.path == '/login.php');
     var storeGeneration = credentialGeneration ?? _credentialGeneration;
+    var resolvedSlotId = admitSlotId ?? _slotId;
     if (isLogin && loginAttempt == null) {
       loginAttempt = ++_loginAttemptSequence;
       storeGeneration = _cookieStoreGeneration;
+      resolvedSlotId = _slotId;
     }
     final restoring = _restoreFuture == null;
     await restoreCookies();
     if (restoring && credentialGeneration == null && !isLogin) {
       storeGeneration = _credentialGeneration;
+      // Keep the slot captured at admit; restore must not retarget another jar.
     }
+    final admitSlot = resolvedSlotId;
     void requireCurrent() {
       _requireOpen();
       requireCurrentSession?.call();
       (Zone.current[_nativeNoticeSessionGuard] as void Function()?)?.call();
       if (((requireCurrentSession != null || isLogin) &&
-              storeGeneration != _cookieStoreGeneration) ||
+              (storeGeneration != _cookieStoreGeneration ||
+                  admitSlot != _slotId)) ||
           (isLogin &&
               !acceptedLogin &&
               loginAttempt != _loginAttemptSequence)) {
@@ -750,6 +971,10 @@ class ForumClient {
     final request = method == 'POST'
         ? await _httpClient.postUrl(uri)
         : await _httpClient.getUrl(uri);
+    if (_closed) {
+      request.abort();
+      _requireOpen();
+    }
     request.followRedirects = false;
     if (method == 'POST') {
       if (body != null) request.contentLength = body.length;
@@ -761,6 +986,7 @@ class ForumClient {
           );
     }
     _applyCookies(request);
+    _requests.add(request);
     final response = await _pacer.send(uri, () {
       try {
         requireCurrent();
@@ -780,7 +1006,7 @@ class ForumClient {
         }
       }
       return request.close();
-    });
+    }).whenComplete(() => _requests.remove(request));
     try {
       requireCurrent();
       if (isLogin &&
@@ -800,7 +1026,8 @@ class ForumClient {
           requireCurrentSession: requireCurrent,
           storeGeneration: isLogin && !acceptedLogin
               ? _credentialGeneration
-              : storeGeneration);
+              : storeGeneration,
+          slotId: admitSlot);
       requireCurrent();
     } catch (_) {
       await response.listen(null).cancel();
@@ -881,6 +1108,7 @@ class ForumClient {
         credentialGeneration: storeGeneration,
         loginAttempt: loginAttempt,
         acceptedLogin: acceptedLogin,
+        admitSlotId: admitSlot,
       );
     }
     final bytes = Uint8List.fromList(
@@ -955,19 +1183,21 @@ class ForumClient {
     _cookieGeneration++;
     _credentialGeneration = ++_cookieStoreGeneration;
     _cookies.clear();
-    await _writeCookies(() async {
-      await _sessions.clear();
-    });
+    final store = _sessions;
+    await _writeCookies(store.clear);
   }
 
   Future<void> _restoreCookies() async {
     final generation = _cookieGeneration;
+    final slotId = _slotId;
     final storeGeneration = _cookieStoreGeneration;
+    final store = _sessions;
     Map<String, ForumStoredCookie>? restored;
     await _writeCookies(() async {
-      restored = await _sessions.loadCookies();
+      restored = await store.loadCookies();
     });
     if (_closed ||
+        slotId != _slotId ||
         generation != _cookieGeneration ||
         storeGeneration != _cookieStoreGeneration ||
         restored == null ||
@@ -995,9 +1225,12 @@ class ForumClient {
 
   Future<void> _storeCookies(HttpClientResponse response, Uri origin,
       {void Function()? requireCurrentSession,
-      required int storeGeneration}) async {
+      required int storeGeneration,
+      required String slotId}) async {
     requireCurrentSession?.call();
-    if (_closed || storeGeneration != _cookieStoreGeneration) return;
+    if (_closed ||
+        storeGeneration != _cookieStoreGeneration ||
+        slotId != _slotId) return;
     var changed = false;
     for (final header
         in response.headers[HttpHeaders.setCookieHeader] ?? const <String>[]) {
@@ -1011,7 +1244,8 @@ class ForumClient {
         changed = true;
       }
     }
-    if (changed) await _persistCookies(storeGeneration: storeGeneration);
+    if (changed)
+      await _persistCookies(storeGeneration: storeGeneration, slotId: slotId);
   }
 
   ForumStoredCookie? _parseCookie(String header, Uri origin) {
@@ -1031,25 +1265,43 @@ class ForumClient {
     return '${cookie.name};${cookie.domain ?? baseUri.host};${cookie.path ?? '/'}';
   }
 
-  Future<void> _persistCookies({required int storeGeneration}) {
+  Future<void> _persistCookies(
+      {required int storeGeneration, required String slotId}) {
     final generation = storeGeneration;
+    final persistSlot = slotId;
+    // Snapshot binds to the admit slot: only taken while that slot is still loaded.
+    if (persistSlot != _slotId || generation != _cookieStoreGeneration) {
+      return Future<void>.value();
+    }
     _cookies.removeWhere((_, cookie) => cookie.isExpired);
     final snapshot = Map<String, ForumStoredCookie>.of(_cookies);
+    // Prefer the bound store when it targets this slot (injected BlockingStore /
+    // matching forSlot). Unscoped inject may observe origin admits only — never
+    // an account/staging slot (that would cross-write the legacy key).
+    final bound = _sessions;
+    final ForumSessionStore store;
+    if (bound.slotId == persistSlot) {
+      store = bound;
+    } else if (bound.slotId == null &&
+        ForumSessionSlots.isOrigin(persistSlot)) {
+      store = bound;
+    } else {
+      store = ForumSessionStore.forSlot(slotId: persistSlot, origin: baseUri);
+    }
     return _writeCookies(() async {
-      // The response was admitted before enqueue; only a credential change revokes its write.
-      if (generation != _cookieStoreGeneration) return;
-      await _sessions.saveCookies(snapshot);
+      if (generation != (_storeGenerations[persistSlot] ?? 0)) return;
+      await store.saveCookies(snapshot);
     });
   }
 
-  Future<void> _writeCookies(Future<void> Function() write) {
+  static Future<T> _writeCookies<T>(Future<T> Function() write) {
     final previous = _cookieWrites;
     final tail = Completer<void>();
     _cookieWrites = tail.future;
-    Future<void> run() async {
+    Future<T> run() async {
       try {
         if (previous != null) await previous;
-        await write();
+        return await write();
       } finally {
         // An idle queue must not retain a completed Future's scheduling zone.
         if (identical(_cookieWrites, tail.future)) _cookieWrites = null;
@@ -1060,19 +1312,23 @@ class ForumClient {
     return run();
   }
 
-  bool get isLoggedIn {
-    if (_closed) return false;
-    return _cookies.values.any(
-      (cookie) =>
-          !cookie.isExpired &&
-          cookie.appliesToHost(baseUri.host) &&
-          (!cookie.secure || baseUri.scheme == 'https') &&
-          cookie.name.toLowerCase().contains('winduser'),
-    );
-  }
+  bool _hasLoginCookies(Iterable<ForumStoredCookie> cookies) => cookies.any(
+        (cookie) =>
+            !cookie.isExpired &&
+            cookie.appliesToHost(baseUri.host) &&
+            (!cookie.secure || baseUri.scheme == 'https') &&
+            cookie.name.toLowerCase().contains('winduser'),
+      );
+
+  bool get isLoggedIn => !_closed && _hasLoginCookies(_cookies.values);
 
   void close({bool force = false}) {
     _closed = true;
+    if (force) {
+      for (final request in _requests.toList()) {
+        request.abort();
+      }
+    }
     if (_ownsHttpClient) _httpClient.close(force: force);
   }
 }

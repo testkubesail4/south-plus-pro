@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
+import 'package:south_plus_rewrite/services/account_scoped_keys.dart';
+import 'package:south_plus_rewrite/services/forum_account_id.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_task_state_store.dart';
 import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
@@ -73,26 +75,31 @@ void main() {
     expect(detail.personalSignature, 'Opening signature');
   });
 
-  test(
-      'local preferences share official mirrors and isolate custom accounts and guests',
+  test('local preferences isolate by origin+uid; guests stay per-origin',
       () async {
-    final officialScopes = <String?>[];
+    // CP3b: scope is ForumAccountId / guest:origin, never display username.
+    // Official mirror hosts therefore do not share one prefs bucket.
+    final officialScopes = <String>[];
     for (final site in ForumNetworkConfig.sites.take(2)) {
       final repository = ForumRepository(client: _ScopeClient(site));
-      expect(repository.localPreferenceAccount, isNull);
+      expect(AccountScope.isGuest(repository.localPreferenceAccount), isTrue);
       await repository.restoreSession();
+      final id = ForumAccountId.parse(repository.localPreferenceAccount);
+      expect(id.uid, '42');
+      expect(id.origin.host, site.host);
       officialScopes.add(repository.localPreferenceAccount);
     }
-    expect(officialScopes, ['fixture-account', 'fixture-account']);
+    expect(officialScopes.toSet(), hasLength(2));
 
-    final customScopes = <String?>[];
-    final guestScopes = <String?>[];
+    final customScopes = <String>[];
+    final guestScopes = <String>[];
     for (final host in ['first.invalid', 'second.invalid']) {
       final repository = ForumRepository(client: _ScopeClient(ForumSite(host)));
       guestScopes.add(repository.localPreferenceAccount);
       await repository.restoreSession();
       customScopes.add(repository.localPreferenceAccount);
       expect(repository.currentUsername, 'fixture-account');
+      expect(ForumAccountId.parse(repository.localPreferenceAccount).uid, '42');
     }
     expect(guestScopes.toSet(), hasLength(2));
     expect(customScopes.toSet(), hasLength(2));
@@ -139,7 +146,7 @@ void main() {
     await oldOverview;
     expect(repository.accountIdentity.value?.nickname, isNull);
     expect(cache.saved, isEmpty);
-    await repository.clearSession();
+    await repository.logoutCurrent();
   });
 
   test('task threshold survives reentry without becoming a countdown',
@@ -182,7 +189,9 @@ void main() {
       </table>
     '''));
     await repository.fetchBoardThreadPage(category);
-    final recent = (await HomeReadingPreferences.load()).recentBoards;
+    final scope = repository.localPreferenceAccount;
+    final recent =
+        (await HomeReadingPreferences.load(account: scope)).recentBoards;
     expect(recent.map((board) => board.id), ['42']);
     expect(recent.single.label, 'Synthetic parent');
 
@@ -193,7 +202,7 @@ void main() {
       throwsA(isA<ForumRepositoryException>()),
     );
     expect(
-        (await HomeReadingPreferences.load())
+        (await HomeReadingPreferences.load(account: scope))
             .recentBoards
             .map((board) => board.id),
         ['42']);
@@ -215,7 +224,10 @@ void main() {
     final repo = ForumRepository(client: client);
     await repo
         .fetchBoardThreadPage(const ForumCategory(name: '旧名', slug: 'f42'));
-    final recent = (await HomeReadingPreferences.load()).recentBoards.single;
+    final recent = (await HomeReadingPreferences.load(
+            account: repo.localPreferenceAccount))
+        .recentBoards
+        .single;
     expect(recent.id, '42');
     expect(recent.label, '直接父版 / 真实版名');
     expect(client.gets, hasLength(1));
@@ -292,7 +304,7 @@ void main() {
     final repository = ForumRepository(client: client);
     final old = repository.fetchForumTasks(ForumTaskStatus.available);
     final rejected = expectLater(old, throwsA(isA<ForumRepositoryException>()));
-    await repository.clearSession();
+    await repository.logoutCurrent();
     final fresh = repository.fetchForumTasks(ForumTaskStatus.available);
     expect(client.requests, hasLength(2));
     client.requests.first.response.complete('<html></html>');
@@ -323,7 +335,7 @@ void main() {
       final rejected =
           expectLater(action, throwsA(isA<ForumRepositoryException>()));
       await client.actionRequested.future;
-      await repository.clearSession();
+      await repository.logoutCurrent();
       client.name = 'account-b';
       await repository.restoreSession();
       client.pendingAction
@@ -356,7 +368,7 @@ void main() {
       final rejected =
           expectLater(purchase, throwsA(isA<ForumRepositoryException>()));
       await client.actionRequested.future;
-      await repository.clearSession();
+      await repository.logoutCurrent();
       client.name = 'account-b';
       await repository.restoreSession();
       client.pendingAction.complete('购买成功');
@@ -396,7 +408,7 @@ void main() {
     final read = repository.refreshForumTaskSnapshot();
     final rejected =
         expectLater(read, throwsA(isA<ForumRepositoryException>()));
-    await repository.clearSession();
+    await repository.logoutCurrent();
     pending.complete('<html><body>没有任务</body></html>');
     await rejected;
     expect(await repository.loadCachedForumTaskSnapshot(), isNull);
@@ -455,10 +467,16 @@ class _GenerationClient extends _ScopeClient {
 
 class _MemoryProfileCache extends UserProfileCache {
   final saved = <UserProfile>[];
+  final savedScopes = <String?>[];
 
   @override
-  Future<void> saveOverview(String requestedUrl, UserProfile profile) async {
+  Future<void> saveOverview(
+    String requestedUrl,
+    UserProfile profile, {
+    String? viewerScope,
+  }) async {
     saved.add(profile);
+    savedScopes.add(viewerScope);
   }
 }
 

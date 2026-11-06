@@ -8,11 +8,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/models/watch_models.dart';
+import 'package:south_plus_rewrite/services/account_scoped_keys.dart';
+import 'package:south_plus_rewrite/services/forum_account_id.dart';
+import 'package:south_plus_rewrite/services/forum_account_registry.dart';
 import 'package:south_plus_rewrite/services/forum_client.dart';
 import 'package:south_plus_rewrite/services/forum_http_routing.dart';
 import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/forum_request_exception.dart';
+import 'package:south_plus_rewrite/services/forum_session_slots.dart';
 import 'package:south_plus_rewrite/services/forum_session_store.dart';
 
 import 'support/forum_route_fixture.dart';
@@ -167,6 +171,9 @@ void main() {
       () async {
     await withFixture((fixture) async {
       final repository = fixture.repository;
+      final accountA = repository.activeAccount.value;
+      expect(accountA, isNotNull);
+      // Pure legacy origin jar for B (not an account-slot mirror).
       await ForumSessionStore(origin: _siteB.baseUri).saveCookies({
         'B': ForumStoredCookie.session(
             name: 'winduser', value: 'synthetic-B', origin: _siteB.baseUri),
@@ -174,9 +181,12 @@ void main() {
       var hits = fixture.requests.length;
       await repository.updateNetworkConfig(_siteB);
       expect(fixture.requests.length, hits);
+      expect(repository.activeAccount.value, isNull);
       expect(repository.currentUsername, isNull);
       expect(repository.accountIdentity.value, isNull);
-      expect(repository.isLoggedIn, isTrue);
+      expect(repository.isLoggedIn, isTrue,
+          reason:
+              'legacy origin jar may restore cookies without selecting an account');
       expect(canUseOwner(repository, '901'), isFalse);
       await repository.ensureAccountIdentity();
       expect(fixture.requests.last, ('localhost', 'winduser=synthetic-B'));
@@ -195,26 +205,128 @@ void main() {
       hits = fixture.requests.length;
       await repository.updateNetworkConfig(_siteA);
       expect(fixture.requests.length, hits);
-      expect(repository.currentUsername, 'Synthetic A');
-      expect(canUseOwner(repository, '901'), isTrue);
-      expect(await repository.restoreSession(), isTrue);
+      // No account→origin mirror: returning to A as guest must not republish
+      // A's identity or remint account cookies without explicit select/reauth.
+      expect(repository.activeAccount.value, isNull);
+      expect(repository.currentUsername, isNull);
+      expect(repository.accountIdentity.value, isNull);
+      expect(canUseOwner(repository, '901'), isFalse);
+      expect(repository.isLoggedIn, isFalse);
       expect(
-          fixture.requests.last, ('fixture.invalid', 'winduser=synthetic-A'));
+        repository.accounts.value.any((a) => a.id == accountA!.id),
+        isTrue,
+      );
+      expect(await repository.restoreSession(), isFalse);
       hits = fixture.requests.length;
       await repository.updateNetworkConfig(_siteB);
       expect(fixture.requests.length, hits);
-      expect(repository.currentUsername, 'Synthetic B');
-      expect(canUseOwner(repository, '903'), isTrue);
+      // Cross-origin guest: legacy B cookies may remain, but cached identity
+      // is not republished without an explicit active account.
+      expect(repository.activeAccount.value, isNull);
+      expect(repository.currentUsername, isNull);
+      expect(repository.accountIdentity.value, isNull);
+      expect(repository.isLoggedIn, isTrue);
+      expect(canUseOwner(repository, '903'), isFalse);
       await repository.clearSession();
       await repository.updateNetworkConfig(_siteA);
-      expect(repository.currentUsername, 'Synthetic A');
-      expect(canUseOwner(repository, '901'), isTrue);
+      expect(repository.currentUsername, isNull);
+      expect(repository.accountIdentity.value, isNull);
+      expect(repository.isLoggedIn, isFalse);
       await repository.updateNetworkConfig(_siteB);
       expect(repository.currentUsername, isNull);
       expect(repository.accountIdentity.value, isNull);
       expect(repository.isLoggedIn, isFalse);
     });
   });
+
+  for (final action in ['remove', 'logout']) {
+    test(
+        'non-active $action on foreign origin cannot resurrect A cookies or identity',
+        () async {
+      await withFixture((fixture) async {
+        final repository = fixture.repository;
+        final accountA = repository.activeAccount.value;
+        expect(accountA, isNotNull);
+        final accountIdA = accountA!.id;
+        // Sibling account jar on A (not active): scrub(A) must leave it intact.
+        final otherId = ForumAccountId(
+          origin: _siteA.baseUri,
+          uid: '902',
+        ).value;
+        await ForumSessionStore.forSlot(
+          slotId: ForumSessionSlots.account(otherId),
+          origin: _siteA.baseUri,
+        ).saveCookies({
+          'peer': ForumStoredCookie.session(
+              name: 'winduser',
+              value: 'synthetic-peer',
+              origin: _siteA.baseUri),
+        });
+        await ForumSessionStore(origin: _siteB.baseUri).saveCookies({
+          'B': ForumStoredCookie.session(
+              name: 'winduser', value: 'synthetic-B', origin: _siteB.baseUri),
+        });
+        await repository.updateNetworkConfig(_siteB);
+        expect(repository.activeAccount.value, isNull);
+        expect(
+          repository.accounts.value.any((a) => a.id == accountIdA),
+          isTrue,
+        );
+        final originSlot = ForumSessionSlots.origin(_siteA.baseUri);
+        if (action == 'remove') {
+          await repository.removeAccount(accountIdA);
+          expect(
+            repository.accounts.value.any((a) => a.id == accountIdA),
+            isFalse,
+          );
+        } else {
+          await repository.logoutAccount(accountIdA);
+          expect(
+            repository.accounts.value.any((a) =>
+                a.id == accountIdA &&
+                a.status == AccountReadyState.needsReauth),
+            isTrue,
+          );
+        }
+        final aJar = await ForumSessionStore.forSlot(
+          slotId: ForumSessionSlots.account(accountIdA),
+          origin: _siteA.baseUri,
+        ).loadCookies();
+        expect(aJar, isEmpty);
+        final originA =
+            await ForumSessionStore(origin: _siteA.baseUri).loadCookies();
+        expect(originA, isEmpty,
+            reason: 'origin jar must be tombstoned with the scrubbed account');
+        final peerJar = await ForumSessionStore.forSlot(
+          slotId: ForumSessionSlots.account(otherId),
+          origin: _siteA.baseUri,
+        ).loadCookies();
+        expect(
+          peerJar.values.where((c) => c.name == 'winduser').single.value,
+          'synthetic-peer',
+          reason: 'sibling account jar on same origin must survive',
+        );
+        await repository.updateNetworkConfig(_siteA);
+        expect(repository.activeAccount.value, isNull);
+        expect(repository.currentUsername, isNull);
+        expect(repository.accountIdentity.value, isNull);
+        expect(repository.isLoggedIn, isFalse);
+        expect(canUseOwner(repository, '901'), isFalse);
+        expect(await repository.restoreSession(), isFalse);
+        expect(repository.isLoggedIn, isFalse);
+        expect(repository.currentUsername, isNull);
+        // Cold-ish return after another origin hop still cannot remint A.
+        await repository.updateNetworkConfig(_siteB);
+        await repository.updateNetworkConfig(_siteA);
+        expect(repository.activeAccount.value, isNull);
+        expect(await repository.restoreSession(), isFalse);
+        expect(repository.isLoggedIn, isFalse);
+        expect(repository.currentUsername, isNull);
+        expect(canUseOwner(repository, '901'), isFalse);
+        expect(originSlot, startsWith('origin:'));
+      });
+    });
+  }
 
   test(
       'pending durable settings reject reentry until route and identity publication finishes',
@@ -353,8 +465,12 @@ void main() {
         blocker.release.complete();
         await otherRequest;
         await cancelled;
-        final stored =
-            await ForumSessionStore(origin: _siteA.baseUri).loadCookies();
+        // Fixture restore promotes A to a v3 account slot; admitted B
+        // cookies land on the live client slot, not the retired origin jar.
+        final stored = await ForumSessionStore.forSlot(
+          slotId: fixture.initialClient.slotId,
+          origin: _siteA.baseUri,
+        ).loadCookies();
         expect(stored.values.where((c) => c.name == 'winduser').single.value,
             'synthetic-B');
         expect(fixture.loginHits, 1);
@@ -419,6 +535,9 @@ void main() {
       () async {
     await withFixture((fixture) async {
       final repository = fixture.repository;
+      final accountA = repository.activeAccount.value!.id;
+      final scopeA = repository.localDataScope;
+      final epochA = repository.sessionEpoch.value;
       fixture.holdBHeader = true;
       final login = repository.submitLogin(
           username: 'Synthetic B',
@@ -428,23 +547,81 @@ void main() {
       final cancelled =
           expectLater(login, throwsA(isA<ForumRequestException>()));
       await fixture.received.future;
+      expect(fixture.requests.last.$2, 'winduser=synthetic-B',
+          reason: 'the isolated login has received B credentials');
+      expect(repository.activeAccount.value!.id, accountA);
+      expect(repository.localDataScope, scopeA);
+      expect(repository.sessionEpoch.value, epochA);
+      expect(repository.currentUsername, 'Synthetic A');
+      expect(repository.accountIdentity.value!.uid, '901');
+      expect(
+          await fixture.initialClient.getOnce('echo'), 'winduser=synthetic-A');
       final hits = fixture.requests.length;
       await repository.updateNetworkConfig(
           _siteA.copyWith(mode: ForumNetworkMode.optimized));
       expect(fixture.requests.length, hits);
       expect(repository.isLoggedIn, isTrue);
-      expect(repository.currentUsername, isNull);
-      expect(repository.accountIdentity.value, isNull);
-      expect(canUseOwner(repository, '901'), isFalse);
+      expect(repository.currentUsername, 'Synthetic A');
+      expect(repository.accountIdentity.value!.uid, '901');
+      expect(repository.activeAccount.value!.id, accountA);
+      expect(repository.localDataScope, scopeA);
+      expect(canUseOwner(repository, '901'), isTrue);
+      expect(canUseOwner(repository, '903'), isFalse);
       fixture.unblock();
       await cancelled;
       fixture.holdBHeader = false;
       await repository.updateNetworkConfig(_siteA);
       expect(await repository.restoreSession(), isTrue);
-      expect(repository.currentUsername, 'Synthetic B');
-      expect(fixture.requests.last.$2, 'winduser=synthetic-B');
-      expect(canUseOwner(repository, '903'), isTrue);
+      expect(repository.currentUsername, 'Synthetic A');
+      expect(fixture.requests.last.$2, 'winduser=synthetic-A');
+      expect(
+          repository.accounts.value.map((account) => account.id), [accountA]);
+      expect(repository.activeAccount.value!.id, accountA);
+      expect(repository.localDataScope, scopeA);
+      expect(
+          (await ForumSessionStore.forSlot(
+                      slotId: accountA, origin: _siteA.baseUri)
+                  .loadCookies())
+              .values
+              .map((cookie) => cookie.value),
+          ['synthetic-A']);
+      expect(canUseOwner(repository, '901'), isTrue);
+      expect(canUseOwner(repository, '903'), isFalse);
       expect(fixture.loginHits, 1);
+    });
+  });
+
+  test(
+      'cross-origin switch clears foreign active and keeps restored origin jar',
+      () async {
+    await withFixture((fixture) async {
+      final repository = fixture.repository;
+      final activeA = repository.activeAccount.value;
+      expect(activeA, isNotNull, reason: 'fixture starts signed-in on site A');
+      await ForumSessionStore(origin: _siteB.baseUri).saveCookies({
+        'B': ForumStoredCookie.session(
+            name: 'winduser', value: 'synthetic-B', origin: _siteB.baseUri),
+      });
+      final hits = fixture.requests.length;
+      await repository.updateNetworkConfig(_siteB);
+      expect(fixture.requests.length, hits,
+          reason: 'network config must not implicit-HTTP');
+      expect(repository.activeAccount.value, isNull);
+      expect(repository.localPreferenceAccount,
+          AccountScope.guest(_siteB.baseUri));
+      expect(repository.networkConfig.baseUri.origin, _siteB.baseUri.origin);
+      expect(
+        repository.accounts.value.any((a) => a.id == activeA!.id),
+        isTrue,
+        reason: 'cross-origin must not delete the previous origin account',
+      );
+      final stored =
+          await ForumSessionStore(origin: _siteB.baseUri).loadCookies();
+      expect(
+        stored.values.where((c) => c.name == 'winduser').single.value,
+        'synthetic-B',
+      );
+      expect(repository.isLoggedIn, isTrue);
     });
   });
 }

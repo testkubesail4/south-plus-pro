@@ -12,7 +12,7 @@ import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
 
 class _Repo extends ForumRepository {
   @override
-  String? get localPreferenceAccount => 'fixture';
+  String get localPreferenceAccount => 'fixture';
   @override
   Future<List<ForumSection>> fetchForumSections() async => const [
         ForumSection(nativeId: '7', title: '交流', items: []),

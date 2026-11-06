@@ -157,6 +157,13 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   /// A plain thread link resumes where the reader stopped last time; links
   /// to a page or floor open exactly what they point to.
   Future<void> _openAtSavedPosition() async {
+    final scope = widget.repository.localPreferenceAccount;
+    final epoch = widget.repository.sessionEpoch.value;
+    bool sameSession() =>
+        mounted &&
+        widget.repository.localPreferenceAccount == scope &&
+        widget.repository.sessionEpoch.value == epoch;
+
     if (!LoadingPreferences.isReady) {
       try {
         await LoadingPreferences.load();
@@ -164,7 +171,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         // Unread, the thread pages by hand.
       }
     }
-    if (!mounted) return;
+    if (!sameSession()) return;
     final page = _explicitPage.firstMatch(widget.thread.url)?.group(1);
     ThreadReadPosition? position;
     if (_pendingAnchor == null && page == null) {
@@ -174,16 +181,18 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         // An unreadable saved position just opens the first page.
       }
     }
-    if (!mounted) return;
+    if (!sameSession()) return;
     final resumes = position != null &&
         (position.page > 1 || (position.anchor ?? 'tpc') != 'tpc');
     if (!resumes) {
+      if (!sameSession()) return;
       await _loadPage(1);
       return;
     }
+    if (!sameSession()) return;
     _pendingAnchor = position.anchor;
     await _loadPage(position.page);
-    if (!mounted || _detail == null) return;
+    if (!sameSession() || _detail == null) return;
     _messenger.showSnackBar(SnackBar(
       content: Text('已回到上次阅读位置（第 ${position.page} 页）'),
       action: SnackBarAction(label: '从头看', onPressed: _jumpToFirst),
@@ -347,20 +356,32 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   /// Steps the lazy list forward until the target row is mounted, then
   /// reveals it; falls back to a notice on the page actually shown.
   Future<void> _revealAnchor() async {
+    final scope = widget.repository.localPreferenceAccount;
+    final epoch = widget.repository.sessionEpoch.value;
+    bool sameSession() =>
+        mounted &&
+        widget.repository.localPreferenceAccount == scope &&
+        widget.repository.sessionEpoch.value == epoch;
+
     for (var attempt = 0; _anchorTarget != null && attempt < 200; attempt++) {
       await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
+      if (!sameSession()) return;
       final target = _anchorKey.currentContext;
       if (target != null) {
         await Scrollable.ensureVisible(target);
         // shortcut: re-aligns once after the next layout; images that finish
         // loading later above the target can still shift it.
         await WidgetsBinding.instance.endOfFrame;
+        if (!sameSession()) return;
         final settled = _anchorKey.currentContext;
-        if (mounted && settled != null) {
+        if (settled != null) {
           await Scrollable.ensureVisible(settled);
-          if (mounted && settled.mounted) {
-            _saveTopPost(Scrollable.of(settled).context);
+          if (sameSession() && settled.mounted) {
+            _saveTopPost(
+              Scrollable.of(settled).context,
+              account: scope,
+              epoch: epoch,
+            );
           }
         }
         return;
@@ -373,7 +394,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
         position.maxScrollExtent,
       ));
     }
-    if (!mounted) return;
+    if (!sameSession()) return;
     _messenger.showSnackBar(
       const SnackBar(content: Text('未找到指定楼层，已显示所在页')),
     );
@@ -586,17 +607,34 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   /// Remembers the post at the top of the list once scrolling stops.
   void _saveReadPosition(ScrollEndNotification notification) {
     // A jump notifies before the new layout; measure after the next frame.
+    // Capture the account scope now so a later switch cannot write this
+    // scroll offset into another account's read map.
     final scrollable = notification.context;
+    final account = widget.repository.localPreferenceAccount;
+    final epoch = widget.repository.sessionEpoch.value;
     WidgetsBinding.instance
       ..addPostFrameCallback((_) {
-        if (mounted && scrollable != null && scrollable.mounted) {
-          _saveTopPost(scrollable);
+        if (!mounted ||
+            scrollable == null ||
+            !scrollable.mounted ||
+            widget.repository.localPreferenceAccount != account ||
+            widget.repository.sessionEpoch.value != epoch) {
+          return;
         }
+        _saveTopPost(scrollable, account: account, epoch: epoch);
       })
       ..ensureVisualUpdate();
   }
 
-  void _saveTopPost(BuildContext scrollable) {
+  void _saveTopPost(
+    BuildContext scrollable, {
+    required String? account,
+    required int epoch,
+  }) {
+    if (widget.repository.localPreferenceAccount != account ||
+        widget.repository.sessionEpoch.value != epoch) {
+      return;
+    }
     final listBox = scrollable.findRenderObject();
     if (listBox is! RenderBox || !listBox.attached) return;
     final top = listBox.localToGlobal(Offset.zero).dy;
@@ -628,7 +666,9 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     if (position != null && position.page != _visiblePage) {
       setState(() => _visiblePage = position.page);
     }
-    if (position != null) {
+    if (position != null &&
+        widget.repository.localPreferenceAccount == account &&
+        widget.repository.sessionEpoch.value == epoch) {
       widget.repository
           .saveThreadReadPosition(_thread, position)
           .catchError((Object _) {});
@@ -1233,6 +1273,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       // A new composer: the old one's draft goes with its state.
       _replyKey = GlobalKey<ReplyComposerState>();
       _loadingQuoteDrafts.clear();
+      _pendingAnchor = null;
+      _pendingLatest = false;
       _anchorTarget = null;
       _recomputeDetailRenderState();
     });

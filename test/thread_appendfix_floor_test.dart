@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:south_plus_rewrite/features/thread/thread_detail_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
+import 'package:south_plus_rewrite/services/account_scoped_keys.dart';
+import 'package:south_plus_rewrite/services/forum_network_config.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
 import 'package:south_plus_rewrite/services/user_display_name_store.dart';
 import 'package:south_plus_rewrite/services/user_note_store.dart';
@@ -65,6 +67,8 @@ class _Repo extends ForumRepository {
       );
 }
 
+final _guestScope = AccountScope.guest(ForumNetworkConfig.defaultSite.baseUri);
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -103,8 +107,8 @@ void main() {
   testWidgets(
       'page 2 keeps a compact opening header: time, signature, tags, note',
       (tester) async {
-    await UserTagStore.save('3', ['资源佬']);
-    await UserNoteStore.save('3', '老甲');
+    await UserTagStore.save('3', ['资源佬'], account: _guestScope);
+    await UserNoteStore.save('3', '老甲', account: _guestScope);
     await pumpThread(tester, laterPage: true, scale: 2);
 
     expect(find.text('opening body'), findsNothing);
@@ -140,8 +144,9 @@ void main() {
   testWidgets(
       'OP and replies show bounded tags live without crowding author or time at text2',
       (tester) async {
-    await UserTagStore.save('3', ['资源佬', '熟人', '第三个']);
-    await UserTagStore.save('4', [for (var i = 0; i < 8; i++) '标签$i']);
+    await UserTagStore.save('3', ['资源佬', '熟人', '第三个'], account: _guestScope);
+    await UserTagStore.save('4', [for (var i = 0; i < 8; i++) '标签$i'],
+        account: _guestScope);
     final semantics = tester.ensureSemantics();
     await pumpThread(tester, scale: 2);
     expect(find.byType(UserTagsInline), findsNWidgets(2));
@@ -155,8 +160,8 @@ void main() {
         findsOneWidget);
     expect(find.byType(UserTagCapsule).evaluate().length, lessThanOrEqualTo(4));
     expect(tester.takeException(), isNull);
-    await UserTagStore.save('3', ['新楼主标签']);
-    await UserTagStore.clear('4');
+    await UserTagStore.save('3', ['新楼主标签'], account: _guestScope);
+    await UserTagStore.clear('4', account: _guestScope);
     await tester.pumpAndSettle();
     expect(find.byType(UserTagsInline), findsOneWidget);
     expect(find.bySemanticsLabel('标签 新楼主标签'), findsOneWidget);
@@ -170,7 +175,7 @@ void main() {
     await pumpThread(tester);
     expect(find.textContaining('老乙'), findsNothing);
 
-    await UserNoteStore.save('4', '老乙');
+    await UserNoteStore.save('4', '老乙', account: _guestScope);
     await tester.pumpAndSettle();
 
     final label = find.textContaining('老乙');
@@ -184,7 +189,7 @@ void main() {
   testWidgets(
       'saving an annotation from a floor remembers that author\'s shown name for that UID only',
       (tester) async {
-    await UserTagStore.save('4', ['熟人']);
+    await UserTagStore.save('4', ['熟人'], account: _guestScope);
     await pumpThread(tester);
     await tester.tap(find.byType(UserTagsInline));
     await tester.pumpAndSettle();
@@ -192,20 +197,20 @@ void main() {
     await tester.enterText(find.byType(TextField).first, '老乙');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect((await UserNoteStore.load())['4'], '老乙');
-    final names = await UserDisplayNameStore.load();
+    expect((await UserNoteStore.load(account: _guestScope))['4'], '老乙');
+    final names = await UserDisplayNameStore.load(account: _guestScope);
     expect(names['4']?.nickname, '路人乙');
     expect(names.containsKey('3'), isFalse,
         reason: 'unannotated authors are not recorded');
   });
 
   testWidgets('an unchanged Save records no name', (tester) async {
-    await UserTagStore.save('4', ['熟人']);
+    await UserTagStore.save('4', ['熟人'], account: _guestScope);
     await pumpThread(tester);
     await tester.tap(find.byType(UserTagsInline));
     await tester.pumpAndSettle();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
-    expect(await UserDisplayNameStore.load(), isEmpty);
+    expect(await UserDisplayNameStore.load(account: _guestScope), isEmpty);
   });
 }

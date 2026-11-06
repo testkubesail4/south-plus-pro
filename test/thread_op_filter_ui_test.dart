@@ -228,7 +228,8 @@ $posts</body></html>''';
 // The real store opens a database, whose IO never completes in fake async.
 class _NoHistoryStore extends BrowsingHistoryStore {
   @override
-  Future<void> recordThread(ForumThread thread, {DateTime? viewedAt}) async {}
+  Future<void> recordThreadForScope(String scope, ForumThread thread,
+      {DateTime? viewedAt}) async {}
 }
 
 class _FakeRepository extends ForumRepository {
