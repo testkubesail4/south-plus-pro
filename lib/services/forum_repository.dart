@@ -4327,6 +4327,110 @@ class ForumRepository {
     );
   }
 
+  Future<ThreadDetail?> findThreadFloor(
+    ForumThread current,
+    int floor, {
+    required List<ThreadDetail> loaded,
+    bool Function()? isCurrent,
+  }) async {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    void requireCurrent() {
+      if (!identical(client, _client) ||
+          epoch != _sessionEpoch.value ||
+          isCurrent?.call() == false) {
+        throw const ForumRepositoryException('网络或页面已改变，请重试');
+      }
+    }
+
+    requireCurrent();
+    final tid = _urls.tidFromUrl(current.url);
+    if (tid == null || floor < 0) {
+      throw const ForumRequestException(
+          ForumRequestKind.invalidInput, '楼层链接无效');
+    }
+    final uid = _urls.uidFromUrl(current.url);
+    final source = current.copyWith(
+        url: _urls.absoluteUrl(
+            'read.php?tid-$tid${uid == null ? '' : '-uid-$uid'}.html'));
+    final pages = loaded
+        .where((detail) =>
+            _urls.tidFromUrl(detail.thread.url) == tid &&
+            _urls.uidFromUrl(detail.thread.url) == uid)
+        .toList();
+    final favorite = pages
+        .map((detail) => detail.favorite)
+        .whereType<ThreadFavorite>()
+        .firstOrNull;
+    final anchor = 'fl-$floor';
+    bool containsFloor(ThreadDetail detail) =>
+        (floor == 0 && detail.bodyAnchors.contains(anchor)) ||
+        detail.replies.any((reply) =>
+            reply.anchors.contains(anchor) &&
+            (uid == null || reply.authorUid == uid) &&
+            RegExp(r'^B?(\d+)\s*(?:F|楼)?$', caseSensitive: false)
+                    .firstMatch(reply.floor ?? '')
+                    ?.group(1) ==
+                '$floor');
+    for (final detail in pages) {
+      if (containsFloor(detail)) return detail;
+    }
+    final seen = pages.map((detail) => detail.pagination.currentPage).toSet();
+    var total = pages.fold<int>(
+        1,
+        (count, detail) => detail.pagination.totalPages > count
+            ? detail.pagination.totalPages
+            : count);
+    var requests = 0;
+    for (var page = 1; page <= total; page++) {
+      if (seen.contains(page)) continue;
+      requireCurrent();
+      // shortcut: inspect at most 20 new pages; add resumable lookup for longer threads.
+      if (requests++ == 20) {
+        throw const ForumRequestException(
+            ForumRequestKind.invalidInput, '查找超过 20 页，请手动切换页面后重试');
+      }
+      final path = _urls.threadDetailPath(source.url, page: page);
+      final html = await client.getOnceGuarded(path,
+          requireCurrentSession: requireCurrent);
+      requireCurrent();
+      final document = html_parser.parse(html);
+      if (forumDocumentIsRateLimited(document)) {
+        throw const ForumRequestException(
+            ForumRequestKind.rateLimited, '请求过于频繁');
+      }
+      ThreadDetail detail;
+      try {
+        detail = _parseThreadPage(source, document, html,
+            page: page, detailPath: path, favorite: favorite);
+      } on ForumRepositoryException {
+        _throwIfBlockedPage(html);
+        throw const ForumRequestException(
+            ForumRequestKind.invalidInput, '未读到可定位的帖子页面');
+      }
+      final linked = _threadDetailParser.threadUrl(document);
+      final pager = document.querySelectorAll('.pages, .pagesone').where(
+          (element) => !ThreadRewardParser(_urls).isUserContent(element));
+      final actual = RegExp(r'Pages:\s*([1-9]\d*)\s*/\s*([1-9]\d*)')
+          .firstMatch(pager.map((element) => element.text).join(' '));
+      if (linked == null ||
+          _urls.tidFromUrl(linked) != tid ||
+          (actual == null && (page != 1 || total != 1 || pager.isNotEmpty)) ||
+          (actual != null && int.tryParse(actual.group(1)!) != page)) {
+        throw const ForumRequestException(
+            ForumRequestKind.invalidInput, '无法确认目标帖子的分页');
+      }
+      if (detail.pagination.currentPage != page) {
+        throw const ForumRequestException(
+            ForumRequestKind.invalidInput, '无法确认目标帖子的分页');
+      }
+      if (containsFloor(detail)) return detail;
+      if (pages.isEmpty && page == 1) total = detail.pagination.totalPages;
+    }
+    requireCurrent();
+    return null;
+  }
+
   FullScan<ThreadSearchHit> scanThread(
     ForumThread current,
     String keyword, {
@@ -4558,7 +4662,8 @@ class ForumRepository {
   dom.Document _boardDocument(String response, ForumCategory category) {
     final document = html_parser.parse(response);
     _throwIfBlockedText(
-        _boardThreadPageParser.validationText(document, category));
+        _boardThreadPageParser.validationText(document, category),
+        rateLimited: forumDocumentIsRateLimited(document));
     return document;
   }
 
@@ -4573,19 +4678,23 @@ class ForumRepository {
         link.nodes.clear();
       }
     }
-    _throwIfBlockedText('${validation.querySelector('title')?.text ?? ''}\n'
-        '${validation.body?.text ?? ''}');
+    _throwIfBlockedText(
+        '${validation.querySelector('title')?.text ?? ''}\n'
+        '${validation.body?.text ?? ''}',
+        rateLimited: forumDocumentIsRateLimited(document));
     return document;
   }
 
   void _throwIfBlockedPage(String html) {
     final document = html_parser.parse(html);
-    _throwIfBlockedText('${document.querySelector('title')?.text ?? ''}\n'
-        '${document.body?.text ?? ''}');
+    _throwIfBlockedText(
+        '${document.querySelector('title')?.text ?? ''}\n'
+        '${document.body?.text ?? ''}',
+        rateLimited: forumDocumentIsRateLimited(document));
   }
 
-  void _throwIfBlockedText(String text) {
-    if (forumTextIsRateLimited(text)) {
+  void _throwIfBlockedText(String text, {required bool rateLimited}) {
+    if (rateLimited) {
       throw const ForumRequestException(
         ForumRequestKind.rateLimited,
         '请求过于频繁',

@@ -316,6 +316,23 @@ void main() {
     );
   });
 
+  testWidgets('我的收藏 opens the 收藏 tab for whoever is signed in', (tester) async {
+    await pumpShell(tester);
+    await selectTab(tester, '我的');
+    expect(find.text('我的收藏'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    final repository = await pumpShell(tester, user: _userA);
+    await selectTab(tester, '我的');
+    repository.signIn(_userB);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的收藏'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      HomeShell.favoritesTab,
+    );
+  });
+
   testWidgets('large text keeps the bar readable', (tester) async {
     await pumpShell(tester,
         user: _userA, textScale: 2, size: const Size(320, 640));

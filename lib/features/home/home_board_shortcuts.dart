@@ -126,6 +126,7 @@ class _MyBoards extends StatefulWidget {
   const _MyBoards({
     required this.repository,
     required this.recent,
+    required this.showRecent,
     required this.hotBoards,
     required this.sections,
     required this.onOpen,
@@ -133,6 +134,7 @@ class _MyBoards extends StatefulWidget {
 
   final ForumRepository repository;
   final List<ForumSearchPinnedBoard> recent;
+  final bool showRecent;
 
   /// With [sections], the boards the edit sheet offers (null while loading).
   final List<ForumCategory>? hotBoards;
@@ -271,10 +273,12 @@ class _MyBoardsState extends State<_MyBoards> {
   @override
   Widget build(BuildContext context) {
     if (!widget.repository.isLoggedIn) return const SizedBox.shrink();
-    final tab = _chosen ??
-        (_pinned.isNotEmpty || widget.recent.isEmpty
-            ? _MyBoardsTab.pinned
-            : _MyBoardsTab.recent);
+    final tab = !widget.showRecent
+        ? _MyBoardsTab.pinned
+        : _chosen ??
+            (_pinned.isNotEmpty || widget.recent.isEmpty
+                ? _MyBoardsTab.pinned
+                : _MyBoardsTab.recent);
     _boardTree();
     final boards = tab == _MyBoardsTab.pinned ? _pinned : widget.recent;
     final Widget content;
@@ -319,18 +323,19 @@ class _MyBoardsState extends State<_MyBoards> {
                   )
                 : null,
           ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: SubTabs<_MyBoardsTab>(
-              padding: EdgeInsets.zero,
-              tabs: const [
-                (_MyBoardsTab.pinned, '常用'),
-                (_MyBoardsTab.recent, '最近'),
-              ],
-              selected: tab,
-              onSelected: (value) => setState(() => _chosen = value),
+          if (widget.showRecent)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: SubTabs<_MyBoardsTab>(
+                padding: EdgeInsets.zero,
+                tabs: const [
+                  (_MyBoardsTab.pinned, '常用'),
+                  (_MyBoardsTab.recent, '最近'),
+                ],
+                selected: tab,
+                onSelected: (value) => setState(() => _chosen = value),
+              ),
             ),
-          ),
           AppSwitcher(
             id: tab,
             direction: tab == _MyBoardsTab.pinned ? -1 : 1,

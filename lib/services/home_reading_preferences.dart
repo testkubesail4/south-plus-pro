@@ -18,6 +18,10 @@ class HomeReadingPreferences {
     this.hiddenParentFids = const {},
     this.sectionTitlesById = const {},
     this.quickSources = defaultQuickSources,
+    this.hideHotBoards = false,
+    this.hideRecentBoards = false,
+    this.boardWall = false,
+    this.boardOrder = ForumThreadOrder.lastPost,
   });
 
   final int quickRowCount;
@@ -28,6 +32,14 @@ class HomeReadingPreferences {
   final Set<String> hiddenParentFids;
   final Map<String, String> sectionTitlesById;
   final List<HomeQuickSource> quickSources;
+  final bool hideHotBoards;
+
+  /// Hides 最近 under 我的版块; the visit history is kept.
+  final bool hideRecentBoards;
+
+  /// How every board opens: picture wall (where the board has one) and order.
+  final bool boardWall;
+  final ForumThreadOrder boardOrder;
 
   HomeReadingPreferences copyWith({
     int? quickRowCount,
@@ -38,6 +50,10 @@ class HomeReadingPreferences {
     Set<String>? hiddenParentFids,
     Map<String, String>? sectionTitlesById,
     List<HomeQuickSource>? quickSources,
+    bool? hideHotBoards,
+    bool? hideRecentBoards,
+    bool? boardWall,
+    ForumThreadOrder? boardOrder,
   }) =>
       HomeReadingPreferences(
         quickRowCount: quickRowCount ?? this.quickRowCount,
@@ -51,6 +67,10 @@ class HomeReadingPreferences {
         sectionTitlesById:
             Map.unmodifiable(sectionTitlesById ?? this.sectionTitlesById),
         quickSources: List.unmodifiable(quickSources ?? this.quickSources),
+        hideHotBoards: hideHotBoards ?? this.hideHotBoards,
+        hideRecentBoards: hideRecentBoards ?? this.hideRecentBoards,
+        boardWall: boardWall ?? this.boardWall,
+        boardOrder: boardOrder ?? this.boardOrder,
       );
 
   static const defaultQuickSources = [
@@ -73,6 +93,7 @@ class HomeReadingPreferences {
   static const _collapsedKey = 'home_collapsed_ids_v1';
   static const _recentKey = 'home_recent_boards_v1';
   static const _layoutKey = 'home_layout_v2';
+  static const _boardViewKey = 'board_view_v1';
 
   static String _key(String key, String? account) =>
       account == null || account.isEmpty
@@ -122,6 +143,8 @@ class HomeReadingPreferences {
                   (entry.value as String).trim().isNotEmpty)
                 entry.key as String: (entry.value as String).trim(),
         },
+        hideHotBoards: data['hideHotBoards'] == true,
+        hideRecentBoards: data['hideRecentBoards'] == true,
       );
     } on FormatException {
       return const HomeReadingPreferences();
@@ -185,6 +208,8 @@ class HomeReadingPreferences {
         'hiddenParentFids': state.hiddenParentFids.toList(),
         'collapsedIds': state.collapsedIds.toList(),
         'sectionTitlesById': state.sectionTitlesById,
+        'hideHotBoards': state.hideHotBoards,
+        'hideRecentBoards': state.hideRecentBoards,
       };
 
   static Future<void> _updateLayout(
@@ -250,11 +275,57 @@ class HomeReadingPreferences {
         sections: sections);
   }
 
-  static Future<void> restoreLayout({String? account}) => _updateLayout(
-        (s) => s.copyWith(
-            sectionOrder: [], hiddenSectionIds: {}, hiddenParentFids: {}),
+  /// Hides or shows 热门版块 ([hot]) and 最近 ([recent]); null leaves it.
+  static Future<void> setBoardShortcutsHidden(
+          {bool? hot, bool? recent, String? account}) =>
+      _updateLayout(
+        (s) => s.copyWith(hideHotBoards: hot, hideRecentBoards: recent),
         account: account,
       );
+
+  static Future<void> restoreLayout({String? account}) => _updateLayout(
+        (s) => s.copyWith(
+            sectionOrder: [],
+            hiddenSectionIds: {},
+            hiddenParentFids: {},
+            hideHotBoards: false,
+            hideRecentBoards: false),
+        account: account,
+      );
+
+  static ({bool wall, ForumThreadOrder order}) _boardView(
+      SharedPreferences prefs, String? account) {
+    final raw = prefs.get(_key(_boardViewKey, account));
+    Object? data;
+    try {
+      data = raw is String ? jsonDecode(raw) : null;
+    } on FormatException {
+      data = null;
+    }
+    final map = data is Map ? data : const {};
+    return (
+      wall: map['wall'] == true,
+      order: ForumThreadOrder.values
+              .where((value) => value.name == map['order'])
+              .firstOrNull ??
+          ForumThreadOrder.lastPost,
+    );
+  }
+
+  /// Saves how boards open from now on; null leaves that part as saved.
+  static Future<void> saveBoardView(
+      {bool? wall, ForumThreadOrder? order, String? account}) async {
+    await LocalStatePreferences.write((prefs) {
+      final saved = _boardView(prefs, account);
+      return prefs.setString(
+          _key(_boardViewKey, account),
+          jsonEncode({
+            'wall': wall ?? saved.wall,
+            'order': (order ?? saved.order).name,
+          }));
+    });
+    revision.value++;
+  }
 
   static List<ForumSearchPinnedBoard> _recent(
       SharedPreferences prefs, String? account) {
@@ -286,7 +357,10 @@ class HomeReadingPreferences {
   static Future<HomeReadingPreferences> load({String? account}) =>
       LocalStatePreferences.read((prefs) {
         final rows = prefs.get(_key(_rowsKey, account));
+        final view = _boardView(prefs, account);
         return _layout(prefs, account).copyWith(
+          boardWall: view.wall,
+          boardOrder: view.order,
           quickRowCount: rows is int && rows >= 3 && rows <= 8 ? rows : 8,
           recentBoards: _recent(prefs, account),
           quickSources: _quickSources(prefs.get(_key(_sourcesKey, account))),

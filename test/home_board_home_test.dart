@@ -489,6 +489,32 @@ void main() {
       expect(find.text('我的版块'), findsNothing);
     });
 
+    testWidgets(
+        'hidden 热门版块 and 最近 leave 常用 alone, keep visits, and are named '
+        'in the hidden summary', (tester) async {
+      await HomeReadingPreferences.recordBoardVisit(
+        const ForumCategory(name: 'Visited A', slug: 'fid-55'),
+        account: _account,
+      );
+      await HomeReadingPreferences.setBoardShortcutsHidden(
+          hot: true, recent: true, account: _account);
+      await pump(tester);
+      expect(find.text('热门版块'), findsNothing);
+      expect(find.widgetWithText(ActionChip, 'Hot board'), findsNothing);
+      expect(find.text('我的版块'), findsOneWidget);
+      expect(find.text('最近'), findsNothing);
+      expect(find.widgetWithText(ActionChip, '添加常用版块'), findsOneWidget);
+      expect(find.text('首页已隐藏 热门版块、最近访问'), findsOneWidget);
+
+      await HomeReadingPreferences.restoreLayout(account: _account);
+      await tester.pumpAndSettle();
+      expect(find.text('热门版块'), findsOneWidget);
+      await tester.tap(find.text('最近'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ActionChip, 'Visited A'), findsOneWidget);
+      expect(find.byKey(const ValueKey('home-hidden-summary')), findsNothing);
+    });
+
     testWidgets('最近 lists visits newest first, without repeats',
         (tester) async {
       await pump(tester);

@@ -70,7 +70,7 @@ class SearchResultParser {
 
   List<ForumThread> parse(dom.Document document) {
     final text = _pageText(document);
-    if (forumTextIsRateLimited(text)) {
+    if (forumDocumentIsRateLimited(document)) {
       throw const ForumRequestException(
         ForumRequestKind.rateLimited,
         '请求过于频繁',

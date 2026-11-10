@@ -465,6 +465,7 @@ class ForumAccountService {
       element.remove();
     }
     final text = document.body?.text ?? '';
+    final success = RegExp(r'操作完成|修改成功|修改完成|更新成功|设置成功|設置成功');
     if (forumTextNeedsLogin(text)) {
       throw const ForumRequestException(
           ForumRequestKind.loginRequired, '请重新登录后保存');
@@ -472,15 +473,17 @@ class ForumAccountService {
     if (forumTextIsForbidden(text)) {
       throw const ForumRequestException(ForumRequestKind.forbidden, '没有权限修改设置');
     }
-    if (forumTextIsRateLimited(text)) {
+    if (forumDocumentIsRateLimited(document) ||
+        (document.querySelector('form') == null &&
+            forumResponseIsRateLimited(
+                document.outerHtml.replaceAll(success, '')))) {
       throw const ForumRequestException(ForumRequestKind.rateLimited, '请求过于频繁');
     }
     if (RegExp(r'认证码|驗證碼|验证码|错误|錯誤|失败|失敗|不能|不允许|不允許|不合法|非法|不足')
         .hasMatch(text)) {
       _unconfirmed();
     }
-    return document.querySelector('form') == null &&
-        RegExp(r'操作完成|修改成功|修改完成|更新成功|设置成功|設置成功').hasMatch(text);
+    return document.querySelector('form') == null && success.hasMatch(text);
   }
 
   Never _unconfirmed() => throw const ForumRequestException(

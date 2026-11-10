@@ -46,7 +46,14 @@ class ThreadDetailParser {
       final links = _extractLinks(contentClone);
       final images = const <ThreadImage>[];
       final text = _cleanText(contentClone.text);
-      if (text.isEmpty &&
+      final subject = _postSubject(contentCell, native.postId(post));
+      final replyTo = subject == null
+          ? null
+          : RegExp(r'^(?:Re:\s*)?回\s+(\d+)\s*楼\((.+)\)\s*的帖子$',
+                  caseSensitive: false)
+              .firstMatch(subject);
+      if (subject == null &&
+          text.isEmpty &&
           segments.isEmpty &&
           saleBoxes.isEmpty &&
           images.isEmpty &&
@@ -78,6 +85,9 @@ class ThreadDetailParser {
         ThreadReply(
           author: author,
           postId: native.postId(post),
+          subject: subject,
+          replyToFloor: int.tryParse(replyTo?.group(1) ?? ''),
+          replyToAuthor: replyTo?.group(2),
           authorUrl: authorHref.isEmpty ? null : urls.absoluteUrl(authorHref),
           authorAvatarUrl: avatarSrc == null || avatarSrc.isEmpty
               ? null
@@ -118,6 +128,20 @@ class ThreadDetailParser {
     return replies;
   }
 
+  String? _postSubject(dom.Element cell, String? postId) {
+    if (postId == null) return null;
+    for (final wrapper
+        in cell.children.where((node) => node.classes.contains('h1'))) {
+      for (final heading in wrapper.children) {
+        if (heading.localName != 'h1' || heading.id != 'subject_$postId')
+          continue;
+        final text = _cleanText(heading.text);
+        if (text.isNotEmpty) return text;
+      }
+    }
+    return null;
+  }
+
   List<String> _postAnchors(
       dom.Element post, String floor, List<dom.Element> namedAnchors) {
     final anchors = <String>{};
@@ -126,7 +150,10 @@ class ThreadDetailParser {
         node.id,
         node.localName == 'a' ? node.attributes['name'] : null
       ]) {
-        if (value != null && value.isNotEmpty) anchors.add(value);
+        if (value == null || value.isEmpty) continue;
+        if (RegExp(r'^fl-\d+$').hasMatch(value) &&
+            ThreadRewardParser(urls).isUserContent(node)) continue;
+        anchors.add(value);
       }
     }
     var previous = post.previousElementSibling;
@@ -151,7 +178,9 @@ class ThreadDetailParser {
         .firstMatch(floor)
         ?.group(1);
     if (number != null) anchors.add('fl-$number');
-    if (floor == '楼主') anchors.add('fl-0');
+    if (floor == '楼主' || ThreadRewardParser(urls).postId(post) == 'tpc') {
+      anchors.add('fl-0');
+    }
     return List.unmodifiable(anchors);
   }
 
@@ -442,9 +471,16 @@ class ThreadDetailParser {
   }
 
   String? _personalSignature(dom.Element contentCell) {
-    final text = _cleanText(
-      _nativeHeader(contentCell)?.querySelector('.bianji')?.text ?? '',
-    );
+    final editParser = ThreadEditFormParser(urls);
+    final signatureNode = _nativeHeader(contentCell)
+        ?.children
+        .where((node) =>
+            node.classes.contains('bianji') &&
+            node.querySelector('a[id^="modify_"]') == null &&
+            !node.querySelectorAll('a[href]').any((link) =>
+                editParser.editTarget(link.attributes['href']!) != null))
+        .firstOrNull;
+    final text = _cleanText(signatureNode?.text ?? '');
     if (text.isEmpty) return null;
     final signature = text
         .replaceFirst(RegExp(r'^[（(]'), '')

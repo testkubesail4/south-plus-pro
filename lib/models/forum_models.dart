@@ -454,6 +454,9 @@ class ThreadReply {
     this.award,
     this.rewardActions = const [],
     this.postId,
+    this.subject,
+    this.replyToFloor,
+    this.replyToAuthor,
   });
 
   final String author;
@@ -481,6 +484,10 @@ class ThreadReply {
   final ThreadAward? award;
   final List<ThreadRewardAction> rewardActions;
   final String? postId;
+  final String? subject;
+  final int? replyToFloor;
+  final String? replyToAuthor;
+  String? get replyToAnchor => replyToFloor == null ? null : 'fl-$replyToFloor';
 }
 
 enum ForumBountyStatus { active, expired, ended, unknown }

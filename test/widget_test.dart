@@ -296,7 +296,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('board order refetches from page one and resets in sub boards',
+  testWidgets('board order refetches from page one and carries to sub boards',
       (tester) async {
     final repository = _FakeBoardRepository();
 
@@ -330,8 +330,8 @@ void main() {
 
     await tester.tap(find.text('同人志&CG'));
     await tester.pumpAndSettle();
-    expect(repository.requestedOrders.last, (ForumThreadOrder.lastPost, 1));
-    expect(find.text('最后发表'), findsOneWidget);
+    expect(repository.requestedOrders.last, (ForumThreadOrder.hits, 1));
+    expect(find.text('人气'), findsOneWidget);
   });
 
   testWidgets('board sub board entry scrolls with thread list', (tester) async {

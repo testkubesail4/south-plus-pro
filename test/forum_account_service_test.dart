@@ -961,6 +961,11 @@ void main() {
       ('<body>请先登录 操作完成</body>', ForumRequestKind.loginRequired),
       ('<body>没有权限 操作完成</body>', ForumRequestKind.forbidden),
       ('<body>请求过于频繁 操作完成</body>', ForumRequestKind.rateLimited),
+      for (final ack in ['修改成功', '修改完成', '更新成功', '设置成功', '設置成功'])
+        (
+          '<body><div>请求过于频繁</div><div>$ack</div></body>',
+          ForumRequestKind.rateLimited
+        ),
       (
         preferences().replaceAll('</form>', '操作完成</form>'),
         ForumRequestKind.server

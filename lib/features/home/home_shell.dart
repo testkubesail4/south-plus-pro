@@ -57,6 +57,7 @@ class HomeShell extends StatefulWidget {
   final ForumRepository? repository;
 
   static const homeTab = 0;
+  static const favoritesTab = 1;
   static const accountTab = 4;
 
   /// Returns to the shell and shows [tab], as a link to that page does.
@@ -783,7 +784,11 @@ class _ForumHomePageState extends State<ForumHomePage> {
                 '${list.source.order.name}',
         ].join('|');
 
-  static String _hiddenSummary(int sections, int boards) => '首页已隐藏 ${[
+  String _hiddenSummary(
+          HomeReadingPreferences prefs, int sections, int boards) =>
+      '首页已隐藏 ${[
+        if (prefs.hideHotBoards) '热门版块',
+        if (prefs.hideRecentBoards && widget.repository.isLoggedIn) '最近访问',
         if (sections > 0) '$sections 个分区',
         if (boards > 0) '$boards 个版块',
       ].join('、')}';
@@ -860,6 +865,12 @@ class _ForumHomePageState extends State<ForumHomePage> {
                       for (final s in sections)
                         for (final b in s.items) _boardFid(b)
                     }.where((id) => prefs.hiddenParentFids.contains(id)).length;
+                    final hiddenShortcuts = prefs.hideHotBoards ||
+                        (prefs.hideRecentBoards &&
+                            widget.repository.isLoggedIn);
+                    // Until saved choices are read, hot boards stay bones
+                    // and 最近 keeps its tab, so neither flashes in.
+                    final settled = _prefsReady || _prefsError != null;
                     return ListView(
                       padding: EdgeInsets.fromLTRB(
                         gutter,
@@ -909,14 +920,16 @@ class _ForumHomePageState extends State<ForumHomePage> {
                             repository: widget.repository,
                             onChangeSource: _openQuickSettings,
                           ),
-                          _HotBoards(
-                            hotBoards: data?.hot,
-                            boneCount: _shape.hot,
-                            onOpen: _openCategory,
-                          ),
+                          if (!settled || !_prefs.hideHotBoards)
+                            _HotBoards(
+                              hotBoards: settled ? data?.hot : null,
+                              boneCount: _shape.hot,
+                              onOpen: _openCategory,
+                            ),
                           _MyBoards(
                             repository: widget.repository,
                             recent: _prefs.recentBoards,
+                            showRecent: !_prefs.hideRecentBoards,
                             hotBoards: data?.hot,
                             sections: data?.sections,
                             onOpen: _openCategory,
@@ -951,11 +964,12 @@ class _ForumHomePageState extends State<ForumHomePage> {
                                 action: '重试',
                                 onAction: _loadPrefs,
                               )
-                            else if (hiddenSections + hiddenParents > 0)
+                            else if (hiddenSections + hiddenParents > 0 ||
+                                hiddenShortcuts)
                               _HomeFootnote(
                                 key: const ValueKey('home-hidden-summary'),
                                 text: _hiddenSummary(
-                                    hiddenSections, hiddenParents),
+                                    prefs, hiddenSections, hiddenParents),
                                 action: '管理',
                                 onAction: _openHomeSettings,
                               ),

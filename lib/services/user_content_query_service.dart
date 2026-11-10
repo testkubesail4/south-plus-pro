@@ -653,7 +653,7 @@ class UserContentQueryService {
     if (document.querySelector(selector) != null) return;
     final text = '${document.querySelector('title')?.text ?? ''}\n'
         '${document.body?.text ?? ''}';
-    if (forumTextIsRateLimited(text)) {
+    if (forumDocumentIsRateLimited(document)) {
       throw const ForumRequestException(ForumRequestKind.rateLimited, '请求过于频繁');
     }
     if (forumTextNeedsLogin(text) ||

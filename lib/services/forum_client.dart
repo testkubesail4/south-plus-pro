@@ -726,7 +726,7 @@ class ForumClient {
             ForumRequestKind.server, '表单请求返回了非预期状态，请刷新确认结果');
       }
       final response = utf8.decode(result.bytes);
-      if (forumTextIsRateLimited(response)) {
+      if (forumResponseIsRateLimited(response)) {
         throw const ForumRequestException(
             ForumRequestKind.rateLimited, '请求过于频繁');
       }
@@ -772,7 +772,7 @@ class ForumClient {
       }
       final body = utf8.decode(result.bytes);
       final cooled = result.status == HttpStatus.tooManyRequests ||
-          forumTextIsRateLimited(body);
+          forumResponseIsRateLimited(body);
       if (_isForumSearch(uri) && cooled) {
         _pacer.escalateSearch();
         if (retryCooldown && method == 'GET') {

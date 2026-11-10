@@ -11,6 +11,7 @@ import '../common/cached_forum_image.dart';
 import '../common/content_width.dart';
 import '../common/grouped_list.dart';
 import '../history/browsing_history_screen.dart';
+import '../home/home_shell.dart';
 import 'account_profile_edit_screen.dart';
 import 'blocking_settings_screen.dart';
 import 'forum_preferences_screen.dart';
@@ -235,6 +236,12 @@ class _AccountScreenState extends State<AccountScreen> {
                       icon: Icons.forum_outlined,
                       title: const Text('我的回复'),
                       onTap: () => _openProfile(UserProfileTab.posts),
+                    ),
+                    AppRow(
+                      icon: Icons.star_outline,
+                      title: const Text('我的收藏'),
+                      onTap: () =>
+                          HomeShell.showTab(context, HomeShell.favoritesTab),
                     ),
                     AppRow(
                       icon: Icons.people_outline,

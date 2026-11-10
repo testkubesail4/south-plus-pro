@@ -363,4 +363,46 @@ void main() {
     await HomeReadingPreferences.clearRecentBoards();
     expect(HomeReadingPreferences.revision.value, revision + 4);
   });
+
+  test('board view is one account-scoped choice that survives partial writes',
+      () async {
+    var state = await HomeReadingPreferences.load(account: 'a');
+    expect(state.boardWall, isFalse);
+    expect(state.boardOrder, ForumThreadOrder.lastPost);
+    await HomeReadingPreferences.saveBoardView(wall: true, account: 'a');
+    await HomeReadingPreferences.saveBoardView(
+        order: ForumThreadOrder.postedAt, account: 'a');
+    state = await HomeReadingPreferences.load(account: 'a');
+    expect(state.boardWall, isTrue);
+    expect(state.boardOrder, ForumThreadOrder.postedAt);
+    expect(
+        (await HomeReadingPreferences.load(account: 'b')).boardWall, isFalse);
+    expect((await HomeReadingPreferences.load()).boardOrder,
+        ForumThreadOrder.lastPost);
+    await HomeReadingPreferences.restoreLayout(account: 'a');
+    expect((await HomeReadingPreferences.load(account: 'a')).boardWall, isTrue);
+    SharedPreferences.setMockInitialValues(
+        {'account/a/board_view_v1': '{"wall":"yes","order":"newest"}'});
+    state = await HomeReadingPreferences.load(account: 'a');
+    expect(state.boardWall, isFalse);
+    expect(state.boardOrder, ForumThreadOrder.lastPost);
+  });
+
+  test('hiding 热门 and 最近 keeps visits; restore shows both again', () async {
+    await HomeReadingPreferences.setBoardShortcutsHidden(
+        hot: true, recent: true, account: 'a');
+    await HomeReadingPreferences.recordBoardVisit(
+        const ForumCategory(name: '版块', slug: 'fid-42'),
+        account: 'a');
+    var state = await HomeReadingPreferences.load(account: 'a');
+    expect(state.hideHotBoards, isTrue);
+    expect(state.hideRecentBoards, isTrue);
+    expect(state.recentBoards.single.id, '42');
+    expect((await HomeReadingPreferences.load()).hideHotBoards, isFalse);
+    await HomeReadingPreferences.restoreLayout(account: 'a');
+    state = await HomeReadingPreferences.load(account: 'a');
+    expect(state.hideHotBoards, isFalse);
+    expect(state.hideRecentBoards, isFalse);
+    expect(state.recentBoards.single.id, '42');
+  });
 }

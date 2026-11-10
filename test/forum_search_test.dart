@@ -30,13 +30,15 @@ void main() {
       expect(
           parser.parse(html_parser.parse('<title>搜索结果</title>$body')), isEmpty);
     }
-    expect(
-        parser
-            .parse(html_parser.parse('<title>搜索结果</title><table><tr><td>'
-                '<a href="read.php?tid-100.html">示例主题甲</a></td></tr></table>'))
-            .single
-            .title,
-        '示例主题甲');
+    for (final title in ['示例主题甲', '请求过于频繁', '论坛设置:刷新不要快于 1 秒']) {
+      expect(
+          parser
+              .parse(html_parser.parse('<title>搜索结果</title><table><tr><td>'
+                  '<a href="read.php?tid-100.html">$title</a></td></tr></table>'))
+              .single
+              .title,
+          title);
+    }
   });
 
   test('advanced search submits explicit fields and parses server page links',

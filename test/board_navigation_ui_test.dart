@@ -1,11 +1,17 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:south_plus_rewrite/features/board/board_thread_list_screen.dart';
 import 'package:south_plus_rewrite/features/common/thread_row.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_blocking_settings.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
+import 'package:south_plus_rewrite/services/home_reading_preferences.dart';
+import 'package:south_plus_rewrite/services/local_state_preferences.dart';
 import 'package:south_plus_rewrite/theme/app_theme.dart';
 
 // Synthetic boards, topics and names only.
@@ -50,6 +56,8 @@ class _Repo extends ForumRepository {
   final requests = <(String, int, ForumBoardFilter?)>[];
   final orders = <ForumThreadOrder>[];
   ForumBoardFilter? deepLinkFilter;
+  int failures = 0;
+  Completer<void>? gate;
 
   @override
   Future<ForumThreadPage> fetchBoardThreadPage(
@@ -60,6 +68,11 @@ class _Repo extends ForumRepository {
   }) async {
     requests.add((category.slug, page, filter));
     orders.add(order);
+    await gate?.future;
+    if (failures > 0) {
+      failures--;
+      throw const ForumRepositoryException('fixture outage');
+    }
     if (category.slug == _hub.slug) {
       return ForumThreadPage(
         threads: [_topic('Hub notice', sticky: true)],
@@ -89,6 +102,34 @@ class _Repo extends ForumRepository {
       parents: const [_hub],
     );
   }
+}
+
+/// Signed in as [owner]; null is a guest.
+class _AccountRepo extends _Repo {
+  final owner = ValueNotifier<String?>('a');
+  final epoch = ValueNotifier(0);
+
+  @override
+  ValueListenable<String?> get sessionUser => owner;
+  @override
+  ValueListenable<int> get sessionEpoch => epoch;
+  @override
+  String get localPreferenceAccount =>
+      owner.value == null ? 'guest' : 'account/${owner.value}';
+
+  void signIn(String? user) {
+    owner.value = user;
+    epoch.value++;
+  }
+}
+
+/// Every write is refused.
+class _RefusingStore extends InMemorySharedPreferencesStore {
+  _RefusingStore() : super.empty();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async =>
+      false;
 }
 
 class _LongRepo extends _Repo {
@@ -395,6 +436,163 @@ void main() {
     await tester.tap(find.byTooltip('列表'));
     await tester.pumpAndSettle();
     expect(find.byTooltip('图墙'), findsOneWidget);
+  });
+
+  testWidgets('a board that fails to load offers 发帖 only once it loads',
+      (tester) async {
+    final repo = _Repo()..failures = 1;
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    );
+    expect(find.text('板块加载失败'), findsOneWidget);
+    expect(find.byTooltip('发帖'), findsNothing);
+
+    final slow = repo.gate = Completer<void>();
+    await tester.tap(find.text('重试'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byTooltip('发帖'), findsNothing);
+    slow.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Child A topic 1'), findsOneWidget);
+    expect(find.byTooltip('发帖'), findsOneWidget);
+  });
+
+  testWidgets('another account opens the board in its own saved view',
+      (tester) async {
+    await HomeReadingPreferences.saveBoardView(
+        order: ForumThreadOrder.hits, wall: true, account: 'account/a');
+    await HomeReadingPreferences.saveBoardView(
+        order: ForumThreadOrder.postedAt, account: 'account/b');
+    final repo = _AccountRepo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    );
+    expect(repo.orders.last, ForumThreadOrder.hits);
+    expect(find.byTooltip('列表'), findsOneWidget);
+
+    repo.signIn('b');
+    await tester.pumpAndSettle();
+    expect(repo.orders.last, ForumThreadOrder.postedAt);
+    expect(find.byTooltip('图墙'), findsOneWidget);
+
+    repo.signIn(null);
+    await tester.pumpAndSettle();
+    expect(repo.orders.last, ForumThreadOrder.lastPost);
+    expect(find.byTooltip('图墙'), findsOneWidget);
+  });
+
+  testWidgets('a saved view read too late changes nothing', (tester) async {
+    await HomeReadingPreferences.saveBoardView(
+        order: ForumThreadOrder.postedAt, account: 'account/b');
+    final repo = _AccountRepo();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    );
+    // Holds the preference queue, so the reads below wait.
+    final hold = Completer<void>();
+    final held = LocalStatePreferences.write((_) async {
+      await hold.future;
+      return true;
+    });
+    final before = repo.orders.length;
+    repo.signIn('b');
+    await tester.pump(const Duration(milliseconds: 500));
+    repo.signIn(null);
+    await tester.pump(const Duration(milliseconds: 500));
+    hold.complete();
+    await held;
+    await tester.pumpAndSettle();
+    expect(repo.orders.sublist(before), [ForumThreadOrder.lastPost]);
+
+    // Closed while its view is read: no request follows.
+    final again = Completer<void>();
+    final heldAgain = LocalStatePreferences.write((_) async {
+      await again.future;
+      return true;
+    });
+    final opened = repo.orders.length;
+    await tester.pumpWidget(MaterialApp(
+      home: BoardThreadListScreen(
+        key: UniqueKey(),
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: repo,
+      ),
+    ));
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    again.complete();
+    await heldAgain;
+    await tester.pumpAndSettle();
+    expect(repo.orders, hasLength(opened));
+  });
+
+  testWidgets('a view that cannot be saved says so and still shows',
+      (tester) async {
+    SharedPreferences.resetStatic();
+    SharedPreferencesStorePlatform.instance = _RefusingStore();
+    await _pump(
+      tester,
+      BoardThreadListScreen(
+        category:
+            ForumCategory(name: 'Child A', slug: 'fid-901', url: _url(901)),
+        repository: _Repo(),
+      ),
+    );
+    await tester.tap(find.byTooltip('图墙'));
+    await tester.pumpAndSettle();
+    expect(find.text('默认视图保存失败'), findsOneWidget);
+    expect(find.byTooltip('列表'), findsOneWidget);
+  });
+
+  testWidgets('the order and wall picked on a board open every board',
+      (tester) async {
+    // Another account's default stays with that account.
+    await HomeReadingPreferences.saveBoardView(
+        order: ForumThreadOrder.hits, account: 'account/other');
+    final repo = _Repo();
+    Future<void> open(int fid, String name) => _pump(
+          tester,
+          BoardThreadListScreen(
+            key: UniqueKey(),
+            category:
+                ForumCategory(name: name, slug: 'fid-$fid', url: _url(fid)),
+            repository: repo,
+          ),
+        );
+    await open(901, 'Child A');
+    expect(repo.orders.last, ForumThreadOrder.lastPost);
+    await tester.tap(find.byKey(const ValueKey('board-order-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('发表时间'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('图墙'));
+    await tester.pumpAndSettle();
+
+    // Child B has no wall: its list shows, and the saved wall stays.
+    await open(902, 'Child B');
+    expect(repo.orders.last, ForumThreadOrder.postedAt);
+    expect(find.text('Child B topic 1'), findsOneWidget);
+    expect(find.byTooltip('图墙'), findsNothing);
+    expect(find.byTooltip('列表'), findsNothing);
+
+    await open(901, 'Child A');
+    expect(repo.orders.last, ForumThreadOrder.postedAt);
+    expect(find.byTooltip('列表'), findsOneWidget);
   });
 
   testWidgets('a blocked author leaves the list and the wall at once',

@@ -401,6 +401,28 @@ void main() {
     ]);
   });
 
+  for (final content in [
+    '<div id="cate_thread">禁止过于频繁发帖</div>',
+    '<div class="tpc_content">论坛设置:刷新不要快于 1 秒</div>',
+    '<div class="tpc_content"><blockquote>请求过于频繁</blockquote></div>',
+    for (final wrapper in ['tpc_content', 'set-table2'])
+      '<div class="$wrapper"><div id="main"><div class="t"><table>'
+          '<tr><td class="h">南+ South Plus 提示信息</td></tr>'
+          '<tr class="f_one"><td><center>论坛设置:刷新不要快于 1 秒</center></td></tr>'
+          '</table></div></div></div>',
+    '<table><tr><td><a href="read.php?tid-100.html">请求过于频繁</a></td></tr></table>',
+    '<div class="u-box-wrap"><h1>请求过于频繁</h1></div>',
+  ]) {
+    test('GET and search POST ignore rate phrases in user content: $content',
+        () async {
+      final body = '<title>论坛设置:刷新不要快于 1 秒</title>$content';
+      _scripted.addAll([_text(body), _text(body)]);
+      expect(await client.get('/read.php'), body);
+      expect(await client.post('search.php', const {'keyword': 'test'}), body);
+      expect(hits, ['GET /read.php', 'POST /search.php']);
+    });
+  }
+
   test('GET retries a cooldown once and POST never resubmits', () async {
     _scripted.addAll([
       _text('<html><body>刷新不要快于 3 秒</body></html>'),

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:south_plus_rewrite/features/common/grouped_list.dart';
 import 'package:south_plus_rewrite/features/profile/home_boards_settings_screen.dart';
 import 'package:south_plus_rewrite/models/forum_models.dart';
 import 'package:south_plus_rewrite/services/forum_repository.dart';
@@ -27,7 +28,10 @@ const _sections = [
 class _Repo extends ForumRepository {
   Completer<List<ForumSection>>? sectionsGate;
   bool failDirectory = false;
+  bool loggedIn = false;
 
+  @override
+  bool get isLoggedIn => loggedIn;
   @override
   String get localPreferenceAccount => 'fixture';
   @override
@@ -40,12 +44,13 @@ class _Repo extends ForumRepository {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(WidgetTester tester, {bool loggedIn = false}) async {
     tester.view.physicalSize = const Size(480, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(
-        MaterialApp(home: HomeBoardsSettingsScreen(repository: _Repo())));
+    await tester.pumpWidget(MaterialApp(
+        home: HomeBoardsSettingsScreen(
+            repository: _Repo()..loggedIn = loggedIn)));
     await tester.pumpAndSettle();
   }
 
@@ -95,7 +100,9 @@ void main() {
     await tester.pumpAndSettle();
     var prefs = await HomeReadingPreferences.load(account: 'fixture');
     expect(prefs.hiddenParentFids, {'42'});
-    await tester.tap(find.byType(Switch).first);
+    await tester.tap(find.descendant(
+        of: find.widgetWithText(ListTile, '交流'),
+        matching: find.byType(Switch)));
     await tester.pumpAndSettle();
     prefs = await HomeReadingPreferences.load(account: 'fixture');
     expect(prefs.hiddenSectionIds, {'section-id:7'});
@@ -116,17 +123,43 @@ void main() {
     await HomeReadingPreferences.saveSectionOrder(
         ['section-id:39', 'section-id:7'],
         account: 'fixture');
+    await HomeReadingPreferences.setBoardShortcutsHidden(
+        hot: true, recent: true, account: 'fixture');
     await pump(tester);
     await tester.tap(find.text('恢复默认').first);
     await tester.pumpAndSettle();
-    expect(find.text('恢复分区顺序并显示所有分区与版块（折叠状态不变）'), findsOneWidget);
+    expect(find.text('恢复分区顺序并显示全部内容（折叠状态不变）'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '恢复默认'));
     await tester.pumpAndSettle();
     final prefs = await HomeReadingPreferences.load(account: 'fixture');
     expect(prefs.sectionOrder, isEmpty);
     expect(prefs.hiddenSectionIds, isEmpty);
     expect(prefs.hiddenParentFids, isEmpty);
+    expect(prefs.hideHotBoards, isFalse);
+    expect(prefs.hideRecentBoards, isFalse);
     expect(prefs.collapsedIds, {'section-id:7'});
+  });
+
+  testWidgets('热门版块 and 最近访问 rows hide and show; guests get only 热门',
+      (tester) async {
+    await pump(tester);
+    expect(find.text('最近访问'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pump(tester, loggedIn: true);
+    await tester.tap(find.text('热门版块'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('最近访问'));
+    await tester.pumpAndSettle();
+    var prefs = await HomeReadingPreferences.load(account: 'fixture');
+    expect(prefs.hideHotBoards, isTrue);
+    expect(prefs.hideRecentBoards, isTrue);
+    await tester.tap(find.descendant(
+        of: find.widgetWithText(AppRow, '热门版块'),
+        matching: find.byType(Switch)));
+    await tester.pumpAndSettle();
+    prefs = await HomeReadingPreferences.load(account: 'fixture');
+    expect(prefs.hideHotBoards, isFalse);
+    expect(prefs.hideRecentBoards, isTrue);
   });
 
   testWidgets(

@@ -98,7 +98,9 @@ void main() {
     rejectReads = false;
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(Switch).first);
+    await tester.tap(find.descendant(
+        of: find.widgetWithText(ListTile, '交流'),
+        matching: find.byType(Switch)));
     await tester.pumpAndSettle();
     final prefs = await HomeReadingPreferences.load(account: 'fixture');
     expect(prefs.sectionOrder, ['section-id:7', 'section-id:39']);

@@ -146,7 +146,7 @@ class _HomeBoardsSettingsScreenState extends State<HomeBoardsSettingsScreen> {
           generation: _epoch,
           child: AlertDialog(
             title: const Text('恢复默认？'),
-            content: const Text('恢复分区顺序并显示所有分区与版块（折叠状态不变）'),
+            content: const Text('恢复分区顺序并显示全部内容（折叠状态不变）'),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(context, false),
@@ -173,6 +173,19 @@ class _HomeBoardsSettingsScreenState extends State<HomeBoardsSettingsScreen> {
     setState(() => _prefs = _prefs!.copyWith(sectionOrder: ids.cast<String>()));
     _change(() => HomeReadingPreferences.saveSectionOrder(ids.cast<String>(),
         account: _account, sections: _sections!));
+  }
+
+  Widget _shortcutRow(IconData icon, String title, bool shown,
+      Future<void> Function(bool shown) save) {
+    final onChanged =
+        _locked ? null : (bool value) => _change(() => save(value));
+    return AppRow(
+      icon: icon,
+      title: Text(title),
+      enabled: onChanged != null,
+      onTap: onChanged == null ? null : () => onChanged(!shown),
+      trailing: Switch(value: shown, onChanged: onChanged),
+    );
   }
 
   @override
@@ -219,6 +232,25 @@ class _HomeBoardsSettingsScreenState extends State<HomeBoardsSettingsScreen> {
                               padding: EdgeInsets.all(24),
                               child: CircularProgressIndicator())),
                     if (sections != null && prefs != null) ...[
+                      AppGroup(children: [
+                        _shortcutRow(
+                            Icons.local_fire_department_outlined,
+                            '热门版块',
+                            !prefs.hideHotBoards,
+                            (shown) =>
+                                HomeReadingPreferences.setBoardShortcutsHidden(
+                                    hot: !shown, account: _account)),
+                        // Only signed-in readers have 我的版块.
+                        if (widget.repository.isLoggedIn)
+                          _shortcutRow(
+                              Icons.history,
+                              '最近访问',
+                              !prefs.hideRecentBoards,
+                              (shown) => HomeReadingPreferences
+                                  .setBoardShortcutsHidden(
+                                      recent: !shown, account: _account)),
+                      ]),
+                      const SizedBox(height: AppSpace.xl),
                       Text('分区', style: Theme.of(context).textTheme.titleSmall),
                       const SizedBox(height: AppSpace.md),
                       ReorderableListView.builder(

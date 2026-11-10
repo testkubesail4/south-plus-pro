@@ -97,7 +97,7 @@ class ForumAccountParser {
         throw const ForumRequestException(
             ForumRequestKind.forbidden, '没有权限修改设置');
       }
-      if (forumTextIsRateLimited(text)) {
+      if (forumDocumentIsRateLimited(document)) {
         throw const ForumRequestException(
             ForumRequestKind.rateLimited, '请求过于频繁');
       }

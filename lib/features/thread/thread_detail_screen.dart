@@ -103,6 +103,8 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   int _page = 1;
   int? _visiblePage;
   int _loadRunId = 0;
+  // The run of the 回 N楼 lookup last started; covering the screen drops it.
+  int? _lookupRunId;
   final _purchaseRefreshRuns = <int, int>{};
   ThreadDetail? _compiledDetail;
   ThreadPostRenderModel _openingPostRenderModel = ThreadPostRenderModel.empty;
@@ -230,7 +232,15 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
   // what it found, with 继续. Raised while the overlay builds.
   void _onCovered() => scheduleMicrotask(() {
         if (mounted && _onstage?.value == true) _flushSeen();
-        if (mounted && _onstage?.value == false) _find.pause();
+        if (mounted && _onstage?.value == false) {
+          _find.pause();
+          if (_loading && _lookupRunId == _loadRunId) {
+            setState(() {
+              _loadRunId++;
+              _loading = false;
+            });
+          }
+        }
       });
 
   @override
@@ -264,13 +274,21 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     await _loadPage(_page, showSnackBarOnError: false);
   }
 
+  /// [jump] replaces the plain page fetch: its [find] answers the verified
+  /// page holding [anchor], or null when the floor is not in this thread.
   Future<void> _loadPage(
     int page, {
     bool scrollToTop = false,
     bool showSnackBarOnError = true,
+    ({
+      String anchor,
+      String missing,
+      Future<ThreadDetail?> Function(bool Function() isCurrent) find,
+    })? jump,
   }) async {
     final normalizedPage = page < 1 ? 1 : page;
     final runId = ++_loadRunId;
+    if (jump != null) _lookupRunId = runId;
     _purchaseRefreshRuns.clear();
     setState(() {
       _loading = true;
@@ -282,12 +300,19 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
       if (_detail != null) _recomputeDetailRenderState();
     });
     try {
-      final detail = await widget.repository.fetchThreadDetail(
-        _thread,
-        page: normalizedPage,
-      );
+      final detail = jump == null
+          ? await widget.repository.fetchThreadDetail(
+              _thread,
+              page: normalizedPage,
+            )
+          : await jump.find(() => mounted && runId == _loadRunId);
       if (!mounted || runId != _loadRunId) return;
-      final anchor = _pendingAnchor;
+      if (detail == null) {
+        setState(() => _loading = false);
+        _messenger.showSnackBar(SnackBar(content: Text(jump!.missing)));
+        return;
+      }
+      final anchor = jump?.anchor ?? _pendingAnchor;
       final latest = _pendingLatest;
       setState(() {
         _detail = detail;
@@ -1348,6 +1373,41 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
     await _loadPage(hit.page, scrollToTop: anchor == null);
   }
 
+  /// Shows the floor [reply] answers: in place when a loaded page has it,
+  /// otherwise on the page the repository finds and verifies.
+  Future<void> _openReplyTarget(ThreadReply reply) async {
+    final floor = reply.replyToFloor;
+    final anchor = reply.replyToAnchor;
+    if (floor == null || anchor == null) return;
+    for (final page in _loadedPages) {
+      final found = _anchorTargetIn(page, anchor);
+      if (found == null) continue;
+      final target = found is ThreadReply ? _canonical(found) : found;
+      setState(() {
+        // A page or lookup still on its way gives way to this tap.
+        if (_loading) {
+          _loadRunId++;
+          _loading = false;
+        }
+        _anchorTarget = target;
+        _recomputeDetailRenderState();
+      });
+      // The reveal only steps down: a target above starts it from the top.
+      if (!_mountedPosts.containsKey(target) && _scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+      await _revealAnchor();
+      return;
+    }
+    final loaded = _loadedPages;
+    await _loadPage(_page, jump: (
+      anchor: anchor,
+      missing: '未找到${_floorLabel(floor)}',
+      find: (isCurrent) => widget.repository.findThreadFloor(_thread, floor,
+          loaded: loaded, isCurrent: isCurrent),
+    ));
+  }
+
   // Said only while the sheet is closed; an open one shows it already.
   void _onFindEnded(ScanProgress progress) {
     if (!mounted || _findOpen) return;
@@ -2014,6 +2074,7 @@ class _ThreadDetailScreenState extends State<ThreadDetailScreen> {
           rewardSent: _rewardSent,
           onReward: _handleReward,
           onReplyToFloor: _replyToFloor,
+          onReplyTarget: _openReplyTarget,
           onPageSelected: _goToPage,
           autoLoadNextPage: _autoLoadNextPage,
           onThreadLink: _openThreadLink,
@@ -2272,6 +2333,7 @@ class _ThreadDetailContent extends StatelessWidget {
     required this.rewardSent,
     required this.onReward,
     required this.onReplyToFloor,
+    required this.onReplyTarget,
     required this.onFloorMore,
     required this.onPageSelected,
     required this.autoLoadNextPage,
@@ -2316,6 +2378,7 @@ class _ThreadDetailContent extends StatelessWidget {
   final Set<String> rewardSent;
   final void Function(ThreadReply reply, ThreadRewardAction action) onReward;
   final ValueChanged<String> onReplyToFloor;
+  final ValueChanged<ThreadReply> onReplyTarget;
   final void Function(ThreadReply post, bool openingPost) onFloorMore;
   final ValueChanged<int> onPageSelected;
   final bool autoLoadNextPage;
@@ -2628,6 +2691,12 @@ class _ThreadDetailContent extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (reply.replyToFloor case final floor?)
+                      _ReplyTargetLink(
+                        floor: floor,
+                        author: reply.replyToAuthor,
+                        onTap: () => onReplyTarget(reply),
+                      ),
                     ThreadPostBody(
                       content: reply.content,
                       segments: reply.segments,
@@ -3192,6 +3261,43 @@ class _FloorAuthorName extends StatelessWidget {
 /// Time and floor, whole at any text scale, then the signature: on the same
 /// line when it fits, else on its own line, ellipsized there. The signature
 /// never truncates or pushes the time.
+String _floorLabel(int floor) => floor == 0 ? '楼主' : '$floor楼';
+
+/// The floor a reply answers, in the site's own words; taps go there.
+class _ReplyTargetLink extends StatelessWidget {
+  const _ReplyTargetLink({
+    required this.floor,
+    required this.author,
+    required this.onTap,
+  });
+
+  final int floor;
+  final String? author;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: TextButton.icon(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.textMuted,
+          minimumSize: const Size(48, 48),
+          padding: EdgeInsets.zero,
+        ),
+        onPressed: onTap,
+        icon: const Icon(Icons.subdirectory_arrow_right, size: 18),
+        label: Text(
+          ['回 ${_floorLabel(floor)}', if (author case final name?) name]
+              .join(' '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+}
+
 class _FloorMeta extends StatelessWidget {
   const _FloorMeta({required this.meta, required this.signature});
 

@@ -214,7 +214,7 @@ Never _rejectPage(dom.Document document, String message) {
       ? ForumRequestKind.loginRequired
       : forumTextIsForbidden(text)
           ? ForumRequestKind.forbidden
-          : forumTextIsRateLimited(text)
+          : forumDocumentIsRateLimited(document)
               ? ForumRequestKind.rateLimited
               : ForumRequestKind.invalidInput;
   throw ForumRequestException(kind, message);

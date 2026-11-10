@@ -43,8 +43,13 @@ void main() {
           () async {
         await expectLater(
           ForumRepository(
-                  client: _BodyClient(
-                      _page(mode, 'Fixture title', warning: phrase)))
+                  client: _BodyClient(_page(mode, 'Fixture title',
+                          warning: kind == ForumRequestKind.rateLimited
+                              ? ''
+                              : phrase) +
+                      (kind == ForumRequestKind.rateLimited
+                          ? _ratePrompt(phrase)
+                          : '')))
               .fetchBoardThreadPage(_category),
           _throwsKind(kind),
         );
@@ -94,6 +99,32 @@ void main() {
       }, _page('wall', '请求过于频繁'));
     });
   }
+  test('fid208 board rules are content and do not trigger cooldown or retry',
+      () async {
+    final body = _page('wall', 'Fixture title').replaceFirst(
+        '<div id="breadcrumbs">',
+        '<div id="cate_thread"><div id="tab_1" class="tr1">'
+            '<span style="color:#ff0000;">禁止过于频繁发帖</span>'
+            ' (例如一天内多于两个同样性质的帖)</div></div>'
+            '<div id="breadcrumbs">');
+    await _withServer((client, hits) async {
+      final page = await ForumRepository(client: client).fetchBoardThreadPage(
+          const ForumCategory(name: 'f208', slug: 'f208'));
+      expect(page.threads.single.title, 'Fixture title');
+      expect(hits(), 1);
+    }, body);
+  });
+
+  test('native refresh prompt still rejects with a single structured retry',
+      () async {
+    await _withServer((client, hits) async {
+      await expectLater(
+          ForumRepository(client: client).fetchBoardThreadPage(_category),
+          _throwsKind(ForumRequestKind.rateLimited));
+      expect(hits(), 2);
+    }, _ratePrompt('论坛设置:刷新不要快于 1 秒'));
+  });
+
   test('real get preserves one retry for a standalone rate-limited body',
       () async {
     await _withServer((client, hits) async {
@@ -110,6 +141,12 @@ void main() {
     }, '请求过于频繁', status: 429);
   });
 }
+
+String _ratePrompt(String message) => '''
+  <div id="main"><div id="breadcrumbs"><strong>论坛提示</strong></div>
+  <div class="t"><table><tr><td class="h" colspan="2">南+ South Plus 提示信息</td></tr>
+  <tr class="f_one"><td><center><br>$message<br></center></td></tr>
+  </table></div></div>''';
 
 Matcher _throwsKind(ForumRequestKind kind) => throwsA(
     isA<ForumRequestException>().having((error) => error.kind, 'kind', kind));

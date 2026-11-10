@@ -65,6 +65,9 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   ForumThreadOrder _order = ForumThreadOrder.lastPost;
   ForumBoardFilter? _filter;
   bool _wall = false;
+  // Set once the user picks an order or view here, so the saved default
+  // read for this session never overrides that pick.
+  bool _viewChosen = false;
   // Pages appended below the first by scrolling, in order. A reload bumps
   // [_gen], so an answer for the list it replaced is dropped.
   final List<({int page, List<ForumThread> threads})> _more = [];
@@ -89,14 +92,48 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _fetchPage(_page);
     _epoch = widget.repository.sessionEpoch.value;
     _user = widget.repository.sessionUser.value;
+    _future = _firstPage();
     _scrollController.addListener(_maybeLoadMore);
     LoadingPreferences.notifier.addListener(_onLoadingModeChanged);
     if (!LoadingPreferences.isReady) LoadingPreferences.load().ignore();
     _sessionSignals.addListener(_onSessionSignal);
     _loadCollapsed(_scope);
+  }
+
+  /// Page 1 in this account's saved order and view.
+  Future<ForumThreadPage> _firstPage() async {
+    final gen = _gen;
+    final scope = widget.repository.localPreferenceAccount;
+    HomeReadingPreferences? prefs;
+    try {
+      prefs = await HomeReadingPreferences.load(account: scope);
+    } catch (_) {
+      // Unread, the board opens in the built-in order and view.
+    }
+    // A reload, another account or a closed screen owns the list now.
+    if (!mounted || gen != _gen) return Completer<ForumThreadPage>().future;
+    if (prefs != null &&
+        !_viewChosen &&
+        scope == widget.repository.localPreferenceAccount) {
+      _order = prefs.boardOrder;
+      _wall = prefs.boardWall;
+    }
+    return _fetchPage(_page);
+  }
+
+  void _saveView({ForumThreadOrder? order, bool? wall}) {
+    _viewChosen = true;
+    final scope = widget.repository.localPreferenceAccount;
+    final messenger = ScaffoldMessenger.of(context);
+    HomeReadingPreferences.saveBoardView(
+            order: order, wall: wall, account: scope)
+        .catchError((Object _) {
+      if (mounted && scope == widget.repository.localPreferenceAccount) {
+        messenger.showSnackBar(const SnackBar(content: Text('默认视图保存失败')));
+      }
+    });
   }
 
   void _loadCollapsed(String? scope) {
@@ -135,6 +172,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         _emptyRun = 0;
         _page = 1;
         _future = Completer<ForumThreadPage>().future;
+        // The new account opens boards in its own saved view.
+        _order = ForumThreadOrder.lastPost;
+        _wall = false;
+        _viewChosen = false;
       });
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
       // The repository moves its client after announcing the change; read
@@ -143,7 +184,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         _restartQueued = true;
         scheduleMicrotask(() {
           _restartQueued = false;
-          if (mounted) _reload(page: 1).ignore();
+          if (mounted) _reload(page: 1, saved: true).ignore();
         });
       }
     }
@@ -316,7 +357,6 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
         _category = nextCategory;
         _knownSubBoards = List.of(defaultSubBoard.children);
         _page = 1;
-        _order = ForumThreadOrder.lastPost;
         _filter = null;
       }
 
@@ -325,8 +365,8 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       } else {
         adopt();
       }
-      final nextPage =
-          await widget.repository.fetchBoardThreadPage(nextCategory, page: 1);
+      final nextPage = await widget.repository
+          .fetchBoardThreadPage(nextCategory, page: 1, order: _order);
       _adoptBoardName(nextCategory, nextPage);
       _rememberSubBoards(nextPage);
       return nextPage;
@@ -409,7 +449,8 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
     return null;
   }
 
-  Future<void> _reload({int? page}) async {
+  /// [saved] reads the account's saved view before page 1.
+  Future<void> _reload({int? page, bool saved = false}) async {
     setState(() {
       if (page != null) _page = page;
       _gen++;
@@ -418,7 +459,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
       _loadingMore = false;
       _moreFailed = false;
       _emptyRun = 0;
-      _future = _fetchPage(_page);
+      _future = saved ? _firstPage() : _fetchPage(_page);
     });
     await _future;
   }
@@ -434,6 +475,7 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
   Future<void> _changeOrder(ForumThreadOrder order) async {
     if (order == _order) return;
     _order = order;
+    _saveView(order: order);
     await _reload(page: 1);
     await _scrollToTop();
   }
@@ -582,11 +624,14 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                     : shown.parents.last);
             return Scaffold(
               backgroundColor: AppColors.background,
-              floatingActionButton: FloatingActionButton(
-                tooltip: '发帖',
-                onPressed: _openComposer,
-                child: const Icon(Icons.edit_outlined),
-              ),
+              // A retry keeps the failed load's error until it succeeds.
+              floatingActionButton: snapshot.hasError
+                  ? null
+                  : FloatingActionButton(
+                      tooltip: '发帖',
+                      onPressed: _openComposer,
+                      child: const Icon(Icons.edit_outlined),
+                    ),
               body: SafeArea(
                 bottom: false,
                 child: LayoutBuilder(builder: (context, constraints) {
@@ -735,7 +780,10 @@ class _BoardThreadListScreenState extends State<BoardThreadListScreen> {
                 order: _order,
                 onOrder: _changeOrder,
                 wall: wallAvailable ? wall : null,
-                onWall: (value) => setState(() => _wall = value),
+                onWall: (value) {
+                  setState(() => _wall = value);
+                  _saveView(wall: value);
+                },
               ),
             ),
           ),
