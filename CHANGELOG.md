@@ -1,9 +1,10 @@
 # Changelog
 
-South Plus Pro keeps release notes in `docs/releases/`. The release workflow uses the matching file for each tag, then appends downloads, checksums, and commit history automatically.
+South Plus Pro keeps release notes in `docs/releases/`. The release workflow uses the matching file for each tag, then appends download and checksum links automatically.
 
 ## Releases
 
+- [v0.1.26](docs/releases/v0.1.26.md)
 - [v0.1.25](docs/releases/v0.1.25.md)
 - [v0.1.24](docs/releases/v0.1.24.md)
 - [v0.1.23](docs/releases/v0.1.23.md)
