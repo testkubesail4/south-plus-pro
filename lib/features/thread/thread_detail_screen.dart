@@ -2403,28 +2403,26 @@ class _ThreadDetailContent extends StatelessWidget {
             RefreshIndicator(
               color: AppColors.brand,
               onRefresh: onRefresh,
-              child: ScrollNotificationObserver(
-                child: ListView.builder(
-                  controller: scrollController,
-                  // Room below the end for the floating reply button.
-                  // and a comfortable reading width on wide windows.
-                  padding: EdgeInsets.fromLTRB(side, 0, side, 88),
-                  itemCount: entries.length,
-                  itemBuilder: (context, index) {
-                    final child = _buildEntry(
-                      context,
-                      entries[index],
-                      originalAuthor: originalAuthor,
-                    );
-                    if (!isReply(index)) return child;
-                    // Consecutive floors share one surface, split by hairlines.
-                    return _ReplyGroupSlot(
-                      first: !isReply(index - 1),
-                      last: !isReply(index + 1),
-                      child: child,
-                    );
-                  },
-                ),
+              child: ListView.builder(
+                controller: scrollController,
+                // Room below the end for the floating reply button.
+                // and a comfortable reading width on wide windows.
+                padding: EdgeInsets.fromLTRB(side, 0, side, 88),
+                itemCount: entries.length,
+                itemBuilder: (context, index) {
+                  final child = _buildEntry(
+                    context,
+                    entries[index],
+                    originalAuthor: originalAuthor,
+                  );
+                  if (!isReply(index)) return child;
+                  // Consecutive floors share one surface, split by hairlines.
+                  return _ReplyGroupSlot(
+                    first: !isReply(index - 1),
+                    last: !isReply(index + 1),
+                    child: child,
+                  );
+                },
               ),
             ),
             if (loading)

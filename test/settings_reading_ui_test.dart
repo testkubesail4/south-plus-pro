@@ -81,6 +81,24 @@ void main() {
     expect(tester.widget<InkWell>(tile).onTap, isNotNull);
   });
 
+  testWidgets('帖子动图 saves the inline playback choice', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await pumpSettings(tester);
+    final row = find.text('帖子动图');
+    await tester.scrollUntilVisible(row, 180,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('仅在查看器播放'), findsOneWidget);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MenuItemButton, '正文静止时播放'));
+    await tester.pumpAndSettle();
+    expect(find.text('正文静止时播放'), findsOneWidget);
+    expect(
+        (await SharedPreferences.getInstance())
+            .getBool('settings.playInlineAnimations'),
+        isTrue);
+  });
+
   testWidgets('加载与分页 fits a 320 phone at system 2x × App 1.15', (tester) async {
     SharedPreferences.setMockInitialValues({});
     // A choice read by an earlier test stays in memory otherwise.

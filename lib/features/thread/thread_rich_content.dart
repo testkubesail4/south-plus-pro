@@ -1340,6 +1340,7 @@ class ThreadInlineImage extends StatelessWidget {
             },
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
+              clipBehavior: Clip.hardEdge,
               child: Container(
                 key: const ValueKey('thread-inline-image-container'),
                 constraints: const BoxConstraints(maxHeight: 360),

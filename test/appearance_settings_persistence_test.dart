@@ -107,9 +107,8 @@ void main() {
         await reload(setting);
         expect(current(setting), before);
         if (setting == 'image') {
-          expect(await ImageLoadingSettings.canAutoLoadImages(), isTrue);
-          expect(networkReads, 1,
-              reason: 'failed saves keep the previous cache');
+          expect(await ImageLoadingSettings.canAutoLoadImages(), isFalse);
+          expect(networkReads, 2);
         }
         rejectWrites = false;
         throwWrites = false;

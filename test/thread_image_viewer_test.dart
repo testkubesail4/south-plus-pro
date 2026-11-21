@@ -22,6 +22,8 @@ const _b = 'https://fixture.invalid/viewer-b.png';
 const _long = 'https://fixture.invalid/viewer-long.png';
 const _animation = 'https://fixture.invalid/viewer-animation';
 const _offscreenAnimation = 'https://fixture.invalid/viewer-animation-below';
+const _tableLeft = 'https://fixture.invalid/table-left';
+const _tableRight = 'https://fixture.invalid/table-right';
 const _redBlueGif =
     'R0lGODlhYABAAYEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQACAAAACwAAAAA'
     'YABAAQAI/wABCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhT'
@@ -50,12 +52,18 @@ void main() {
         _b: await _png(300, 200),
         // 1:40, so filling the width needs more than the 8x pinch limit.
         _long: await _png(100, 4000),
-        _animation: base64Decode(_redBlueGif),
-        _offscreenAnimation: base64Decode(_redBlueGif),
+        for (final url in [
+          _animation,
+          _offscreenAnimation,
+          _tableLeft,
+          _tableRight
+        ])
+          url: base64Decode(_redBlueGif),
       },
       imageTypes: {
-        _animation: ContentType('image', 'gif'),
-        _offscreenAnimation: ContentType('image', 'gif'),
+        for (final url in [_offscreenAnimation, _tableLeft, _tableRight])
+          url: ContentType('image', 'gif'),
+        _animation: ContentType('image', 'png'),
       },
     );
     HttpOverrides.global = fixture;
@@ -161,6 +169,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final scroll = ScrollController();
     addTearDown(scroll.dispose);
+    addTearDown(() => ImageLoadingSettings.savePlayInline(false));
 
     await tester.runAsync(() async {
       await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
@@ -177,7 +186,7 @@ void main() {
                     child:
                         ThreadInlineImage(image: ThreadImage(url: _animation)),
                   ),
-                  SizedBox(height: 900),
+                  SizedBox(height: 1400),
                   SizedBox(
                     width: 48,
                     child: ThreadInlineImage(
@@ -200,14 +209,23 @@ void main() {
         of: second,
         matching: images,
       );
-      await settle(tester, ready: () => offscreen.evaluate().isNotEmpty);
-      final painted = tester.widget<RawImage>(offscreen).image!;
-      expect((painted.width, painted.height), (48, 160));
-
       await settle(tester, ready: () => visible.evaluate().isNotEmpty);
+      final painted = tester.widget<RawImage>(visible).image!;
+      expect((painted.width, painted.height), (48, 160));
+      expect(
+          await colorsSeen(tester, visible, waitForChange: false), firstFrame);
+      expect(fixture.requests, isNot(contains(_offscreenAnimation)));
+
+      await tester.tap(inline);
+      final viewer = find.descendant(of: find.byType(Dialog), matching: images);
+      await settle(tester, ready: () => viewer.evaluate().isNotEmpty);
+      expect(await colorsSeen(tester, viewer, waitForChange: true), animation);
+      Navigator.of(tester.element(viewer)).pop();
+      await settle(tester);
+
+      await ImageLoadingSettings.savePlayInline(true);
+      await tester.pump();
       expect(await colorsSeen(tester, visible, waitForChange: true), animation);
-      expect(await colorsSeen(tester, offscreen, waitForChange: false),
-          firstFrame);
 
       final drag = await tester.startGesture(tester.getCenter(inline));
       await drag.moveBy(const Offset(0, -32));
@@ -223,15 +241,11 @@ void main() {
       scroll.jumpTo(scroll.position.maxScrollExtent);
       await tester.pump();
       await tester.pump();
-      expect(
-          await colorsSeen(tester, visible, waitForChange: false), firstFrame);
+      await settle(tester, ready: () => offscreen.evaluate().isNotEmpty);
+      expect(visible, findsNothing);
       expect(
           await colorsSeen(tester, offscreen, waitForChange: true), animation);
 
-      await tester.tap(second);
-      final viewer = find.descendant(of: find.byType(Dialog), matching: images);
-      await settle(tester, ready: () => viewer.evaluate().isNotEmpty);
-      expect(await colorsSeen(tester, viewer, waitForChange: true), animation);
       expect(fixture.requests.where((url) => url == _animation), hasLength(1));
       expect(fixture.requests.where((url) => url == _offscreenAnimation),
           hasLength(1));
@@ -239,14 +253,54 @@ void main() {
     });
   });
 
+  testWidgets('an image entering the viewport rechecks Wi-Fi before fetching',
+      (tester) async {
+    const first = 'https://fixture.invalid/wifi-first.png';
+    const second = 'https://fixture.invalid/wifi-second.png';
+    const channel = MethodChannel('south_plus_rewrite/network_state');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    var onWifi = true;
+    messenger.setMockMethodCallHandler(channel, (call) async => onWifi);
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    SharedPreferences.setMockInitialValues({});
+    await tester.runAsync(() async {
+      await ImageLoadingSettings.saveMode(ImageLoadMode.wifiOnly);
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+        body: SingleChildScrollView(
+          controller: scroll,
+          child: const Column(children: [
+            ThreadInlineImage(image: ThreadImage(url: first)),
+            SizedBox(height: 2000),
+            ThreadInlineImage(image: ThreadImage(url: second)),
+          ]),
+        ),
+      )));
+      await settle(tester, ready: () => fixture.requests.contains(first));
+      onWifi = false;
+      scroll.jumpTo(scroll.position.maxScrollExtent);
+      final manual = find.text('点击加载图片');
+      await settle(tester,
+          ready: () => manual.hitTestable().evaluate().isNotEmpty);
+      expect(fixture.requests, isNot(contains(second)));
+      await tester.tap(manual.hitTestable());
+      await settle(tester, ready: () => fixture.requests.contains(second));
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
   testWidgets('GIF playback follows the outer viewport of nested post tables',
       (tester) async {
+    addTearDown(() => ImageLoadingSettings.savePlayInline(false));
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(400, 800);
     addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues({});
     await tester.runAsync(() async {
       await ImageLoadingSettings.saveMode(ImageLoadMode.automatic);
+      await ImageLoadingSettings.savePlayInline(true);
       ThreadContentTableCell nestedImage(String url) => ThreadContentTableCell([
             ThreadContentSegment.table([
               [
@@ -261,9 +315,9 @@ void main() {
               child: ThreadRichContent(segments: [
                 ThreadContentSegment.table([
                   [
-                    nestedImage(_animation),
+                    nestedImage(_tableLeft),
                     ...List.filled(5, const ThreadContentTableCell([])),
-                    nestedImage(_offscreenAnimation),
+                    nestedImage(_tableRight),
                   ],
                 ]),
               ]),
@@ -277,9 +331,9 @@ void main() {
       final cells = find.byType(ThreadInlineImage);
       final left = find.descendant(of: cells.first, matching: images);
       final right = find.descendant(of: cells.last, matching: images);
-      await settle(tester, ready: () => images.evaluate().length == 2);
+      await settle(tester, ready: () => left.evaluate().isNotEmpty);
       expect(await colorsSeen(tester, left, waitForChange: true), animation);
-      expect(await colorsSeen(tester, right, waitForChange: false), firstFrame);
+      expect(right, findsNothing);
 
       final horizontal = tester
           .stateList<ScrollableState>(find.byType(Scrollable))
@@ -288,8 +342,8 @@ void main() {
       horizontal.position.jumpTo(horizontal.position.maxScrollExtent);
       await tester.pump();
       await tester.pump();
-      expect(await colorsSeen(tester, left, waitForChange: false), firstFrame,
-          reason: 'a GIF that leaves the outer horizontal viewport must stop');
+      await settle(tester, ready: () => right.evaluate().isNotEmpty);
+      expect(left, findsNothing);
       expect(await colorsSeen(tester, right, waitForChange: true), animation);
       await tester.pumpWidget(const SizedBox());
     });

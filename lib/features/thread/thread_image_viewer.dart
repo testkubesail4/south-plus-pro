@@ -339,8 +339,6 @@ class _ThreadImageViewerState extends State<ThreadImageViewer> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    // Memory gets a width bound (the shared cache stretches to both); the
-    // disk copy and the private path cap the height.
     final spec = ForumImageDecodeSpec.forDisplay(
       logicalSize: Size.square(size.longestSide),
       devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
@@ -447,11 +445,9 @@ class _ThreadImageViewerState extends State<ThreadImageViewer> {
                                   child: CachedForumImage(
                                     url: url,
                                     fit: BoxFit.contain,
+                                    decodeToFit: true,
                                     memCacheWidth: spec.memCacheWidth,
-                                    memCacheHeight: widget.privateMedia
-                                        ? _maxDecodeHeight
-                                        : null,
-                                    maxHeightDiskCache: _maxDecodeHeight,
+                                    memCacheHeight: _maxDecodeHeight,
                                     bypassLoadPolicy: true,
                                     privateMemoryOnly: widget.privateMedia,
                                     errorWidget: (context) => Center(

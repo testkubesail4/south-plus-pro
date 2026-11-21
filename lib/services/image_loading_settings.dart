@@ -14,11 +14,13 @@ class ImageLoadingSettings {
   ImageLoadingSettings._();
 
   static const _modeKey = 'settings.imageLoadMode';
+  static const _playInlineKey = 'settings.playInlineAnimations';
+  static final playInline = ValueNotifier<bool>(false);
   static const _networkChannel =
       MethodChannel('south_plus_rewrite/network_state');
   static final notifier = ValueNotifier<ImageLoadMode?>(null);
   static Future<ImageLoadMode>? _modeFuture;
-  static Future<bool>? _canAutoLoadImagesFuture;
+  static Future<bool>? _wifiCheck;
 
   static Future<ImageLoadMode> loadMode() async {
     final cached = notifier.value;
@@ -30,6 +32,7 @@ class ImageLoadingSettings {
 
   static Future<ImageLoadMode> _loadMode() =>
       LocalStatePreferences.read((prefs) {
+        playInline.value = prefs.getBool(_playInlineKey) ?? false;
         final value = prefs.getString(_modeKey);
         final mode = ImageLoadMode.values.firstWhere(
           (mode) => mode.name == value,
@@ -45,22 +48,25 @@ class ImageLoadingSettings {
         final saved = await prefs.setString(_modeKey, mode.name);
         if (saved) {
           _modeFuture = Future<ImageLoadMode>.value(mode);
-          _canAutoLoadImagesFuture = null;
           notifier.value = mode;
         }
         return saved;
       });
 
-  static Future<bool> canAutoLoadImages() async {
-    return _canAutoLoadImagesFuture ??= _resolveCanAutoLoadImages();
-  }
+  static Future<void> savePlayInline(bool value) =>
+      LocalStatePreferences.write((prefs) async {
+        final saved = await prefs.setBool(_playInlineKey, value);
+        if (saved) playInline.value = value;
+        return saved;
+      });
 
-  static Future<bool> _resolveCanAutoLoadImages() async {
+  static Future<bool> canAutoLoadImages() async {
     final mode = await loadMode();
     return switch (mode) {
       ImageLoadMode.automatic => true,
       ImageLoadMode.manual || ImageLoadMode.noImages => false,
-      ImageLoadMode.wifiOnly => isOnWifi(),
+      ImageLoadMode.wifiOnly => _wifiCheck ??=
+          isOnWifi().whenComplete(() => _wifiCheck = null),
     };
   }
 

@@ -1,1 +1,2 @@
 scripts/linux/*.sh text eol=lf
+scripts/gif_perf/*.sh text eol=lf

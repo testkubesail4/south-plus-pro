@@ -312,6 +312,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: ImageLoadingSettings.playInline,
+                      builder: (context, value, _) => _ChoiceRow<bool>(
+                        icon: Icons.gif_box_outlined,
+                        title: '帖子动图',
+                        value: value,
+                        options: const {false: '仅在查看器播放', true: '正文静止时播放'},
+                        onChanged: ImageLoadingSettings.savePlayInline,
+                      ),
+                    ),
                     FutureBuilder<HomeReadingPreferences>(
                       key: ValueKey((
                         _scopeGeneration,
