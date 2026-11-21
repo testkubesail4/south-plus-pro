@@ -98,6 +98,10 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final repository = _RevisionRepository();
+    final confirmRemoval = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.widgetWithText(FilledButton, '取消收藏'),
+    );
     await tester.pumpWidget(MaterialApp(
       theme: AppTheme.light,
       home: Scaffold(body: FavoriteThreadsPage(repository: repository)),
@@ -123,7 +127,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.byKey(const ValueKey('favorite-remove-selected')));
       await tester.pump(const Duration(milliseconds: 300));
-      await tester.tap(find.widgetWithText(FilledButton, '取消收藏'));
+      await tester.tap(confirmRemoval);
       await tester.pumpAndSettle();
       expect(repository.writes, hasLength(1));
       expect(find.text('Fresh authoritative row'), findsOneWidget);
@@ -150,7 +154,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('favorite-remove-selected')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, '取消收藏'));
+      await tester.tap(confirmRemoval);
       await tester.pumpAndSettle();
       debugPrint(
           'FAVORITE_REVISION retiredRows=$retiredRows header=$retiredHeader '

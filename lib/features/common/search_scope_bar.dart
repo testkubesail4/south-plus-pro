@@ -203,7 +203,6 @@ class _SearchScopeBarState extends State<SearchScopeBar> {
                   minHeight: 4,
                   borderRadius: BorderRadius.circular(999),
                   semanticsLabel: '搜索进度',
-                  semanticsValue: _pages(p),
                 ),
               ),
             ],

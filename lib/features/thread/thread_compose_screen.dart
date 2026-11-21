@@ -463,12 +463,9 @@ class _ThreadComposeScreenState extends State<_ThreadComposeView> {
                       ),
                     ),
                     // Follows the keyboard up, so formatting stays at hand.
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceTint,
-                        border:
-                            Border(top: BorderSide(color: AppColors.border)),
-                      ),
+                    Material(
+                      color: AppColors.surfaceTint,
+                      shape: Border(top: BorderSide(color: AppColors.border)),
                       child: column(
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 8),

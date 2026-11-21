@@ -491,7 +491,7 @@ class _SiblingPanel extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(vertical: 6),
-            child: child,
+            child: Material(type: MaterialType.transparency, child: child),
           ),
         ),
       ),
