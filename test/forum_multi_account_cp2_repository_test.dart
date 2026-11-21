@@ -623,6 +623,173 @@ void main() {
     });
   });
 
+  test(
+      'cold start with a server-expired v3 session allows the same login again',
+      () async {
+    await _withCp2Fixture((fx) async {
+      final account = await fx.addAccount(username: 'userA', uid: '101');
+      fx.server.expired = true;
+      await _withFreshRepo(fx.overrides, (repo, client) async {
+        expect(await repo.restoreSession(), isFalse);
+        expect(repo.isLoggedIn, isFalse);
+        expect(repo.activeAccount.value, isNull);
+        expect(
+            repo.accounts.value.single.status, AccountReadyState.needsReauth);
+
+        fx.server.expired = false;
+        fx.server.tokenSuffix = '-renewed';
+        final challenge = await repo.fetchLoginChallenge();
+        final login = await repo.submitLogin(
+          username: 'userA',
+          password: 'pw',
+          captcha: '1234',
+          fields: challenge.fields,
+        );
+        expect(login.success, isTrue);
+        expect(repo.activeAccount.value?.id, account.id);
+        expect(
+            await client.getOnce('cookie-echo'), 'winduser=token-101-renewed');
+      });
+    });
+  });
+
+  test(
+      'a saved account survives a network failure but not a different forum UID',
+      () async {
+    await _withCp2Fixture((fx) async {
+      final account = await fx.addAccount(username: 'userA', uid: '101');
+      fx.server.failIndex = true;
+      await _withFreshRepo(fx.overrides, (repo, client) async {
+        expect(await repo.restoreSession(), isTrue);
+        expect(repo.activeAccount.value?.id, account.id);
+        expect(await client.getOnce('cookie-echo'), 'winduser=token-101');
+      });
+      fx.server.failIndex = false;
+      fx.server.forceUid = '102';
+      await _withFreshRepo(fx.overrides, (repo, client) async {
+        expect(await repo.restoreSession(), isFalse);
+        expect(repo.activeAccount.value, isNull);
+        expect(
+            repo.accounts.value.single.status, AccountReadyState.needsReauth);
+      });
+    });
+  });
+
+  test(
+      'a late cold-start identity check cannot sign out a newly selected account',
+      () async {
+    await _withCp2Fixture((fx) async {
+      final a = await fx.addAccount(username: 'userA', uid: '101');
+      final b = await fx.addAccount(username: 'userB', uid: '102');
+      await fx.repo.switchAccount(a.id);
+      fx.server.forceUid = '102';
+      fx.server.headerUidToHold = '102';
+      fx.server.headerStarted = Completer<void>();
+      fx.server.releaseHeader = Completer<void>();
+      await _withFreshRepo(fx.overrides, (repo, client) async {
+        final restore = repo.restoreSession();
+        try {
+          await fx.server.headerStarted!.future
+              .timeout(const Duration(seconds: 5));
+          fx.server.headerUidToHold = null;
+          await repo.switchAccount(b.id);
+        } finally {
+          fx.server.releaseHeader!.complete();
+        }
+        expect(await restore, isFalse);
+        expect(repo.activeAccount.value?.id, b.id);
+        expect(await client.getOnce('cookie-echo'), 'winduser=token-102');
+      });
+    });
+  });
+
+  test('switching to an expired saved account allows reauth alongside its peer',
+      () async {
+    await _withCp2Fixture((fx) async {
+      final a = await fx.addAccount(username: 'userA', uid: '101');
+      final b = await fx.addAccount(username: 'userB', uid: '102');
+      await fx.repo.switchAccount(a.id);
+      await _withFreshRepo(fx.overrides, (repo, client) async {
+        expect(await repo.restoreSession(), isTrue);
+        fx.server.expired = true;
+        await expectLater(
+            repo.switchAccount(b.id), throwsA(isA<ForumRepositoryException>()));
+        expect(repo.activeAccount.value, isNull);
+        expect(repo.accounts.value.singleWhere((row) => row.id == b.id).status,
+            AccountReadyState.needsReauth);
+        fx.server.expired = false;
+        await repo.switchAccount(a.id);
+        expect(await client.getOnce('cookie-echo'), 'winduser=token-101');
+        fx.server.tokenSuffix = '-renewed';
+        await repo.reauthAccount(b.id,
+            username: 'userB', password: 'pw', captcha: '1234');
+        expect(repo.activeAccount.value?.id, b.id);
+        expect(
+            await client.getOnce('cookie-echo'), 'winduser=token-102-renewed');
+        await repo.switchAccount(a.id);
+        expect(await client.getOnce('cookie-echo'), 'winduser=token-101');
+      });
+    });
+  });
+
+  test('a guest can switch sites and reauthenticate an expired saved account',
+      () async {
+    await _withCp2Fixture((fx) async {
+      final other = _config.copyWith(site: const ForumSite('localhost'));
+      await fx.repo.updateNetworkConfig(other);
+      final account = await fx.addAccount(username: 'userB', uid: '102');
+      await fx.repo.updateNetworkConfig(_config);
+      await _withFreshRepo(fx.overrides, (repo, _) async {
+        expect(await repo.restoreSession(), isFalse);
+        await repo.updateNetworkConfig(other);
+        fx.server.expired = true;
+        await expectLater(repo.switchAccount(account.id),
+            throwsA(isA<ForumRepositoryException>()));
+        expect(repo.activeAccount.value, isNull);
+        expect(
+            repo.accounts.value.single.status, AccountReadyState.needsReauth);
+      });
+    });
+  });
+
+  test('restore accepts expiry only from the forum session, not an error page',
+      () async {
+    await _withCp2Fixture((fx) async {
+      final account = await fx.addAccount(username: 'userA', uid: '101');
+      for (final status in [
+        HttpStatus.found,
+        HttpStatus.notFound,
+        HttpStatus.unauthorized
+      ]) {
+        fx.server.indexResponse = (request) async {
+          final response = request.response;
+          if (request.uri.hasQuery) {
+            response
+                .write('<div id="user-login"><a href="login.php">登录</a></div>');
+          } else {
+            response.statusCode = status;
+            if (status == HttpStatus.found) {
+              response.headers
+                  .set(HttpHeaders.locationHeader, '/index.php?guest');
+            } else if (status == HttpStatus.unauthorized) {
+              response.headers.set(
+                  HttpHeaders.setCookieHeader, 'winduser=; Max-Age=0; Path=/');
+            }
+            response
+                .write('<div id="user-login"><a href="login.php">登录</a></div>');
+          }
+          await response.close();
+        };
+        await _withFreshRepo(fx.overrides, (repo, client) async {
+          final expired = status == HttpStatus.unauthorized;
+          expect(await repo.restoreSession(), !expired);
+          expect(repo.activeAccount.value?.id, expired ? isNull : account.id);
+          expect(repo.isLoggedIn, !expired);
+        });
+      }
+    });
+  });
+
   for (final reject in [false, true]) {
     test(
         'account switch preserves A until registry ${reject ? 'failure' : 'acknowledgement'}',
@@ -2006,6 +2173,7 @@ class _Cp2Fixture {
 }
 
 class _Cp2Http {
+  Future<void> Function(HttpRequest)? indexResponse;
   String? headerUidToHold;
   Completer<void>? headerStarted;
   Completer<void>? releaseHeader;
@@ -2035,8 +2203,13 @@ class _Cp2Http {
     final heldIdentity = path == '/' ? holdIdentity : null;
     requests.add('${request.method} $path');
     try {
+      if (path == '/index.php' && indexResponse != null) {
+        await indexResponse!(request);
+        return;
+      }
       if (expired && (path == '/index.php' || path == '/simple/index.php')) {
-        request.response.write('<html><a href="login.php">登录</a></html>');
+        request.response.write(
+            '<html><div id="user-login"><a href="login.php">登录</a></div></html>');
         await request.response.close();
         return;
       }

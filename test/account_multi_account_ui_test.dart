@@ -365,7 +365,7 @@ Future<void> _pumpAccount(
   await tester.pump();
 }
 
-Future<void> _submitLegacySignIn(WidgetTester tester) async {
+Future<void> _fillLegacySignIn(WidgetTester tester) async {
   Finder field(String label) => find.byWidgetPredicate(
         (widget) =>
             widget is TextField && widget.decoration?.labelText == label,
@@ -373,8 +373,6 @@ Future<void> _submitLegacySignIn(WidgetTester tester) async {
   await tester.enterText(field('用户名'), 'Bob');
   await tester.enterText(field('密码'), 'fixture-password');
   await tester.enterText(field('验证码'), '1234');
-  await tester.tap(find.widgetWithText(FilledButton, '登录'));
-  await tester.pump();
 }
 
 void main() {
@@ -414,7 +412,10 @@ void main() {
         await tester.tap(find.text('登录南+账号'));
         if (pendingSubmit) {
           await tester.pumpAndSettle();
-          await _submitLegacySignIn(tester);
+          await _fillLegacySignIn(tester);
+          await tester.testTextInput.receiveAction(TextInputAction.done);
+          await tester.tap(find.widgetWithText(FilledButton, '登录'));
+          await tester.pump();
           expect(repo.loginSubmitCalls, 1);
         } else {
           await tester.pump();
@@ -469,7 +470,8 @@ void main() {
         tester.widget<LoginScreen>(find.byType(LoginScreen)).mode,
         LoginMode.signIn,
       );
-      await _submitLegacySignIn(tester);
+      await _fillLegacySignIn(tester);
+      await tester.tap(find.widgetWithText(FilledButton, '登录'));
       await tester.pumpAndSettle();
 
       expect(repo.loginSubmitCalls, 1);

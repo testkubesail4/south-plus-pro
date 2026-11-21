@@ -11,9 +11,17 @@ permissions:
 
 jobs:
   flutter:
-    name: Flutter analyze and test
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Flutter analyze and test
+            sdk: '3.38.4'
+          - name: Release SDK tests
+            version_file: .fvmrc
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,7 +32,8 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.4'
+          flutter-version: ${{ matrix.sdk }}
+          flutter-version-file: ${{ matrix.version_file }}
           channel: stable
           cache: true
 
@@ -32,6 +41,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
+        if: matrix.sdk == '3.38.4'
         run: flutter analyze --no-pub
 
       - name: Test

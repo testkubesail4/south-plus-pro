@@ -232,6 +232,7 @@ class _LoginScreenState extends State<LoginScreen> {
       mounted && !_closed && (ModalRoute.of(context)?.isCurrent ?? true);
 
   Future<void> _submit() async {
+    if (_loading) return;
     final challenge = _challenge;
     if (challenge == null) {
       setState(() => _error = '验证码还没有加载完成');

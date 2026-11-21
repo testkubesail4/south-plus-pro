@@ -522,6 +522,7 @@ class ForumRepository {
   final _noticeFlags = ValueNotifier(const ForumNoticeFlags());
   ValueListenable<ForumNoticeFlags> get noticeFlags => _noticeFlags;
   final _sessionUser = ValueNotifier<String?>(null);
+  final _unverifiedSavedAccounts = <String>{};
   int? _sessionUserGeneration;
   final _originIdentities = <String, ForumAccountIdentity>{};
   bool _updatingNetworkConfig = false;
@@ -554,6 +555,17 @@ class ForumRepository {
         throw const ForumRepositoryException('账号需要重新登录');
       }
       rethrow;
+    }
+    final active = activeAccount.value;
+    if (active != null &&
+        active.id == accountId &&
+        _unverifiedSavedAccounts.contains(accountId)) {
+      if (!await _restoreSavedAccount(active, switching: true) &&
+          _multiAccount.registry.find(accountId)?.status ==
+              AccountReadyState.needsReauth) {
+        throw const ForumRepositoryException('账号需要重新登录');
+      }
+      return;
     }
     await _syncRepoStateAfterAccountSwitch();
   }
@@ -963,7 +975,8 @@ class ForumRepository {
     );
   }
 
-  Future<void> _syncRepoStateAfterAccountSwitch() async {
+  Future<void> _syncRepoStateAfterAccountSwitch(
+      {bool fetchMissingHeader = true}) async {
     final client = _client;
     final epoch = _sessionEpoch.value;
     final credentialGeneration = client.credentialGeneration;
@@ -1002,7 +1015,7 @@ class ForumRepository {
       _accountIdentity.value = null;
     }
     // The registry already supplies the switched account identity.
-    if (registryComplete) return;
+    if (registryComplete || !fetchMissingHeader) return;
     try {
       final header = await _fetchSessionHeader();
       if (!identical(client, _client) ||
@@ -1789,14 +1802,17 @@ class ForumRepository {
     final registeredOrigin = ForumSessionSlots.isOrigin(_client.slotId) &&
         _multiAccount.accounts.value.any(
             (account) => ForumAccountId.tryParse(account.id)?.origin == origin);
+    _unverifiedSavedAccounts.addAll(_multiAccount.accounts.value
+        .where((account) => account.status == AccountReadyState.ready)
+        .map((account) => account.id));
     if (!registeredOrigin) await _client.restoreCookies();
     if (registeredOrigin || !_client.isLoggedIn) {
       // Origin jar empty: bootstrap ready persisted active + its jar.
       // Do not enterGuest (which persists active=null) over a ready v3 active.
       await _multiAccount.bootstrap();
-      if (_client.isLoggedIn && _multiAccount.activeAccount.value != null) {
-        await _syncRepoStateAfterAccountSwitch();
-        return true;
+      final active = _multiAccount.activeAccount.value;
+      if (_client.isLoggedIn && active != null) {
+        return _restoreSavedAccount(active);
       }
       // Empty jar / needsReauth / no active: bootstrap already entered guest
       // and marked needsReauth when the v3 jar was empty. Never leave
@@ -1864,6 +1880,63 @@ class ForumRepository {
           credentialGeneration: restoredSession.credentialGeneration);
       _captureIndexNotices(document,
           credentialGeneration: restoredSession.credentialGeneration);
+    }
+    return true;
+  }
+
+  Future<bool> _restoreSavedAccount(AccountSummary account,
+      {bool switching = false}) async {
+    final client = _client;
+    final epoch = _sessionEpoch.value;
+    final generation = client.credentialGeneration;
+    bool current() =>
+        identical(client, _client) &&
+        epoch == _sessionEpoch.value &&
+        client.slotId == account.id &&
+        _multiAccount.activeAccount.value?.id == account.id &&
+        client.isCredentialCurrent(generation);
+
+    if (switching) {
+      await _syncRepoStateAfterAccountSwitch(fetchMissingHeader: false);
+      if (!current()) return false;
+    }
+    var checking = true;
+    String? html;
+    try {
+      html = await client.getForm('index.php', followRedirects: false,
+          requireCurrentSession: () {
+        if (!checking || !current()) {
+          throw const ForumRequestException(
+              ForumRequestKind.loginRequired, '登录状态已改变');
+        }
+      }).timeout(const Duration(seconds: 5), onTimeout: () => '');
+    } catch (error) {
+      if (error is! ForumRequestException && error is! FormatException) rethrow;
+    } finally {
+      checking = false;
+    }
+    if (!current()) return false;
+    final document =
+        html == null || html.isEmpty ? null : html_parser.parse(html);
+    final uid = document == null
+        ? null
+        : _userProfileParser.parseAccountIdentity(document)?.uid;
+    final guest = document?.querySelector('#user-login > a[href="login.php"]');
+    if (!client.isLoggedIn ||
+        guest != null ||
+        (uid != null && uid != ForumAccountId.parse(account.id).uid)) {
+      await logoutAccount(account.id);
+      return false;
+    }
+    if (!switching) {
+      await _syncRepoStateAfterAccountSwitch(fetchMissingHeader: false);
+      if (!current()) return false;
+    }
+    if (uid != null && document != null && html != null) {
+      _unverifiedSavedAccounts.remove(account.id);
+      _restoredDesktopHtml = (html: html, credentialGeneration: generation);
+      _captureAccountIdentity(document, credentialGeneration: generation);
+      _captureIndexNotices(document, credentialGeneration: generation);
     }
     return true;
   }
