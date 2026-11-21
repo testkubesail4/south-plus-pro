@@ -16,6 +16,7 @@ class ImageHttpFixture extends HttpOverrides {
 
   static Future<ImageHttpFixture> start({
     Map<String, List<int>> images = const {},
+    Map<String, ContentType> imageTypes = const {},
   }) async {
     final fixture = ImageHttpFixture._(
       await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
@@ -32,7 +33,8 @@ class ImageHttpFixture extends HttpOverrides {
           'screenshots': [screenshotUrl],
         }));
       } else {
-        request.response.headers.contentType = ContentType('image', 'png');
+        request.response.headers.contentType =
+            imageTypes[original] ?? ContentType('image', 'png');
         request.response.add(images[original] ??
             base64Decode(
               'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',

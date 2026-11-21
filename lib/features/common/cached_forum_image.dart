@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
@@ -25,7 +27,8 @@ class ForumImageCache {
 
   static const stalePeriod = Duration(days: 180);
 
-  static final CacheManager manager = _ForumImageCacheManager();
+  static final _manager = _ForumImageCacheManager();
+  static CacheManager get manager => _manager;
 }
 
 class ForumImageMetadataCache {
@@ -205,6 +208,7 @@ class CachedForumImage extends StatelessWidget {
     this.bypassLoadPolicy = false,
     this.privateMemoryOnly = false,
     this.decodeToFit = false,
+    this.scrollAwareAnimation = false,
   });
 
   final String url;
@@ -229,12 +233,14 @@ class CachedForumImage extends StatelessWidget {
   /// Decodes to fit inside both memory bounds, keeping the image's ratio
   /// (the default stretches to both bounds when both are given).
   final bool decodeToFit;
+  final bool scrollAwareAnimation;
 
   @override
   Widget build(BuildContext context) {
     return _PolicyAwareCachedImage(
       privateMemoryOnly: privateMemoryOnly,
       decodeToFit: decodeToFit,
+      scrollAwareAnimation: scrollAwareAnimation,
       url: url,
       assetName: assetName,
       width: width,
@@ -271,6 +277,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
     required this.bypassLoadPolicy,
     required this.privateMemoryOnly,
     required this.decodeToFit,
+    required this.scrollAwareAnimation,
   });
 
   final String url;
@@ -289,6 +296,7 @@ class _PolicyAwareCachedImage extends StatefulWidget {
   final bool bypassLoadPolicy;
   final bool privateMemoryOnly;
   final bool decodeToFit;
+  final bool scrollAwareAnimation;
 
   @override
   State<_PolicyAwareCachedImage> createState() =>
@@ -483,39 +491,59 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
   // Same cache and disk bounds as CachedNetworkImage, decoded with the fit
   // policy that CachedNetworkImage's own memory resize does not offer.
   Widget _fittedNetworkImage(int width, int height) {
-    return Image(
-      key: ValueKey('${widget.url}.$_retry'),
-      image: ResizeImage(
-        CachedNetworkImageProvider(
-          widget.url,
-          cacheManager: ForumImageCache.manager,
-          maxWidth: widget.maxWidthDiskCache,
-          maxHeight: widget.maxHeightDiskCache,
-        ),
-        width: width,
-        height: height,
-        policy: ResizeImagePolicy.fit,
+    final provider = ResizeImage(
+      CachedNetworkImageProvider(
+        widget.url,
+        cacheManager: ForumImageCache.manager,
+        maxWidth: widget.maxWidthDiskCache,
+        maxHeight: widget.maxHeightDiskCache,
       ),
-      width: widget.width,
-      height: widget.height,
-      fit: widget.fit,
-      alignment: widget.alignment,
-      frameBuilder: widget.placeholder == null
-          ? null
-          : (context, child, frame, _) =>
-              frame == null ? widget.placeholder!(context) : child,
-      errorBuilder: (context, error, stackTrace) {
-        ForumTraceLogger.log(
-          'ImageLoad',
-          'error url=${widget.url} error=${error.runtimeType}: $error',
-        );
-        return widget.errorWidget?.call(context) ??
-            _ImageErrorPlaceholder(
-              width: widget.width,
-              height: widget.height,
-              onRetry: _loadNow,
+      width: width,
+      height: height,
+      policy: ResizeImagePolicy.fit,
+    );
+    Widget show(ImageProvider image, bool hasPreview,
+            [ImageProvider? fallback]) =>
+        Image(
+          key: ValueKey('${widget.url}.$_retry'),
+          image: image,
+          gaplessPlayback: widget.scrollAwareAnimation,
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          alignment: widget.alignment,
+          frameBuilder: widget.placeholder == null || hasPreview
+              ? null
+              : (context, child, frame, _) =>
+                  frame == null ? widget.placeholder!(context) : child,
+          errorBuilder: (context, error, stackTrace) {
+            ForumTraceLogger.log(
+              'ImageLoad',
+              'error url=${widget.url} error=${error.runtimeType}: $error',
             );
-      },
+            if (fallback != null) return show(fallback, hasPreview);
+            return widget.errorWidget?.call(context) ??
+                _ImageErrorPlaceholder(
+                  width: widget.width,
+                  height: widget.height,
+                  onRetry: _loadNow,
+                );
+          },
+        );
+    if (!widget.scrollAwareAnimation) return show(provider, false);
+    final preview = _ForumImagePreview((
+      url: widget.url,
+      width: width,
+      height: height,
+      diskWidth: widget.maxWidthDiskCache,
+      diskHeight: widget.maxHeightDiskCache,
+    ));
+    return _InlineForumPlayback(
+      key: ValueKey('${widget.url}.$_retry'),
+      preview: preview,
+      animation: provider,
+      builder: (image, hasPreview) =>
+          show(image, hasPreview, image == provider ? preview : null),
     );
   }
 
@@ -567,6 +595,356 @@ class _PolicyAwareCachedImageState extends State<_PolicyAwareCachedImage> {
           'disk=${widget.maxWidthDiskCache}x${widget.maxHeightDiskCache} '
           'retry=$_retry',
     );
+  }
+}
+
+class _InlineForumPlayback extends StatefulWidget {
+  const _InlineForumPlayback({
+    super.key,
+    required this.preview,
+    required this.animation,
+    required this.builder,
+  });
+
+  final _ForumImagePreview preview;
+  final ImageProvider animation;
+  final Widget Function(ImageProvider, bool hasPreview) builder;
+
+  @override
+  State<_InlineForumPlayback> createState() => _InlineForumPlaybackState();
+}
+
+class _InlineForumPlaybackState extends State<_InlineForumPlayback> {
+  late final _scrollAwareContext =
+      DisposableBuildContext<_InlineForumPlaybackState>(this);
+  List<ScrollableState> _scrollables = const [];
+  List<ScrollPosition> _positions = const [];
+  ScrollNotificationObserverState? _observer;
+  ImageStream? _stream;
+  Timer? _resume;
+  bool _animated = false;
+  bool _hasPreview = false;
+  bool _playing = false;
+  bool _onstage = false;
+  bool _queued = false;
+  bool _pauseRequested = false;
+  Size _screen = Size.zero;
+
+  late final _listener = ImageStreamListener((image, _) {
+    image.dispose();
+    _hasPreview = true;
+    final stream = _stream?.completer;
+    final animated = stream is _ForumImagePreviewStream && stream.animated;
+    if (_animated == animated) return;
+    _animated = animated;
+    _queueCheck();
+  }, onError: (error, stack) {});
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _screen = MediaQuery.sizeOf(context);
+    _onstage = TickerMode.of(context) &&
+        !MediaQuery.disableAnimationsOf(context) &&
+        (ModalRoute.isCurrentOf(context) ?? true);
+    for (final position in _positions) {
+      position.isScrollingNotifier.removeListener(_onScrollState);
+    }
+    _scrollables = [
+      for (var scrollable = Scrollable.maybeOf(context);
+          scrollable != null;
+          scrollable = Scrollable.maybeOf(scrollable.context))
+        scrollable,
+    ];
+    _positions = [for (final scrollable in _scrollables) scrollable.position];
+    for (final position in _positions) {
+      position.isScrollingNotifier.addListener(_onScrollState);
+    }
+    final observer = ScrollNotificationObserver.maybeOf(context);
+    if (_observer != observer) {
+      _observer?.removeListener(_onScroll);
+      _observer = observer;
+      observer?.addListener(_onScroll);
+    }
+    if (_stream == null) _listenToPreview();
+    _queueCheck();
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineForumPlayback oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.preview != widget.preview) {
+      _animated = false;
+      _playing = false;
+      _cancelResume();
+      _listenToPreview();
+    }
+  }
+
+  void _listenToPreview() {
+    _stream?.removeListener(_listener);
+    final stream = ScrollAwareImageProvider(
+      context: _scrollAwareContext,
+      imageProvider: widget.preview,
+    ).resolve(createLocalImageConfiguration(context));
+    _stream = stream;
+    stream.addListener(_listener);
+  }
+
+  void _onScroll(ScrollNotification notification) {
+    final origin = notification.context;
+    if (origin == null ||
+        !_scrollables
+            .any((scrollable) => scrollable.notificationContext == origin)) {
+      return;
+    }
+    if (notification is ScrollStartNotification) _pause();
+    if (notification is ScrollStartNotification ||
+        notification is ScrollEndNotification ||
+        notification is ScrollUpdateNotification &&
+            notification.scrollDelta == null) {
+      _queueCheck();
+    }
+  }
+
+  bool get _isScrolling => _scrollables
+      .any((scrollable) => scrollable.position.isScrollingNotifier.value);
+
+  void _onScrollState() {
+    if (_isScrolling) _pause();
+    _queueCheck();
+  }
+
+  void _pause() {
+    _pauseRequested = true;
+    _cancelResume();
+  }
+
+  void _cancelResume() {
+    _resume?.cancel();
+    _resume = null;
+  }
+
+  void _queueCheck() {
+    if (_queued || (!_animated && !_playing)) return;
+    _queued = true;
+    WidgetsBinding.instance
+      ..addPostFrameCallback((_) {
+        _queued = false;
+        if (!mounted) return;
+        if (_pauseRequested) {
+          _pauseRequested = false;
+          if (_playing) setState(() => _playing = false);
+        }
+        if (!_canPlay) {
+          _cancelResume();
+          if (_playing) setState(() => _playing = false);
+        } else if (!_playing && _resume == null) {
+          _resume = Timer(const Duration(milliseconds: 160), () {
+            _resume = null;
+            if (mounted && _canPlay) setState(() => _playing = true);
+          });
+        }
+      })
+      ..ensureVisualUpdate();
+  }
+
+  bool get _canPlay {
+    if (!_animated || !_onstage || _isScrolling) return false;
+    final image = context.findRenderObject();
+    if (image is! RenderBox || !image.attached || !image.hasSize) return false;
+    final bounds = _globalBounds(image);
+    var clip = Offset.zero & _screen;
+    for (final scrollable in _scrollables) {
+      final viewport = scrollable.context.findRenderObject();
+      if (viewport is! RenderBox || !viewport.attached || !viewport.hasSize) {
+        return false;
+      }
+      clip = clip.intersect(_globalBounds(viewport));
+    }
+    return !clip.isEmpty && bounds.overlaps(clip);
+  }
+
+  Rect _globalBounds(RenderBox box) => MatrixUtils.transformRect(
+      box.getTransformTo(null), Offset.zero & box.size);
+
+  @override
+  void dispose() {
+    _cancelResume();
+    _stream?.removeListener(_listener);
+    _scrollAwareContext.dispose();
+    for (final position in _positions) {
+      position.isScrollingNotifier.removeListener(_onScrollState);
+    }
+    _observer?.removeListener(_onScroll);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.builder(_playing ? widget.animation : widget.preview, _hasPreview);
+}
+
+class _ForumImagePreview extends ImageProvider<_ForumImagePreview> {
+  const _ForumImagePreview(this.spec);
+
+  final ({
+    String url,
+    int width,
+    int height,
+    int? diskWidth,
+    int? diskHeight
+  }) spec;
+
+  @override
+  Future<_ForumImagePreview> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture(this);
+
+  @override
+  ImageStreamCompleter loadImage(
+    _ForumImagePreview key,
+    ImageDecoderCallback decode,
+  ) =>
+      _ForumImagePreviewStream(key, decode);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ForumImagePreview && other.spec == spec;
+
+  @override
+  int get hashCode => spec.hashCode;
+
+  ui.TargetImageSize targetSize(int width, int height) {
+    final fitted = applyBoxFit(
+      BoxFit.scaleDown,
+      Size(width.toDouble(), height.toDouble()),
+      Size(spec.width.toDouble(), spec.height.toDouble()),
+    ).destination;
+    return ui.TargetImageSize(
+      width: math.max(1, fitted.width.floor()),
+      height: math.max(1, fitted.height.floor()),
+    );
+  }
+
+  Future<({ui.Image image, bool animated})> firstFrame(
+    FileInfo file,
+    ImageDecoderCallback decode,
+  ) async {
+    final bytes = await file.file.readAsBytes();
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final codec = await decode(buffer, getTargetSize: targetSize);
+    try {
+      final animated = codec.frameCount > 1;
+      if (animated) {
+        // Flutter 3.38 ignores resize bounds on a multi-frame codec.
+        final gif = _firstGifFrame(bytes);
+        if (gif != null) {
+          try {
+            final preview = await decode(
+              await ui.ImmutableBuffer.fromUint8List(gif),
+              getTargetSize: targetSize,
+            );
+            try {
+              return (
+                image: (await preview.getNextFrame()).image,
+                animated: true
+              );
+            } finally {
+              preview.dispose();
+            }
+          } on Exception {
+            // An unrecognized GIF layout can still use the original codec.
+          }
+        }
+      }
+      return (image: (await codec.getNextFrame()).image, animated: animated);
+    } finally {
+      codec.dispose();
+    }
+  }
+}
+
+Uint8List? _firstGifFrame(Uint8List bytes) {
+  if (bytes.length < 13 ||
+      bytes[0] != 0x47 ||
+      bytes[1] != 0x49 ||
+      bytes[2] != 0x46) {
+    return null;
+  }
+
+  int colorTableSize(int flags) =>
+      (flags & 0x80) == 0 ? 0 : 3 << ((flags & 7) + 1);
+
+  int? endOfBlocks(int offset) {
+    while (offset < bytes.length) {
+      final length = bytes[offset++];
+      if (length == 0) return offset;
+      offset += length;
+    }
+    return null;
+  }
+
+  var offset = 13 + colorTableSize(bytes[10]);
+  while (offset < bytes.length) {
+    final block = bytes[offset++];
+    if (block == 0x21) {
+      final end = endOfBlocks(offset + 1);
+      if (end == null) return null;
+      offset = end;
+      continue;
+    }
+    if (block != 0x2c || offset + 9 > bytes.length) return null;
+    final imageData = offset + 9 + colorTableSize(bytes[offset + 8]);
+    final end = endOfBlocks(imageData + 1);
+    if (end == null) return null;
+    return Uint8List(end + 1)
+      ..setRange(0, end, bytes)
+      ..[end] = 0x3b;
+  }
+  return null;
+}
+
+class _ForumImagePreviewStream extends ImageStreamCompleter {
+  _ForumImagePreviewStream(
+      _ForumImagePreview key, ImageDecoderCallback decode) {
+    unawaited(_load(key, decode));
+  }
+
+  bool _disposed = false;
+  bool animated = false;
+
+  Future<void> _load(
+    _ForumImagePreview key,
+    ImageDecoderCallback decode,
+  ) async {
+    final spec = key.spec;
+    try {
+      await for (final file in ForumImageCache._manager.getImageFile(
+        spec.url,
+        maxWidth: spec.diskWidth,
+        maxHeight: spec.diskHeight,
+      )) {
+        // Let the cache stream finish even when the image stream is disposed.
+        if (_disposed || file is! FileInfo) continue;
+        final preview = await key.firstFrame(file, decode);
+        if (_disposed) {
+          preview.image.dispose();
+          continue;
+        }
+        animated = preview.animated;
+        setImage(ImageInfo(image: preview.image));
+      }
+    } catch (error, stack) {
+      if (_disposed) return;
+      reportError(exception: error, stack: stack, silent: true);
+      PaintingBinding.instance.imageCache.evict(key);
+    }
+  }
+
+  @override
+  void onDisposed() {
+    _disposed = true;
+    super.onDisposed();
   }
 }
 

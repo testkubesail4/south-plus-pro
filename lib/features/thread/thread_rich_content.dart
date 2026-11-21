@@ -1359,6 +1359,7 @@ class ThreadInlineImage extends StatelessWidget {
                       fit: BoxFit.scaleDown,
                       // Width- or height-bound alike, decode what is shown.
                       decodeToFit: true,
+                      scrollAwareAnimation: !privateMedia,
                       memCacheWidth: spec.memCacheWidth,
                       memCacheHeight: spec.memCacheHeight,
                       maxWidthDiskCache: spec.maxWidthDiskCache,
